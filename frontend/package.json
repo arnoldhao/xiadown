@@ -1,0 +1,66 @@
+{
+  "name": "xiadown",
+  "private": true,
+  "version": "dev",
+  "type": "module",
+  "packageManager": "bun@1.3.5",
+  "engines": {
+    "node": ">=24.11.1 <25",
+    "bun": "1.3.5"
+  },
+  "scripts": {
+    "dev": "vite",
+    "audit:i18n": "node scripts/audit-i18n.mjs",
+    "audit:i18n:strict": "node scripts/audit-i18n.mjs --strict",
+    "audit:dto": "node scripts/audit-dto.mjs",
+    "audit:structure": "node scripts/audit-structure.mjs",
+    "audit:redundancy": "node scripts/audit-redundancy.mjs",
+    "audit:release": "node scripts/audit-release.mjs",
+    "audit:all": "bun run audit:i18n:strict && bun run audit:dto && bun run audit:structure && bun run audit:redundancy && bun run audit:release",
+    "test": "bun test",
+    "test:unit": "bun test",
+    "test:telemetry": "bun test src/shared/telemetry/manager.test.ts",
+    "build:dev": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build --minify false --mode development",
+    "build": "node ./node_modules/typescript/bin/tsc && node ./node_modules/vite/bin/vite.js build --mode production",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.4",
+    "@radix-ui/react-progress": "^1.1.8",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@tanstack/react-query": "^5.28.0",
+    "@telemetrydeck/sdk": "^2.0.4",
+    "@vidstack/react": "1.12.13",
+    "@wailsio/runtime": "3.0.0-alpha.78",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.0",
+    "lucide-react": "^0.575.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1",
+    "remark-gfm": "^4.0.0",
+    "simple-icons": "^16.17.0",
+    "tailwind-merge": "^2.2.1",
+    "tw-shimmer": "^0.4.7",
+    "zustand": "^5.0.8"
+  },
+  "description": "A yt-dlp powered downloader and transcoder.",
+  "overrides": {
+    "@xmldom/xmldom": "0.8.12",
+    "lodash": "^4.18.1",
+    "rollup": "^4.60.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.18",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "^5.2.2",
+    "vite": "^6.4.2"
+  }
+}

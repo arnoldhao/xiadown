@@ -1,0 +1,19 @@
+.task
+.task-cache
+bin
+frontend/bindings
+frontend/dist
+frontend/node_modules
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+
+# AI
+AGENTS.md
+CLAUDE.md
+DESIGN.md
+
+# macOS
+.DS_Store
+
+# temp
+.tmp

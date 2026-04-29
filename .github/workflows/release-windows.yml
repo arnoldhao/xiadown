@@ -1,0 +1,188 @@
+name: Release Windows
+
+on:
+  workflow_run:
+    workflows: ["Publish Release"]
+    types: [completed]
+
+env:
+  GO_VERSION: "1.25.5"
+  BUN_VERSION: "1.3.5"
+  WAILS_VERSION: "v3.0.0-alpha.74"
+  TELEMETRYDECK_APP_ID: ${{ secrets.TELEMETRYDECK_APP_ID }}
+
+jobs:
+  release-windows:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve release metadata
+        id: release_info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            if (!run) {
+              throw new Error('workflow_run payload is missing');
+            }
+
+            const { owner, repo } = context.repo;
+            const headSha = (run.head_sha || '').trim();
+            const headBranch = (run.head_branch || '').trim();
+            const commitishCandidates = new Set([headSha, headBranch, headBranch ? `refs/heads/${headBranch}` : ''].filter(Boolean));
+            const maxAttempts = 6;
+            const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+            let matchedRelease = null;
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const releases = await github.paginate(
+                github.rest.repos.listReleases,
+                { owner, repo, per_page: 100 },
+              );
+              matchedRelease = releases
+                .filter(release => !release.draft)
+                .sort((left, right) => {
+                  const leftTime = Date.parse(left.published_at || left.created_at || 0);
+                  const rightTime = Date.parse(right.published_at || right.created_at || 0);
+                  return rightTime - leftTime;
+                })
+                .find(release => commitishCandidates.has((release.target_commitish || '').trim()));
+
+              if (matchedRelease) {
+                break;
+              }
+
+              core.info(`No published release matched commitish ${Array.from(commitishCandidates).join(', ')} on attempt ${attempt}/${maxAttempts}`);
+              if (attempt < maxAttempts) {
+                await sleep(5000);
+              }
+            }
+
+            if (!matchedRelease) {
+              throw new Error(`No published release found for commit ${headSha}`);
+            }
+
+            core.info(`Resolved release tag ${matchedRelease.tag_name} for commitish ${matchedRelease.target_commitish}`);
+            core.setOutput('tag_name', matchedRelease.tag_name);
+            core.setOutput('version', matchedRelease.tag_name.replace(/^v/, ''));
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release_info.outputs.tag_name }}
+
+      - name: Validate TelemetryDeck config
+        shell: bash
+        run: |
+          test -n "${TELEMETRYDECK_APP_ID:-}" || { echo "TELEMETRYDECK_APP_ID is required"; exit 1; }
+
+      - name: Resolve version from tag
+        shell: bash
+        run: |
+          version="${{ steps.release_info.outputs.version }}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install Wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      - name: Sync build metadata
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          version = os.environ["VERSION"]
+          path = pathlib.Path("build/config.yml")
+          text = path.read_text(encoding="utf-8")
+          text, count = re.subn(r'(?m)^(\s*version:\s*")[^"]+(".*)$', rf'\g<1>{version}\g<2>', text, count=1)
+          if count != 1:
+              raise SystemExit("build/config.yml info.version not found")
+          path.write_text(text, encoding="utf-8")
+          PY
+          wails3 task common:update:build-assets
+
+      - name: Install frontend deps
+        run: bun install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Install NSIS
+        uses: crazy-max/ghaction-chocolatey@v2
+        with:
+          args: install nsis
+
+      - name: Ensure NSIS available
+        shell: pwsh
+        run: |
+          $nsisPath = "${env:ProgramFiles(x86)}\NSIS\Bin"
+          if (-not (Test-Path (Join-Path $nsisPath "makensis.exe"))) {
+            throw "makensis.exe not found in $nsisPath"
+          }
+          $nsisPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build app (Windows)
+        run: wails3 task windows:package
+
+      - name: Prepare release artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          $portableName = "xiadown-windows-x64-${env:VERSION}.zip"
+          Compress-Archive -Path "bin/xiadown.exe" -DestinationPath "dist/$portableName" -Force
+
+          $installer = Get-ChildItem -Path bin -Filter "*installer.exe" | Select-Object -First 1
+          if (-not $installer) {
+            throw "Windows installer not found in ./bin"
+          }
+
+          $installerName = "xiadown-windows-x64-${env:VERSION}-installer.exe"
+          Copy-Item $installer.FullName "dist/$installerName"
+
+      - name: SHA256
+        shell: pwsh
+        run: |
+          Get-ChildItem dist | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -FilePath "$($_.FullName).sha256" -Encoding ascii -NoNewline
+          }
+
+      - name: List dist artifacts
+        shell: pwsh
+        run: Get-ChildItem dist | Format-Table Name,Length,LastWriteTime
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: |
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}.zip
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}.zip.sha256
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}-installer.exe
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}-installer.exe.sha256
+
+      - name: Release upload
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag_name }}
+          files: |
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}.zip
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}.zip.sha256
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}-installer.exe
+            dist/xiadown-windows-x64-${{ steps.release_info.outputs.version }}-installer.exe.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

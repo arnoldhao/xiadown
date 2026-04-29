@@ -1,0 +1,91 @@
+version: '3'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+
+vars:
+  APP_NAME: "xiadown"
+  BIN_DIR: "bin"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+
+tasks:
+  build:
+    summary: Builds the application
+    cmds:
+      - task: "{{OS}}:build"
+
+  test:
+    summary: Runs Go tests
+    cmds:
+      - task: '{{if eq OS "darwin"}}darwin:test{{else}}test:default{{end}}'
+
+  test:default:
+    internal: true
+    cmds:
+      - go test ./...
+
+  package:
+    summary: Packages a production build of the application
+    cmds:
+      - task: "{{OS}}:package"
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: "{{OS}}:run"
+
+  dev:
+    summary: Runs the application in development mode
+    deps:
+      - task: prepare:dev:metadata
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+    env:
+      APP_VERSION: dev
+
+  prepare:dev:metadata:
+    summary: Syncs local dev metadata so native About panels show the dev version
+    env:
+      GOCACHE: '{{.ROOT_DIR}}/.task-cache/go-build'
+    cmds:
+      - go run ./build/tools/render_metadata darwin-plist --input build/darwin/Info.dev.plist --output build/darwin/Info.dev.plist --version dev
+
+  audit:frontend:
+    summary: Runs frontend governance audits for i18n and DTO contracts
+    dir: frontend
+    deps:
+      - task: common:install:frontend:deps
+    cmds:
+      - bun run audit:all
+
+  precommit:frontend:
+    summary: Pre-commit frontend gate (bindings + governance audits + build + telemetry test)
+    cmds:
+      - task: common:generate:bindings
+      - task: audit:frontend
+      - task: common:build:frontend
+        vars:
+          DEV: "true"
+      - cd frontend && bun run test:unit
+
+  precommit:
+    summary: Pre-commit gate aligned with the main CI checks
+    cmds:
+      - task: precommit:frontend
+      - task: test
+
+  regression:weekly:
+    summary: Weekly regression gate (Go + frontend build + frontend unit tests)
+    cmds:
+      - task: audit:frontend
+      - task: test
+      - cd frontend && bun run build:dev
+      - cd frontend && bun run test:unit
+
+  setup:docker:
+    summary: Builds Docker image for cross-compilation (~800MB download)
+    cmds:
+      - task: common:setup:docker

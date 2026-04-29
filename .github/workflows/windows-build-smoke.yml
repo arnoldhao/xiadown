@@ -1,0 +1,43 @@
+name: Windows Build Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or SHA to build. Leave empty to use the selected branch.
+        required: false
+        type: string
+
+env:
+  GO_VERSION: "1.25.5"
+  BUN_VERSION: "1.3.5"
+  WAILS_VERSION: "v3.0.0-alpha.74"
+
+jobs:
+  windows-build-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install Wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      - name: Install frontend deps
+        run: bun install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Windows build smoke
+        run: wails3 task windows:build

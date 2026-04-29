@@ -1,0 +1,250 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+      pull-requests: read
+      issues: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Release Drafter
+        id: release_drafter
+        uses: release-drafter/release-drafter@v6
+        with:
+          publish: true
+          commitish: ${{ github.sha }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enrich release notes with PR descriptions
+        if: ${{ steps.release_drafter.outputs.id != '' && steps.release_drafter.outputs.body != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_ID: ${{ steps.release_drafter.outputs.id }}
+          RELEASE_BODY_JSON: ${{ toJson(steps.release_drafter.outputs.body) }}
+        run: |
+          node <<'NODE'
+          const token = process.env.GITHUB_TOKEN;
+          const apiUrl = (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
+          const repository = process.env.GITHUB_REPOSITORY || '';
+          const releaseId = (process.env.RELEASE_ID || '').trim();
+          const originalBody = JSON.parse(process.env.RELEASE_BODY_JSON || '""').replace(/\r\n?/g, '\n');
+
+          if (!token || !repository || !releaseId || !originalBody.trim()) {
+            console.log('Release notes enrichment skipped: missing release metadata.');
+            process.exit(0);
+          }
+
+          const [owner, repo] = repository.split('/');
+          const prLinePattern = /^[*-] .* \(#(\d+)\) by @.+$/gm;
+          const prNumbers = Array.from(
+            new Set(Array.from(originalBody.matchAll(prLinePattern), (match) => match[1])),
+          );
+
+          if (prNumbers.length === 0) {
+            console.log('Release notes enrichment skipped: no pull request entries found.');
+            process.exit(0);
+          }
+
+          const headers = {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${token}`,
+            'User-Agent': 'xiadown-release-notes-enricher',
+            'X-GitHub-Api-Version': '2026-03-10',
+          };
+
+          const request = async (url, init = {}) => {
+            const response = await fetch(url, {
+              ...init,
+              headers: {
+                ...headers,
+                ...(init.headers || {}),
+              },
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`${init.method || 'GET'} ${url} failed: ${response.status} ${errorText}`);
+            }
+
+            if (response.status === 204) {
+              return null;
+            }
+
+            return response.json();
+          };
+
+          const normalizeBody = (body) => {
+            if (!body) {
+              return [];
+            }
+
+            const cleaned = body
+              .replace(/\r\n?/g, '\n')
+              .replace(/<!--[\s\S]*?-->/g, '')
+              .trim();
+
+            if (!cleaned) {
+              return [];
+            }
+
+            const lines = [];
+            let paragraph = [];
+            let inCodeBlock = false;
+
+            const flushParagraph = () => {
+              if (paragraph.length === 0) {
+                return;
+              }
+              lines.push(paragraph.join(' '));
+              paragraph = [];
+            };
+
+            const cleanItem = (line) =>
+              line
+                .replace(/^- \[[ xX]\]\s+/, '')
+                .replace(/^\[[ xX]\]\s+/, '')
+                .replace(/^[-*+]\s+/, '')
+                .replace(/^\d+\.\s+/, '')
+                .replace(/^#+\s+/, '')
+                .trim();
+
+            for (const rawLine of cleaned.split('\n')) {
+              const line = rawLine.trim();
+
+              if (!line) {
+                flushParagraph();
+                continue;
+              }
+
+              if (/^```/.test(line)) {
+                flushParagraph();
+                inCodeBlock = !inCodeBlock;
+                continue;
+              }
+
+              if (inCodeBlock) {
+                continue;
+              }
+
+              const listLike =
+                /^- \[[ xX]\]\s+/.test(line) ||
+                /^\[[ xX]\]\s+/.test(line) ||
+                /^[-*+]\s+/.test(line) ||
+                /^\d+\.\s+/.test(line) ||
+                /^#+\s+/.test(line);
+
+              if (listLike) {
+                flushParagraph();
+                const item = cleanItem(line);
+                if (item) {
+                  lines.push(item);
+                }
+                continue;
+              }
+
+              paragraph.push(line);
+            }
+
+            flushParagraph();
+            return lines.filter(Boolean);
+          };
+
+          const extractCommitBody = (message) => {
+            if (!message) {
+              return '';
+            }
+
+            const normalized = message.replace(/\r\n?/g, '\n');
+            const firstLineBreak = normalized.indexOf('\n');
+            if (firstLineBreak === -1) {
+              return '';
+            }
+
+            return normalized.slice(firstLineBreak + 1).trim();
+          };
+
+          const resolveMergedCommitSha = async (number, pr) => {
+            if (pr.merge_commit_sha) {
+              return pr.merge_commit_sha;
+            }
+
+            const timeline = await request(`${apiUrl}/repos/${owner}/${repo}/issues/${number}/timeline`);
+            const mergedEvent = timeline.find((event) => event.event === 'merged' && event.commit_id);
+            return mergedEvent?.commit_id || '';
+          };
+
+          const detailLinesByPr = new Map();
+          await Promise.all(
+            prNumbers.map(async (number) => {
+              try {
+                const pr = await request(`${apiUrl}/repos/${owner}/${repo}/pulls/${number}`);
+                let detailLines = normalizeBody(pr.body || '');
+                if (detailLines.length === 0) {
+                  const mergedCommitSha = await resolveMergedCommitSha(number, pr);
+                  if (mergedCommitSha) {
+                    const commit = await request(
+                      `${apiUrl}/repos/${owner}/${repo}/commits/${mergedCommitSha}`,
+                    );
+                    detailLines = normalizeBody(extractCommitBody(commit.commit?.message || ''));
+                  }
+                }
+                if (detailLines.length > 0) {
+                  detailLinesByPr.set(number, detailLines);
+                }
+              } catch (error) {
+                console.warn(`Skipping PR #${number}: ${error.message}`);
+              }
+            }),
+          );
+
+          if (detailLinesByPr.size === 0) {
+            console.log('Release notes enrichment skipped: no non-empty PR descriptions found.');
+            process.exit(0);
+          }
+
+          const updatedLines = [];
+          for (const line of originalBody.split('\n')) {
+            updatedLines.push(line);
+            const match = line.match(/^[*-] .* \(#(\d+)\) by @.+$/);
+            if (!match) {
+              continue;
+            }
+
+            const detailLines = detailLinesByPr.get(match[1]);
+            if (!detailLines || detailLines.length === 0) {
+              continue;
+            }
+
+            for (const detailLine of detailLines) {
+              updatedLines.push(`  - ${detailLine}`);
+            }
+          }
+
+          const updatedBody = updatedLines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+          if (updatedBody === originalBody.trimEnd()) {
+            console.log('Release notes enrichment skipped: release body already up to date.');
+            process.exit(0);
+          }
+
+          const release = await request(`${apiUrl}/repos/${owner}/${repo}/releases/${releaseId}`);
+          await request(`${apiUrl}/repos/${owner}/${repo}/releases/${releaseId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              tag_name: release.tag_name,
+              target_commitish: release.target_commitish,
+              name: release.name || release.tag_name,
+              body: updatedBody,
+              draft: Boolean(release.draft),
+              prerelease: Boolean(release.prerelease),
+            }),
+          });
+
+          console.log(`Enriched release notes with PR descriptions for ${detailLinesByPr.size} pull request(s).`);
+          NODE

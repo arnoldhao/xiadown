@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="xiadown"
+        Arguments=""
+        InstallLocation="C:\Program Files\DreamApp\XiaDown">
+    </Installer>
+    <PackageInformation
+        PackageName="XiaDown"
+        PackageDisplayName="XiaDown"
+        PublisherName="CN=DreamApp"
+        PublisherDisplayName="DreamApp"
+        Version="2.0.0.0"
+        PackageDescription="A yt-dlp powered downloader and transcoder.">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="com.example.xiadown"
+                Description="A yt-dlp powered downloader and transcoder."
+                DisplayName="XiaDown"
+                ExecutableName="xiadown"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>XiaDown</DisplayName>
+            <PublisherDisplayName>DreamApp</PublisherDisplayName>
+            <Description>A yt-dlp powered downloader and transcoder.</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="xiadown.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>

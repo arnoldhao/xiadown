@@ -1,0 +1,50 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+categories:
+  - title: '✨ Features'
+    labels: ['type: feature', 'feat']
+  - title: '🐞 Fixes'
+    labels: ['type: bug', 'fix', 'bug']
+  - title: '⚙️ Refactor/Perf/Optimize'
+    labels: ['refactor', 'perf', 'optimize']
+  - title: '🧰 Chore/Build/CI'
+    labels: ['chore', 'build', 'ci', 'deps']
+
+change-template: '- $TITLE (#$NUMBER) by @$AUTHOR'
+change-title-escapes: '\<*_&'
+
+header: |
+  <!-- dreamapp-release-header:start -->
+  ## 当前版本 / Current Version
+  `v$RESOLVED_VERSION`
+
+  ## 下载地址 / Downloads
+  | 平台 / Platform | 官方下载 / Official | 镜像下载 / Mirror |
+  | --- | --- | --- |
+  | macOS Apple Silicon | [点击下载 / Download](https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-macos-arm64-$RESOLVED_VERSION.zip) | [镜像下载 / Mirror](https://gh-proxy.com/https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-macos-arm64-$RESOLVED_VERSION.zip) |
+  | macOS Intel | [点击下载 / Download](https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-macos-x64-$RESOLVED_VERSION.zip) | [镜像下载 / Mirror](https://gh-proxy.com/https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-macos-x64-$RESOLVED_VERSION.zip) |
+  | Windows 安装版 / Installer | [点击下载 / Download](https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-windows-x64-$RESOLVED_VERSION-installer.exe) | [镜像下载 / Mirror](https://gh-proxy.com/https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-windows-x64-$RESOLVED_VERSION-installer.exe) |
+  | Windows 便携版 / Portable | [点击下载 / Download](https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-windows-x64-$RESOLVED_VERSION.zip) | [镜像下载 / Mirror](https://gh-proxy.com/https://github.com/arnoldhao/xiadown/releases/download/v$RESOLVED_VERSION/xiadown-windows-x64-$RESOLVED_VERSION.zip) |
+
+  ## macOS 首次运行说明 / First Launch on macOS
+  将 `XiaDown.app` 移动到“应用程序”目录后，若提示“无法打开”或“已损坏”，请在终端执行：
+  Move `XiaDown.app` to the Applications folder. If macOS says the app can't be opened or is damaged, run:
+
+  `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app`
+
+  ---
+  <!-- dreamapp-release-header:end -->
+
+template: |
+  ## 版本变更 / Changelog
+
+  $CHANGES
+
+version-resolver:
+  major: { labels: ['breaking', 'type: breaking'] }
+  minor: { labels: ['type: feature', 'feat'] }
+  patch: { labels: ['type: bug', 'fix', 'bug', 'chore', 'build', 'ci', 'refactor', 'perf', 'optimize', 'deps'] }
+  default: patch
+
+exclude-labels: ['skip-changelog']
