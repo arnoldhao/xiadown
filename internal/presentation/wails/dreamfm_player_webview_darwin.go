@@ -110,18 +110,18 @@ static void dreamFMClearActiveAirPlayPicker(NSInteger generation) {
 	dreamFMActiveAirPlayPicker = nil;
 }
 
-static BOOL dreamFMShowAirPlayRoutePicker(void *nativeWindow, double anchorX, double anchorY, double anchorWidth, double anchorHeight) {
+static int dreamFMShowAirPlayRoutePicker(void *nativeWindow, double anchorX, double anchorY, double anchorWidth, double anchorHeight) {
 	@autoreleasepool {
 #if MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
 		if (@available(macOS 10.15, *)) {
 			if (nativeWindow == NULL) {
-				return NO;
+				return 0;
 			}
 
 			NSWindow *window = (NSWindow*)nativeWindow;
 			NSView *contentView = window.contentView;
 			if (contentView == nil) {
-				return NO;
+				return 0;
 			}
 
 			NSRect bounds = contentView.bounds;
@@ -165,17 +165,17 @@ static BOOL dreamFMShowAirPlayRoutePicker(void *nativeWindow, double anchorX, do
 
 			if (button == nil) {
 				dreamFMClearActiveAirPlayPicker(generation);
-				return NO;
+				return 0;
 			}
 
 			[button performClick:nil];
 			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
 				dreamFMClearActiveAirPlayPicker(generation);
 			});
-			return YES;
+			return 1;
 		}
 #endif
-		return NO;
+		return 0;
 	}
 }
 
@@ -398,7 +398,7 @@ func showDreamFMNativeAirPlayPicker(nativeWindow unsafe.Pointer, anchor DreamFMA
 		return false
 	}
 
-	var shown C.BOOL
+	var shown C.int
 	application.InvokeSync(func() {
 		shown = C.dreamFMShowAirPlayRoutePicker(
 			nativeWindow,
@@ -408,7 +408,7 @@ func showDreamFMNativeAirPlayPicker(nativeWindow unsafe.Pointer, anchor DreamFMA
 			C.double(anchor.Height),
 		)
 	})
-	return bool(shown)
+	return shown != 0
 }
 
 func loadDreamFMYouTubeMusicURL(window *application.WebviewWindow, targetURL string, cookies []appcookies.Record) {
