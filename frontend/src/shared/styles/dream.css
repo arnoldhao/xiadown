@@ -134,9 +134,13 @@
     --dream-dialog-surface: hsl(var(--card) / 0.78);
     --dream-dialog-line: hsl(var(--foreground) / 0.08);
     --dream-dialog-line-highlight: rgb(255 255 255 / 24%);
+    --dream-dialog-sheen-top: rgb(255 255 255 / 22%);
+    --dream-dialog-sheen-bottom: rgb(255 255 255 / 8%);
     --dream-menu-surface: var(--dream-dialog-surface);
     --dream-menu-line: var(--dream-dialog-line);
     --dream-menu-line-highlight: var(--dream-dialog-line-highlight);
+    --dream-menu-sheen-top: var(--dream-dialog-sheen-top);
+    --dream-menu-sheen-bottom: var(--dream-dialog-sheen-bottom);
     --dream-control-height: 2rem;
     --dream-control-height-compact: var(--app-control-height-compact);
     --dream-control-radius: var(--app-radius-lg);
@@ -154,6 +158,21 @@
     --app-motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
     --app-motion-hover-lift-y: -1px;
     --app-motion-press-scale: 0.985;
+  }
+
+  :root.dark {
+    --dream-dialog-overlay-scrim: rgb(0 0 0 / 32%);
+    --dream-dialog-overlay-glow: rgb(255 255 255 / 4%);
+    --dream-dialog-surface: hsl(var(--card) / 0.58);
+    --dream-dialog-line: hsl(var(--foreground) / 0.07);
+    --dream-dialog-line-highlight: rgb(255 255 255 / 8%);
+    --dream-dialog-sheen-top: rgb(255 255 255 / 7%);
+    --dream-dialog-sheen-bottom: rgb(255 255 255 / 2%);
+    --dream-menu-surface: hsl(var(--card) / 0.54);
+    --dream-menu-line: hsl(var(--foreground) / 0.065);
+    --dream-menu-line-highlight: rgb(255 255 255 / 7%);
+    --dream-menu-sheen-top: rgb(255 255 255 / 6%);
+    --dream-menu-sheen-bottom: rgb(255 255 255 / 2%);
   }
 
   :root[data-motion="expressive"] {
@@ -587,7 +606,7 @@
     border-radius: var(--dream-radius-xl);
     border: 1px solid var(--dream-menu-line);
     background:
-      linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 8%)),
+      linear-gradient(180deg, var(--dream-menu-sheen-top), var(--dream-menu-sheen-bottom)),
       var(--dream-menu-surface);
     padding: 0.375rem;
     color: hsl(var(--popover-foreground));
@@ -813,7 +832,7 @@
     border: 1px solid var(--dream-dialog-line);
     border-radius: var(--dream-radius-xl);
     background:
-      linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 8%)),
+      linear-gradient(180deg, var(--dream-dialog-sheen-top), var(--dream-dialog-sheen-bottom)),
       var(--dream-dialog-surface);
     box-shadow:
       inset 0 1px 0 var(--dream-dialog-line-highlight),
@@ -1037,6 +1056,19 @@
   opacity: 0;
 }
 
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar.app-main-sidebar-reverse-shell {
+  border-color: transparent;
+  background:
+    linear-gradient(
+      0deg,
+      hsl(var(--dream-shell-top)),
+      hsl(var(--dream-shell-mid) / 0.54) 62%,
+      hsl(var(--dream-shell-bottom) / 0.10)
+    ),
+    hsl(var(--dream-shell-mid) / 0.54);
+  box-shadow: inset -1px 0 0 hsl(var(--foreground) / 0.035);
+}
+
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action {
   border: 0;
   border-radius: 1rem;
@@ -1091,27 +1123,58 @@
   background: var(--dream-page-surface);
 }
 
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-main-completed-page, .app-main-pets-page) {
+  background:
+    linear-gradient(
+      0deg,
+      hsl(var(--dream-shell-top)),
+      hsl(var(--dream-shell-mid) / 0.54) 62%,
+      hsl(var(--dream-shell-bottom) / 0.10)
+    ),
+    hsl(var(--dream-shell-mid) / 0.54);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-page {
+  background: hsl(var(--background));
+}
+
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-completed-page .app-main-list-content {
-  background: var(--dream-page-surface);
+  background: transparent;
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-completed-page .app-main-page-footer {
-  border-color: var(--dream-divider-subtle);
-  background: var(--dream-footer-surface);
+  border-color: transparent;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-completed-inline-detail {
+  border-color: transparent;
+  border-radius: var(--dream-radius-xl);
+  background:
+    linear-gradient(
+      180deg,
+      hsl(var(--background) / 0.46),
+      hsl(var(--background) / 0.30)
+    ),
+    hsl(var(--card) / 0.36);
+  box-shadow:
+    var(--dream-card-shadow),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.055),
+    inset 1px 0 0 var(--dream-line-muted);
+  -webkit-backdrop-filter: blur(28px) saturate(1.18);
+  backdrop-filter: blur(28px) saturate(1.18);
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-completed-inline-detail-header {
-  border-color: var(--dream-divider-muted);
-  background: var(--dream-header-surface);
+  border-color: var(--dream-line-muted);
+  background: transparent;
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-completed-detail-footer {
   border-color: var(--dream-divider-muted);
   background: transparent;
-}
-
-:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-page {
-  background: hsl(var(--background));
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card {
@@ -1872,10 +1935,6 @@
   box-shadow: var(--dream-control-shadow);
 }
 
-:is(.app-dream-frame, .app-main-settings-frame) .app-main-pets-page {
-  background: var(--dream-page-surface);
-}
-
 :is(.app-dream-frame, .app-main-settings-frame) .app-pets-gallery-content {
   background: transparent;
 }
@@ -2008,11 +2067,15 @@
   border: 0;
   border-radius: var(--dream-radius-xl);
   background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
   color: var(--dream-text-strong);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
 }
 
 .app-pets-gallery-card:hover {
   background: var(--dream-surface-hover);
+  box-shadow: var(--dream-card-shadow);
 }
 
 .app-pets-gallery-card-imported {
@@ -2534,10 +2597,12 @@
   appearance: none;
   width: 100%;
   border: 0;
-  border-radius: var(--dream-control-radius);
-  background: var(--dream-secondary-surface-muted);
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
   color: var(--dream-text-strong);
-  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+  box-shadow: var(--dream-card-shadow);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
   outline: none;
   transition:
     background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
@@ -2548,25 +2613,25 @@
 
 .app-completed-task-card:hover,
 .app-completed-file-card:hover {
-  background: var(--dream-secondary-surface);
-  box-shadow: inset 0 0 0 1px var(--dream-line-soft);
+  background: var(--dream-surface-hover);
+  box-shadow: var(--dream-card-shadow);
 }
 
 .app-completed-task-card:focus-visible,
 .app-completed-file-card:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+  box-shadow: var(--dream-card-shadow), inset 0 0 0 1px var(--dream-line-focus);
 }
 
 .app-completed-task-card[data-active="true"],
 .app-completed-file-card[data-active="true"] {
   background: var(--dream-primary-surface-muted);
-  box-shadow: inset 0 0 0 1px var(--dream-primary-line-strong);
+  box-shadow: var(--dream-card-shadow), inset 0 0 0 1px var(--dream-primary-line-strong);
 }
 
 .app-completed-task-card[data-selected="true"],
 .app-completed-file-card[data-selected="true"] {
   background: var(--dream-primary-surface-muted);
-  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+  box-shadow: var(--dream-card-shadow), inset 0 0 0 1px var(--dream-primary-line);
 }
 
 .app-completed-task-card-cover {
@@ -2628,7 +2693,7 @@
 
 .app-completed-file-card {
   min-height: 3.25rem;
-  border-radius: var(--dream-control-radius);
+  border-radius: var(--dream-radius-xl);
 }
 
 .app-completed-file-icon {
@@ -2962,7 +3027,7 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
   border: 1px solid var(--dream-menu-line);
   border-radius: var(--dream-radius-xl);
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 8%)),
+    linear-gradient(180deg, var(--dream-menu-sheen-top), var(--dream-menu-sheen-bottom)),
     var(--dream-menu-surface);
   box-shadow:
     inset 0 1px 0 var(--dream-menu-line-highlight),
@@ -3531,6 +3596,182 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
     }
   }
 
+  @keyframes app-running-playground-jump {
+    0%,
+    100% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(0) scale(1);
+    }
+    42% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(-34px) scale(1.04);
+    }
+    62% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(-18px) scale(1.02);
+    }
+  }
+
+  @keyframes app-running-playground-wave {
+    0%,
+    100% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) rotateZ(0deg);
+    }
+    28% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) rotateZ(-4deg);
+    }
+    58% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) rotateZ(4deg);
+    }
+  }
+
+  @keyframes app-running-playground-ball-float {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    50% {
+      transform: translate3d(5px, -8px, 0) rotate(12deg);
+    }
+  }
+
+  .app-running-pet-playground {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .app-running-pet-playground:active {
+    cursor: grabbing;
+  }
+
+  .app-running-playground-pet {
+    width: 12rem;
+    height: 12rem;
+    cursor: grab;
+    touch-action: none;
+    transform-origin: center center;
+    will-change: left, top, transform;
+  }
+
+  .app-running-playground-pet[data-dragging="true"] {
+    cursor: grabbing;
+  }
+
+  .app-running-playground-pet-core {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: perspective(680px) rotateY(var(--running-pet-rotation));
+    transform-style: preserve-3d;
+    transition: filter var(--app-motion-duration-base) var(--app-motion-ease-standard);
+    will-change: transform;
+  }
+
+  .app-running-playground-pet[data-dragging="true"] .app-running-playground-pet-core {
+    filter: saturate(1.06) brightness(1.04);
+  }
+
+  .app-running-playground-pet[data-sitting="true"] .app-running-playground-pet-core {
+    transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(10px) scaleY(0.96);
+  }
+
+  .app-running-playground-pet-core[data-action="jumping"] {
+    animation: app-running-playground-jump 760ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .app-running-playground-pet-core[data-action="waving"] {
+    animation: app-running-playground-wave 980ms ease-in-out both;
+  }
+
+  .app-running-playground-shadow {
+    position: absolute;
+    left: 50%;
+    bottom: 1.35rem;
+    z-index: 0;
+    width: 7rem;
+    height: 1.3rem;
+    border-radius: 9999px;
+    background:
+      radial-gradient(ellipse 58% 72% at 50% 50%, hsl(var(--foreground) / 0.14), transparent 72%),
+      radial-gradient(ellipse 82% 70% at 50% 50%, hsl(var(--primary) / 0.12), transparent 78%);
+    filter: blur(7px);
+    transform: translateX(-50%);
+  }
+
+  .app-running-playground-pad {
+    position: absolute;
+    left: 50%;
+    bottom: 0.9rem;
+    z-index: 1;
+    width: 9.4rem;
+    height: 2.35rem;
+    border-radius: 9999px;
+    background:
+      linear-gradient(90deg, hsl(174 54% 42% / 0.18), hsl(var(--primary) / 0.24), hsl(43 74% 54% / 0.18)),
+      hsl(var(--background) / 0.46);
+    box-shadow:
+      inset 0 0 0 1px hsl(var(--foreground) / 0.08),
+      0 18px 42px -28px hsl(var(--primary) / 0.52);
+    transform: translateX(-50%);
+  }
+
+  .app-running-playground-ball {
+    position: absolute;
+    right: 1.3rem;
+    bottom: 2.7rem;
+    z-index: 3;
+    width: 1.85rem;
+    height: 1.85rem;
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at 32% 26%, hsl(48 100% 84% / 0.92), transparent 24%),
+      radial-gradient(circle at 64% 72%, hsl(214 82% 58% / 0.42), transparent 38%),
+      linear-gradient(135deg, hsl(34 94% 56%), hsl(16 84% 50%));
+    box-shadow:
+      inset -5px -7px 12px hsl(var(--foreground) / 0.16),
+      0 8px 18px -10px hsl(var(--foreground) / 0.58);
+    animation: app-running-playground-ball-float 1.8s ease-in-out infinite;
+  }
+
+  .app-running-playground-action {
+    filter: drop-shadow(0 16px 28px hsl(var(--foreground) / 0.08));
+  }
+
+  .app-running-playground-hint {
+    min-height: 2.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    padding: 0.55rem 0.9rem;
+    background:
+      linear-gradient(180deg, hsl(var(--background) / 0.78), hsl(var(--background) / 0.58)),
+      hsl(var(--card) / 0.68);
+    color: hsl(var(--foreground) / 0.74);
+    box-shadow:
+      0 18px 42px -30px hsl(var(--foreground) / 0.42),
+      inset 0 0 0 1px hsl(var(--foreground) / 0.08);
+    -webkit-backdrop-filter: blur(18px) saturate(1.12);
+    backdrop-filter: blur(18px) saturate(1.12);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.35;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translate3d(-50%, 10px, 0);
+    transition:
+      opacity var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      transform var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  }
+
+  .app-running-playground-hint[data-visible="true"] {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0);
+  }
+
   .app-running-speed-segment {
     position: relative;
     isolation: isolate;
@@ -3797,6 +4038,9 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
     .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-sweep,
     .app-running-speed-segment[data-speed-kind="download"]::before,
     .app-running-speed-segment[data-speed-kind="transcode"]::before,
+    .app-running-playground-pet-core[data-action="jumping"],
+    .app-running-playground-pet-core[data-action="waving"],
+    .app-running-playground-ball,
     .app-running-new-download-button::before,
     .app-running-new-download-button::after {
       animation: none;

@@ -243,6 +243,7 @@
       "emptyAction": "Hatch the next one",
       "emptyTitle": "No running tasks",
       "empty": "New downloads and transcodes will show their progress here.",
+      "playgroundHint": "Move with wasd · shift sprint · space jump · E wave · Q sit · wheel zoom · B ball · T pad · R reset",
       "loading": "Loading tasks",
       "overviewTitle": "Task overview",
       "taskCount": "Tasks",

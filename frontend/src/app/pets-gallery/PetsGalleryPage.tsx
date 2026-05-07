@@ -55,6 +55,7 @@ import {
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
 import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { openFileDialog } from "@/shared/utils/dialogHelpers";
 import {
   buildAssetPreviewURL,
@@ -85,10 +86,31 @@ type PetContextMenuTarget = {
   y: number;
 };
 
+type PetGalleryImportEffect =
+  | "water"
+  | "fire"
+  | "cloud"
+  | "sun"
+  | "mist"
+  | "shadow";
+
 const PET_GALLERY_INITIAL_LIMIT = 48;
 const PET_GALLERY_PAGE_SIZE = 24;
+const PET_GALLERY_IMPORT_EFFECTS: PetGalleryImportEffect[] = [
+  "water",
+  "fire",
+  "cloud",
+  "sun",
+  "mist",
+  "shadow",
+];
 
 type XiaText = ReturnType<typeof getXiaText>;
+
+function pickPetGalleryImportEffect(): PetGalleryImportEffect {
+  const index = Math.floor(Math.random() * PET_GALLERY_IMPORT_EFFECTS.length);
+  return PET_GALLERY_IMPORT_EFFECTS[index] ?? "water";
+}
 
 export function PetsGalleryPage(props: {
   text: XiaText;
@@ -110,6 +132,9 @@ export function PetsGalleryPage(props: {
   const [deleteConfirmError, setDeleteConfirmError] = React.useState("");
   const [galleryLimit, setGalleryLimit] = React.useState(PET_GALLERY_INITIAL_LIMIT);
   const [animation, setAnimation] = React.useState<PetAnimation>("running");
+  const [importEffect] = React.useState<PetGalleryImportEffect>(() =>
+    pickPetGalleryImportEffect(),
+  );
   const pets = petsQuery.data ?? [];
   const readyPets = React.useMemo(() => pets.filter((pet) => pet.status === "ready"), [pets]);
   const activePet = React.useMemo(() => resolveActivePet(readyPets, settings), [readyPets, settings]);
@@ -379,14 +404,14 @@ export function PetsGalleryPage(props: {
 
   return (
     <div className="app-main-page app-main-pets-page relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="app-main-page-header wails-drag flex min-h-[3.75rem] items-center justify-between gap-4 border-b border-border/60 px-5 pb-3 pt-4">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="app-pets-page-toolbar wails-drag flex min-h-[3.75rem] items-center justify-between gap-4 px-5 pb-3 pt-4">
+        <div className="wails-no-drag flex min-w-0 items-center gap-3">
           {mode === "detail" ? (
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="wails-no-drag h-8 w-8 rounded-full"
+              className="h-8 w-8 rounded-full"
               onClick={() => setSelectedPetId("")}
               aria-label={text.actions.back}
             >
@@ -400,6 +425,23 @@ export function PetsGalleryPage(props: {
                 ? `${text.petGallery.title} / ${selectedPet.displayName}`
                 : text.petGallery.title}
             </span>
+            {mode === "gallery" ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45"
+                    onClick={() => setGuideOpen(true)}
+                    aria-label={text.petGallery.generationGuide.action}
+                  >
+                    <HelpCircle className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {text.petGallery.generationGuide.action}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
         </div>
         <div
@@ -431,24 +473,7 @@ export function PetsGalleryPage(props: {
           canDelete={selectedPet.scope === "imported"}
         />
       ) : (
-        <div className="app-pets-gallery-content min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <div className="app-pets-gallery-toolbar mb-5 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-              <PawPrint className="h-4 w-4 shrink-0 text-primary" />
-              <span className="truncate">{text.petGallery.localPets}</span>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button type="button" variant="outline" size="compact" onClick={() => setGuideOpen(true)}>
-                <HelpCircle className="h-4 w-4" />
-                {text.petGallery.generationGuide.action}
-              </Button>
-              <Button type="button" variant="default" size="compact" onClick={() => setImportOpen(true)}>
-                <Upload className="h-4 w-4" />
-                {text.petGallery.importAction}
-              </Button>
-            </div>
-          </div>
-
+        <div className="app-pets-gallery-content min-h-0 flex-1 overflow-y-auto px-6 pb-24 pt-5">
           {petsQuery.isLoading ? (
             <div className="app-pets-loading flex h-56 items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -489,6 +514,18 @@ export function PetsGalleryPage(props: {
               {text.petGallery.empty}
             </div>
           )}
+          <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2">
+            <Button
+              type="button"
+              variant="default"
+              className="app-running-new-download-button pointer-events-auto h-10 px-4 text-sm font-semibold"
+              data-effect={importEffect}
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="h-4 w-4" />
+              {text.petGallery.importAction}
+            </Button>
+          </div>
         </div>
       )}
 

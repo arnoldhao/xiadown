@@ -322,6 +322,7 @@ function buildText(language: SupportedLanguage) {
       emptyAction: t("xiadown.running.emptyAction", language),
       emptyTitle: t("xiadown.running.emptyTitle", language),
       empty: t("xiadown.running.empty", language),
+      playgroundHint: t("xiadown.running.playgroundHint", language),
       loading: t("xiadown.running.loading", language),
       overviewTitle: t("xiadown.running.overviewTitle", language),
       taskCount: t("xiadown.running.taskCount", language),
