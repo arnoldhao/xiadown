@@ -3,6 +3,8 @@ package wails
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +17,19 @@ import (
 )
 
 const telemetrySignalEvent = "telemetry:signal"
+const telemetryDefaultTarget = "https://nom.telemetrydeck.com/v2/"
+const telemetryNativeClientName = "XiaDownNativeTelemetry"
+
+var forbiddenTelemetryPayloadKeys = map[string]struct{}{
+	"count":      {},
+	"type":       {},
+	"appID":      {},
+	"clientUser": {},
+	"__time":     {},
+	"payload":    {},
+	"platform":   {},
+	"receivedAt": {},
+}
 
 type telemetrySignalEmitter struct {
 	app *application.App
@@ -80,15 +95,41 @@ func (handler *TelemetryHandler) FlushSessionSummary(ctx context.Context) error 
 	return handler.service.FlushSessionSummary(ctx)
 }
 
+func (handler *TelemetryHandler) FlushSessionSummaryForShutdown(ctx context.Context) error {
+	if handler == nil || handler.service == nil {
+		return nil
+	}
+	bootstrap, err := handler.service.Bootstrap(ctx)
+	if err != nil {
+		return err
+	}
+	signal, ok, err := handler.service.FlushSessionSummarySignal(ctx)
+	if err != nil || !ok {
+		return err
+	}
+	body, err := telemetrySignalBody(bootstrap, signal)
+	if err != nil {
+		return err
+	}
+	return handler.postSignalBody(ctx, telemetryDefaultTarget, []map[string]any{body})
+}
+
 func (handler *TelemetryHandler) PostSignal(ctx context.Context, request TelemetryPostSignalRequest) error {
 	if len(request.Body) == 0 {
 		return nil
 	}
-	target := strings.TrimSpace(request.Target)
+	return handler.postSignalBody(ctx, request.Target, request.Body)
+}
+
+func (handler *TelemetryHandler) postSignalBody(ctx context.Context, rawTarget string, body []map[string]any) error {
+	if len(body) == 0 {
+		return nil
+	}
+	target := strings.TrimSpace(rawTarget)
 	if !telemetryTargetAllowed(target) {
 		return fmt.Errorf("telemetry target is not allowed")
 	}
-	payload, err := json.Marshal(request.Body)
+	payload, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
@@ -114,6 +155,64 @@ func (handler *TelemetryHandler) PostSignal(ctx context.Context, request Telemet
 		return fmt.Errorf("telemetry post failed: http %d", resp.StatusCode)
 	}
 	return nil
+}
+
+func telemetrySignalBody(bootstrap apptelemetry.Bootstrap, signal apptelemetry.Signal) (map[string]any, error) {
+	if !bootstrap.Enabled || strings.TrimSpace(bootstrap.AppID) == "" || strings.TrimSpace(bootstrap.InstallID) == "" {
+		return nil, fmt.Errorf("telemetry bootstrap is not enabled")
+	}
+	signalType := strings.TrimSpace(signal.Type)
+	if signalType == "" {
+		return nil, fmt.Errorf("telemetry signal type is empty")
+	}
+	appVersion := strings.TrimSpace(bootstrap.AppVersion)
+	nameAndVersion := telemetryNativeClientName
+	if appVersion != "" {
+		nameAndVersion += " " + appVersion
+	}
+	body := map[string]any{
+		"clientUser":             sha256Hex(strings.TrimSpace(bootstrap.InstallID)),
+		"sessionID":              strings.TrimSpace(bootstrap.SessionID),
+		"appID":                  strings.TrimSpace(bootstrap.AppID),
+		"type":                   signalType,
+		"telemetryClientVersion": nameAndVersion,
+	}
+	if bootstrap.TestMode {
+		body["isTestMode"] = true
+	}
+	if signal.FloatValue != nil {
+		body["floatValue"] = *signal.FloatValue
+	}
+	payload := sanitizedTelemetryPayload(signal.Payload)
+	payload["TelemetryDeck.SDK.nameAndVersion"] = nameAndVersion
+	payload["TelemetryDeck.SDK.name"] = telemetryNativeClientName
+	if appVersion != "" {
+		payload["TelemetryDeck.SDK.version"] = appVersion
+	}
+	if len(payload) > 0 {
+		body["payload"] = payload
+	}
+	return body, nil
+}
+
+func sanitizedTelemetryPayload(payload map[string]any) map[string]any {
+	result := make(map[string]any, len(payload))
+	for key, value := range payload {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		if _, forbidden := forbiddenTelemetryPayloadKeys[trimmedKey]; forbidden {
+			continue
+		}
+		result[trimmedKey] = value
+	}
+	return result
+}
+
+func sha256Hex(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 func telemetryTargetAllowed(raw string) bool {

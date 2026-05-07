@@ -16,7 +16,6 @@ ConnectorBrandIcon
 import {
 getXiaText
 } from "@/features/xiadown/shared";
-import { cn } from "@/lib/utils";
 import type {
 ParseYTDLPDownloadResponse,
 PrepareYTDLPDownloadResponse
@@ -46,6 +45,7 @@ DialogFooter,
 DialogHeader,
 DialogTitle
 } from "@/shared/ui/dialog";
+import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
@@ -76,14 +76,10 @@ export function InlineSwitch(props: {
           props.onChange(!props.checked);
         }
       }}
-      className={cn(
-        "flex h-5 w-9 items-center rounded-full border px-0.5 transition disabled:cursor-not-allowed disabled:opacity-50",
-        props.checked
-          ? "justify-end border-primary/40 bg-primary/15"
-          : "justify-start border-border/70 bg-muted",
-      )}
+      className="app-dream-inline-switch disabled:cursor-not-allowed disabled:opacity-50"
+      data-state={props.checked ? "checked" : "unchecked"}
     >
-      <span className="h-4 w-4 rounded-full bg-background shadow-sm" />
+      <span className="app-dream-inline-switch-knob" />
     </button>
   );
 }
@@ -680,35 +676,23 @@ export function NewTaskDialog(props: {
           <DialogDescription className="sr-only">
             {text.productSubtitle}
           </DialogDescription>
-          <div
-            role="tablist"
-            className="mr-auto grid w-fit min-w-52 grid-cols-2 rounded-2xl border border-border/70 bg-muted/45 p-1"
-          >
-            <Button
-              type="button"
-              role="tab"
-              aria-selected={activeMode === "download"}
-              variant={activeMode === "download" ? "default" : "ghost"}
-              size="compact"
-              className="rounded-xl"
-              onClick={() => setActiveMode("download")}
-            >
-              <Download className="h-3.5 w-3.5" />
-              {text.actions.download}
-            </Button>
-            <Button
-              type="button"
-              role="tab"
-              aria-selected={activeMode === "transcode"}
-              variant={activeMode === "transcode" ? "default" : "ghost"}
-              size="compact"
-              className="rounded-xl"
-              onClick={() => setActiveMode("transcode")}
-            >
-              <FileVideo className="h-3.5 w-3.5" />
-              {text.actions.transcode}
-            </Button>
-          </div>
+          <DreamSegmentSwitch
+            value={activeMode}
+            className="app-new-task-mode-switch mr-auto"
+            items={[
+              {
+                value: "download",
+                label: text.actions.download,
+                icon: <Download className="h-3.5 w-3.5" />,
+              },
+              {
+                value: "transcode",
+                label: text.actions.transcode,
+                icon: <FileVideo className="h-3.5 w-3.5" />,
+              },
+            ]}
+            onValueChange={setActiveMode}
+          />
         </DialogHeader>
 
         {!taskDependenciesReady ? (
@@ -725,9 +709,9 @@ export function NewTaskDialog(props: {
             description={text.dialogs.dependenciesRequiredDescription}
           />
         ) : (
-          <div className="max-h-[min(68vh,34rem)] space-y-4 overflow-y-auto pr-1">
+          <div className="max-h-[min(68vh,34rem)] space-y-4 overflow-x-hidden overflow-y-auto pr-1">
             {activeMode === "download" && downloadStep === "input" ? (
-              <div className="rounded-2xl border border-border/70 bg-card/75 p-4">
+              <div className="app-new-task-panel p-4">
                 <form
                   className="flex gap-2"
                   onSubmit={(event) => {
@@ -767,7 +751,7 @@ export function NewTaskDialog(props: {
                   </Tooltip>
                 </form>
                 {!ytdlpInstalled ? (
-                  <div className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                  <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="warning">
                     {text.dependencies.missingDependency.replace(
                       "{name}",
                       "yt-dlp",
@@ -775,7 +759,7 @@ export function NewTaskDialog(props: {
                   </div>
                 ) : null}
                 {downloadPrepareError ? (
-                  <div className="mt-2 text-xs text-destructive">
+                  <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="danger">
                     {downloadPrepareError}
                   </div>
                 ) : null}
@@ -784,7 +768,7 @@ export function NewTaskDialog(props: {
 
             {activeMode === "download" && downloadStep === "config" ? (
               <>
-                <div className="space-y-2 rounded-2xl border border-border/70 bg-card/75 p-4">
+                <div className="app-new-task-panel space-y-2 p-4">
                   <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
                     {downloadConnectorType ? (
                       <ConnectorBrandIcon
@@ -797,13 +781,13 @@ export function NewTaskDialog(props: {
                     {downloadPrepared?.reachable === false ? (
                       <Badge
                         variant="outline"
-                        className="border-amber-300 text-amber-700"
+                        className="app-dream-status-badge-warning"
                       >
                         {text.common.unknown}
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="flex h-9 w-full min-w-0 items-center overflow-hidden rounded-xl border border-input bg-background">
+                  <div className="app-new-task-field-strip flex h-9 w-full min-w-0 items-center overflow-hidden">
                     <Input
                       size="default"
                       value={downloadPrepared?.url ?? downloadUrl}
@@ -816,7 +800,7 @@ export function NewTaskDialog(props: {
                           type="button"
                           variant="ghost"
                           size="compactIcon"
-                          className="!h-full !w-9 shrink-0 rounded-none border-l border-border/70 bg-transparent"
+                          className="app-new-task-field-action !h-full !w-9 shrink-0"
                           aria-label={text.dialogs.modifyLink}
                           onClick={() => {
                             if (downloadPrepared?.url) {
@@ -830,7 +814,7 @@ export function NewTaskDialog(props: {
                       </TooltipTrigger>
                       <TooltipContent>{text.dialogs.modifyLink}</TooltipContent>
                     </Tooltip>
-                    <div className="flex h-full w-12 shrink-0 items-center justify-center border-l border-border/70">
+                    <div className="app-new-task-field-switch-slot flex h-full w-12 shrink-0 items-center justify-center">
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="flex items-center justify-center">
@@ -861,41 +845,29 @@ export function NewTaskDialog(props: {
                 </div>
 
                 <div className="flex justify-center">
-                  <div
-                    role="tablist"
-                    className="inline-flex rounded-2xl border border-border/70 bg-muted/45 p-1"
-                  >
-                    <Button
-                      type="button"
-                      role="tab"
-                      aria-selected={downloadTab === "quick"}
-                      variant={downloadTab === "quick" ? "default" : "ghost"}
-                      size="compact"
-                      className="rounded-xl"
-                      onClick={() => setDownloadTab("quick")}
-                    >
-                      <Zap className="h-3.5 w-3.5" />
-                      {text.dialogs.quickMode}
-                    </Button>
-                    <Button
-                      type="button"
-                      role="tab"
-                      aria-selected={downloadTab === "custom"}
-                      variant={downloadTab === "custom" ? "default" : "ghost"}
-                      size="compact"
-                      className="rounded-xl"
-                      onClick={() => setDownloadTab("custom")}
-                    >
-                      <SlidersHorizontal className="h-3.5 w-3.5" />
-                      {text.dialogs.customMode}
-                    </Button>
-                  </div>
+                  <DreamSegmentSwitch
+                    value={downloadTab}
+                    className="app-new-task-download-mode-switch"
+                    items={[
+                      {
+                        value: "quick",
+                        label: text.dialogs.quickMode,
+                        icon: <Zap className="h-3.5 w-3.5" />,
+                      },
+                      {
+                        value: "custom",
+                        label: text.dialogs.customMode,
+                        icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
+                      },
+                    ]}
+                    onValueChange={setDownloadTab}
+                  />
                 </div>
 
                 {downloadTab === "quick" ? (
-                  <div className="rounded-2xl border border-border/70 bg-card/75">
-                    <div className="divide-y divide-border/70">
-                      <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                  <div className="app-new-task-panel app-new-task-list-panel">
+                    <div>
+                      <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                         <span className="text-muted-foreground">
                           {text.dialogs.quality}
                         </span>
@@ -922,7 +894,7 @@ export function NewTaskDialog(props: {
                           </Button>
                         </div>
                       </div>
-                      <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                      <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                         <span className="text-muted-foreground">
                           {text.dialogs.subtitles}
                         </span>
@@ -932,12 +904,12 @@ export function NewTaskDialog(props: {
                           ariaLabel={text.dialogs.subtitles}
                         />
                       </div>
-                      <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                      <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                         <span className="text-muted-foreground">
                           {text.actions.transcode}
                         </span>
                         <Select
-                          className="w-56 max-w-[58vw] rounded-xl px-3"
+                            className="w-56 max-w-[58vw]"
                           value={quickPresetId}
                           onChange={(event) =>
                             setQuickPresetId(event.target.value)
@@ -952,7 +924,7 @@ export function NewTaskDialog(props: {
                         </Select>
                       </div>
                       {quickPresetId ? (
-                        <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                        <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                           <div className="text-muted-foreground">
                             {text.dialogs.keepOnlyTranscodedFile}
                           </div>
@@ -969,14 +941,14 @@ export function NewTaskDialog(props: {
 
                 {downloadTab === "custom" ? (
                   customParseResult ? (
-                    <div className="rounded-2xl border border-border/70 bg-card/75">
-                      <div className="divide-y divide-border/70">
-                        <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
-                          <span className="text-muted-foreground">
+                    <div className="app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden">
+                      <div>
+                        <div className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                          <span className="app-new-task-select-row-label text-muted-foreground">
                             {text.dialogs.quality}
                           </span>
                           <Select
-                            className="w-60 max-w-[58vw] rounded-xl px-3"
+                            className="app-new-task-select"
                             value={customFormatId}
                             onChange={(event) =>
                               setCustomFormatId(event.target.value)
@@ -1005,12 +977,12 @@ export function NewTaskDialog(props: {
                             ) : null}
                           </Select>
                         </div>
-                        <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
-                          <span className="text-muted-foreground">
+                        <div className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                          <span className="app-new-task-select-row-label text-muted-foreground">
                             {text.dialogs.subtitles}
                           </span>
                           <Select
-                            className="w-60 max-w-[58vw] rounded-xl px-3"
+                            className="app-new-task-select"
                             value={customSubtitleId}
                             onChange={(event) =>
                               setCustomSubtitleId(event.target.value)
@@ -1024,12 +996,12 @@ export function NewTaskDialog(props: {
                             ))}
                           </Select>
                         </div>
-                        <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
-                          <span className="text-muted-foreground">
+                        <div className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                          <span className="app-new-task-select-row-label text-muted-foreground">
                             {text.actions.transcode}
                           </span>
                           <Select
-                            className="w-60 max-w-[58vw] rounded-xl px-3"
+                            className="app-new-task-select"
                             value={customPresetId}
                             onChange={(event) =>
                               setCustomPresetId(event.target.value)
@@ -1044,7 +1016,7 @@ export function NewTaskDialog(props: {
                           </Select>
                         </div>
                         {customPresetId ? (
-                          <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                          <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                             <div className="text-muted-foreground">
                               {text.dialogs.keepOnlyTranscodedFile}
                             </div>
@@ -1074,8 +1046,8 @@ export function NewTaskDialog(props: {
                       </Button>
                       {customParseError ? (
                         <div className="w-full">
-                          <div className="w-full min-w-0 overflow-hidden rounded-xl border border-input bg-background text-xs shadow-sm">
-                            <div className="border-b border-border/70 px-3 py-2 font-medium text-destructive">
+                          <div className="app-new-task-parse-error w-full min-w-0 text-xs">
+                            <div className="border-b border-destructive/20 px-3 py-2 font-medium">
                               {customParseErrorDescription}
                             </div>
                             <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-4 text-muted-foreground">{customParseErrorDetail}</pre>
@@ -1087,7 +1059,7 @@ export function NewTaskDialog(props: {
                 ) : null}
 
                 {downloadSubmitError ? (
-                  <div className="text-xs text-destructive">
+                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="danger">
                     {downloadSubmitError}
                   </div>
                 ) : null}
@@ -1095,7 +1067,7 @@ export function NewTaskDialog(props: {
             ) : null}
 
             {activeMode === "transcode" && !transcodeInputPath ? (
-              <div className="flex justify-center rounded-2xl border border-border/70 bg-card/75 p-4">
+              <div className="app-new-task-panel flex justify-center p-4">
                 <Button
                   type="button"
                   size="compact"
@@ -1109,9 +1081,9 @@ export function NewTaskDialog(props: {
 
             {activeMode === "transcode" && transcodeInputPath ? (
               <>
-                <div className="space-y-2 rounded-2xl border border-border/70 bg-card/75 p-4">
+                <div className="app-new-task-panel space-y-2 p-4">
                   <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <span className="flex h-5 min-w-10 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background px-1.5 text-[9px] font-semibold leading-none text-muted-foreground">
+                    <span className="app-new-task-file-format flex h-5 min-w-10 shrink-0 items-center justify-center px-1.5 text-[9px] font-semibold leading-none">
                       {transcodeFileFormat}
                     </span>
                     <span className="flex min-w-0 flex-1 items-baseline">
@@ -1125,7 +1097,7 @@ export function NewTaskDialog(props: {
                       ) : null}
                     </span>
                   </div>
-                  <div className="flex h-9 w-full min-w-0 items-center overflow-hidden rounded-xl border border-input bg-background">
+                  <div className="app-new-task-field-strip flex h-9 w-full min-w-0 items-center overflow-hidden">
                     <Input
                       size="default"
                       value={transcodeInputPath}
@@ -1138,7 +1110,7 @@ export function NewTaskDialog(props: {
                           type="button"
                           variant="ghost"
                           size="compactIcon"
-                          className="!h-full !w-9 shrink-0 rounded-none border-l border-border/70 bg-transparent"
+                          className="app-new-task-field-action !h-full !w-9 shrink-0"
                           aria-label={text.dialogs.modifyFile}
                           onClick={() => void handleChooseFile()}
                         >
@@ -1150,14 +1122,14 @@ export function NewTaskDialog(props: {
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-border/70 bg-card/75">
-                  <div className="divide-y divide-border/70">
-                    <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                <div className="app-new-task-panel app-new-task-list-panel">
+                  <div>
+                    <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                       <span className="text-muted-foreground">
                         {text.dialogs.size}
                       </span>
                       <Select
-                        className="w-40 max-w-[58vw] rounded-xl px-3"
+                        className="w-40 max-w-[58vw]"
                         value={transcodeScale}
                         onChange={(event) =>
                           setTranscodeScale(event.target.value)
@@ -1170,12 +1142,12 @@ export function NewTaskDialog(props: {
                         ))}
                       </Select>
                     </div>
-                    <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                    <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                       <span className="text-muted-foreground">
                         {text.dialogs.container}
                       </span>
                       <Select
-                        className="w-40 max-w-[58vw] rounded-xl px-3"
+                        className="w-40 max-w-[58vw]"
                         value={transcodeContainer}
                         onChange={(event) =>
                           setTranscodeContainer(event.target.value)
@@ -1188,12 +1160,12 @@ export function NewTaskDialog(props: {
                         ))}
                       </Select>
                     </div>
-                    <div className="flex min-h-12 items-center justify-between gap-4 p-3 text-sm">
+                    <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                       <span className="text-muted-foreground">
                         {text.dialogs.codec}
                       </span>
                       <Select
-                        className="w-40 max-w-[58vw] rounded-xl px-3"
+                        className="w-40 max-w-[58vw]"
                         value={transcodeCodec}
                         onChange={(event) =>
                           setTranscodeCodec(event.target.value)
@@ -1209,7 +1181,7 @@ export function NewTaskDialog(props: {
                   </div>
                 </div>
                 {!ffmpegInstalled ? (
-                  <div className="text-xs text-amber-600 dark:text-amber-300">
+                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="warning">
                     {text.dependencies.missingDependency.replace(
                       "{name}",
                       "ffmpeg",
@@ -1217,7 +1189,7 @@ export function NewTaskDialog(props: {
                   </div>
                 ) : null}
                 {transcodeSubmitError ? (
-                  <div className="text-xs text-destructive">
+                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="danger">
                     {transcodeSubmitError}
                   </div>
                 ) : null}

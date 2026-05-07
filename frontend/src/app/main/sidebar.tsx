@@ -52,6 +52,7 @@ export const SidebarIconButton = React.forwardRef<
       variant="ghost"
       size="icon"
       className={cn(
+        "app-main-sidebar-action",
         MAIN_SIDEBAR_ACTION_CLASS,
         "relative border border-transparent bg-transparent text-sidebar-foreground/72 transition [&_svg]:!h-[var(--app-main-sidebar-icon-size)] [&_svg]:!w-[var(--app-main-sidebar-icon-size)]",
         active
@@ -59,6 +60,7 @@ export const SidebarIconButton = React.forwardRef<
           : "hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground",
         className,
       )}
+      data-active={active ? "true" : undefined}
       aria-label={ariaLabel ?? label}
       {...props}
     >

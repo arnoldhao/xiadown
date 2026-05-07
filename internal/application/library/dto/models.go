@@ -643,27 +643,31 @@ type CreateVideoImportRequest struct {
 }
 
 type CreateTranscodeJobRequest struct {
-	FileID                         string `json:"fileId,omitempty"`
-	InputPath                      string `json:"inputPath,omitempty"`
-	LibraryID                      string `json:"libraryId,omitempty"`
-	RootFileID                     string `json:"rootFileId,omitempty"`
-	PresetID                       string `json:"presetId,omitempty"`
-	Format                         string `json:"format,omitempty"`
-	Title                          string `json:"title"`
-	Source                         string `json:"source,omitempty"`
-	SessionKey                     string `json:"sessionKey,omitempty"`
-	RunID                          string `json:"runId,omitempty"`
-	VideoCodec                     string `json:"videoCodec,omitempty"`
-	QualityMode                    string `json:"qualityMode,omitempty"`
-	CRF                            int    `json:"crf,omitempty"`
-	BitrateKbps                    int    `json:"bitrateKbps,omitempty"`
-	Preset                         string `json:"preset,omitempty"`
-	AudioCodec                     string `json:"audioCodec,omitempty"`
-	AudioBitrateKbps               int    `json:"audioBitrateKbps,omitempty"`
-	Scale                          string `json:"scale,omitempty"`
-	Width                          int    `json:"width,omitempty"`
-	Height                         int    `json:"height,omitempty"`
-	DeleteSourceFileAfterTranscode bool   `json:"deleteSourceFileAfterTranscode,omitempty"`
+	FileID                         string   `json:"fileId,omitempty"`
+	InputPath                      string   `json:"inputPath,omitempty"`
+	LibraryID                      string   `json:"libraryId,omitempty"`
+	RootFileID                     string   `json:"rootFileId,omitempty"`
+	PresetID                       string   `json:"presetId,omitempty"`
+	Format                         string   `json:"format,omitempty"`
+	Title                          string   `json:"title"`
+	Author                         string   `json:"author,omitempty"`
+	Extractor                      string   `json:"extractor,omitempty"`
+	CoverPath                      string   `json:"coverPath,omitempty"`
+	SubtitlePaths                  []string `json:"subtitlePaths,omitempty"`
+	Source                         string   `json:"source,omitempty"`
+	SessionKey                     string   `json:"sessionKey,omitempty"`
+	RunID                          string   `json:"runId,omitempty"`
+	VideoCodec                     string   `json:"videoCodec,omitempty"`
+	QualityMode                    string   `json:"qualityMode,omitempty"`
+	CRF                            int      `json:"crf,omitempty"`
+	BitrateKbps                    int      `json:"bitrateKbps,omitempty"`
+	Preset                         string   `json:"preset,omitempty"`
+	AudioCodec                     string   `json:"audioCodec,omitempty"`
+	AudioBitrateKbps               int      `json:"audioBitrateKbps,omitempty"`
+	Scale                          string   `json:"scale,omitempty"`
+	Width                          int      `json:"width,omitempty"`
+	Height                         int      `json:"height,omitempty"`
+	DeleteSourceFileAfterTranscode bool     `json:"deleteSourceFileAfterTranscode,omitempty"`
 }
 
 type ListTranscodePresetsForDownloadRequest struct {

@@ -148,9 +148,9 @@ export function WindowControls({ platform }: WindowControlsProps) {
           variant="ghost"
           size="icon"
           className={cn(
-            "wails-no-drag h-full w-[var(--app-windows-caption-button-width)] rounded-none border-0 px-0 text-foreground/75 shadow-none",
-            "hover:bg-black/10 hover:text-foreground active:bg-black/15",
-            "dark:hover:bg-white/10 dark:active:bg-white/15",
+            "wails-no-drag h-full w-[var(--app-windows-caption-button-width)] !rounded-none !border-0 !bg-transparent px-0 !text-foreground/75 !shadow-none",
+            "hover:!bg-black/10 hover:!text-foreground active:!bg-black/15",
+            "dark:hover:!bg-white/10 dark:active:!bg-white/15",
           )}
           onClick={handleMinimize}
           aria-label={minimizeLabel}
@@ -162,9 +162,9 @@ export function WindowControls({ platform }: WindowControlsProps) {
           variant="ghost"
           size="icon"
           className={cn(
-            "wails-no-drag h-full w-[var(--app-windows-caption-button-width)] rounded-none border-0 px-0 text-foreground/75 shadow-none",
-            "hover:bg-black/10 hover:text-foreground active:bg-black/15",
-            "dark:hover:bg-white/10 dark:active:bg-white/15",
+            "wails-no-drag h-full w-[var(--app-windows-caption-button-width)] !rounded-none !border-0 !bg-transparent px-0 !text-foreground/75 !shadow-none",
+            "hover:!bg-black/10 hover:!text-foreground active:!bg-black/15",
+            "dark:hover:!bg-white/10 dark:active:!bg-white/15",
           )}
           onClick={handleToggleMaximize}
           aria-label={isMaximised ? restoreLabel : maximizeLabel}
@@ -176,8 +176,8 @@ export function WindowControls({ platform }: WindowControlsProps) {
           variant="ghost"
           size="icon"
           className={cn(
-            "wails-no-drag h-full w-[var(--app-windows-caption-button-width)] rounded-none border-0 px-0 text-foreground/75 shadow-none",
-            "hover:bg-[#e81123] hover:text-white active:bg-[#c50f1f]",
+            "wails-no-drag h-full w-[var(--app-windows-caption-button-width)] !rounded-none !border-0 !bg-transparent px-0 !text-foreground/75 !shadow-none",
+            "hover:!bg-[#e81123] hover:!text-white active:!bg-[#c50f1f]",
           )}
           onClick={handleClose}
           aria-label={closeLabel}

@@ -22,6 +22,8 @@ type mediaProbe struct {
 	AudioCodec       string
 	HasVideo         bool
 	HasAudio         bool
+	AttachedPicCount int
+	SubtitleStreams  []mediaProbeSubtitleStream
 	StreamInfo       bool
 	DurationMs       int64
 	Width            int
@@ -35,12 +37,19 @@ type mediaProbe struct {
 	DPI              int
 }
 
+type mediaProbeSubtitleStream struct {
+	Index    int
+	Codec    string
+	Language string
+}
+
 type ffprobePayload struct {
 	Streams []ffprobeStream `json:"streams"`
 	Format  ffprobeFormat   `json:"format"`
 }
 
 type ffprobeStream struct {
+	Index        int                `json:"index"`
 	CodecType    string             `json:"codec_type"`
 	CodecName    string             `json:"codec_name"`
 	Width        int                `json:"width"`
@@ -217,7 +226,7 @@ func (service *LibraryService) ffprobeLocalMedia(ctx context.Context, path strin
 	command := exec.CommandContext(ctx, execPath,
 		"-v", "error",
 		"-print_format", "json",
-		"-show_entries", "stream=codec_type,codec_name,width,height,channels,avg_frame_rate,r_frame_rate,bit_rate,disposition:format=format_name,duration,size,bit_rate",
+		"-show_entries", "stream=index,codec_type,codec_name,width,height,channels,avg_frame_rate,r_frame_rate,bit_rate,disposition,tags:format=format_name,duration,size,bit_rate",
 		"-show_streams",
 		"-show_format",
 		strings.TrimSpace(path),
@@ -252,6 +261,7 @@ func parseFFprobeMediaProbe(output []byte, path string) (mediaProbe, error) {
 		switch strings.ToLower(strings.TrimSpace(stream.CodecType)) {
 		case "video":
 			if stream.Disposition.AttachedPic > 0 {
+				result.AttachedPicCount++
 				continue
 			}
 			result.HasVideo = true
@@ -287,6 +297,12 @@ func parseFFprobeMediaProbe(output []byte, path string) (mediaProbe, error) {
 			if result.AudioBitrateKbps == 0 {
 				result.AudioBitrateKbps = parseFFprobeBitrateKbps(stream.BitRate)
 			}
+		case "subtitle":
+			result.SubtitleStreams = append(result.SubtitleStreams, mediaProbeSubtitleStream{
+				Index:    stream.Index,
+				Codec:    normalizeTranscodeFormat(stream.CodecName),
+				Language: strings.TrimSpace(stream.Tags["language"]),
+			})
 		}
 	}
 	if result.Codec == "" {
@@ -318,6 +334,8 @@ func mergeMediaProbe(base mediaProbe, override mediaProbe) mediaProbe {
 		result.StreamInfo = true
 		result.HasAudio = override.HasAudio
 		result.HasVideo = override.HasVideo
+		result.AttachedPicCount = override.AttachedPicCount
+		result.SubtitleStreams = append([]mediaProbeSubtitleStream(nil), override.SubtitleStreams...)
 		if !override.HasAudio {
 			result.AudioCodec = ""
 			result.AudioBitrateKbps = 0

@@ -100,7 +100,7 @@ export function SettingsRow({
       )}
       {...props}
     >
-      <div className={cn("min-w-0", description ? "space-y-1" : null)}>
+      <div className={cn("min-w-0 flex-auto overflow-hidden", description ? "space-y-1" : null)}>
         <div className={cn(SETTINGS_ROW_LABEL_CLASS, labelClassName)}>
           {label}
         </div>

@@ -87,12 +87,6 @@ func (repo *SQLiteStateRepository) RecordSessionSummary(ctx context.Context, end
 	return state, err
 }
 
-func (repo *SQLiteStateRepository) MarkFirstChatCompleted(ctx context.Context, at time.Time) (apptelemetry.State, bool, error) {
-	return repo.markFirstTime(ctx, at, func(row *telemetryStateRow) *sql.NullTime {
-		return &row.FirstChatCompletedAt
-	})
-}
-
 func (repo *SQLiteStateRepository) MarkFirstLibraryCompleted(ctx context.Context, at time.Time) (apptelemetry.State, bool, error) {
 	return repo.markFirstTime(ctx, at, func(row *telemetryStateRow) *sql.NullTime {
 		return &row.FirstLibraryCompletedAt
@@ -183,7 +177,6 @@ func toState(row telemetryStateRow) apptelemetry.State {
 		CompletedSessionCount:     row.CompletedSessionCount,
 		TotalSessionSeconds:       row.TotalSessionSeconds,
 		PreviousSessionSeconds:    nullFloatPtr(row.PreviousSessionSeconds),
-		FirstChatCompletedAt:      nullTimePtr(row.FirstChatCompletedAt),
 		FirstLibraryCompletedAt:   nullTimePtr(row.FirstLibraryCompletedAt),
 	}
 }

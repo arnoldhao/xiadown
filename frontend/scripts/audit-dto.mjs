@@ -18,7 +18,7 @@ const generatedContractPairs = [
   ["dependencies", "dependencies.ts"],
   ["library", "library.ts"],
   ["settings", "settings.ts"],
-  ["sprites", "sprites.ts"],
+  ["pets", "pets.ts"],
 ];
 
 async function collectFiles(root) {

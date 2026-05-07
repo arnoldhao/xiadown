@@ -75,11 +75,11 @@ export function clampProgress(value: number | undefined) {
 export function resolveDependencyTone(status?: string) {
   switch ((status ?? "").trim().toLowerCase()) {
     case "installed":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+      return "app-dependency-status-badge-installed";
     case "invalid":
-      return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200";
+      return "app-dependency-status-badge-invalid";
     default:
-      return "border-primary/20 bg-primary/10 text-primary";
+      return "app-dependency-status-badge-missing";
   }
 }
 
@@ -118,16 +118,14 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[24px] border bg-card shadow-sm",
-        hasMissingDependencies
-          ? "border-primary/18 ring-1 ring-primary/10"
-          : "border-border/70",
+        "app-dependency-repair-card",
+        hasMissingDependencies && "app-dependency-repair-card-needed",
       )}
     >
       <div className="space-y-4 p-5 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary/18 bg-primary/10 text-primary">
+            <div className="app-dependency-repair-icon flex h-10 w-10 shrink-0 items-center justify-center">
               <Wrench className="h-3.5 w-3.5" />
             </div>
             <div className="min-w-0 space-y-1.5">
@@ -141,10 +139,10 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
           </div>
           <Badge
             className={cn(
-              "w-fit shrink-0 border",
+              "w-fit shrink-0",
               hasMissingDependencies
-                ? "border-primary/20 bg-primary/10 text-primary"
-                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200",
+                ? "app-dream-status-badge-primary"
+                : "app-dream-status-badge-success",
             )}
           >
             {hasMissingDependencies
@@ -165,12 +163,8 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
             return (
               <div
                 key={item.name}
-                className={cn(
-                  "rounded-2xl border px-4 py-3 shadow-sm",
-                  isInstalling
-                    ? "border-primary/20 bg-primary/[0.05]"
-                    : "border-border/70 bg-background/80",
-                )}
+                className="app-dependency-item px-4 py-3"
+                data-installing={isInstalling ? "true" : undefined}
               >
                 <div className="flex min-w-0 items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -199,9 +193,9 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
 
                 {isInstalling ? (
                   <div className="mt-3 space-y-1.5">
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div className="app-dream-progress-track h-2 w-full">
                       <div
-                        className="h-full bg-primary transition-[width]"
+                        className="app-dream-progress-value"
                         style={{ width: `${installProgress}%` }}
                       />
                     </div>

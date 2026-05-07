@@ -21,14 +21,14 @@ RefreshCcw,
 RefreshCw,
 Sun,
 Twitter,
-WandSparkles,
 Wrench,
+PawPrint,
 } from "lucide-react";
 import * as React from "react";
 
 import { ACCENT_SWATCHES,CORE_DEPENDENCY_ORDER,DependencySettingsItem,InlineSwitch,SYSTEM_THEME_COLOR,TabButton,formatHostPort,normalizeProxy,parseNoProxy,previewFontStack,resetProxyTestState,resolveAccentColor,resolveTabFromSection,resolveThemeColorPreview,resolveThemeColorSelection } from "@/app/settings/settings-helpers";
 import { WindowControls } from "@/components/layout/WindowControls";
-import { SpritesSection } from "@/features/settings/sprites";
+import { PetsSection } from "@/features/settings/pets";
 import { getXiaText } from "@/features/xiadown/shared";
 import {
 XIA_THEME_PACKS,
@@ -251,12 +251,12 @@ export function SettingsApp() {
   })();
   const latestUpdateBadgeClass = (() => {
     if (showLatestAppUpdate) {
-      return "border-primary/20 bg-primary/10 text-primary";
+      return "app-dream-status-badge-primary";
     }
     if (isUpdateError) {
-      return "border-destructive/20 bg-destructive/10 text-destructive";
+      return "app-dream-status-badge-danger";
     }
-    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-900/40 dark:text-emerald-100";
+    return "app-dream-status-badge-success";
   })();
   const latestUpdateBadgeIcon = (() => {
     if (showLatestAppUpdate) {
@@ -439,13 +439,12 @@ export function SettingsApp() {
   }
 
   const tabs: Array<{ id: XiaSettingsTabId; label: string; icon: React.ReactNode }> = [
-    { id: "general", label: text.settings.tabs.general, icon: <Cog className="h-7 w-7" /> },
-    { id: "appearance", label: text.settings.tabs.appearance, icon: <Palette className="h-7 w-7" /> },
-    { id: "sprites", label: text.settings.tabs.sprites, icon: <WandSparkles className="h-7 w-7" /> },
-    { id: "dependencies", label: text.settings.tabs.dependencies, icon: <Wrench className="h-7 w-7" /> },
-    { id: "about", label: text.settings.tabs.about, icon: <Info className="h-7 w-7" /> },
+    { id: "general", label: text.settings.tabs.general, icon: <Cog className="h-[26px] w-[26px]" /> },
+    { id: "appearance", label: text.settings.tabs.appearance, icon: <Palette className="h-[26px] w-[26px]" /> },
+    { id: "pets", label: text.settings.tabs.pets, icon: <PawPrint className="h-[26px] w-[26px]" /> },
+    { id: "dependencies", label: text.settings.tabs.dependencies, icon: <Wrench className="h-[26px] w-[26px]" /> },
+    { id: "about", label: text.settings.tabs.about, icon: <Info className="h-[26px] w-[26px]" /> },
   ];
-  const activeTabMeta = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const fontOptions = fontFamilies;
   const selectedFont = fontFamilyDraft.trim();
   const hasSelectedFontInList = selectedFont.length === 0 || fontOptions.includes(selectedFont);
@@ -479,12 +478,12 @@ export function SettingsApp() {
   const hasStatusAddress = statusAddress !== "";
   const statusKey = hasStatusAddress ? `${statusMode}:${statusAddress}` : "";
   const showSystemSourceBadge = statusMode === "system" && Boolean(systemSourceLabel);
-  const statusDotClass =
+  const statusDotValue =
     proxyCheckStatus === "available"
-      ? "bg-emerald-500"
+      ? "available"
       : proxyCheckStatus === "unavailable"
-        ? "bg-destructive"
-        : "bg-muted-foreground/40";
+        ? "unavailable"
+        : "idle";
   const isChecking = proxyCheckStatus === "checking" && proxyCheckKey === statusKey;
   const showRefreshButton = statusMode === "system" || hasStatusAddress;
   const isStatusRefreshing = statusMode === "system" ? systemProxyQuery.isFetching || isChecking : isChecking;
@@ -496,8 +495,25 @@ export function SettingsApp() {
       ? proxyDraft.testMessage
       : "";
   const manualProxyReady = proxyDraft.mode === "manual" && proxyDraft.host.trim() !== "" && proxyDraft.port > 0;
-  const appearanceSelectionColor = appearanceDraft.accentMode === "color" ? selectedThemeColorPreview : activeThemePack.preview.accent;
-  const appearanceSelectionShadow = `0 0 0 1px hsl(var(--border)), 0 0 0 3px ${appearanceSelectionColor}`;
+  const activeSegmentStyle: React.CSSProperties = {
+    backgroundColor: "hsl(var(--primary) / 0.13)",
+    color: "hsl(var(--primary))",
+    boxShadow: "inset 0 0 0 1px hsl(var(--primary) / 0.14)",
+  };
+  const dreamApps = [
+    {
+      name: text.about.dreamCreator,
+      description: text.about.dreamCreatorDescription,
+      url: "https://dreamcreator.dreamapp.cc/",
+      iconSrc: "/dreamcreator.png",
+    },
+    {
+      name: text.about.hush,
+      description: text.about.hushDescription,
+      url: "https://dreamapp.cc/",
+      iconSrc: "/hush.png",
+    },
+  ];
   const runProxyStatusCheck = React.useCallback(
     async (mode: ProxySettings["mode"], address: string) => {
       if (mode === "none" || !address) {
@@ -577,8 +593,8 @@ export function SettingsApp() {
 
   const proxySettingsCard = (
     <SettingsCompactListCard>
-      <SettingsCompactRow label={text.settings.proxy}>
-        <div className="flex flex-wrap items-center gap-2">
+      <SettingsCompactRow label={text.settings.proxy} contentClassName="min-w-0">
+        <div className="grid min-w-0 max-w-full grid-cols-3 gap-2">
           {([
             { value: "none", label: text.settings.noProxy },
             { value: "system", label: text.settings.systemProxy },
@@ -589,10 +605,11 @@ export function SettingsApp() {
               type="button"
               variant="outline"
               size="compact"
+              className="min-w-0 px-2"
               onClick={() => handleProxyModeChange(option.value)}
-              style={proxyDraft.mode === option.value ? { boxShadow: "0 0 0 1px hsl(var(--border)), 0 0 0 3px hsl(var(--primary))" } : undefined}
+              style={proxyDraft.mode === option.value ? activeSegmentStyle : undefined}
             >
-              {option.label}
+              <span className="min-w-0 truncate">{option.label}</span>
             </Button>
           ))}
         </div>
@@ -605,16 +622,16 @@ export function SettingsApp() {
           <SettingsCompactRow label={text.settings.status} contentClassName="min-w-0">
             <div className="flex min-w-0 items-center justify-end gap-2">
               {showSystemSourceBadge ? (
-                <span className="inline-flex h-7 items-center rounded-md bg-primary px-2 text-xs text-primary-foreground">
+                <span className="app-settings-status-badge shrink-0">
                   {systemSourceLabel}
                 </span>
               ) : null}
-              <span className="max-w-[260px] truncate text-right font-mono text-xs text-muted-foreground">
+              <span className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono">
                 {statusAddressDisplay}
               </span>
               {hasStatusAddress ? (
                 <span className="inline-flex items-center">
-                  <span className={cn("h-2 w-2 rounded-full", statusDotClass, isChecking ? "animate-pulse" : "")} aria-hidden="true" />
+                <span className={cn("app-settings-status-dot h-2 w-2 rounded-full", isChecking ? "animate-pulse" : "")} data-status={statusDotValue} aria-hidden="true" />
                 </span>
               ) : null}
               {showRefreshButton ? (
@@ -622,6 +639,7 @@ export function SettingsApp() {
                   type="button"
                   variant="outline"
                   size="compactIcon"
+                  className="shrink-0"
                   disabled={isStatusRefreshing}
                   onClick={() => void handleProxyStatusRefresh()}
                   title={text.actions.testProxy}
@@ -635,6 +653,7 @@ export function SettingsApp() {
                   type="button"
                   variant="outline"
                   size="compactIcon"
+                  className="shrink-0"
                   onClick={() => setProxyDialogOpen(true)}
                   title={text.settings.editProxy}
                   aria-label={text.settings.editProxy}
@@ -710,23 +729,22 @@ export function SettingsApp() {
           </div>
           <div className="flex flex-col gap-2 pt-2">
             {proxyTestFeedback ? (
-              <div className={cn("overflow-hidden break-words text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]", !proxyDraft.testSuccess ? "text-destructive" : "text-muted-foreground")}>
+              <div className="app-dream-status-message overflow-hidden break-words px-3 py-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]" data-intent={!proxyDraft.testSuccess ? "danger" : "success"}>
                 {proxyTestFeedback}
               </div>
             ) : null}
-            <div className="flex flex-nowrap items-center justify-between gap-2">
+            <div className="app-dialog-footer flex flex-nowrap items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
-                <Button size="compact" variant="destructive" disabled={testProxy.isPending || updateSettings.isPending} onClick={() => void handleProxyClear()}>
+                <Button variant="destructive" disabled={testProxy.isPending || updateSettings.isPending} onClick={() => void handleProxyClear()}>
                   {text.actions.clear}
                 </Button>
                 <DialogClose asChild>
-                  <Button size="compact" variant="outline">
+                  <Button variant="outline">
                     {text.actions.close}
                   </Button>
                 </DialogClose>
               </div>
               <Button
-                size="compact"
                 variant={proxyDraft.testSuccess ? "secondary" : "outline"}
                 disabled={!manualProxyReady || testProxy.isPending || updateSettings.isPending}
                 onClick={() => void handleProxyTestAndSave()}
@@ -757,11 +775,11 @@ export function SettingsApp() {
   }, [hasStatusAddress, proxyCheckKey, proxyCheckStatus, runProxyStatusCheck, statusAddress, statusKey, statusMode]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <header className="border-b border-border/70 bg-background/88 backdrop-blur-xl">
+    <div className="app-dream-window flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <header className="app-dream-header">
         <div
           className={cn(
-            "wails-drag grid h-[var(--app-titlebar-height)] items-center px-4",
+            "wails-drag grid h-[52px] items-center px-4",
             isWindows
               ? "grid-cols-[minmax(var(--app-windows-caption-control-width),1fr)_auto_minmax(var(--app-windows-caption-control-width),1fr)]"
               : "grid-cols-[1fr_auto_1fr]",
@@ -771,21 +789,21 @@ export function SettingsApp() {
             {isMac ? <div className="h-4 w-[var(--app-macos-traffic-lights-gap)]" /> : null}
           </div>
 
-          <div className="min-w-0 px-3 text-center text-sm font-semibold text-foreground">{activeTabMeta.label}</div>
+          <div aria-hidden="true" />
 
           <div className="justify-self-end">
             {isWindows ? <WindowControls platform="windows" /> : null}
           </div>
         </div>
 
-        <div className="-mt-1 flex flex-wrap items-center justify-center gap-px px-4 pb-4 pt-0">
+        <div className="app-dream-tabs-bar -mt-1 flex flex-wrap items-center justify-center px-4 pt-0">
           {tabs.map((tab) => (
             <TabButton key={tab.id} id={tab.id} label={tab.label} icon={tab.icon} active={activeTab === tab.id} onClick={setActiveTab} />
           ))}
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-auto px-5 py-5">
+      <div className="app-dream-content min-h-0 flex-1 overflow-auto">
         <div className="mx-auto max-w-4xl space-y-6">
           {activeTab === "general" ? (
             <>
@@ -841,13 +859,14 @@ export function SettingsApp() {
               <SettingsCompactListCard>
                 <SettingsCompactRow label={text.settings.downloadDirectory} contentClassName="min-w-0">
                   <div className="flex min-w-0 items-center justify-end gap-2">
-                    <span className="max-w-[260px] truncate text-right font-mono text-xs text-muted-foreground">
+                    <span className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono">
                       {currentSettings?.downloadDirectory ?? ""}
                     </span>
                     <Button
                       type="button"
                       variant="outline"
                       size="compactIcon"
+                      className="shrink-0"
                       onClick={() => void chooseDownloadDir()}
                       disabled={selectDownloadDirectory.isPending}
                       title={text.actions.chooseFolder}
@@ -860,6 +879,7 @@ export function SettingsApp() {
                         type="button"
                         variant="outline"
                         size="compactIcon"
+                        className="shrink-0"
                         onClick={() => void openLibraryPath.mutateAsync({ path: currentSettings?.downloadDirectory ?? "" })}
                         title={text.actions.open}
                         aria-label={text.actions.open}
@@ -913,14 +933,12 @@ export function SettingsApp() {
                             <button
                               type="button"
                               onClick={() => void saveAppearancePatch({ themePackId: pack.id })}
-                              className={cn(
-                                "app-motion-surface flex h-10 min-w-0 items-center gap-2 overflow-hidden rounded-lg border px-2 text-left",
-                                active ? "border-transparent bg-accent/55" : "border-border/70 bg-background/70 hover:bg-accent/35",
-                              )}
-                              style={active ? { boxShadow: appearanceSelectionShadow } : undefined}
+                              className="app-settings-theme-pack-button app-motion-surface flex h-11 min-w-0 items-center gap-2 overflow-hidden px-2 text-left"
+                              data-active={active ? "true" : undefined}
+                              style={active ? activeSegmentStyle : undefined}
                             >
                               <span
-                                className="grid h-6 w-11 shrink-0 grid-cols-[1.15fr_1fr_0.8fr] overflow-hidden rounded-md border border-black/8 bg-black/5"
+                                className="app-settings-theme-preview grid h-6 w-11 shrink-0 grid-cols-[1.15fr_1fr_0.8fr] overflow-hidden"
                                 aria-hidden="true"
                               >
                                 <span style={{ backgroundColor: pack.preview.shell }} />
@@ -942,7 +960,7 @@ export function SettingsApp() {
 
               <SettingsCompactListCard>
                 <SettingsCompactRow label={text.settings.appearanceMode}>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid min-w-0 max-w-full grid-cols-3 gap-2">
                     {[
                       { value: "light", label: text.common.light, icon: <Sun className="h-4 w-4" /> },
                       { value: "dark", label: text.common.dark, icon: <Moon className="h-4 w-4" /> },
@@ -953,16 +971,12 @@ export function SettingsApp() {
                         type="button"
                         variant="outline"
                         size="compact"
-                        className={cn("text-[11px]", (currentSettings?.appearance ?? "auto") === item.value ? "border-transparent" : "")}
+                        className={cn("min-w-0 px-2 text-[11px]", (currentSettings?.appearance ?? "auto") === item.value ? "border-transparent" : "")}
                         onClick={() => void saveSettingsPatch({ appearance: item.value as "auto" | "light" | "dark" })}
-                        style={
-                          currentSettings?.appearance === item.value
-                            ? { boxShadow: appearanceSelectionShadow }
-                            : undefined
-                        }
+                        style={currentSettings?.appearance === item.value ? activeSegmentStyle : undefined}
                       >
-                        {item.icon}
-                        {item.label}
+                        <span className="shrink-0">{item.icon}</span>
+                        <span className="min-w-0 truncate">{item.label}</span>
                       </Button>
                     ))}
                   </div>
@@ -971,7 +985,7 @@ export function SettingsApp() {
                 <SettingsCompactSeparator />
 
                 <SettingsCompactRow label={text.settings.accent}>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid min-w-0 max-w-full grid-cols-2 gap-2">
                     {([
                       { value: "theme", label: text.settings.accentOptions.theme },
                       { value: "color", label: text.settings.accentOptions.color },
@@ -981,11 +995,11 @@ export function SettingsApp() {
                         type="button"
                         variant="outline"
                         size="compact"
-                        className={cn("text-[11px]", appearanceDraft.accentMode === option.value ? "border-transparent" : "")}
+                        className={cn("min-w-0 px-2 text-[11px]", appearanceDraft.accentMode === option.value ? "border-transparent" : "")}
                         onClick={() => void saveAccentMode(option.value)}
-                        style={appearanceDraft.accentMode === option.value ? { boxShadow: appearanceSelectionShadow } : undefined}
+                        style={appearanceDraft.accentMode === option.value ? activeSegmentStyle : undefined}
                       >
-                        {option.label}
+                        <span className="min-w-0 truncate">{option.label}</span>
                       </Button>
                     ))}
                   </div>
@@ -997,7 +1011,7 @@ export function SettingsApp() {
 
                     <SettingsCompactRow label={text.settings.accentColor}>
                       <TooltipProvider delayDuration={0}>
-                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2 overflow-hidden">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
@@ -1006,10 +1020,8 @@ export function SettingsApp() {
                                   setThemeColorDraft(SYSTEM_THEME_COLOR);
                                   void saveSettingsPatch({ themeColor: SYSTEM_THEME_COLOR });
                                 }}
-                                className={cn(
-                                  "flex h-4 w-4 items-center justify-center rounded-full border transition hover:shadow-sm",
-                                  usesSystemAccentColor ? "border-transparent" : "border-border",
-                                )}
+                                className="app-settings-swatch flex h-4 w-4 items-center justify-center transition"
+                                data-active={usesSystemAccentColor ? "true" : undefined}
                                 style={
                                   usesSystemAccentColor
                                     ? { boxShadow: `0 0 0 1px hsl(var(--border)), 0 0 0 3px ${selectedThemeColorPreview}` }
@@ -1037,7 +1049,8 @@ export function SettingsApp() {
                                       setThemeColorDraft(color.value);
                                       void saveSettingsPatch({ themeColor: color.value });
                                     }}
-                                    className={cn("flex h-4 w-4 items-center justify-center rounded-full border transition hover:shadow-sm", active ? "border-transparent" : "border-border")}
+                                    className="app-settings-swatch flex h-4 w-4 items-center justify-center transition"
+                                    data-active={active ? "true" : undefined}
                                     style={active ? { boxShadow: `0 0 0 1px hsl(var(--border)), 0 0 0 3px ${color.value}` } : undefined}
                                     aria-label={text.common.colorOptions[color.id]}
                                   >
@@ -1058,7 +1071,7 @@ export function SettingsApp() {
                                   setThemeColorDraft(event.target.value);
                                   void saveSettingsPatch({ themeColor: event.target.value });
                                 }}
-                                className="h-4 w-4 cursor-pointer rounded-full border border-input bg-transparent p-0"
+                                className="app-settings-swatch h-4 w-4 cursor-pointer bg-transparent p-0"
                                 aria-label={text.common.customColor}
                               />
                             </TooltipTrigger>
@@ -1119,8 +1132,8 @@ export function SettingsApp() {
             </div>
           ) : null}
 
-          {activeTab === "sprites" ? (
-            <SpritesSection settings={currentSettings} text={text} saveSettingsPatch={saveSettingsPatch} />
+          {activeTab === "pets" ? (
+            <PetsSection settings={currentSettings} text={text} saveSettingsPatch={saveSettingsPatch} />
           ) : null}
 
           {activeTab === "dependencies" ? (
@@ -1140,7 +1153,7 @@ export function SettingsApp() {
           {activeTab === "about" ? (
             <div className="space-y-6">
               <div className="flex flex-col items-center gap-2 text-center">
-                <img src="/appicon.png" alt={text.appName} className="h-16 w-16 rounded-lg shadow-sm" />
+                <img src="/appicon.png" alt={text.appName} className="app-settings-app-icon h-16 w-16" />
                 <div className="text-lg font-semibold text-foreground">{text.appName}</div>
               </div>
 
@@ -1153,7 +1166,7 @@ export function SettingsApp() {
 
                 <SettingsCompactRow label={text.about.latestVersion}>
                   <div className="flex min-w-0 items-center justify-end">
-                    <Badge variant="outline" className={cn("gap-1 border text-sm font-medium", latestUpdateBadgeClass)}>
+                    <Badge variant="outline" className={cn("gap-1 text-sm font-medium", latestUpdateBadgeClass)}>
                       {React.createElement(latestUpdateBadgeIcon, { className: "h-3.5 w-3.5" })}
                       {latestUpdateLabel}
                     </Badge>
@@ -1247,9 +1260,9 @@ export function SettingsApp() {
                     <SettingsCompactRow label={text.about.status}>
                       {isDownloadingUpdate ? (
                         <div className="w-[220px] max-w-full space-y-1.5">
-                          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                          <div className="app-dream-progress-track h-2 w-full">
                             <div
-                              className="h-full bg-primary transition-[width]"
+                              className="app-dream-progress-value"
                               style={{ width: `${Math.min(Math.max(updateInfo.progress, 0), 100)}%` }}
                             />
                           </div>
@@ -1364,20 +1377,35 @@ export function SettingsApp() {
               </SettingsCompactListCard>
 
               <div className="space-y-2">
-                <div className="pl-3 text-sm font-bold text-foreground">{text.settings.otherSoftware}</div>
-                <SettingsCompactListCard contentClassName="p-3">
-                  <div className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-input bg-background px-3 py-2.5 shadow-sm">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <img src="/dreamcreator.png" alt="" className="h-10 w-10 shrink-0 rounded-lg shadow-sm" />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-foreground">{text.about.dreamCreator}</div>
-                        <div className="truncate text-xs text-muted-foreground">{text.about.dreamCreatorDescription}</div>
+                <div className="app-settings-dream-app-title">{text.settings.otherSoftware}</div>
+                <SettingsCompactListCard contentClassName="app-settings-dream-app-card">
+                  {dreamApps.map((app, index) => (
+                    <div
+                      key={app.name}
+                      className={cn(
+                        "app-settings-dream-app-item",
+                        index > 0 ? "app-settings-dream-app-item-bordered" : "",
+                      )}
+                    >
+                      <div className="app-settings-dream-app-icon" aria-hidden="true">
+                        <img src={app.iconSrc} alt="" />
                       </div>
+                      <div className="app-settings-dream-app-text">
+                        <div className="app-settings-dream-app-name">{app.name}</div>
+                        <div className="app-settings-dream-app-description">{app.description}</div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="compact"
+                        className="app-settings-dream-app-link"
+                        onClick={() => openExternalURL(app.url)}
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        {text.about.website}
+                      </Button>
                     </div>
-                    <Button type="button" variant="outline" size="compact" onClick={() => openExternalURL("https://dreamcreator.dreamapp.cc/")}>
-                      {text.about.website}
-                    </Button>
-                  </div>
+                  ))}
                 </SettingsCompactListCard>
               </div>
             </div>
@@ -1397,7 +1425,7 @@ export function SettingsApp() {
           <div className="min-h-0 overflow-y-auto pr-1">
             <DialogMarkdown content={releaseNotes} className="max-h-none overflow-visible" />
           </div>
-          <DialogFooter className="shrink-0">
+          <DialogFooter className="shrink-0 items-end sm:items-center">
             <Button type="button" variant="ghost" size="compact" onClick={() => setReleaseNotesOpen(false)}>
               {text.about.releaseNotesClose}
             </Button>

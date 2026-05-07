@@ -159,6 +159,7 @@ describe("TelemetryManager", () => {
     const metadata = body.payload as Record<string, unknown>;
 
     expect(body.type).toBe("XiaDown.Session.summaryRecorded");
+    expect(body.clientUser).toBe("dbdacfba94e13158e2a06038e42c25809d989956e96a08bc836e0d164b420eae");
     expect(body.sessionID).toBe("session-1");
     expect(body.isTestMode).toBe(true);
     expect(body.floatValue).toBe(600);

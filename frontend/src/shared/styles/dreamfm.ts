@@ -31,9 +31,9 @@ export const DREAM_FM_PLAYER_ICON_BUTTON_CLASS =
 export const DREAM_FM_PLAYER_FOOTER_ICON_BUTTON_CLASS =
   "bg-transparent text-sidebar-foreground/55 shadow-none hover:bg-transparent hover:text-sidebar-primary data-[active=true]:bg-transparent data-[active=true]:shadow-none";
 export const DREAM_FM_DROPDOWN_CONTENT_CLASS =
-  "dream-fm-floating-surface dream-fm-dropdown-content w-max min-w-fit max-w-[calc(100vw-2rem)] text-sidebar-foreground";
+  "dream-fm-dropdown-content w-max min-w-fit max-w-[calc(100vw-2rem)]";
 export const DREAM_FM_DROPDOWN_ITEM_CLASS =
-  "dream-fm-dropdown-item w-full gap-2 whitespace-nowrap px-2 py-1.5 text-xs font-medium outline-none hover:bg-sidebar-primary/14 hover:text-sidebar-primary focus:bg-sidebar-primary/14 focus:text-sidebar-primary data-[disabled]:opacity-40";
+  "dream-fm-dropdown-item w-full gap-2 whitespace-nowrap px-2 py-1.5 text-xs font-medium outline-none data-[disabled]:opacity-40";
 export const DREAM_FM_DROPDOWN_ICON_SLOT_CLASS =
   "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-inherit opacity-70";
 

@@ -598,6 +598,10 @@ export interface CreateTranscodeJobRequest {
   presetId?: string
   format?: string
   title?: string
+  author?: string
+  extractor?: string
+  coverPath?: string
+  subtitlePaths?: string[]
   source?: string
   sessionKey?: string
   runId?: string

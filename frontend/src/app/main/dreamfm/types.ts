@@ -2,7 +2,7 @@ import {
 getXiaText
 } from "@/features/xiadown/shared";
 import type { LibraryDTO } from "@/shared/contracts/library";
-import type { Sprite } from "@/shared/contracts/sprites";
+import type { Pet } from "@/shared/contracts/pets";
 
 
 export type DreamFMMode = "live" | "online" | "local";
@@ -427,8 +427,8 @@ export type DreamFMPageProps = {
   text: ReturnType<typeof getXiaText>;
   libraries: LibraryDTO[];
   httpBaseURL: string;
-  sprite: Sprite | null;
-  spriteImageURL: string;
+  pet: Pet | null;
+  petImageURL: string;
   active: boolean;
   className?: string;
   controlCommand?: DreamFMExternalCommand | null;

@@ -23,7 +23,7 @@ const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof BaseDialogOverlay>,
   React.ComponentPropsWithoutRef<typeof BaseDialogOverlay>
 >(({ className, ...props }, ref) => (
-  <BaseDialogOverlay ref={ref} className={cn("backdrop-blur-[1px]", className)} {...props} />
+  <BaseDialogOverlay ref={ref} className={cn("app-dialog-overlay", className)} {...props} />
 ));
 DialogOverlay.displayName = "DialogOverlay";
 
@@ -50,7 +50,7 @@ function DialogFooter({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <BaseDialogFooter className={cn("pt-2", className)} {...props} />;
+  return <BaseDialogFooter className={cn("app-dialog-footer pt-2", className)} {...props} />;
 }
 
 const DialogTitle = React.forwardRef<

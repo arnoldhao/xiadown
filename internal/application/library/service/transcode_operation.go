@@ -176,6 +176,7 @@ func (service *LibraryService) runEmbeddedTranscodeStage(
 	if strings.TrimSpace(sourceFile.LibraryID) == "" {
 		return result, fmt.Errorf("source file is not attached to a library")
 	}
+	request = service.enrichTranscodeRequestForSource(ctx, request, sourceFile)
 
 	probe, err := service.probeRequiredMedia(ctx, sourceFile.Storage.LocalPath)
 	if err != nil {
@@ -320,6 +321,7 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		service.failTranscodeOperation(ctx, operation, request, err)
 		return
 	}
+	request = service.enrichTranscodeRequestForSource(ctx, request, sourceFile)
 	probe, err := service.probeRequiredMedia(ctx, sourceFile.Storage.LocalPath)
 	if err != nil {
 		service.failTranscodeOperation(ctx, operation, request, err)
@@ -893,7 +895,39 @@ func buildFFmpegTranscodeArgs(
 	inputPath string,
 	outputPath string,
 ) ([]string, error) {
+	outputType := plan.outputType
+	container := normalizeContainer(plan.request.Format)
+	audioOutput := outputType == library.TranscodeOutputAudio || isAudioContainer(container)
+	coverInputIndex := -1
+
 	args := []string{"-y", "-i", inputPath}
+	if audioOutput && ffmpegAudioContainerSupportsCover(container) {
+		if coverPath := strings.TrimSpace(plan.request.CoverPath); coverPath != "" {
+			coverInputIndex = 1
+			args = append(args, "-i", coverPath)
+		}
+	}
+
+	subtitleInputIndices := make([]int, 0, len(plan.request.SubtitlePaths))
+	sourceSubtitleMaps := []string{}
+	subtitleCodec := ""
+	if !audioOutput {
+		sourceSubtitleMaps = ffmpegSourceSubtitleMapSpecs(container, plan.sourceProbe)
+		sidecarSubtitlePaths := ffmpegSidecarSubtitlePaths(container, plan.request.SubtitlePaths)
+		if len(sourceSubtitleMaps) > 0 || len(sidecarSubtitlePaths) > 0 {
+			subtitleCodec = ffmpegSubtitleCodecForContainer(container)
+		}
+		nextInputIndex := 1
+		if coverInputIndex >= 0 {
+			nextInputIndex++
+		}
+		for _, subtitlePath := range sidecarSubtitlePaths {
+			subtitleInputIndices = append(subtitleInputIndices, nextInputIndex)
+			args = append(args, "-i", subtitlePath)
+			nextInputIndex++
+		}
+	}
+
 	filters := make([]string, 0, 1)
 	scaleFilter, err := buildFFmpegScaleFilter(plan.request)
 	if err != nil {
@@ -906,10 +940,15 @@ func buildFFmpegTranscodeArgs(
 		args = append(args, "-vf", strings.Join(filters, ","))
 	}
 
-	outputType := plan.outputType
-	container := normalizeContainer(plan.request.Format)
-	if outputType == library.TranscodeOutputAudio || isAudioContainer(container) {
+	if audioOutput {
 		args = append(args, "-map", "0:a:0?", "-vn")
+		if coverInputIndex >= 0 {
+			args = args[:len(args)-1]
+			args = append(args, "-map", fmt.Sprintf("%d:v:0?", coverInputIndex))
+		} else if ffmpegCanPreserveSourceAttachedPicture(plan) {
+			args = args[:len(args)-1]
+			args = append(args, "-map", "0:v:0?")
+		}
 	} else {
 		videoCodec := normalizeVideoCodecName(plan.request.VideoCodec)
 		if videoCodec == "" {
@@ -919,6 +958,12 @@ func buildFFmpegTranscodeArgs(
 			videoCodec = "h264"
 		}
 		args = append(args, "-map", "0:v:0?", "-map", "0:a:0?")
+		for _, mapSpec := range sourceSubtitleMaps {
+			args = append(args, "-map", mapSpec)
+		}
+		for _, inputIndex := range subtitleInputIndices {
+			args = append(args, "-map", fmt.Sprintf("%d:0?", inputIndex))
+		}
 		selectedVideoCodec := ffmpegVideoCodec(videoCodec)
 		args = append(args, "-c:v", selectedVideoCodec)
 		isHardwareVideoCodec := ffmpegIsHardwareVideoCodec(selectedVideoCodec)
@@ -955,12 +1000,161 @@ func buildFFmpegTranscodeArgs(
 			args = append(args, "-b:a", fmt.Sprintf("%dk", plan.request.AudioBitrateKbps))
 		}
 	}
+	if audioOutput && (coverInputIndex >= 0 || ffmpegCanPreserveSourceAttachedPicture(plan)) {
+		args = append(
+			args,
+			"-c:v",
+			ffmpegAudioCoverCodec(container),
+			"-disposition:v:0",
+			"attached_pic",
+			"-metadata:s:v",
+			"title=Album cover",
+			"-metadata:s:v",
+			"comment=Cover (front)",
+		)
+	}
+	if subtitleCodec != "" {
+		args = append(args, "-c:s", subtitleCodec)
+	}
+	args = append(args, "-map_metadata", "0")
+	if ffmpegContainerSupportsChapters(container) {
+		args = append(args, "-map_chapters", "0")
+	}
+	args = appendFFmpegTranscodeMetadataArgs(args, plan.request)
+	if container == "mp3" {
+		args = append(args, "-id3v2_version", "3")
+	}
 	if container == "mp4" || container == "mov" {
 		args = append(args, "-movflags", "+faststart")
 	}
 
 	args = append(args, outputPath)
 	return args, nil
+}
+
+func ffmpegAudioContainerSupportsCover(container string) bool {
+	switch normalizeContainer(container) {
+	case "mp3", "m4a", "flac":
+		return true
+	default:
+		return false
+	}
+}
+
+func ffmpegAudioCoverCodec(container string) string {
+	switch normalizeContainer(container) {
+	case "mp3", "m4a", "flac":
+		return "mjpeg"
+	default:
+		return "copy"
+	}
+}
+
+func ffmpegCanPreserveSourceAttachedPicture(plan transcodePlan) bool {
+	container := normalizeContainer(plan.request.Format)
+	return ffmpegAudioContainerSupportsCover(container) &&
+		plan.sourceProbe.AttachedPicCount > 0 &&
+		!plan.sourceProbe.HasVideo
+}
+
+func ffmpegContainerSupportsChapters(container string) bool {
+	switch normalizeContainer(container) {
+	case "mp4", "mov", "mkv", "mp3", "m4a":
+		return true
+	default:
+		return false
+	}
+}
+
+func appendFFmpegTranscodeMetadataArgs(args []string, request dto.CreateTranscodeJobRequest) []string {
+	if title := strings.TrimSpace(request.Title); title != "" {
+		args = append(args, "-metadata", "title="+title)
+	}
+	if author := strings.TrimSpace(request.Author); author != "" {
+		args = append(args, "-metadata", "artist="+author, "-metadata", "album_artist="+author)
+	}
+	if extractor := strings.TrimSpace(request.Extractor); extractor != "" {
+		args = append(args, "-metadata", "comment=Source: "+extractor)
+	}
+	return args
+}
+
+func ffmpegSubtitleCodecForContainer(container string) string {
+	switch normalizeContainer(container) {
+	case "mkv":
+		return "copy"
+	case "mp4", "mov":
+		return "mov_text"
+	case "webm":
+		return "webvtt"
+	default:
+		return ""
+	}
+}
+
+func ffmpegSourceSubtitleMapSpecs(container string, probe mediaProbe) []string {
+	subtitleCodec := ffmpegSubtitleCodecForContainer(container)
+	if subtitleCodec == "" || len(probe.SubtitleStreams) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(probe.SubtitleStreams))
+	for _, stream := range probe.SubtitleStreams {
+		if !ffmpegSubtitleCodecCanMux(container, stream.Codec) {
+			continue
+		}
+		if stream.Index >= 0 {
+			result = append(result, fmt.Sprintf("0:%d?", stream.Index))
+			continue
+		}
+		result = append(result, "0:s?")
+	}
+	return result
+}
+
+func ffmpegSidecarSubtitlePaths(container string, paths []string) []string {
+	if ffmpegSubtitleCodecForContainer(container) == "" {
+		return nil
+	}
+	result := make([]string, 0, len(paths))
+	for _, path := range paths {
+		resolved := normalizeExistingTranscodeSubtitlePath(path)
+		if resolved == "" {
+			continue
+		}
+		if !ffmpegSubtitleCodecCanMux(container, normalizeFileExtension(resolved)) {
+			continue
+		}
+		result = append(result, resolved)
+	}
+	return dedupePaths(result)
+}
+
+func ffmpegSubtitleCodecCanMux(container string, codec string) bool {
+	normalizedContainer := normalizeContainer(container)
+	normalizedCodec := normalizeSubtitleFormat(codec)
+	if normalizedCodec == "" {
+		normalizedCodec = normalizeTranscodeFormat(codec)
+	}
+	switch normalizedContainer {
+	case "mkv":
+		return true
+	case "mp4", "mov":
+		switch normalizedCodec {
+		case "srt", "subrip", "vtt", "webvtt", "mov_text", "text":
+			return true
+		default:
+			return false
+		}
+	case "webm":
+		switch normalizedCodec {
+		case "vtt", "webvtt":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
 }
 
 func appendVideoCodecQualityArgs(

@@ -48,31 +48,26 @@ type DependencyRow struct {
 	UpdatedAt   time.Time      `bun:"updated_at"`
 }
 
-type SpriteRow struct {
-	bun.BaseModel `bun:"table:sprites"`
+type PetRow struct {
+	bun.BaseModel `bun:"table:pets"`
 
 	ID                string         `bun:"id,pk"`
-	Name              string         `bun:"name"`
+	DisplayName       string         `bun:"display_name"`
 	Description       string         `bun:"description"`
 	FrameCount        int            `bun:"frame_count"`
-	DeprecatedWidth   int            `bun:"frame_width"`
-	DeprecatedHeight  int            `bun:"frame_height"`
 	Columns           int            `bun:"columns"`
 	Rows              int            `bun:"rows"`
-	SpriteFile        string         `bun:"sprite_file"`
-	SpritePath        string         `bun:"sprite_path"`
-	SourceType        string         `bun:"source_type"`
+	CellWidth         int            `bun:"cell_width"`
+	CellHeight        int            `bun:"cell_height"`
+	SpritesheetFile   string         `bun:"spritesheet_file"`
+	SpritesheetPath   string         `bun:"spritesheet_path"`
 	Origin            string         `bun:"origin"`
 	Scope             string         `bun:"scope"`
 	Status            string         `bun:"status"`
 	ValidationMessage sql.NullString `bun:"validation_message"`
 	ImageWidth        int            `bun:"image_width"`
 	ImageHeight       int            `bun:"image_height"`
-	AuthorID          string         `bun:"author_id"`
-	AuthorDisplayName string         `bun:"author_display_name"`
 	CreatedAt         time.Time      `bun:"created_at"`
-	Version           string         `bun:"version"`
-	CoverPNG          []byte         `bun:"cover_png"`
 	UpdatedAt         time.Time      `bun:"updated_at"`
 }
 

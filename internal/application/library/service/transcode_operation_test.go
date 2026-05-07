@@ -80,6 +80,55 @@ func TestBuildFFmpegTranscodeArgsVideoUsesPrimaryStreamsAndFaststart(t *testing.
 	}
 }
 
+func TestBuildFFmpegTranscodeArgsVideoMuxesCompatibleSubtitles(t *testing.T) {
+	tempDir := t.TempDir()
+	subtitlePath := filepath.Join(tempDir, "episode.srt")
+	assPath := filepath.Join(tempDir, "episode.ass")
+	if err := os.WriteFile(subtitlePath, []byte("1\n00:00:00,000 --> 00:00:01,000\nHello\n"), 0o644); err != nil {
+		t.Fatalf("write subtitle: %v", err)
+	}
+	if err := os.WriteFile(assPath, []byte("[Script Info]\n"), 0o644); err != nil {
+		t.Fatalf("write ass subtitle: %v", err)
+	}
+	plan := transcodePlan{
+		request: dto.CreateTranscodeJobRequest{
+			Format:        "mp4",
+			VideoCodec:    "h264",
+			AudioCodec:    "aac",
+			SubtitlePaths: []string{subtitlePath, assPath},
+		},
+		outputType: library.TranscodeOutputVideo,
+		sourceProbe: mediaProbe{
+			SubtitleStreams: []mediaProbeSubtitleStream{
+				{Index: 2, Codec: "subrip"},
+				{Index: 3, Codec: "ass"},
+			},
+		},
+	}
+
+	args, err := buildFFmpegTranscodeArgs(plan, "/tmp/input.mkv", "/tmp/output.mp4")
+	if err != nil {
+		t.Fatalf("buildFFmpegTranscodeArgs returned error: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-i "+subtitlePath) {
+		t.Fatalf("expected compatible sidecar subtitle input, got %q", joined)
+	}
+	if strings.Contains(joined, "-i "+assPath) {
+		t.Fatalf("expected incompatible mp4 sidecar subtitle to be skipped, got %q", joined)
+	}
+	if !strings.Contains(joined, "-map 0:2?") {
+		t.Fatalf("expected compatible source subtitle stream to be mapped, got %q", joined)
+	}
+	if strings.Contains(joined, "-map 0:3?") {
+		t.Fatalf("expected incompatible source subtitle stream to be skipped, got %q", joined)
+	}
+	if !strings.Contains(joined, "-map 1:0?") || !strings.Contains(joined, "-c:s mov_text") {
+		t.Fatalf("expected mp4 subtitles to be converted to mov_text, got %q", joined)
+	}
+}
+
 func TestBuildFFmpegTranscodeArgsAudioOutputDisablesVideo(t *testing.T) {
 	plan := transcodePlan{
 		request: dto.CreateTranscodeJobRequest{
@@ -99,6 +148,74 @@ func TestBuildFFmpegTranscodeArgsAudioOutputDisablesVideo(t *testing.T) {
 	}
 	if !strings.Contains(joined, "-c:a libmp3lame") {
 		t.Fatalf("expected default mp3 audio codec, got %q", joined)
+	}
+}
+
+func TestBuildFFmpegTranscodeArgsAudioOutputEmbedsCoverWhenAvailable(t *testing.T) {
+	coverPath := filepath.Join(t.TempDir(), "cover.jpg")
+	if err := os.WriteFile(coverPath, []byte("fake-jpg"), 0o644); err != nil {
+		t.Fatalf("write cover: %v", err)
+	}
+	plan := transcodePlan{
+		request: dto.CreateTranscodeJobRequest{
+			Format:    "mp3",
+			CoverPath: coverPath,
+			Title:     "Episode 01",
+			Author:    "Uploader",
+			Extractor: "youtube",
+		},
+		outputType: library.TranscodeOutputAudio,
+	}
+
+	args, err := buildFFmpegTranscodeArgs(plan, "/tmp/input.mp4", "/tmp/output.mp3")
+	if err != nil {
+		t.Fatalf("buildFFmpegTranscodeArgs returned error: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-i "+coverPath) {
+		t.Fatalf("expected cover input, got %q", joined)
+	}
+	if !strings.Contains(joined, "-map 0:a:0? -map 1:v:0?") {
+		t.Fatalf("expected audio and cover streams to be mapped, got %q", joined)
+	}
+	if strings.Contains(joined, "-vn") {
+		t.Fatalf("expected cover transcode not to disable video, got %q", joined)
+	}
+	for _, expected := range []string{
+		"-c:v mjpeg",
+		"-disposition:v:0 attached_pic",
+		"-metadata title=Episode 01",
+		"-metadata artist=Uploader",
+		"-metadata comment=Source: youtube",
+		"-id3v2_version 3",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in args, got %q", expected, joined)
+		}
+	}
+}
+
+func TestBuildFFmpegTranscodeArgsAudioOutputPreservesSourceAttachedPicture(t *testing.T) {
+	plan := transcodePlan{
+		request: dto.CreateTranscodeJobRequest{
+			Format: "m4a",
+		},
+		outputType:  library.TranscodeOutputAudio,
+		sourceProbe: mediaProbe{AttachedPicCount: 1, HasVideo: false},
+	}
+
+	args, err := buildFFmpegTranscodeArgs(plan, "/tmp/input.m4a", "/tmp/output.m4a")
+	if err != nil {
+		t.Fatalf("buildFFmpegTranscodeArgs returned error: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-map 0:a:0? -map 0:v:0?") {
+		t.Fatalf("expected source attached picture to be mapped, got %q", joined)
+	}
+	if strings.Contains(joined, "-vn") {
+		t.Fatalf("expected attached picture preservation not to disable video, got %q", joined)
 	}
 }
 

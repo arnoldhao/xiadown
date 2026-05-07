@@ -11,9 +11,10 @@ import (
 )
 
 type transcodePlan struct {
-	request    dto.CreateTranscodeJobRequest
-	preset     *library.TranscodePreset
-	outputType library.TranscodeOutputType
+	request     dto.CreateTranscodeJobRequest
+	preset      *library.TranscodePreset
+	outputType  library.TranscodeOutputType
+	sourceProbe mediaProbe
 }
 
 type containerCompat struct {
@@ -60,7 +61,7 @@ func (service *LibraryService) resolveTranscodePlan(ctx context.Context, request
 			return transcodePlan{}, err
 		}
 		resolved := applyPresetToRequest(request, preset)
-		return transcodePlan{request: resolved, preset: &preset, outputType: preset.OutputType}, nil
+		return transcodePlan{request: resolved, preset: &preset, outputType: preset.OutputType, sourceProbe: probe}, nil
 	}
 
 	if hasManualTranscodeConfig(request) {
@@ -71,7 +72,7 @@ func (service *LibraryService) resolveTranscodePlan(ctx context.Context, request
 		if err := validatePresetForProbe(preset, probe); err != nil {
 			return transcodePlan{}, err
 		}
-		return transcodePlan{request: request, preset: &preset, outputType: preset.OutputType}, nil
+		return transcodePlan{request: request, preset: &preset, outputType: preset.OutputType, sourceProbe: probe}, nil
 	}
 
 	preset, err := service.selectDefaultPreset(ctx, probe)
@@ -82,7 +83,7 @@ func (service *LibraryService) resolveTranscodePlan(ctx context.Context, request
 		return transcodePlan{}, err
 	}
 	resolved := applyPresetToRequest(request, preset)
-	return transcodePlan{request: resolved, preset: &preset, outputType: preset.OutputType}, nil
+	return transcodePlan{request: resolved, preset: &preset, outputType: preset.OutputType, sourceProbe: probe}, nil
 }
 
 func (service *LibraryService) resolveTranscodePlanWithoutProbe(ctx context.Context, request dto.CreateTranscodeJobRequest, sourcePath string) (transcodePlan, error) {

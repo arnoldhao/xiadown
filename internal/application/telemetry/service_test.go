@@ -43,17 +43,6 @@ func (stub *telemetryStateRepoStub) RecordSessionSummary(_ context.Context, _ ti
 	return stub.state, nil
 }
 
-func (stub *telemetryStateRepoStub) MarkFirstChatCompleted(_ context.Context, at time.Time) (State, bool, error) {
-	stub.mu.Lock()
-	defer stub.mu.Unlock()
-	if stub.state.FirstChatCompletedAt == nil {
-		timestamp := at.UTC()
-		stub.state.FirstChatCompletedAt = &timestamp
-		return stub.state, true, nil
-	}
-	return stub.state, false, nil
-}
-
 func (stub *telemetryStateRepoStub) MarkFirstLibraryCompleted(_ context.Context, at time.Time) (State, bool, error) {
 	stub.mu.Lock()
 	defer stub.mu.Unlock()
@@ -186,14 +175,12 @@ func TestServiceTracksSparseSignalsAndSessionSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("track app launch failed: %v", err)
 	}
-	service.TrackUserChatCompleted(context.Background(), "run-1")
-	service.TrackUserChatCompleted(context.Background(), "run-1")
 	service.TrackLibraryOperationCompleted(context.Background(), "op-1", "download")
 
 	if launchCount != 2 {
 		t.Fatalf("expected 2 launch signals, got %d", launchCount)
 	}
-	emitter.waitForCount(t, 4)
+	emitter.waitForCount(t, 3)
 
 	if got := emitter.count("TelemetryDeck.Session.started"); got != 1 {
 		t.Fatalf("expected 1 session started signal, got %d", got)
@@ -202,9 +189,6 @@ func TestServiceTracksSparseSignalsAndSessionSummary(t *testing.T) {
 		t.Fatalf("expected 1 acquisition signal, got %d", got)
 	}
 
-	if got := emitter.count("XiaDown.Activation.firstChatCompleted"); got != 1 {
-		t.Fatalf("expected 1 first chat activation signal, got %d", got)
-	}
 	if got := emitter.count("XiaDown.Activation.firstLibraryCompleted"); got != 1 {
 		t.Fatalf("expected 1 first library activation signal, got %d", got)
 	}
@@ -213,7 +197,7 @@ func TestServiceTracksSparseSignalsAndSessionSummary(t *testing.T) {
 		t.Fatalf("flush session summary failed: %v", err)
 	}
 
-	emitter.waitForCount(t, 5)
+	emitter.waitForCount(t, 4)
 
 	summarySignal := emitter.signalFor("XiaDown.Session.summaryRecorded")
 	if summarySignal == nil {
@@ -237,9 +221,6 @@ func TestServiceTracksSparseSignalsAndSessionSummary(t *testing.T) {
 	}
 	if _, exists := summaryPayload["floatValue"]; exists {
 		t.Fatalf("expected floatValue to be excluded from payload, got %#v", summaryPayload["floatValue"])
-	}
-	if got := summaryPayload["XiaDown.Session.chatCompletedBucket"]; got != "1" {
-		t.Fatalf("unexpected chat bucket: %#v", got)
 	}
 	if got := summaryPayload["XiaDown.Session.libraryCompletedBucket"]; got != "1" {
 		t.Fatalf("unexpected library bucket: %#v", got)

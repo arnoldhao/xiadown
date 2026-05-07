@@ -238,88 +238,6 @@
       "appUpdate": "应用升级",
       "dependencyUpdate": "依赖升级"
     },
-    "spriteStudio": {
-      "title": "精灵工作室",
-      "breadcrumb": "精灵工作室导航",
-      "gallery": "本地精灵",
-      "localGallery": "本地精灵",
-      "onlineGallery": "在线橱窗",
-      "localCount": "{count} 个本地精灵",
-      "onlineCount": "{count} 个在线精灵",
-      "openLocal": "进入本地",
-      "openOnline": "打开橱窗",
-      "refreshCatalog": "刷新",
-      "allCategories": "全部",
-      "searchOnline": "搜索在线精灵",
-      "onlineSearchResults": "搜索结果",
-      "onlineEmpty": "没有匹配的在线精灵。",
-      "onlineLoadFailed": "在线橱窗加载失败。",
-      "installed": "已安装",
-      "installing": "安装中",
-      "downloading": "下载中",
-      "importing": "导入中",
-      "installSucceeded": "精灵已安装",
-      "installFailed": "安装失败",
-      "versionLabel": "版本",
-      "sizeLabel": "大小",
-      "updatedLabel": "更新",
-      "importTitle": "导入精灵",
-      "importFailedTitle": "精灵导入失败",
-      "importErrors": {
-        "fallback": "请确认文件是可导入的 PNG 或 ZIP 精灵包。",
-        "unsupportedFormat": "仅支持导入 PNG 或 ZIP 精灵包。",
-        "invalidArchive": "这个 ZIP 精灵包无法读取，请重新导出后再试。",
-        "archiveTooLarge": "精灵包过大，请控制在 15 兆以内。",
-        "invalidManifest": "精灵包清单无效，请检查清单文件后重新打包。",
-        "missingSheet": "精灵包内没有找到 PNG 精灵表。",
-        "invalidImage": "精灵图片无法解析，请确认是有效 PNG。",
-        "notSquare": "精灵表必须是 1:1 正方形图片。",
-        "tooSmall": "精灵表尺寸太小，至少需要 1024×1024。",
-        "tooLarge": "精灵表尺寸过大，最大支持 5120×5120。"
-      },
-      "generationGuide": {
-        "action": "如何生成",
-        "title": "如何生成精灵",
-        "description": "对话生成适用于使用对话生成图片的场景；代码生成适用于使用 Vibe Coding 生成图片的场景。",
-        "tabs": {
-          "conversation": "对话生成",
-          "code": "代码生成"
-        },
-        "clipboardAction": "复制",
-        "clipboardSucceeded": "生成说明已复制",
-        "clipboardFailed": "复制失败",
-        "prompts": {
-          "conversation": "# 下蛋 精灵图生成提示词\n\n请为下蛋生成一张可导入的 8×8 PNG 精灵表，角色是【在这里描述角色身份、服装、画风】。保持同一个角色身份、体型、服装、比例和画风，不要在不同帧改变设计。\n\n输出规格：\n- 画布必须是正方形，8 行 × 8 列，共 64 帧，每个格子尺寸完全一致且像素对齐。\n- 不要画网格线、边框、编号、文字标签、水印、标题或额外装饰。\n- 每帧只放同一个角色，角色居中，留出足够安全边距，不要裁切，不要投影。\n- 背景优先透明。如果模型不能稳定输出透明背景，请使用纯品红 #ff00ff 作为纯色背景，方便后续抠图。\n- 最终只输出精灵图 PNG，不要输出海报或说明图。\n\n行顺序从上到下：\n1. Greeting：友好问候，轻微挥手或点头，可循环。\n2. Snoring：睡觉或打盹，闭眼呼吸和身体轻微起伏，不要打哈欠。\n3. Upset：一种稳定的负面情绪，例如生气、沮丧、震惊或难过。\n4. Celebrate：兴奋庆祝，有清晰的节奏动作。\n5. Seeking：困惑寻找、左右观察或尝试发现目标。\n6. Embarrassed：害羞或尴尬，动作克制可爱。\n7. Working：同一种工作状态，例如写字、电脑工作或制作，不要混合模式。\n8. ListeningToMusic：沉浸听歌，轻微摇摆、点头和节奏感。\n\n动作要求：每一行是一个可循环动作，8 帧之间要有连续但可见的变化；不要镜像凑帧，不要重复近似帧。如果模型支持分步对话，请先给出 64 帧动作设计摘要，确认后再生成最终 PNG。",
-          "code": "# 下蛋 精灵代码生成任务\n\n目标：使用图像模型生成 64 张独立正方形帧，再用本地脚本拼接为可导入的 sprite.png。不要让图像模型直接生成 8×8 总表，因为格子常常不对齐。\n\n最终规格：\n- 推荐输出 sprite.png 为 4096×4096 PNG，8×8 网格，每个 cell 为 512×512。\n- 下蛋接受 1024×1024 到 5120×5120 的正方形 8×8 PNG。\n- 行顺序固定：Greeting, Snoring, Upset, Celebrate, Seeking, Embarrassed, Working, ListeningToMusic。\n\n工作流：\n1. 先写 64 帧计划：每行 8 帧，保持同一个角色身份、服装、体型和画风。\n2. 调用图像模型逐帧生成独立正方形图片，命名为 row01_col01.png 到 row08_col08.png。\n3. 每帧背景优先透明；如果模型不能输出透明背景，使用纯品红 #ff00ff 平铺背景，不要阴影、边框、网格或文字。\n4. 本地后处理每帧：把 #ff00ff 转成 alpha；找可见像素 bounding box；按每行统一比例缩放；居中放进 512×512 透明 cell，保留至少 40px 安全边距。\n5. 按 row-major 顺序拼成 8×8，总尺寸 4096×4096，保存为 sprite.png。\n6. 校验最终文件：正方形；尺寸在 1024×1024 到 5120×5120；宽高可被 8 整除；64 个 cell 都有可见像素；相邻帧动作连续且没有重复填充。\n\n动作定义：\n- Greeting：友好问候，轻微挥手或点头，可循环。\n- Snoring：睡觉或打盹，只做闭眼呼吸和身体起伏。\n- Upset：一种稳定的负面情绪。\n- Celebrate：兴奋庆祝，动作节奏清晰。\n- Seeking：困惑寻找或左右观察。\n- Embarrassed：害羞或尴尬，动作克制。\n- Working：同一种工作模式，不要混合。\n- ListeningToMusic：沉浸听歌，轻微摇摆和点头。\n\n交付：输出 sprite.png。"
-        }
-      },
-      "editTab": "编辑",
-      "previewTab": "预览",
-      "dragHint": "拖动切割线调整每帧边界，点击预览查看效果。",
-      "readonlyHint": "内置精灵可预览切割线，但不能保存修改。",
-      "readonly": "只读",
-      "saving": "保存中",
-      "saved": "已同步",
-      "saveError": "保存失败",
-      "saveFailed": "切割线保存失败",
-      "empty": "当前没有可编辑的精灵。",
-      "verticalLine": "纵向切割线",
-      "horizontalLine": "横向切割线",
-      "sheetSize": "画布尺寸",
-      "gridSize": "网格",
-      "firstFrame": "首帧",
-      "resetEqual": "重置等比线",
-      "animations": {
-        "greeting": "问候",
-        "snoring": "打盹",
-        "upset": "沮丧",
-        "celebrate": "庆祝",
-        "seeking": "寻找",
-        "embarrassed": "害羞",
-        "working": "工作",
-        "listeningToMusic": "听歌"
-      }
-    },
     "running": {
       "title": "正在进行",
       "emptyAction": "下个新蛋",
@@ -526,9 +444,9 @@
       "tabs": {
         "general": "常规",
         "appearance": "外观",
-        "sprites": "精灵",
         "dependencies": "依赖",
-        "about": "关于"
+        "about": "关于",
+        "pets": "宠物"
       },
       "startup": "开机自动启动",
       "tray": "启动后隐藏到托盘",
@@ -592,51 +510,9 @@
       "systemProxyEmpty": "当前没有检测到系统代理。",
       "proxyTestSucceeded": "代理测试成功。",
       "proxyTestFailed": "代理测试失败。",
-      "sprites": {
-        "builtinTitle": "内置精灵",
-        "builtinHint": "内置精灵不加外框，默认按每行 4 个展示；当前不合规的精灵会保留预览并标记原因。",
-        "importTitle": "导入精灵",
-        "importHint": "支持 PNG、ZIP。应用会先按 8×8 规格校验源图，必要时自动补透明，再生成运行时 PNG；ZIP 会优先读取其中的清单文件，透明边缘最干净的仍然通常是 PNG。",
-        "importPreviewHint": "选择 PNG 或 ZIP 文件后在这里预览。",
-        "importAction": "导入精灵",
-        "importSucceeded": "精灵已导入。",
-        "customTitle": "个性化精灵",
-        "customHint": "这里展示你导入的精灵；布局与内置精灵一致，但支持编辑、导出和删除。",
-        "editorTitle": "编辑精灵信息",
-        "editorHint": "修改名称、作者、版本和描述后保存即可。",
-        "emptyBuiltin": "当前没有可展示的内置精灵。后续可把内置精灵放到嵌入目录中自动修复同步。",
-        "emptyCustom": "还没有导入任何个性化精灵。",
-        "chooseFile": "选择文件",
-        "changeFile": "更换文件",
-        "selectedFile": "源文件",
-        "currentSprite": "当前精灵",
-        "more": "更多",
-        "operation": "操作",
-        "editAction": "编辑",
-        "filePlaceholder": "请选择 PNG / ZIP 文件",
-        "name": "名称",
-        "namePlaceholder": "例如：韩立",
-        "description": "描述",
-        "descriptionPlaceholder": "选填：可输入精灵描述",
-        "author": "作者",
-        "authorPlaceholder": "例如：阿诺",
-        "version": "版本",
-        "setDefaultAction": "设为默认",
-        "setDefaultSucceeded": "已设为默认精灵。",
-        "useSprite": "启用",
-        "current": "当前",
-        "invalid": "不合规",
-        "exportTitle": "导出精灵",
-        "exportAction": "导出精灵",
-        "exportSucceeded": "精灵已导出。",
-        "saveSucceeded": "精灵信息已保存。",
-        "deleteAction": "删除",
-        "deleteTitle": "删除精灵",
-        "deleteMessage": "确认删除“{name}”吗？",
-        "deleteSucceeded": "精灵已删除。",
-        "showMore": "展示更多",
-        "showLess": "展示更少",
-        "specHint": "导入前请确认：PNG 精灵表为 1:1 方图、8×8 网格、尺寸在 1024×1024 到 5120×5120 之间、背景使用纯品红 `#ff00ff` 作为透明键色、无帧间隔。"
+      "pets": {
+        "builtinTitle": "内置宠物",
+        "builtinHint": "设置页和画廊卡片都会直接播放 running 动画。"
       }
     },
     "dependencies": {
@@ -861,7 +737,9 @@
       "website": "官网",
       "github": "GitHub",
       "dreamCreator": "追创作",
-      "dreamCreatorDescription": "一款为创作者打造的 AI 助手"
+      "dreamCreatorDescription": "一款为创作者打造的 AI 助手",
+      "hush": "Hush / 放空",
+      "hushDescription": "一款可自定义频道的 Lo-Fi 直播桌面播放器"
     },
     "common": {
       "systemDefault": "系统默认",
@@ -884,6 +762,134 @@
         "amber": "琥珀",
         "teal": "蓝绿色"
       }
+    },
+    "petGallery": {
+      "title": "宠物画廊",
+      "breadcrumb": "宠物",
+      "gallery": "宠物",
+      "detail": "宠物详情",
+      "empty": "暂无可用宠物。",
+      "showMore": "显示更多",
+      "importAction": "导入宠物",
+      "importTitle": "导入宠物包",
+      "importFailedTitle": "宠物导入失败",
+      "importInvalid": "ZIP 内必须包含 pet.json 与 spritesheet.webp。",
+      "importSucceeded": "宠物已导入",
+      "petPackageFilter": "宠物包",
+      "errors": {
+        "packagePathRequired": "请选择宠物 ZIP 文件。",
+        "packageUnsupportedType": "仅支持导入 .zip 宠物包。",
+        "packageReadFailed": "无法读取宠物包。",
+        "packageTooLarge": "宠物包超过大小限制。",
+        "packageOpenFailed": "无法打开宠物包。",
+        "missingManifest": "宠物包缺少 pet.json。",
+        "missingSpritesheet": "宠物包缺少 spritesheet.webp。",
+        "packageContentsTooLarge": "宠物包内容超过大小限制。",
+        "archiveFileOpenFailed": "无法打开宠物包内的文件。",
+        "archiveFileReadFailed": "无法读取宠物包内的文件。",
+        "manifestDecodeFailed": "无法解析 pet.json。",
+        "spritesheetDecodeFailed": "无法解码 spritesheet.webp。",
+        "spritesheetSizeInvalid": "spritesheet.webp 尺寸不符合宠物格式要求。",
+        "onlineDownloadCanceled": "宠物下载已取消。",
+        "onlineSessionRequired": "缺少在线导入会话。",
+        "onlineSessionNotFound": "在线导入会话已结束。",
+        "onlineUnsupportedSite": "暂不支持该在线宠物网站。"
+      },
+      "exportTitle": "导出宠物",
+      "exportAction": "导出",
+      "exportSucceeded": "宠物已导出",
+      "deleteAction": "删除",
+      "deleteTitle": "删除宠物",
+      "deleteMessage": "确认删除“{name}”吗？",
+      "deleteSucceeded": "宠物已删除",
+      "activePet": "当前宠物",
+      "setActive": "设为当前",
+      "loadingManifest": "正在读取宠物清单",
+      "scopeLabel": "来源",
+      "sizeLabel": "图集",
+      "gridLabel": "网格",
+      "cellLabel": "单元格",
+      "previewAnimation": "预览动画",
+      "scopes": {
+        "builtin": "内置",
+        "imported": "导入"
+      },
+      "origins": {
+        "localImport": "本地导入",
+        "codexPetsNet": "codex-pets.net",
+        "codexpetXyz": "codexpet.xyz"
+      },
+      "animations": {
+        "idle": "待机",
+        "runningRight": "向右跑",
+        "runningLeft": "向左跑",
+        "waving": "挥手",
+        "jumping": "跳跃",
+        "failed": "沮丧",
+        "waiting": "等待",
+        "running": "奔跑",
+        "review": "检查"
+      },
+      "generationGuide": {
+        "action": "如何孵化",
+        "title": "在 Codex 中孵化宠物",
+        "steps": {
+          "0": {
+            "title": "安装 hatch-pet 技能",
+            "description": "打开 Codex 的 Skills，找到 hatch-pet 并安装。"
+          },
+          "1": {
+            "title": "孵化你的宠物",
+            "description": "在 Codex 对话中输入 /pet，描述你想要的宠物；一个想法、气质或桌上的小物件都可以。"
+          },
+          "2": {
+            "title": "导入宠物包",
+            "description": "技能生成 pet.json 与 spritesheet.webp 后，将它们打包成 ZIP，在这里导入。"
+          },
+          "3": {
+            "title": "启用它",
+            "description": "导入后进入宠物详情，预览动画，并设为当前宠物。"
+          }
+        },
+        "greatPetTitle": "优秀宠物的要点",
+        "greatPetTips": {
+          "0": "越具体越好，例如“奶茶水獭”比“水獭”更容易出彩。",
+          "1": "给职业、角色或物件加一点意外设定，让它更有记忆点。",
+          "2": "保持一种明确气质，例如舒适、专注、调皮或可靠。",
+          "3": "尽量避开明确 IP，原创概念更稳定。"
+        }
+      },
+      "importDialog": {
+        "description": "从在线画廊或本地 ZIP 导入宠物。",
+        "online": "在线",
+        "local": "本地",
+        "onlineDescription": "选择在线宠物网站并打开浏览器。下载完成后会自动导入，结果会保留在此窗口中。",
+        "onlineSite": "在线网站",
+        "browse": "浏览",
+        "browserStatus": "浏览器状态",
+        "fileName": "文件名",
+        "path": "路径",
+        "petName": "宠物名",
+        "validationReady": "文件验证通过，可以导入。",
+        "importSelected": "导入",
+        "importedPets": "已导入宠物",
+        "importedCount": "{count} 个",
+        "importedEmpty": "尚未导入宠物。",
+        "finish": "完成导入",
+        "sites": {
+          "codexPetsNet": "codex-pets.net",
+          "codexpetXyz": "codexpet.xyz"
+        },
+        "browserStatuses": {
+          "notOpen": "未打开",
+          "opening": "正在打开",
+          "open": "已打开",
+          "browserClosed": "浏览器已关闭",
+          "completed": "已完成",
+          "failed": "打开失败"
+        }
+      },
+      "localPets": "本地宠物"
     }
   }
 }
