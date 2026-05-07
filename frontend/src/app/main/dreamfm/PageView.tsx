@@ -1459,8 +1459,8 @@ export function DreamFMPageView(view: DreamFMPageViewProps) {
                 onlineState={onlineState}
                 favoriteActive={activeOnlineFavorite}
                 favoriteBusy={activeOnlineFavoriteBusy}
-                sprite={props.sprite}
-                spriteImageURL={props.spriteImageURL}
+                pet={props.pet}
+                petImageURL={props.petImageURL}
                 localProgress={localProgress}
                 muted={muted}
                 volume={volume}

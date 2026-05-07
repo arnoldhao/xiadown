@@ -1,0 +1,3853 @@
+/*
+ * Dream style system.
+ * shadcn primitives with a light iOS-style surface treatment.
+ * Welcome pixel-art scene styles intentionally live in app/main/welcome.css.
+ */
+
+/* Dream app tokens */
+@layer base {
+  :root {
+    --radius: 8px; /* Base radius for most components (sidebar uses --app-sidebar-radius) */
+
+    --app-font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "PingFang SC", "Microsoft YaHei", sans-serif;
+    --app-font-display: var(--app-font-body);
+    --app-font-size: 15px;
+    --app-font-size-sm: calc(var(--app-font-size) - 1px);
+    --app-font-size-xs: calc(var(--app-font-size) - 2px);
+    --app-font-size-2xs: calc(var(--app-font-size) - 3px);
+    font-size: var(--app-font-size, 15px);
+
+    --app-titlebar-height-default: 54px;
+    --app-titlebar-height-windows: 32px;
+    --app-titlebar-height: var(--app-titlebar-height-default);
+    --app-titlebar-leading-icon-size-default: 16px;
+    --app-titlebar-leading-icon-size-windows: 18px;
+    --app-titlebar-leading-icon-size: var(--app-titlebar-leading-icon-size-default);
+    --app-sidebar-padding: 8px;
+    --app-sidebar-padding-right: 0px;
+    --app-sidebar-radius: 20px;
+    --app-main-sidebar-width: calc(var(--app-macos-traffic-lights-gap) + 16px);
+    --app-main-sidebar-action-size: 56px;
+    --app-main-sidebar-icon-size: 24px;
+    --app-sidebar-title-height: calc(
+      var(--app-titlebar-height) - 2 * var(--app-sidebar-padding)
+    );
+    --app-macos-traffic-lights-gap: 88px;
+    --app-macos-traffic-lights-gap-sidebar: calc(
+      var(--app-macos-traffic-lights-gap) - var(--app-sidebar-padding)
+    );
+    /* Keep nav action sizes integer-aligned; avoid rem rounding drift. */
+    --app-nav-action-size: calc(var(--app-font-size) * 2 - 4px);
+    --app-nav-icon-size: calc(var(--app-nav-action-size) - 10px);
+    --app-windows-caption-button-height: var(--app-titlebar-height-windows);
+    --app-windows-caption-button-width: 46px;
+    --app-windows-caption-control-width: calc(
+      var(--app-windows-caption-button-width) * 3
+    );
+    /* Compact control sizing for debug/settings. */
+    --app-control-height-compact: 2.125rem;
+    --app-control-padding-compact-x: 0.75rem;
+    --app-control-padding-compact-y: 0;
+  }
+  :root[data-platform="windows"] {
+    --app-titlebar-leading-icon-size: var(--app-titlebar-leading-icon-size-windows);
+  }
+}
+
+/* Dream component system */
+@layer base {
+  :root {
+    --app-space-1: 0.25rem;
+    --app-space-2: 0.5rem;
+    --app-space-3: 0.75rem;
+    --app-space-4: 1rem;
+    --app-space-5: 1.25rem;
+    --app-space-6: 1.5rem;
+
+    --app-radius-sm: calc(var(--radius) - 2px);
+    --app-radius-md: var(--radius);
+    --app-radius-lg: calc(var(--radius) + 4px);
+    --app-radius-xl: calc(var(--radius) + 12px);
+
+    --app-settings-card-padding: var(--app-space-3);
+    --app-settings-row-padding-x: 0.875rem;
+    --app-settings-row-padding-y: 0.625rem;
+    --app-settings-row-min-height: 2.75rem;
+    --app-settings-separator-inset: 0.875rem;
+    --app-settings-control-width: 12rem;
+    --app-settings-control-width-wide: 16rem;
+
+    --app-menu-min-width: 12rem;
+    --app-menu-radius: calc(var(--radius) + 2px);
+    --app-menu-side-offset: 0.375rem;
+    --app-menu-item-min-height: 2rem;
+
+    --dream-shell-top: var(--background);
+    --dream-shell-mid: var(--sidebar-background);
+    --dream-shell-bottom: var(--primary);
+    --dream-control-top: var(--sidebar-background);
+    --dream-control-bottom: var(--primary);
+    --dream-space-1: var(--app-space-1);
+    --dream-space-2: var(--app-space-2);
+    --dream-space-3: var(--app-space-3);
+    --dream-space-4: var(--app-space-4);
+    --dream-radius-sm: var(--app-radius-sm);
+    --dream-radius-md: var(--app-radius-md);
+    --dream-radius-lg: var(--app-radius-lg);
+    --dream-radius-xl: var(--app-radius-xl);
+    --dream-primary-text: hsl(var(--primary));
+    --dream-primary-surface: hsl(var(--primary) / 0.13);
+    --dream-primary-surface-hover: hsl(var(--primary) / 0.17);
+    --dream-primary-surface-muted: hsl(var(--primary) / 0.065);
+    --dream-primary-line: hsl(var(--primary) / 0.16);
+    --dream-primary-line-strong: hsl(var(--primary) / 0.24);
+    --dream-secondary-text: hsl(var(--secondary-foreground) / 0.72);
+    --dream-secondary-surface: hsl(var(--secondary) / 0.72);
+    --dream-secondary-surface-muted: hsl(var(--secondary) / 0.48);
+    --dream-secondary-surface-hover: hsl(var(--secondary) / 0.92);
+    --dream-accent-text: hsl(var(--accent-foreground) / 0.86);
+    --dream-accent-surface: hsl(var(--accent) / 0.62);
+    --dream-accent-surface-muted: hsl(var(--accent) / 0.38);
+    --dream-accent-surface-hover: hsl(var(--accent) / 0.84);
+    --dream-accent-line: hsl(var(--accent-foreground) / 0.10);
+    --dream-divider-muted: hsl(var(--foreground) / 0.055);
+    --dream-divider-subtle: hsl(var(--foreground) / 0.07);
+    --dream-divider-strong: hsl(var(--foreground) / 0.085);
+    --dream-page-surface: hsl(var(--secondary) / 0.36);
+    --dream-header-surface: hsl(var(--background) / 0.84);
+    --dream-footer-surface: hsl(var(--secondary) / 0.34);
+    --dream-surface-card: hsl(var(--card) / 0.82);
+    --dream-surface-panel: hsl(var(--background) / 0.82);
+    --dream-surface-muted: var(--dream-secondary-surface-muted);
+    --dream-surface-soft: var(--dream-secondary-surface);
+    --dream-surface-hover: var(--dream-accent-surface);
+    --dream-surface-pressed: var(--dream-accent-surface-hover);
+    --dream-line-muted: var(--dream-divider-muted);
+    --dream-line-soft: var(--dream-divider-subtle);
+    --dream-line-focus: var(--dream-primary-line-strong);
+    --dream-text-muted: hsl(var(--foreground) / 0.62);
+    --dream-text-soft: hsl(var(--foreground) / 0.50);
+    --dream-text-strong: hsl(var(--foreground));
+    --dream-dialog-overlay-scrim: rgb(0 0 0 / 18%);
+    --dream-dialog-overlay-glow: rgb(255 255 255 / 12%);
+    --dream-dialog-surface: hsl(var(--card) / 0.78);
+    --dream-dialog-line: hsl(var(--foreground) / 0.08);
+    --dream-dialog-line-highlight: rgb(255 255 255 / 24%);
+    --dream-menu-surface: var(--dream-dialog-surface);
+    --dream-menu-line: var(--dream-dialog-line);
+    --dream-menu-line-highlight: var(--dream-dialog-line-highlight);
+    --dream-control-height: 2rem;
+    --dream-control-height-compact: var(--app-control-height-compact);
+    --dream-control-radius: var(--app-radius-lg);
+    --dream-control-radius-inner: var(--app-radius-sm);
+    --dream-control-shadow:
+      inset 0 0 0 1px var(--dream-line-muted);
+    --dream-card-shadow: none;
+
+    --app-motion-duration-fast: 110ms;
+    --app-motion-duration-base: 160ms;
+    --app-motion-duration-slow: 240ms;
+    --app-motion-duration-expressive: 360ms;
+    --app-motion-ease-standard: cubic-bezier(0.2, 0, 0.38, 0.9);
+    --app-motion-ease-enter: cubic-bezier(0.12, 0, 0.32, 1);
+    --app-motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+    --app-motion-hover-lift-y: -1px;
+    --app-motion-press-scale: 0.985;
+  }
+
+  :root[data-motion="expressive"] {
+    --app-motion-duration-base: 200ms;
+    --app-motion-duration-slow: 280ms;
+    --app-motion-duration-expressive: 420ms;
+    --app-motion-hover-lift-y: -2px;
+  }
+
+  :root[data-motion="off"] {
+    --app-motion-duration-fast: 1ms;
+    --app-motion-duration-base: 1ms;
+    --app-motion-duration-slow: 1ms;
+    --app-motion-duration-expressive: 1ms;
+    --app-motion-hover-lift-y: 0px;
+    --app-motion-press-scale: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --app-motion-duration-fast: 1ms;
+      --app-motion-duration-base: 1ms;
+      --app-motion-duration-slow: 1ms;
+      --app-motion-duration-expressive: 1ms;
+      --app-motion-hover-lift-y: 0px;
+      --app-motion-press-scale: 1;
+    }
+  }
+}
+
+@layer components {
+  .app-dream-card,
+  .app-settings-card {
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--dream-radius-xl);
+    background: var(--dream-surface-card);
+    box-shadow: var(--dream-card-shadow);
+    -webkit-backdrop-filter: blur(14px) saturate(1.08);
+    backdrop-filter: blur(14px) saturate(1.08);
+  }
+
+  .app-dream-card-content,
+  .app-settings-card-content {
+    padding: var(--app-settings-card-padding);
+  }
+
+  .app-dream-row,
+  .app-settings-row {
+    display: flex;
+    min-height: var(--app-settings-row-min-height);
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--app-space-4);
+    font-size: 0.8125rem;
+  }
+
+  .app-dream-row-start,
+  .app-settings-row-start {
+    align-items: flex-start;
+  }
+
+  .app-dream-row-compact,
+  .app-settings-row-compact {
+    padding: var(--app-settings-row-padding-y) var(--app-settings-row-padding-x);
+  }
+
+  .app-dream-divider-soft,
+  .app-divider-soft {
+    height: 1px;
+    background-color: var(--dream-divider-subtle);
+  }
+
+  .app-dream-divider-inset,
+  .app-divider-inset {
+    margin-right: 0;
+    margin-left: var(--app-settings-separator-inset);
+  }
+
+  .app-dream-window,
+  .app-settings-window {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  .app-dream-header,
+  .app-settings-header {
+    border-bottom: 1px solid var(--dream-divider-subtle);
+    background:
+      linear-gradient(180deg, var(--dream-accent-surface-muted), transparent),
+      var(--dream-header-surface);
+    -webkit-backdrop-filter: blur(22px) saturate(1.12);
+    backdrop-filter: blur(22px) saturate(1.12);
+  }
+
+  .app-dream-tabs-bar,
+  .app-settings-tabs {
+    gap: 0.25rem;
+    padding-bottom: 0.875rem;
+  }
+
+  .app-dream-content,
+  .app-settings-content {
+    padding: 1.25rem;
+  }
+
+  :is(.app-dream-window, .app-settings-window) :is(.app-control-compact, .app-control-compact-icon) {
+    border: 0;
+    border-radius: var(--app-radius-lg);
+    background: var(--dream-surface-soft);
+    color: hsl(var(--foreground));
+    box-shadow: none;
+  }
+
+  :is(.app-dream-window, .app-settings-window) :is(button.app-control-compact, button.app-control-compact-icon):hover {
+    background: var(--dream-surface-pressed);
+  }
+
+  :is(.app-dream-window, .app-settings-window) button.app-control-compact.bg-destructive {
+    background: hsl(var(--destructive) / 0.11);
+    color: hsl(var(--destructive));
+  }
+
+  :is(.app-dream-window, .app-settings-window) button.app-control-compact.bg-destructive:hover {
+    background: hsl(var(--destructive) / 0.14);
+  }
+
+  :is(.app-dream-window, .app-settings-window) :is(.app-control-compact, .app-control-compact-icon):focus-visible,
+  :is(.app-dream-window, .app-settings-window) :is(select.app-control-compact, input.app-control-compact):focus {
+    box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+  }
+
+  :is(.app-dream-window, .app-settings-window) select.app-control-compact {
+    appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, hsl(var(--foreground) / 0.56) 50%),
+      linear-gradient(135deg, hsl(var(--foreground) / 0.56) 50%, transparent 50%);
+    background-position:
+      calc(100% - 15px) 50%,
+      calc(100% - 10px) 50%;
+    background-repeat: no-repeat;
+    background-size:
+      5px 5px,
+      5px 5px;
+    padding-right: 1.75rem;
+  }
+
+  @media (max-width: 420px) {
+    .app-settings-content {
+      padding: 0.875rem;
+    }
+
+    .app-settings-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      align-items: stretch;
+      gap: 0.375rem;
+    }
+
+    .app-settings-row > :last-child {
+      margin-left: 0;
+      justify-content: flex-start;
+    }
+
+      :is(.app-dream-window, .app-settings-window) :is(select.app-control-compact, input.app-control-compact) {
+      width: 100%;
+    }
+  }
+
+  .app-dream-panel,
+  .app-surface-panel {
+    border-radius: var(--app-radius-lg);
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--card) / 0.6);
+  }
+
+  .app-dream-panel-solid,
+  .app-surface-panel-solid {
+    border-radius: var(--app-radius-lg);
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--card) / 0.72);
+  }
+
+  .app-dream-inset,
+  .app-surface-inset {
+    border-radius: var(--app-radius-lg);
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--background) / 0.72);
+  }
+
+  .app-dream-soft,
+  .app-surface-soft {
+    border-radius: var(--app-radius-lg);
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--background) / 0.76);
+  }
+
+  .app-dream-field,
+  .app-surface-field {
+    border-radius: var(--app-radius-md);
+    border: 1px solid hsl(var(--border) / 0.6);
+    background: hsl(var(--background) / 0.72);
+  }
+
+  .app-dream-workspace,
+  .app-surface-workspace {
+    border-radius: calc(var(--radius) + 10px);
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--background) / 0.72);
+  }
+
+  .app-main-shell {
+    --dream-shell-top: var(--background);
+    --dream-shell-mid: var(--sidebar-background);
+    --dream-shell-bottom: var(--primary);
+    --dream-control-top: var(--sidebar-background);
+    --dream-control-bottom: var(--primary);
+    --app-main-sidebar-dream-overlay-opacity: 0;
+    transition:
+      background-color var(--app-motion-duration-slow) var(--app-motion-ease-standard),
+      color var(--app-motion-duration-slow) var(--app-motion-ease-standard);
+  }
+
+  .app-main-shell[data-shell-theme="dream"] {
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-ring: var(--ring);
+    --app-main-sidebar-dream-overlay-opacity: 1;
+  }
+
+  .app-main-sidebar {
+    transition:
+      background-color var(--app-motion-duration-slow) var(--app-motion-ease-standard),
+      border-color var(--app-motion-duration-slow) var(--app-motion-ease-standard),
+      box-shadow var(--app-motion-duration-slow) var(--app-motion-ease-standard),
+      color var(--app-motion-duration-slow) var(--app-motion-ease-standard);
+  }
+
+  .app-main-sidebar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: var(--app-main-sidebar-dream-overlay-opacity);
+    background:
+      linear-gradient(180deg, hsl(var(--dream-shell-top) / 0.20), transparent 44%),
+      linear-gradient(180deg, transparent 34%, hsl(var(--dream-shell-bottom) / 0.08));
+    transition: opacity var(--app-motion-duration-slow) var(--app-motion-ease-standard);
+  }
+
+  .app-main-shell[data-shell-theme="dream"] .app-main-sidebar {
+    background:
+      linear-gradient(
+        180deg,
+        hsl(var(--dream-shell-top) / 0.34),
+        hsl(var(--dream-shell-mid) / 0.66) 56%,
+        hsl(var(--dream-shell-bottom) / 0.10)
+      ),
+      hsl(var(--dream-shell-mid) / 0.72);
+    box-shadow:
+      inset -1px 0 0 hsl(var(--dream-shell-top) / 0.28),
+      18px 0 72px -62px hsl(var(--primary) / 0.62);
+  }
+
+  .dream-fm-list-surface {
+    background:
+      linear-gradient(
+        180deg,
+        hsl(var(--dream-shell-top) / 0.20),
+        hsl(var(--dream-shell-mid) / 0.70) 46%,
+        hsl(var(--dream-shell-bottom) / 0.10)
+      ),
+      hsl(var(--dream-shell-mid) / 0.56);
+    will-change: width, opacity, transform;
+  }
+
+  .app-dream-glass-control-surface,
+  .dream-fm-list-control-surface {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 0;
+    background: hsl(var(--dream-shell-mid) / 0.48);
+    box-shadow:
+      0 12px 30px -28px hsl(var(--foreground) / 0.34),
+      inset 0 0 0 1px var(--dream-divider-subtle);
+    transition:
+      transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard);
+    -webkit-backdrop-filter: blur(96px) saturate(1.58) contrast(0.76);
+    backdrop-filter: blur(96px) saturate(1.58) contrast(0.76);
+  }
+
+  .app-dream-glass-control-surface::before,
+  .dream-fm-list-control-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: hsl(var(--dream-shell-mid) / 0.10);
+    -webkit-backdrop-filter: blur(72px) saturate(1.38) contrast(0.72);
+    backdrop-filter: blur(72px) saturate(1.38) contrast(0.72);
+  }
+
+  .app-dream-footer-tabs-surface::before,
+  .dream-fm-footer-tabs-surface::before {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :root[data-platform="windows"] .app-dream-footer-tabs-surface,
+  :root[data-platform="windows"] .dream-fm-footer-tabs-surface {
+    background:
+      linear-gradient(
+        0deg,
+        hsl(var(--dream-control-bottom) / 0.12),
+        hsl(var(--dream-control-bottom) / 0.12)
+      ),
+      hsl(var(--dream-shell-mid) / 0.88);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :root[data-platform="windows"] .app-dream-footer-tabs-surface::before,
+  :root[data-platform="windows"] .dream-fm-footer-tabs-surface::before {
+    display: none;
+  }
+
+  .app-dream-glass-control-surface > *,
+  .dream-fm-list-control-surface > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-dream-glass-control-surface-top,
+  .dream-fm-list-control-surface-top {
+    background:
+      linear-gradient(
+        0deg,
+        hsl(var(--dream-control-top) / 0.56),
+        hsl(var(--dream-control-top) / 0.56)
+      ),
+      hsl(var(--dream-shell-top) / 0.34);
+  }
+
+  .app-dream-glass-control-surface-bottom,
+  .dream-fm-list-control-surface-bottom {
+    background:
+      linear-gradient(
+        0deg,
+        hsl(var(--dream-control-bottom) / 0.18),
+        hsl(var(--dream-control-bottom) / 0.18)
+      ),
+      hsl(var(--dream-shell-mid) / 0.46);
+  }
+
+  .app-dream-glass-control-surface:focus-within,
+  .dream-fm-list-control-surface:focus-within {
+    box-shadow:
+      0 12px 30px -28px hsl(var(--foreground) / 0.34),
+      inset 0 0 0 1px var(--dream-divider-strong);
+  }
+
+  .dream-fm-content-surface {
+    background:
+      linear-gradient(
+        180deg,
+        hsl(var(--dream-shell-top)),
+        hsl(var(--dream-shell-mid) / 0.54) 62%,
+        hsl(var(--dream-shell-bottom) / 0.10)
+      ),
+      hsl(var(--dream-shell-mid) / 0.54);
+    transition:
+      background-color var(--app-motion-duration-slow) var(--app-motion-ease-standard),
+      color var(--app-motion-duration-slow) var(--app-motion-ease-standard);
+  }
+
+  .app-dream-control-shell,
+  .app-control-shell-compact {
+    display: flex;
+    min-height: 2rem;
+    align-items: center;
+    gap: var(--app-space-2);
+    border-radius: var(--app-radius-md);
+    border: 1px solid hsl(var(--border) / 0.7);
+    background: hsl(var(--background) / 0.82);
+    padding-inline: 0.625rem;
+    color: hsl(var(--foreground) / 0.84);
+  }
+
+  .app-dream-control-shell:focus-within,
+  .app-control-shell-compact:focus-within {
+    border-color: hsl(var(--ring) / 0.55);
+    box-shadow: 0 0 0 1px hsl(var(--ring) / 0.2);
+  }
+
+  .app-dream-control-input,
+  .app-control-input-compact {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: hsl(var(--foreground));
+    box-shadow: none;
+    outline: none;
+  }
+
+  .app-dream-control-input::placeholder,
+  .app-control-input-compact::placeholder {
+    color: hsl(var(--muted-foreground) / 0.75);
+  }
+
+  .app-dream-control-select,
+  .app-control-select-compact {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    padding: 0 1.5rem 0 0;
+    color: hsl(var(--foreground));
+    box-shadow: none;
+    outline: none;
+  }
+
+  .app-dream-menu-content,
+  .app-menu-content {
+    min-width: var(--app-menu-min-width);
+    overflow: hidden;
+    border-radius: var(--dream-radius-xl);
+    border: 1px solid var(--dream-menu-line);
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 8%)),
+      var(--dream-menu-surface);
+    padding: 0.375rem;
+    color: hsl(var(--popover-foreground));
+    box-shadow:
+      inset 0 1px 0 var(--dream-menu-line-highlight),
+      0 22px 70px hsl(var(--foreground) / 0.24);
+    -webkit-backdrop-filter: blur(30px) saturate(1.28);
+    backdrop-filter: blur(30px) saturate(1.28);
+  }
+
+  .app-dream-menu-item,
+  .app-menu-item {
+    min-height: var(--app-menu-item-min-height);
+    gap: 0.625rem;
+    border-radius: var(--app-radius-sm);
+    padding: 0.375rem 0.625rem;
+  }
+
+  .app-dream-menu-label,
+  .app-menu-label {
+    padding: 0.375rem 0.625rem;
+    color: var(--dream-text-soft);
+  }
+
+  .app-dream-menu-separator,
+  .app-menu-separator {
+    margin-block: 0.375rem;
+    background: var(--dream-menu-line);
+  }
+
+  .app-dream-menu-shortcut,
+  .app-menu-shortcut {
+    margin-left: auto;
+    color: var(--dream-text-soft);
+  }
+
+  .app-dream-floating-surface,
+  .dream-fm-floating-surface {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border: 0;
+    background:
+      linear-gradient(
+        180deg,
+        hsl(var(--dream-shell-top) / 0.18),
+        hsl(var(--dream-shell-mid) / 0.60) 58%,
+        hsl(var(--dream-shell-bottom) / 0.10)
+      ),
+      hsl(var(--dream-shell-mid) / 0.56);
+    color: hsl(var(--sidebar-foreground));
+    box-shadow:
+      0 28px 86px -48px hsl(var(--foreground) / 0.54),
+      inset 0 0 0 1px var(--dream-divider-subtle);
+    -webkit-backdrop-filter: blur(96px) saturate(1.55) contrast(0.78);
+    backdrop-filter: blur(96px) saturate(1.55) contrast(0.78);
+  }
+
+  .app-dream-floating-surface::before,
+  .dream-fm-floating-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: hsl(var(--dream-shell-mid) / 0.10);
+    -webkit-backdrop-filter: blur(72px) saturate(1.35) contrast(0.74);
+    backdrop-filter: blur(72px) saturate(1.35) contrast(0.74);
+  }
+
+  .app-dream-floating-surface > *,
+  .dream-fm-floating-surface > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-dream-dropdown-content,
+  .dream-fm-dropdown-content {
+    width: max-content;
+    min-width: fit-content;
+    max-width: calc(100vw - 2rem);
+    border-radius: 1.15rem;
+    padding: 0.25rem;
+  }
+
+  .app-dream-dropdown-item,
+  .dream-fm-dropdown-item {
+    min-height: 2rem;
+    border-radius: var(--app-radius-sm);
+    color: var(--dream-text-muted);
+  }
+
+  .app-dream-dropdown-item:hover,
+  .app-dream-dropdown-item:focus,
+  .app-dream-dropdown-item[data-highlighted],
+  .dream-fm-dropdown-item:hover,
+  .dream-fm-dropdown-item:focus,
+  .dream-fm-dropdown-item[data-highlighted] {
+    background: var(--dream-surface-hover);
+    color: var(--dream-accent-text);
+  }
+
+  .app-message-surface {
+    --app-message-icon-color: var(--primary);
+    position: relative;
+    isolation: isolate;
+    width: max-content;
+    max-width: min(26rem, calc(100vw - 1.5rem));
+    overflow: hidden;
+    border-radius: 1.35rem;
+    border: 0;
+    background:
+      linear-gradient(180deg, hsl(var(--dream-shell-top) / 0.22), transparent 56%),
+      linear-gradient(
+        0deg,
+        hsl(var(--dream-control-bottom) / 0.18),
+        hsl(var(--dream-control-bottom) / 0.18)
+      ),
+      hsl(var(--dream-shell-mid) / 0.46);
+    box-shadow:
+      0 12px 30px -28px hsl(var(--foreground) / 0.34),
+      inset 0 0 0 1px var(--dream-divider-subtle);
+    -webkit-backdrop-filter: blur(96px) saturate(1.58) contrast(0.76);
+    backdrop-filter: blur(96px) saturate(1.58) contrast(0.76);
+  }
+
+  .app-message-surface[data-intent="success"] {
+    --app-message-icon-color: 158 64% 40%;
+  }
+
+  .dark .app-message-surface[data-intent="success"] {
+    --app-message-icon-color: 152 69% 50%;
+  }
+
+  .app-message-surface[data-intent="warning"] {
+    --app-message-icon-color: 38 92% 48%;
+  }
+
+  .dark .app-message-surface[data-intent="warning"] {
+    --app-message-icon-color: 42 96% 58%;
+  }
+
+  .app-message-surface[data-intent="danger"] {
+    --app-message-icon-color: var(--destructive);
+  }
+
+  .app-message-icon {
+    height: 1rem;
+    width: 1rem;
+    flex-shrink: 0;
+    color: hsl(var(--app-message-icon-color));
+  }
+
+  .app-message-button {
+    display: flex;
+    min-height: 2.75rem;
+    width: max-content;
+    max-width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 0.625rem;
+    border-radius: inherit;
+    padding: 0.625rem 0.875rem;
+    text-align: left;
+    color: hsl(var(--foreground));
+    background: transparent;
+    box-shadow: none;
+    outline: none;
+    transition:
+      background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+      color var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+  }
+
+  .app-message-button:hover,
+  .app-message-button:focus-visible {
+    background: hsl(var(--dream-shell-top) / 0.12);
+  }
+
+  .app-message-text {
+    display: flex;
+    min-width: 0;
+    max-width: min(22.5rem, calc(100vw - 5rem));
+    flex: 0 1 auto;
+    align-items: baseline;
+    gap: 0.375rem;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: var(--app-font-size-sm);
+    line-height: 1.35;
+  }
+
+  .app-message-title,
+  .app-message-description {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .app-message-title {
+    flex: 0 1 auto;
+    font-weight: 600;
+  }
+
+  .app-message-description {
+    flex: 1 1 auto;
+    color: hsl(var(--foreground) / 0.68);
+  }
+
+  .app-message-separator {
+    flex: 0 0 auto;
+    color: hsl(var(--foreground) / 0.42);
+  }
+
+  .app-dialog-overlay {
+    background:
+      radial-gradient(circle at 50% 42%, var(--dream-dialog-overlay-glow), transparent 42%),
+      var(--dream-dialog-overlay-scrim);
+    -webkit-backdrop-filter: blur(8px) saturate(1.08);
+    backdrop-filter: blur(8px) saturate(1.08);
+  }
+
+  .app-dialog-content {
+    overflow: hidden;
+    border: 1px solid var(--dream-dialog-line);
+    border-radius: var(--dream-radius-xl);
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 8%)),
+      var(--dream-dialog-surface);
+    box-shadow:
+      inset 0 1px 0 var(--dream-dialog-line-highlight),
+      0 22px 70px hsl(var(--foreground) / 0.24);
+    -webkit-backdrop-filter: blur(30px) saturate(1.28);
+    backdrop-filter: blur(30px) saturate(1.28);
+  }
+
+  .app-dialog-close {
+    display: inline-flex;
+    width: 1.75rem;
+    height: 1.75rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: transparent;
+    color: hsl(var(--foreground) / 0.58);
+    opacity: 1;
+  }
+
+  .app-dialog-close:hover {
+    background: var(--dream-surface-hover);
+    color: hsl(var(--foreground) / 0.86);
+  }
+
+  .app-dialog-close:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+  }
+
+  .app-dialog-header {
+    gap: var(--app-space-2);
+  }
+
+  .app-dialog-footer .app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+    height: var(--dream-control-height);
+    min-height: var(--dream-control-height);
+    padding-right: 0.875rem;
+    padding-left: 0.875rem;
+  }
+
+  .app-table-dense-head th {
+    height: 2rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+}
+
+.app-dream-window,
+.app-settings-window {
+  font-family:
+    var(--app-font-body),
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  font-synthesis: weight;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(.app-dream-row-label, .app-settings-row-label) {
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--foreground) / 0.74);
+  font-size: 13px;
+  font-weight: 760;
+  font-variation-settings: "wght" 760;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(.app-dream-path-value, .app-settings-path-value) {
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--foreground) / 0.50);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(.app-dream-status-badge, .app-settings-status-badge) {
+  display: inline-flex;
+  height: 24px;
+  max-width: 10rem;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-secondary-surface);
+  box-shadow: none;
+  color: hsl(var(--foreground) / 0.68);
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(button.app-control-compact, button.app-control-compact-icon) {
+  height: 34px;
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-soft);
+  color: hsl(var(--foreground));
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 7px;
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact {
+  padding: 0 12px;
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact-icon {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(button.app-control-compact, button.app-control-compact-icon):hover {
+  background: var(--dream-surface-pressed);
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact.bg-destructive {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact.bg-destructive:hover {
+  background: hsl(var(--destructive) / 0.14);
+}
+
+:is(.app-dream-window, .app-settings-window) select.app-control-compact {
+  height: 34px;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--dream-surface-soft);
+  background-image:
+    linear-gradient(45deg, transparent 50%, hsl(var(--foreground) / 0.56) 50%),
+    linear-gradient(135deg, hsl(var(--foreground) / 0.56) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size:
+    5px 5px,
+    5px 5px;
+  box-shadow: none;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  padding: 0 28px 0 10px;
+}
+
+:is(.app-dream-window, .app-settings-window) select.app-control-compact:hover {
+  background-color: var(--dream-surface-pressed);
+}
+
+:is(.app-dream-window, .app-settings-window) select.app-control-compact:focus {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+:is(.app-dream-window, .app-settings-window) input.app-control-compact {
+  height: 34px;
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-soft);
+  box-shadow: none;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  padding: 0 10px;
+}
+
+:is(.app-dream-window, .app-settings-window) input.app-control-compact:focus {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) {
+  font-family:
+    var(--app-font-body),
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  font-synthesis: weight;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-content,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-view-viewport,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar {
+  border-color: var(--dream-divider-subtle);
+  background:
+    linear-gradient(180deg, var(--dream-accent-surface-muted), transparent 46%),
+    hsl(var(--background) / 0.82);
+  box-shadow: inset -1px 0 0 hsl(var(--foreground) / 0.04);
+  color: hsl(var(--foreground));
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+  backdrop-filter: blur(22px) saturate(1.12);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar::before {
+  opacity: 0;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action {
+  border: 0;
+  border-radius: 1rem;
+  background: transparent;
+  color: hsl(var(--foreground) / 0.58);
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action:hover {
+  background: hsl(var(--foreground) / 0.07);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action[data-active="true"] {
+  background: hsl(var(--primary) / 0.13);
+  color: hsl(var(--primary));
+  box-shadow: inset 0 1px 0 hsl(var(--background) / 0.18);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action[data-active="true"]:hover {
+  background: hsl(var(--primary) / 0.13);
+  color: hsl(var(--primary));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-user-button:hover {
+  background: var(--dream-surface-hover);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page-header,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page-toolbar {
+  border-color: var(--dream-divider-subtle);
+  background:
+    linear-gradient(180deg, var(--dream-accent-surface-muted), transparent),
+    var(--dream-header-surface);
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+  backdrop-filter: blur(22px) saturate(1.12);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page-footer {
+  border-color: var(--dream-divider-subtle);
+  background: var(--dream-footer-surface);
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-list-pane,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-detail-pane {
+  border-color: var(--dream-divider-subtle);
+  background: hsl(var(--background));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-list-pane {
+  background: var(--dream-page-surface);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-completed-page .app-main-list-content {
+  background: var(--dream-page-surface);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-completed-page .app-main-page-footer {
+  border-color: var(--dream-divider-subtle);
+  background: var(--dream-footer-surface);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-completed-inline-detail-header {
+  border-color: var(--dream-divider-muted);
+  background: var(--dream-header-surface);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-completed-detail-footer {
+  border-color: var(--dream-divider-muted);
+  background: transparent;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-page {
+  background: hsl(var(--background));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--app-radius-xl);
+  background: hsl(var(--card) / 0.82);
+  box-shadow: none;
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card .app-running-thumbnail-stage {
+  opacity: 0.5;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card .app-running-thumbnail-stage + .absolute,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card > .absolute.inset-0.ring-1 {
+  opacity: 0.55;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-soft);
+  color: hsl(var(--foreground));
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-surface-pressed);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-primary:not(.app-running-new-download-button) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-primary:not(.app-running-new-download-button):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-destructive,
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.text-destructive {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-destructive:hover,
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.14);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.rounded-none {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.rounded-full {
+  border-radius: 9999px;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) {
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) {
+  overflow: hidden;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground) / 0.62);
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:not(.rounded-none) {
+  border-radius: var(--app-radius-sm);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:is([aria-selected="true"], [data-active="true"]),
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface.bg-primary:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:is([aria-selected="true"], [data-active="true"]):hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface.bg-primary:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.text-destructive,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.app-motion-surface.text-destructive {
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.text-destructive:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.app-motion-surface.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-summary,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action {
+  display: inline-flex;
+  height: 2rem;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1;
+  margin: 0;
+  padding: 0 0.75rem;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-summary {
+  color: hsl(var(--foreground) / 0.62);
+  pointer-events: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action {
+  color: hsl(var(--foreground) / 0.62);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action:hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action.text-destructive {
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+.app-dream-panel-card,
+.app-new-task-panel,
+.app-dependency-repair-card,
+.app-connectors-info-card {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.app-dream-info-box,
+.app-new-task-field-strip,
+.app-running-meta-strip,
+.app-running-speed-segment,
+.app-connectors-table-shell,
+.app-completed-toolbar-actions,
+.app-completed-footer-pager,
+.app-completed-preview-text-shell {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-dream-status-message,
+.app-connectors-error,
+.app-new-task-parse-error {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-dream-status-message[data-intent="danger"],
+.app-connectors-error,
+.app-new-task-parse-error {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.14);
+}
+
+.app-dream-status-message[data-intent="warning"],
+.app-dream-status-badge-warning {
+  background: hsl(42 92% 52% / 0.14);
+  color: hsl(35 82% 32%);
+  box-shadow: inset 0 0 0 1px hsl(42 92% 52% / 0.16);
+}
+
+.dark .app-dream-status-message[data-intent="warning"],
+.dark .app-dream-status-badge-warning {
+  color: hsl(42 88% 74%);
+}
+
+.app-dream-status-message[data-intent="success"],
+.app-dream-status-badge-success {
+  background: hsl(142 72% 42% / 0.11);
+  color: hsl(142 54% 30%);
+  box-shadow: inset 0 0 0 1px hsl(142 72% 42% / 0.14);
+}
+
+.dark .app-dream-status-message[data-intent="success"],
+.dark .app-dream-status-badge-success {
+  color: hsl(142 62% 72%);
+}
+
+.app-dream-status-badge-primary {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-status-badge-danger {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.14);
+}
+
+.app-dream-progress-track {
+  overflow: hidden;
+  border-radius: 9999px;
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-dream-progress-value {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--dream-primary-text);
+  transition: width var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-dream-inline-switch {
+  display: inline-flex;
+  align-items: center;
+  width: 2.25rem;
+  height: 1.25rem;
+  border: 0;
+  border-radius: 9999px;
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  padding: 0.125rem;
+  transition:
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    opacity var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-dream-inline-switch[data-state="checked"] {
+  justify-content: flex-end;
+  background: var(--dream-primary-surface);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-inline-switch[data-state="unchecked"] {
+  justify-content: flex-start;
+}
+
+.app-dream-inline-switch-knob {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: hsl(var(--background));
+  box-shadow: 0 1px 4px hsl(var(--foreground) / 0.16);
+}
+
+.app-dependency-repair-icon,
+.app-connectors-icon-slot,
+.app-connectors-detail-icon {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  color: var(--dream-text-muted);
+}
+
+.app-dependency-repair-icon,
+.app-connectors-icon-slot[data-active="true"],
+.app-connectors-detail-icon {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dependency-item {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-dependency-item[data-installing="true"] {
+  background: var(--dream-primary-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dependency-status-badge-installed {
+  background: hsl(142 72% 42% / 0.11);
+  color: hsl(142 54% 30%);
+  box-shadow: inset 0 0 0 1px hsl(142 72% 42% / 0.14);
+}
+
+.dark .app-dependency-status-badge-installed {
+  color: hsl(142 62% 72%);
+}
+
+.app-dependency-status-badge-invalid {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.14);
+}
+
+.app-dependency-status-badge-missing {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-connectors-list-pane {
+  background: var(--dream-page-surface);
+}
+
+.app-connectors-list-item {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-connectors-list-item:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+}
+
+.app-connectors-list-item[data-active="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+.app-connectors-list-label {
+  color: var(--dream-text-muted);
+}
+
+.app-connectors-list-label[data-active="true"] {
+  color: var(--dream-primary-text);
+}
+
+.app-connectors-status-badge,
+.app-connectors-cookie-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.app-connectors-status-connected {
+  background: hsl(142 72% 42% / 0.11);
+  color: hsl(142 54% 30%);
+  box-shadow: inset 0 0 0 1px hsl(142 72% 42% / 0.14);
+}
+
+.dark .app-connectors-status-connected {
+  color: hsl(142 62% 72%);
+}
+
+.app-connectors-status-expired {
+  background: hsl(42 92% 52% / 0.14);
+  color: hsl(35 82% 32%);
+  box-shadow: inset 0 0 0 1px hsl(42 92% 52% / 0.16);
+}
+
+.dark .app-connectors-status-expired {
+  color: hsl(42 88% 74%);
+}
+
+.app-connectors-status-disconnected,
+.app-connectors-cookie-count {
+  background: var(--dream-surface-soft);
+  color: var(--dream-text-muted);
+}
+
+.app-connectors-table-shell {
+  overflow: hidden;
+}
+
+.app-connectors-table-header {
+  background: var(--dream-surface-card);
+  box-shadow: inset 0 -1px 0 var(--dream-line-muted);
+}
+
+.app-connectors-table-row {
+  box-shadow: inset 0 -1px 0 var(--dream-line-muted);
+}
+
+.app-connectors-table-row:last-child {
+  box-shadow: none;
+}
+
+.app-connectors-info-row + .app-connectors-info-row {
+  border-top: 1px solid var(--dream-line-muted);
+}
+
+.app-new-task-list-panel > :not(:first-child) {
+  border-top: 1px solid var(--dream-line-muted);
+}
+
+.app-new-task-row {
+  min-height: 3rem;
+}
+
+.app-new-task-field-strip {
+  overflow: hidden;
+}
+
+.app-new-task-field-strip input {
+  color: var(--dream-text-strong);
+}
+
+.app-new-task-field-action,
+.app-new-task-field-switch-slot {
+  border-left: 1px solid var(--dream-line-muted);
+}
+
+.app-new-task-field-action.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-new-task-field-action.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):hover {
+  background: var(--dream-surface-hover);
+}
+
+.app-new-task-file-format {
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  background: var(--dream-surface-soft);
+  color: var(--dream-text-muted);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-running-action-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"]) {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-running-action-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"]):hover,
+.app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"]):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"]) {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-running-speed-segment {
+  color: var(--dream-text-muted);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.app-running-meta-strip {
+  overflow: hidden;
+}
+
+.app-running-meta-cell {
+  color: var(--dream-text-muted);
+}
+
+.app-running-meta-cell-primary {
+  background: var(--dream-primary-surface-muted);
+  color: var(--dream-primary-text);
+}
+
+.app-running-meta-cell + .app-running-meta-cell {
+  border-left: 1px solid var(--dream-line-muted);
+}
+
+.app-running-cancel-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"]) {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  color: var(--dream-text-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-running-cancel-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"]):hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+.app-completed-toolbar-actions,
+.app-completed-footer-pager {
+  overflow: hidden;
+}
+
+.app-completed-search-control {
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-completed-search-clear {
+  border-radius: 9999px;
+  color: var(--dream-text-muted);
+}
+
+.app-completed-search-clear:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+}
+
+.app-completed-footer-pager-button + .app-completed-footer-pager-button {
+  border-left: 1px solid var(--dream-line-muted);
+}
+
+.app-completed-status-icon-success {
+  color: hsl(142 54% 42%);
+}
+
+.dark .app-completed-status-icon-success {
+  color: hsl(142 62% 72%);
+}
+
+.app-completed-status-icon-danger {
+  color: hsl(var(--destructive));
+}
+
+.app-completed-status-icon-warning {
+  color: hsl(35 82% 42%);
+}
+
+.dark .app-completed-status-icon-warning {
+  color: hsl(42 88% 74%);
+}
+
+.app-completed-status-icon-muted {
+  color: var(--dream-text-soft);
+}
+
+.app-completed-preview-text-shell,
+.app-completed-info-card {
+  overflow: hidden;
+}
+
+.app-completed-preview-icon,
+.app-completed-preview-image,
+.app-settings-app-icon {
+  border-radius: var(--dream-control-radius);
+  box-shadow: none;
+}
+
+.app-completed-preview-image {
+  background: var(--dream-surface-card);
+}
+
+.app-completed-clipboard-action.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  color: var(--dream-text-muted);
+}
+
+.app-completed-clipboard-action.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+}
+
+.app-settings-dream-app-title {
+  padding: 0 0.875rem;
+  color: var(--dream-text-strong);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.app-settings-dream-app-card {
+  display: grid;
+}
+
+.app-settings-dream-app-item {
+  display: flex;
+  min-width: 0;
+  min-height: 4rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6875rem 0.875rem;
+}
+
+.app-settings-dream-app-item-bordered {
+  border-top: 1px solid var(--dream-divider-subtle);
+}
+
+.app-settings-dream-app-icon {
+  display: inline-flex;
+  width: 2.625rem;
+  min-width: 2.625rem;
+  height: 2.625rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  box-shadow:
+    inset 0 1px 0 hsl(var(--background) / 0.24),
+    0 8px 18px hsl(var(--foreground) / 0.13);
+}
+
+.app-settings-dream-app-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.app-settings-dream-app-text {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 0.25rem;
+}
+
+.app-settings-dream-app-name {
+  overflow: hidden;
+  color: var(--dream-text-strong);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-settings-dream-app-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--dream-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.app-settings-dream-app-link {
+  flex: 0 0 auto;
+}
+
+.app-completed-selection-checkbox {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--dream-surface-card);
+  color: var(--dream-text-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-completed-selection-checkbox[data-checked="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-settings-theme-pack-button {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  color: var(--dream-text-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-settings-theme-pack-button:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+}
+
+.app-settings-theme-pack-button[data-active="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-settings-theme-preview {
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-settings-swatch {
+  border: 0;
+  border-radius: 9999px;
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-settings-swatch:hover,
+.app-settings-swatch[data-active="true"] {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus), 0 0 0 2px var(--dream-primary-line);
+}
+
+.app-settings-status-dot {
+  background: var(--dream-text-soft);
+}
+
+.app-settings-status-dot[data-status="available"] {
+  background: hsl(142 72% 42%);
+}
+
+.app-settings-status-dot[data-status="unavailable"] {
+  background: hsl(var(--destructive));
+}
+
+.app-pets-skeleton-card {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
+}
+
+.app-pets-skeleton-glow {
+  background: linear-gradient(180deg, var(--dream-surface-soft), transparent 48%, hsl(var(--foreground) / 0.035));
+}
+
+.app-pets-skeleton-avatar,
+.app-pets-skeleton-label {
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-pets-page {
+  background: var(--dream-page-surface);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-gallery-content {
+  background: transparent;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-gallery-toolbar {
+  color: var(--dream-text-strong);
+}
+
+.app-pets-loading {
+  color: var(--dream-text-soft);
+}
+
+.app-pets-empty-state {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  color: var(--dream-text-soft);
+}
+
+.app-pets-detail-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+}
+
+.app-pets-detail-card,
+.app-pets-guide-step,
+.app-pets-guide-tips,
+.app-pets-import-section {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.app-pets-metric {
+  color: var(--dream-text-muted);
+}
+
+.app-pets-metric-label {
+  color: var(--dream-text-soft);
+}
+
+.app-pets-metric-value {
+  color: var(--dream-text-strong);
+}
+
+.app-pets-detail-actions {
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  padding: 0;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action {
+  height: var(--dream-control-height);
+  min-height: var(--dream-control-height);
+  min-width: 0;
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  padding: 0 0.625rem;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action:hover,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action[data-active="true"],
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action[data-active="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  opacity: 1;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action.text-destructive,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action.text-destructive {
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action.text-destructive:hover,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+.app-pets-animation-card {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-control-shadow);
+  color: var(--dream-text-muted);
+  outline: none;
+  transition:
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-pets-animation-card:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+  transform: translateY(var(--app-motion-hover-lift-y));
+}
+
+.app-pets-animation-card:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-pets-animation-card[data-active="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-pets-animation-card[data-active="true"]:hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-pets-gallery-card {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  color: var(--dream-text-strong);
+}
+
+.app-pets-gallery-card:hover {
+  background: var(--dream-surface-hover);
+}
+
+.app-pets-gallery-card-imported {
+  background: var(--dream-primary-surface-muted);
+}
+
+.app-pets-gallery-card-online {
+  background: var(--dream-surface-card);
+}
+
+.app-pets-gallery-card-default {
+  background: var(--dream-surface-card);
+}
+
+.app-pets-guide-index {
+  background: var(--dream-primary-surface);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+  color: var(--dream-primary-text);
+}
+
+.app-pets-guide-bullet {
+  background: var(--dream-primary-text);
+  opacity: 0.72;
+}
+
+.app-pets-info-box {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  color: var(--dream-text-muted);
+}
+
+.app-pets-info-row > :first-child {
+  color: var(--dream-text-soft);
+}
+
+.app-pets-info-row > :last-child {
+  color: var(--dream-text-strong);
+}
+
+.app-pets-status-message {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-pets-status-message[data-intent="success"] {
+  background: hsl(142 72% 42% / 0.11);
+  color: hsl(142 54% 30%);
+  box-shadow: inset 0 0 0 1px hsl(142 72% 42% / 0.14);
+}
+
+.dark .app-pets-status-message[data-intent="success"] {
+  color: hsl(142 62% 72%);
+}
+
+.app-pets-status-message[data-intent="danger"] {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.14);
+}
+
+@media (max-width: 900px) {
+  .app-pets-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.app-dream-tabs,
+.app-main-tabs,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) {
+  --app-main-tabs-inner-radius: var(--app-radius-lg);
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-dream-tabs-compact,
+.app-main-tabs-compact,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs-compact, .app-main-tabs-compact) {
+  --app-main-tabs-inner-radius: var(--app-radius-lg);
+}
+
+.app-dream-tabs button,
+.app-dream-tabs .app-main-tab-item,
+.app-dream-tabs button.app-motion-surface,
+.app-main-tabs button,
+.app-main-tabs .app-main-tab-item,
+.app-main-tabs button.app-motion-surface,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) .app-main-tab-item,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  border: 0;
+  border-radius: var(--app-main-tabs-inner-radius);
+  background: transparent;
+  color: hsl(var(--foreground) / 0.58);
+  box-shadow: none;
+  font-weight: 650;
+  margin: 0;
+}
+
+.app-dream-tabs button:hover,
+.app-dream-tabs .app-main-tab-item:hover,
+.app-dream-tabs button.app-motion-surface:hover,
+.app-main-tabs button:hover,
+.app-main-tabs .app-main-tab-item:hover,
+.app-main-tabs button.app-motion-surface:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) .app-main-tab-item:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-dream-tabs button:is([aria-selected="true"], [data-active="true"]),
+.app-dream-tabs .app-main-tab-item:is([aria-selected="true"], [data-active="true"]),
+.app-dream-tabs button.app-motion-surface.bg-primary,
+.app-main-tabs button:is([aria-selected="true"], [data-active="true"]),
+.app-main-tabs .app-main-tab-item:is([aria-selected="true"], [data-active="true"]),
+.app-main-tabs button.app-motion-surface.bg-primary,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button:is([aria-selected="true"], [data-active="true"]),
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) .app-main-tab-item:is([aria-selected="true"], [data-active="true"]),
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button.app-motion-surface.bg-primary:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-tabs button:is([aria-selected="true"], [data-active="true"]):hover,
+.app-dream-tabs .app-main-tab-item:is([aria-selected="true"], [data-active="true"]):hover,
+.app-dream-tabs button.app-motion-surface.bg-primary:hover,
+.app-main-tabs button:is([aria-selected="true"], [data-active="true"]):hover,
+.app-main-tabs .app-main-tab-item:is([aria-selected="true"], [data-active="true"]):hover,
+.app-main-tabs button.app-motion-surface.bg-primary:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button:is([aria-selected="true"], [data-active="true"]):hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) .app-main-tab-item:is([aria-selected="true"], [data-active="true"]):hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-tabs, .app-main-tabs) button.app-motion-surface.bg-primary:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-dream-segment-switch,
+.app-completed-view-switch {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  width: 9.75rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  overflow: hidden;
+  padding: 0;
+}
+
+.app-dream-segment-switch[data-compact="true"],
+.app-completed-view-switch[data-compact="true"] {
+  width: 4.5rem;
+}
+
+.app-new-task-mode-switch,
+.app-new-task-download-mode-switch {
+  width: fit-content;
+  max-width: 100%;
+  grid-template-columns: repeat(2, minmax(max-content, 1fr));
+}
+
+.app-new-task-mode-switch .app-dream-segment-switch-tab,
+.app-new-task-download-mode-switch .app-dream-segment-switch-tab {
+  padding-inline: 0.75rem;
+}
+
+.app-new-task-mode-switch .app-dream-segment-switch-label,
+.app-new-task-download-mode-switch .app-dream-segment-switch-label {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.app-new-task-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, min(15rem, 58vw));
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.app-new-task-select-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-dream-select.app-control-compact.app-new-task-select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.app-dream-segment-switch-indicator,
+.app-completed-view-switch-indicator {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 50%;
+  border-radius: var(--app-radius-lg) 0 0 var(--app-radius-lg);
+  background: var(--dream-primary-surface);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+  transform: translateX(0);
+  transition:
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-dream-segment-switch[data-view="files"] .app-dream-segment-switch-indicator,
+.app-dream-segment-switch[data-side="right"] .app-dream-segment-switch-indicator,
+.app-completed-view-switch[data-view="files"] .app-completed-view-switch-indicator {
+  transform: translateX(100%);
+  border-radius: 0 var(--app-radius-lg) var(--app-radius-lg) 0;
+}
+
+.app-dream-segment-switch-tab,
+.app-completed-view-switch-tab {
+  appearance: none;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--foreground) / 0.58);
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1;
+  outline: none;
+  padding: 0 0.5rem;
+  transition:
+    color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-dream-segment-switch-tab:hover,
+.app-completed-view-switch-tab:hover {
+  background: transparent;
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-dream-segment-switch-tab:focus-visible,
+.app-completed-view-switch-tab:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-segment-switch-tab[data-active="true"],
+.app-completed-view-switch-tab[data-active="true"] {
+  color: var(--dream-primary-text);
+}
+
+.app-dream-segment-switch-label,
+.app-completed-view-switch-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-dream-search-control,
+.app-main-search-control,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control) {
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-muted);
+  color: hsl(var(--foreground));
+  box-shadow: var(--dream-control-shadow);
+}
+
+.app-dream-search-control:hover,
+.app-main-search-control:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control):hover {
+  background: var(--dream-surface-hover);
+}
+
+.app-dream-search-control:focus-within,
+.app-main-search-control:focus-within,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control):focus-within {
+  background: var(--dream-surface-pressed);
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-search-control svg,
+.app-main-search-control svg {
+  color: hsl(var(--foreground) / 0.50);
+}
+
+.app-dream-search-control input,
+.app-dream-search-control .app-control-input-compact,
+.app-main-search-control input,
+.app-main-search-control .app-control-input-compact {
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  padding: 0;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control) input.app-control-compact,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control) input.app-control-input-compact,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control) input.app-control-compact:focus,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control) input.app-control-input-compact:focus,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control) input.app-control-compact:focus-visible,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-search-control, .app-main-search-control) input.app-control-input-compact:focus-visible {
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  padding: 0;
+}
+
+.app-dream-search-control input::placeholder,
+.app-main-search-control input::placeholder {
+  color: hsl(var(--foreground) / 0.42);
+}
+
+.app-dream-search-control button,
+.app-main-search-control button {
+  background: transparent;
+  color: hsl(var(--foreground) / 0.46);
+}
+
+.app-dream-search-control button:hover,
+.app-main-search-control button:hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.76);
+}
+
+/* Dream base controls: overrides shadcn variants with the app surface language. */
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  color: var(--dream-text-strong);
+  box-shadow: var(--dream-card-shadow);
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    opacity var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):hover {
+  background: var(--dream-surface-pressed);
+  color: var(--dream-text-strong);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-primary,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-primary,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-primary-foreground {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-primary:hover,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-primary:hover,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-primary-foreground:hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-secondary,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-secondary-foreground,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-background,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).border-input {
+  background: var(--dream-secondary-surface);
+  color: var(--dream-secondary-text);
+  box-shadow: var(--dream-card-shadow);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-accent,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-accent-foreground {
+  background: var(--dream-accent-surface);
+  color: var(--dream-accent-text);
+  box-shadow: inset 0 0 0 1px var(--dream-accent-line);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-accent:hover,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-accent-foreground:hover {
+  background: var(--dream-accent-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-destructive,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-destructive,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-destructive-foreground {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.08);
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).bg-destructive:hover,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-destructive:hover,
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).text-destructive-foreground:hover {
+  background: hsl(var(--destructive) / 0.15);
+  color: hsl(var(--destructive));
+}
+
+.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]).rounded-none {
+  border-radius: 0;
+}
+
+.app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  border-radius: 9999px;
+  background: transparent;
+  color: hsl(0 0% 100% / 0.9);
+  box-shadow: none;
+}
+
+.app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):hover {
+  background: hsl(0 0% 100% / 0.15);
+  color: white;
+}
+
+.app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):focus-visible {
+  background: hsl(0 0% 100% / 0.12);
+  color: white;
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.28);
+}
+
+.app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):disabled {
+  background: transparent;
+  color: hsl(0 0% 100% / 0.32);
+  opacity: 1;
+}
+
+.app-completed-task-file-picker,
+.app-completed-detail-meta-bar {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-completed-detail-meta-bar :is(.border-l) {
+  border-color: var(--dream-line-muted);
+}
+
+.app-completed-detail-meta-cell {
+  color: var(--dream-text-muted);
+}
+
+.app-completed-detail-meta-button {
+  background: transparent;
+  color: var(--dream-text-muted);
+}
+
+.app-completed-detail-meta-button:hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-completed-detail-meta-button:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  border-radius: 0;
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):disabled {
+  background: transparent;
+  color: var(--dream-text-soft);
+  opacity: 0.48;
+}
+
+.app-completed-task-card,
+.app-completed-file-card {
+  appearance: none;
+  width: 100%;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-secondary-surface-muted);
+  color: var(--dream-text-strong);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+  outline: none;
+  transition:
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-completed-task-card:hover,
+.app-completed-file-card:hover {
+  background: var(--dream-secondary-surface);
+  box-shadow: inset 0 0 0 1px var(--dream-line-soft);
+}
+
+.app-completed-task-card:focus-visible,
+.app-completed-file-card:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-completed-task-card[data-active="true"],
+.app-completed-file-card[data-active="true"] {
+  background: var(--dream-primary-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line-strong);
+}
+
+.app-completed-task-card[data-selected="true"],
+.app-completed-file-card[data-selected="true"] {
+  background: var(--dream-primary-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-task-card-cover {
+  background: var(--dream-accent-surface-muted);
+}
+
+.app-completed-task-card-cover-overlay {
+  background: linear-gradient(
+    180deg,
+    transparent,
+    hsl(222 38% 8% / 0.22) 58%,
+    hsl(222 38% 8% / 0.52)
+  );
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-cover-overlay,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-cover-overlay {
+  background: linear-gradient(
+    180deg,
+    var(--dream-primary-surface-muted),
+    hsl(222 38% 8% / 0.2) 54%,
+    hsl(222 38% 8% / 0.5)
+  );
+}
+
+.app-completed-task-card-time {
+  border-radius: calc(var(--dream-control-radius) - 0.35rem);
+  background: hsl(0 0% 0% / 0.36);
+  color: hsl(0 0% 100% / 0.82);
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.08);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+
+.app-completed-task-card-body {
+  background: transparent;
+}
+
+.app-completed-task-card-meta {
+  color: var(--dream-text-soft);
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-meta,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-meta {
+  color: var(--dream-primary-text);
+}
+
+.app-completed-task-card-title,
+.app-completed-file-title {
+  color: hsl(var(--foreground) / 0.78);
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-title,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-title,
+.app-completed-file-card[data-active="true"] .app-completed-file-title,
+.app-completed-file-card[data-selected="true"] .app-completed-file-title {
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.app-completed-file-card {
+  min-height: 3.25rem;
+  border-radius: var(--dream-control-radius);
+}
+
+.app-completed-file-icon {
+  background: var(--dream-accent-surface-muted);
+  color: var(--dream-accent-text);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-completed-file-card[data-active="true"] .app-completed-file-icon,
+.app-completed-file-card[data-selected="true"] .app-completed-file-icon {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-file-subtitle,
+.app-completed-file-meta,
+.app-completed-file-size {
+  color: var(--dream-text-soft);
+}
+
+.app-completed-file-format {
+  background: var(--dream-surface-muted);
+  color: var(--dream-text-muted);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-completed-file-card[data-active="true"] .app-completed-file-format,
+.app-completed-file-card[data-selected="true"] .app-completed-file-format {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-file-card[data-active="true"] .app-completed-file-subtitle,
+.app-completed-file-card[data-selected="true"] .app-completed-file-subtitle,
+.app-completed-file-card[data-active="true"] .app-completed-file-meta,
+.app-completed-file-card[data-selected="true"] .app-completed-file-meta,
+.app-completed-file-card[data-active="true"] .app-completed-file-size,
+.app-completed-file-card[data-selected="true"] .app-completed-file-size {
+  color: var(--dream-primary-text);
+}
+
+.app-completed-task-file-tabs {
+  gap: 0.125rem;
+  padding: 0.1875rem;
+}
+
+.app-completed-task-file-select-slot {
+  border-left: 1px solid var(--dream-line-muted);
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  min-height: 0;
+  border-radius: calc(var(--dream-control-radius) - 0.25rem);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  font-size: 0.625rem;
+  font-weight: 650;
+  gap: 0.25rem;
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:is([aria-selected="true"], .app-completed-task-file-tab-active):not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:disabled:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  background: transparent;
+  color: var(--dream-text-soft);
+  opacity: 0.48;
+}
+
+select.app-dream-select.app-control-compact.app-completed-task-file-select {
+  height: 100%;
+  border-radius: 0;
+  background-color: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+select.app-dream-select.app-control-compact.app-completed-task-file-select:hover {
+  background-color: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.76);
+}
+
+select.app-dream-select.app-control-compact.app-completed-task-file-select:focus {
+  background-color: var(--dream-surface-pressed);
+  color: hsl(var(--foreground) / 0.82);
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-select.app-control-compact {
+  height: var(--dream-control-height-compact);
+  min-width: 0;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--dream-surface-soft);
+  background-image:
+    linear-gradient(45deg, transparent 50%, hsl(var(--foreground) / 0.48) 50%),
+    linear-gradient(135deg, hsl(var(--foreground) / 0.48) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size:
+    5px 5px,
+    5px 5px;
+  box-shadow: var(--dream-card-shadow);
+  color: var(--dream-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  padding: 0 28px 0 10px;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-select.app-control-compact {
+  color: var(--dream-text-muted);
+}
+
+.app-dream-select.app-control-compact:hover {
+  background-color: var(--dream-surface-pressed);
+  color: hsl(var(--foreground) / 0.72);
+}
+
+.app-dream-select.app-control-compact:focus,
+.app-dream-select.app-control-compact:focus-visible {
+  color: hsl(var(--foreground) / 0.78);
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-select.app-control-compact option {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+
+.app-dream-input.app-control-compact {
+  height: var(--dream-control-height-compact);
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  box-shadow: var(--dream-card-shadow);
+  color: var(--dream-text-strong);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  padding: 0 10px;
+}
+
+.app-dream-input.app-control-compact::placeholder {
+  color: hsl(var(--foreground) / 0.42);
+}
+
+.app-dream-input.app-control-compact:focus,
+.app-dream-input.app-control-compact:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-search-control .app-dream-input,
+.app-dream-search-control .app-dream-input:focus,
+.app-dream-search-control .app-dream-input:focus-visible {
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.app-dream-badge[class] {
+  min-height: 1.5rem;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  color: var(--dream-text-muted);
+  box-shadow: var(--dream-card-shadow);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.app-dream-badge.bg-primary,
+.app-dream-badge.text-primary,
+.app-dream-badge.text-primary-foreground {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-badge.bg-accent,
+.app-dream-badge.text-accent-foreground {
+  background: var(--dream-accent-surface);
+  color: var(--dream-accent-text);
+  box-shadow: inset 0 0 0 1px var(--dream-accent-line);
+}
+
+.app-dream-badge.bg-secondary,
+.app-dream-badge.text-secondary-foreground,
+.app-dream-badge.bg-muted,
+.app-dream-badge.text-muted-foreground,
+.app-dream-badge.text-foreground {
+  background: var(--dream-secondary-surface);
+  color: var(--dream-secondary-text);
+}
+
+.app-dream-badge.bg-destructive,
+.app-dream-badge.text-destructive,
+.app-dream-badge.text-destructive-foreground {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.08);
+}
+
+.app-dream-button-group,
+.app-dream-segment-group {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  overflow: hidden;
+}
+
+.app-dream-button-group :is(.app-dream-button, button.app-motion-surface, select.app-dream-select, input.app-dream-input, [role="tab"], [role="combobox"]),
+.app-dream-segment-group :is(.app-dream-button, button.app-motion-surface, select.app-dream-select, input.app-dream-input, [role="tab"], [role="combobox"]) {
+  min-height: var(--dream-control-height);
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(.app-dream-button, button.app-motion-surface, [role="tab"], [role="combobox"]):hover,
+.app-dream-segment-group :is(.app-dream-button, button.app-motion-surface, [role="tab"], [role="combobox"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+.app-dream-button-group :is(select.app-dream-select, input.app-dream-input),
+.app-dream-segment-group :is(select.app-dream-select, input.app-dream-input) {
+  height: var(--dream-control-height);
+  background-color: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground) {
+  background: var(--dream-accent-surface);
+  color: var(--dream-accent-text);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground):hover {
+  background: var(--dream-accent-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground),
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground) {
+  background: transparent;
+  color: hsl(var(--destructive));
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover,
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+.app-dream-button-group.app-dream-button-group-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: calc(var(--dream-control-height) + 0.25rem);
+  padding: 0.125rem;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]) {
+  height: var(--dream-control-height);
+  min-height: var(--dream-control-height);
+  width: var(--dream-control-height);
+  min-width: var(--dream-control-height);
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  padding: 0;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="dream-fm-"]):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-menu-content,
+.app-menu-content,
+.dream-fm-dropdown-content {
+  overflow: hidden;
+  border: 1px solid var(--dream-menu-line);
+  border-radius: var(--dream-radius-xl);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 22%), rgb(255 255 255 / 8%)),
+    var(--dream-menu-surface);
+  box-shadow:
+    inset 0 1px 0 var(--dream-menu-line-highlight),
+    0 22px 70px hsl(var(--foreground) / 0.24);
+  padding: 0.375rem;
+  color: hsl(var(--popover-foreground));
+  -webkit-backdrop-filter: blur(30px) saturate(1.28);
+  backdrop-filter: blur(30px) saturate(1.28);
+}
+
+.app-dream-menu-item,
+.app-menu-item {
+  color: var(--dream-text-muted);
+}
+
+.app-menu-item[role="menuitemcheckbox"] {
+  padding-left: 2rem;
+}
+
+.app-menu-item[role="menuitemcheckbox"] > span:first-child {
+  left: 0.625rem;
+}
+
+.app-dream-menu-item:hover,
+.app-dream-menu-item:focus,
+.app-dream-menu-item[data-highlighted],
+.app-menu-item:hover,
+.app-menu-item:focus,
+.app-menu-item[data-highlighted] {
+  background: var(--dream-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-dream-menu-item:is(:hover, :focus, [data-highlighted]) :is(svg, span),
+.app-menu-item:is(:hover, :focus, [data-highlighted]) :is(svg, span) {
+  color: currentColor;
+}
+
+.app-dream-menu-item[data-state="checked"],
+.app-menu-item[data-state="checked"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-menu-item[data-state="checked"]:hover,
+.app-dream-menu-item[data-state="checked"]:focus,
+.app-dream-menu-item[data-state="checked"][data-highlighted],
+.app-menu-item[data-state="checked"]:hover,
+.app-menu-item[data-state="checked"]:focus,
+.app-menu-item[data-state="checked"][data-highlighted] {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-completed-filter-menu.app-menu-content {
+  border-radius: var(--dream-radius-xl);
+  padding: 0.375rem;
+}
+
+.app-completed-filter-menu .app-menu-label {
+  padding: 0.375rem 0.5rem 0.5rem;
+  color: var(--dream-text-soft);
+}
+
+.app-completed-filter-menu .app-menu-separator {
+  margin: 0.25rem;
+  background: var(--dream-divider-muted);
+}
+
+.app-completed-filter-menu-item,
+.app-completed-filter-menu-checkbox {
+  min-height: 2rem;
+  border-radius: var(--app-radius-md);
+  color: var(--dream-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.app-completed-filter-menu-item {
+  gap: 0.5rem;
+  padding: 0 0.625rem;
+}
+
+.app-completed-filter-menu-checkbox {
+  padding: 0 0.625rem 0 2rem;
+}
+
+.app-completed-filter-menu-icon,
+.app-completed-filter-menu-label {
+  color: var(--dream-text-muted);
+}
+
+.app-completed-filter-menu-checkbox > span:first-child {
+  left: 0.625rem;
+  color: var(--dream-primary-text);
+}
+
+.app-completed-filter-menu-item:is(:hover, :focus, [data-highlighted]),
+.app-completed-filter-menu-checkbox:is(:hover, :focus, [data-highlighted]) {
+  background: var(--dream-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-completed-filter-menu-item:is(:hover, :focus, [data-highlighted]) :is(.app-completed-filter-menu-icon, .app-completed-filter-menu-label) {
+  color: var(--dream-accent-text);
+}
+
+.app-completed-filter-menu-checkbox[data-state="checked"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-filter-menu-checkbox[data-state="checked"]:is(:hover, :focus, [data-highlighted]) {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+/* Dream color schemes */
+@layer base {
+  :root[data-color-scheme="contrast"] {
+    --background: 214 28% 96%;
+    --foreground: 222 32% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 32% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 32% 14%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 214 25% 90%;
+    --secondary-foreground: 222 32% 18%;
+
+    --muted: 213 22% 90%;
+    --muted-foreground: 218 16% 38%;
+
+    --accent: 212 45% 88%;
+    --accent-foreground: 222 47% 18%;
+
+    --destructive: 0 75% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 22% 82%;
+    --input: 214 22% 82%;
+    --ring: 217 91% 60%;
+
+    --sidebar-background: 214 24% 91%;
+    --sidebar-foreground: 222 30% 16%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 214 22% 85%;
+    --sidebar-accent-foreground: 222 30% 18%;
+    --sidebar-border: 214 18% 78%;
+    --sidebar-ring: 217 91% 60%;
+  }
+
+  :root.dark[data-color-scheme="contrast"] {
+    --background: 222 28% 8%;
+    --foreground: 210 20% 98%;
+
+    --card: 222 22% 12%;
+    --card-foreground: 210 20% 98%;
+
+    --popover: 222 22% 13%;
+    --popover-foreground: 210 20% 98%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 222 17% 19%;
+    --secondary-foreground: 210 20% 98%;
+
+    --muted: 222 16% 17%;
+    --muted-foreground: 215 15% 70%;
+
+    --accent: 217 20% 22%;
+    --accent-foreground: 210 20% 98%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 14% 24%;
+    --input: 222 14% 24%;
+    --ring: 217 91% 60%;
+
+    --sidebar-background: 222 21% 11%;
+    --sidebar-foreground: 210 20% 98%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 222 47% 11%;
+    --sidebar-accent: 222 16% 18%;
+    --sidebar-accent-foreground: 210 20% 98%;
+    --sidebar-border: 222 13% 24%;
+    --sidebar-ring: 217 91% 60%;
+  }
+
+  :root[data-color-scheme="slate"] {
+    --background: 210 30% 97%;
+    --foreground: 215 30% 18%;
+
+    --card: 210 20% 99%;
+    --card-foreground: 215 30% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 30% 18%;
+
+    --primary: 173 73% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 24% 93%;
+    --secondary-foreground: 215 28% 19%;
+
+    --muted: 210 18% 92%;
+    --muted-foreground: 215 15% 42%;
+
+    --accent: 191 38% 89%;
+    --accent-foreground: 187 55% 24%;
+
+    --destructive: 0 75% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 20% 86%;
+    --input: 210 20% 86%;
+    --ring: 173 73% 32%;
+
+    --sidebar-background: 206 28% 93%;
+    --sidebar-foreground: 215 30% 18%;
+    --sidebar-primary: 173 73% 32%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 191 30% 87%;
+    --sidebar-accent-foreground: 187 55% 24%;
+    --sidebar-border: 208 18% 82%;
+    --sidebar-ring: 173 73% 32%;
+  }
+
+  :root.dark[data-color-scheme="slate"] {
+    --background: 214 30% 8%;
+    --foreground: 210 20% 98%;
+
+    --card: 214 22% 12%;
+    --card-foreground: 210 20% 98%;
+
+    --popover: 214 22% 13%;
+    --popover-foreground: 210 20% 98%;
+
+    --primary: 174 63% 46%;
+    --primary-foreground: 180 100% 96%;
+
+    --secondary: 214 16% 18%;
+    --secondary-foreground: 210 20% 98%;
+
+    --muted: 214 15% 17%;
+    --muted-foreground: 210 14% 68%;
+
+    --accent: 196 24% 22%;
+    --accent-foreground: 183 80% 92%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 14% 24%;
+    --input: 214 14% 24%;
+    --ring: 174 63% 46%;
+
+    --sidebar-background: 214 20% 11%;
+    --sidebar-foreground: 210 20% 98%;
+    --sidebar-primary: 174 63% 46%;
+    --sidebar-primary-foreground: 180 100% 96%;
+    --sidebar-accent: 196 18% 19%;
+    --sidebar-accent-foreground: 183 80% 92%;
+    --sidebar-border: 214 14% 23%;
+    --sidebar-ring: 174 63% 46%;
+  }
+
+  :root[data-color-scheme="warm"] {
+    --background: 35 45% 96%;
+    --foreground: 24 20% 18%;
+
+    --card: 42 40% 98%;
+    --card-foreground: 24 20% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 20% 18%;
+
+    --primary: 24 90% 44%;
+    --primary-foreground: 40 33% 98%;
+
+    --secondary: 34 38% 90%;
+    --secondary-foreground: 24 20% 20%;
+
+    --muted: 35 30% 90%;
+    --muted-foreground: 24 14% 42%;
+
+    --accent: 32 44% 86%;
+    --accent-foreground: 24 64% 26%;
+
+    --destructive: 0 75% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 32 25% 82%;
+    --input: 32 25% 82%;
+    --ring: 24 90% 44%;
+
+    --sidebar-background: 34 38% 90%;
+    --sidebar-foreground: 24 20% 18%;
+    --sidebar-primary: 24 90% 44%;
+    --sidebar-primary-foreground: 40 33% 98%;
+    --sidebar-accent: 30 34% 84%;
+    --sidebar-accent-foreground: 24 64% 26%;
+    --sidebar-border: 30 24% 78%;
+    --sidebar-ring: 24 90% 44%;
+  }
+
+  :root.dark[data-color-scheme="warm"] {
+    --background: 24 18% 8%;
+    --foreground: 36 38% 96%;
+
+    --card: 24 16% 12%;
+    --card-foreground: 36 38% 96%;
+
+    --popover: 24 16% 13%;
+    --popover-foreground: 36 38% 96%;
+
+    --primary: 24 90% 56%;
+    --primary-foreground: 24 25% 14%;
+
+    --secondary: 24 12% 18%;
+    --secondary-foreground: 36 38% 96%;
+
+    --muted: 24 10% 17%;
+    --muted-foreground: 34 16% 68%;
+
+    --accent: 28 20% 21%;
+    --accent-foreground: 35 70% 92%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 24 12% 24%;
+    --input: 24 12% 24%;
+    --ring: 24 90% 56%;
+
+    --sidebar-background: 24 14% 11%;
+    --sidebar-foreground: 36 38% 96%;
+    --sidebar-primary: 24 90% 56%;
+    --sidebar-primary-foreground: 24 25% 14%;
+    --sidebar-accent: 24 12% 18%;
+    --sidebar-accent-foreground: 35 70% 92%;
+    --sidebar-border: 24 12% 23%;
+    --sidebar-ring: 24 90% 56%;
+  }
+}
+
+/* Dream motion and utilities */
+@layer utilities {
+  @keyframes typing-dot-wave {
+    0%,
+    60%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.55;
+    }
+    30% {
+      transform: translateY(-5px);
+      opacity: 1;
+    }
+  }
+
+  .typing-dot-wave {
+    animation: typing-dot-wave 900ms ease-in-out infinite;
+    display: block;
+    border-radius: 9999px;
+    transform: translateZ(0);
+    will-change: transform, opacity;
+  }
+
+  @keyframes dream-fm-marquee-scroll {
+    0%,
+    12% {
+      transform: translateX(0);
+    }
+    88%,
+    100% {
+      transform: translateX(var(--dream-fm-marquee-shift, -2rem));
+    }
+  }
+
+  .dream-fm-marquee-text {
+    animation: dream-fm-marquee-scroll var(--dream-fm-marquee-duration, 8s)
+      ease-in-out infinite alternate;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .typing-dot-wave {
+      animation: none;
+      opacity: 0.9;
+    }
+
+    .dream-fm-marquee-text {
+      animation: none;
+      transform: none;
+    }
+
+  }
+}
+
+@layer utilities {
+  .app-control-compact {
+    height: var(--app-control-height-compact);
+    padding-left: var(--app-control-padding-compact-x);
+    padding-right: var(--app-control-padding-compact-x);
+    padding-top: var(--app-control-padding-compact-y);
+    padding-bottom: var(--app-control-padding-compact-y);
+  }
+
+  .app-control-compact-icon {
+    height: var(--app-control-height-compact);
+    width: var(--app-control-height-compact);
+  }
+
+  .wails-drag {
+    --wails-draggable: drag;
+  }
+  .wails-no-drag {
+    --wails-draggable: no-drag;
+  }
+}
+
+@layer utilities {
+  @keyframes app-running-water-flow {
+    0% {
+      background-position: 0 0, 0 0, 0 0;
+    }
+    100% {
+      background-position: 96px 0, -128px 0, 0 0;
+    }
+  }
+
+  @keyframes app-running-fire-rise {
+    0% {
+      transform: translateY(9%) scaleX(0.94);
+      opacity: 0.52;
+    }
+    100% {
+      transform: translateY(-7%) scaleX(1.06);
+      opacity: 0.88;
+    }
+  }
+
+  @keyframes app-running-cloud-drift {
+    0% {
+      transform: translateX(-7%) scale(1);
+    }
+    50% {
+      transform: translateX(4%) scale(1.04);
+    }
+    100% {
+      transform: translateX(9%) scale(1);
+    }
+  }
+
+  @keyframes app-running-sun-sweep {
+    0% {
+      transform: translateX(-86%) rotate(17deg);
+      opacity: 0;
+    }
+    18%,
+    62% {
+      opacity: 0.78;
+    }
+    100% {
+      transform: translateX(86%) rotate(17deg);
+      opacity: 0;
+    }
+  }
+
+  @keyframes app-running-mist-breathe {
+    0%,
+    100% {
+      transform: translate3d(-5%, 4%, 0) scale(1);
+      opacity: 0.48;
+    }
+    50% {
+      transform: translate3d(5%, -3%, 0) scale(1.08);
+      opacity: 0.74;
+    }
+  }
+
+  @keyframes app-running-shadow-sway {
+    0%,
+    100% {
+      transform: translateX(-6%) skewX(-10deg);
+    }
+    50% {
+      transform: translateX(8%) skewX(8deg);
+    }
+  }
+
+  @keyframes app-running-thumbnail-blur-arrive {
+    0%,
+    28% {
+      filter: blur(58px) saturate(1.05) brightness(0.78) contrast(1.05);
+      opacity: 0.06;
+    }
+    62% {
+      filter: blur(54px) saturate(1.62) brightness(1.12) contrast(1.16);
+      opacity: 0.66;
+    }
+    100% {
+      filter: blur(54px) saturate(1.6) brightness(1.1) contrast(1.15);
+      opacity: 0.74;
+    }
+  }
+
+  @keyframes app-running-thumbnail-detail-arrive {
+    0%,
+    36% {
+      filter: blur(5px) saturate(0.92) brightness(0.82) contrast(1.04);
+      opacity: 0;
+    }
+    70% {
+      filter: blur(1.8px) saturate(1.02) brightness(0.92) contrast(1.16);
+      opacity: 0.14;
+    }
+    100% {
+      filter: blur(0.9px) saturate(1.1) brightness(0.9) contrast(1.25);
+      opacity: 0.2;
+    }
+  }
+
+  @keyframes app-running-thumbnail-sweep {
+    0% {
+      transform: translateX(-95%) rotate(13deg);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.94;
+    }
+    46% {
+      opacity: 0.74;
+    }
+    78% {
+      opacity: 0.18;
+    }
+    100% {
+      transform: translateX(450%) rotate(13deg);
+      opacity: 0;
+    }
+  }
+
+  @keyframes app-running-speed-tube-breathe {
+    0%,
+    100% {
+      opacity: 0.42;
+      transform: scaleX(0.98) scaleY(0.92);
+      filter: blur(13px) saturate(1.18);
+    }
+    50% {
+      opacity: 0.82;
+      transform: scaleX(1.04) scaleY(1.08);
+      filter: blur(18px) saturate(1.55);
+    }
+  }
+
+  .app-running-speed-segment {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .app-running-speed-segment > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-running-speed-segment[data-speed-kind="download"] {
+    border-color: hsl(var(--primary) / 0.26);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.08) inset,
+      0 10px 28px -24px hsl(var(--primary) / 0.72);
+  }
+
+  .app-running-speed-segment[data-speed-kind="download"]::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: -18px -22px;
+    z-index: -1;
+    border-radius: 9999px;
+    background:
+      radial-gradient(ellipse 72% 62% at 50% 50%, hsl(var(--primary) / 0.34), hsl(var(--primary) / 0.14) 46%, transparent 78%),
+      linear-gradient(90deg, transparent 0%, hsl(var(--accent) / 0.16) 24%, hsl(var(--primary) / 0.22) 58%, transparent 100%);
+    mask-image: radial-gradient(ellipse 76% 58% at 50% 50%, black 0%, rgba(0, 0, 0, 0.74) 48%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 76% 58% at 50% 50%, black 0%, rgba(0, 0, 0, 0.74) 48%, transparent 100%);
+    opacity: 0.58;
+    transform-origin: 50% 50%;
+    animation: app-running-speed-tube-breathe 3.8s ease-in-out infinite;
+    will-change: filter, opacity, transform;
+  }
+
+  .app-running-speed-segment[data-speed-kind="download"]::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 1px;
+    z-index: 0;
+    border-radius: inherit;
+    background:
+      radial-gradient(ellipse 72% 74% at 50% 18%, hsl(var(--primary-foreground) / 0.16), transparent 58%),
+      linear-gradient(90deg, hsl(var(--primary) / 0.08), transparent 44%, hsl(var(--accent) / 0.08));
+    opacity: 0.62;
+    mix-blend-mode: soft-light;
+  }
+
+  .app-running-speed-segment[data-speed-kind="transcode"] {
+    border-color: hsl(var(--accent-foreground) / 0.22);
+    box-shadow:
+      0 0 0 1px hsl(var(--accent) / 0.12) inset,
+      0 10px 28px -24px hsl(var(--accent-foreground) / 0.58);
+  }
+
+  .app-running-speed-segment[data-speed-kind="transcode"]::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: -18px -22px;
+    z-index: -1;
+    border-radius: 9999px;
+    background:
+      radial-gradient(ellipse 72% 62% at 50% 50%, hsl(var(--accent-foreground) / 0.22), hsl(var(--accent) / 0.18) 46%, transparent 78%),
+      linear-gradient(90deg, transparent 0%, hsl(var(--accent) / 0.2) 24%, hsl(var(--muted-foreground) / 0.14) 58%, transparent 100%);
+    mask-image: radial-gradient(ellipse 76% 58% at 50% 50%, black 0%, rgba(0, 0, 0, 0.74) 48%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 76% 58% at 50% 50%, black 0%, rgba(0, 0, 0, 0.74) 48%, transparent 100%);
+    opacity: 0.52;
+    transform-origin: 50% 50%;
+    animation: app-running-speed-tube-breathe 4.4s ease-in-out -1.1s infinite;
+    will-change: filter, opacity, transform;
+  }
+
+  .app-running-speed-segment[data-speed-kind="transcode"]::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 1px;
+    z-index: 0;
+    border-radius: inherit;
+    background:
+      radial-gradient(ellipse 72% 74% at 50% 18%, hsl(var(--accent) / 0.18), transparent 58%),
+      linear-gradient(90deg, hsl(var(--accent) / 0.08), transparent 44%, hsl(var(--accent-foreground) / 0.08));
+    opacity: 0.58;
+    mix-blend-mode: soft-light;
+  }
+
+  .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-blur {
+    animation: app-running-thumbnail-blur-arrive 1260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    will-change: filter, opacity;
+  }
+
+  .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-detail {
+    animation: app-running-thumbnail-detail-arrive 1320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: filter, opacity;
+  }
+
+  .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-sweep {
+    animation: app-running-thumbnail-sweep 920ms cubic-bezier(0.18, 0.88, 0.28, 1) both;
+    background:
+      linear-gradient(90deg, transparent 0%, hsl(var(--primary-foreground) / 0.16) 28%, hsl(var(--primary-foreground) / 0.72) 48%, hsl(var(--primary) / 0.22) 64%, transparent 100%);
+    filter: blur(6px);
+    mix-blend-mode: soft-light;
+    will-change: transform, opacity;
+  }
+
+  .app-running-new-download-button {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    border-color: hsl(var(--primary) / 0.34);
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.84) 58%, hsl(var(--accent-foreground) / 0.9));
+    box-shadow:
+      0 16px 34px -22px hsl(var(--primary) / 0.78),
+      inset 0 -12px 22px hsl(var(--foreground) / 0.1);
+  }
+
+  .app-running-new-download-button > * {
+    position: relative;
+    z-index: 2;
+  }
+
+  .app-running-new-download-button::before,
+  .app-running-new-download-button::after {
+    content: "";
+    position: absolute;
+    pointer-events: none;
+    border-radius: inherit;
+  }
+
+  .app-running-new-download-button::before {
+    inset: 1px;
+    z-index: 0;
+  }
+
+  .app-running-new-download-button::after {
+    inset: 0;
+    z-index: 1;
+  }
+
+  .app-running-new-download-button[data-effect="water"] {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.78) 50%, hsl(190 82% 46% / 0.92));
+  }
+
+  .app-running-new-download-button[data-effect="water"]::before {
+    background:
+      repeating-linear-gradient(104deg, transparent 0 13px, hsl(var(--primary-foreground) / 0.24) 15px 18px, transparent 21px 34px),
+      radial-gradient(ellipse 46% 42% at 24% 44%, hsl(190 100% 78% / 0.38), transparent 70%),
+      radial-gradient(ellipse 56% 52% at 78% 58%, hsl(var(--primary-foreground) / 0.18), transparent 74%);
+    background-size: 64px 100%, 120% 120%, 100% 100%;
+    opacity: 0.72;
+    animation: app-running-water-flow 4.8s linear infinite;
+  }
+
+  .app-running-new-download-button[data-effect="water"]::after {
+    background: linear-gradient(90deg, transparent, hsl(var(--primary-foreground) / 0.24), transparent);
+    transform: translateX(-74%) rotate(15deg);
+    animation: app-running-sun-sweep 5.2s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="fire"] {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(24 92% 55% / 0.92) 54%, hsl(2 82% 48% / 0.9));
+  }
+
+  .app-running-new-download-button[data-effect="fire"]::before {
+    inset: auto 2px -28% 2px;
+    height: 150%;
+    background:
+      radial-gradient(ellipse 18% 44% at 18% 88%, hsl(42 100% 74% / 0.86), transparent 68%),
+      radial-gradient(ellipse 24% 56% at 46% 92%, hsl(18 100% 58% / 0.82), transparent 70%),
+      radial-gradient(ellipse 20% 48% at 76% 88%, hsl(4 88% 50% / 0.72), transparent 70%);
+    filter: blur(4px);
+    opacity: 0.8;
+    animation: app-running-fire-rise 1.35s ease-in-out infinite alternate;
+  }
+
+  .app-running-new-download-button[data-effect="fire"]::after {
+    background: radial-gradient(ellipse 68% 60% at 50% 100%, hsl(44 100% 66% / 0.32), transparent 72%);
+  }
+
+  .app-running-new-download-button[data-effect="cloud"] {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.72) 46%, hsl(206 78% 78% / 0.88));
+  }
+
+  .app-running-new-download-button[data-effect="cloud"]::before {
+    inset: -36% -28%;
+    background:
+      radial-gradient(circle at 18% 58%, hsl(var(--primary-foreground) / 0.52) 0 11%, transparent 19%),
+      radial-gradient(circle at 38% 45%, hsl(var(--primary-foreground) / 0.38) 0 13%, transparent 22%),
+      radial-gradient(circle at 62% 58%, hsl(var(--primary-foreground) / 0.46) 0 12%, transparent 22%),
+      radial-gradient(circle at 82% 46%, hsl(var(--primary-foreground) / 0.28) 0 10%, transparent 20%);
+    filter: blur(3px);
+    opacity: 0.64;
+    animation: app-running-cloud-drift 7.6s ease-in-out infinite alternate;
+  }
+
+  .app-running-new-download-button[data-effect="cloud"]::after {
+    background: linear-gradient(180deg, hsl(var(--primary-foreground) / 0.22), transparent 62%);
+    opacity: 0.4;
+  }
+
+  .app-running-new-download-button[data-effect="sun"] {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(43 96% 58% / 0.94) 58%, hsl(31 92% 52% / 0.88));
+  }
+
+  .app-running-new-download-button[data-effect="sun"]::before {
+    inset: -72% -22%;
+    background: repeating-conic-gradient(from -18deg at 50% 50%, hsl(var(--primary-foreground) / 0.28) 0deg 8deg, transparent 8deg 22deg);
+    opacity: 0.52;
+    animation: app-running-cloud-drift 8s linear infinite alternate;
+  }
+
+  .app-running-new-download-button[data-effect="sun"]::after {
+    inset-block: -42%;
+    left: -38%;
+    width: 46%;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary-foreground) / 0.42), transparent);
+    animation: app-running-sun-sweep 3.2s var(--app-motion-ease-enter) infinite;
+  }
+
+  .app-running-new-download-button[data-effect="mist"] {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.68) 52%, hsl(var(--muted-foreground) / 0.62));
+  }
+
+  .app-running-new-download-button[data-effect="mist"]::before {
+    inset: -44% -30%;
+    background:
+      radial-gradient(ellipse 36% 28% at 20% 50%, hsl(var(--primary-foreground) / 0.36), transparent 72%),
+      radial-gradient(ellipse 42% 30% at 54% 42%, hsl(var(--primary-foreground) / 0.28), transparent 72%),
+      radial-gradient(ellipse 34% 26% at 82% 60%, hsl(var(--primary-foreground) / 0.24), transparent 74%);
+    filter: blur(7px);
+    animation: app-running-mist-breathe 5.8s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="mist"]::after {
+    background: linear-gradient(90deg, transparent, hsl(var(--primary-foreground) / 0.14), transparent);
+    opacity: 0.56;
+  }
+
+  .app-running-new-download-button[data-effect="shadow"] {
+    background: linear-gradient(135deg, hsl(var(--primary)), hsl(150 52% 38% / 0.9) 56%, hsl(95 42% 42% / 0.82));
+  }
+
+  .app-running-new-download-button[data-effect="shadow"]::before {
+    inset: -24% -30%;
+    background:
+      linear-gradient(102deg, transparent 0 18%, hsl(128 56% 12% / 0.28) 19% 22%, transparent 23% 42%, hsl(128 56% 12% / 0.2) 43% 48%, transparent 49%),
+      radial-gradient(ellipse 22% 34% at 24% 18%, hsl(96 76% 76% / 0.28), transparent 72%),
+      radial-gradient(ellipse 24% 38% at 72% 26%, hsl(96 76% 76% / 0.22), transparent 72%);
+    filter: blur(1.5px);
+    opacity: 0.76;
+    animation: app-running-shadow-sway 4.4s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="shadow"]::after {
+    background: radial-gradient(ellipse 48% 44% at 24% 20%, hsl(var(--primary-foreground) / 0.28), transparent 74%);
+    opacity: 0.52;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-blur,
+    .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-detail,
+    .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-sweep,
+    .app-running-speed-segment[data-speed-kind="download"]::before,
+    .app-running-speed-segment[data-speed-kind="transcode"]::before,
+    .app-running-new-download-button::before,
+    .app-running-new-download-button::after {
+      animation: none;
+    }
+  }
+
+  .app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"]),
+  .app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"])[data-effect] {
+    border: 0;
+    background: var(--dream-primary-surface);
+    color: var(--dream-primary-text);
+    box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+  }
+
+  .app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"])::before,
+  .app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="dream-fm-"])::after {
+    opacity: 0.12;
+  }
+
+  .app-motion-color {
+    transition-property: background-color, border-color, color, box-shadow, opacity;
+    transition-duration: var(--app-motion-duration-fast);
+    transition-timing-function: var(--app-motion-ease-standard);
+  }
+
+  .app-motion-surface {
+    transition-property: transform, background-color, border-color, color, box-shadow, opacity;
+    transition-duration: var(--app-motion-duration-base);
+    transition-timing-function: var(--app-motion-ease-standard);
+  }
+
+  .app-motion-hover-lift {
+    transform: translateY(0);
+  }
+
+  @media (hover: hover) {
+    .app-motion-hover-lift:hover {
+      transform: translateY(var(--app-motion-hover-lift-y));
+    }
+  }
+
+  .app-motion-press:active {
+    transform: scale(var(--app-motion-press-scale));
+  }
+
+  :root[data-motion="off"] *,
+  :root[data-motion="off"] *::before,
+  :root[data-motion="off"] *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

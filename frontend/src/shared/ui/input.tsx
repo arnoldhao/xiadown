@@ -19,7 +19,7 @@ const Input = React.forwardRef<
   <BaseInput
     ref={ref}
     className={cn(
-      "app-motion-color text-xs placeholder:text-xs file:text-xs",
+      "app-dream-input app-motion-color text-xs placeholder:text-xs file:text-xs",
       size === "compact" && "app-control-compact",
       className
     )}

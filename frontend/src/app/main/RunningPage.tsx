@@ -5,7 +5,7 @@ import type {
   LibraryFileDTO,
   OperationListItemDTO,
 } from "@/shared/contracts/library";
-import type { Sprite } from "@/shared/contracts/sprites";
+import type { Pet } from "@/shared/contracts/pets";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -17,15 +17,15 @@ import {
 } from "@/shared/ui/dialog";
 import { Progress } from "@/shared/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-import { SpriteDisplay } from "@/shared/ui/sprite-player";
+import { PetDisplay } from "@/shared/ui/pet-player";
 import { useCancelOperation } from "@/shared/query/library";
 import { getLanguage, resolveI18nText } from "@/shared/i18n";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/shared/utils/formatBytes";
 import { buildAssetPreviewURL } from "@/shared/utils/resourceHelpers";
 import { getXiaText } from "@/features/xiadown/shared";
-import type { SpriteAnimation } from "@/shared/sprites/animation";
-import { RUNNING_SPRITE_GLOW_STYLE } from "@/shared/styles/xiadown";
+import type { PetAnimation } from "@/shared/pets/animation";
+import { RUNNING_PET_GLOW_STYLE } from "@/shared/styles/xiadown";
 import { resolveOperationKindLabel } from "@/app/main/helpers";
 
 type RunningPageProps = {
@@ -33,9 +33,9 @@ type RunningPageProps = {
   operations: OperationListItemDTO[];
   filesById: Map<string, LibraryFileDTO>;
   httpBaseURL: string;
-  spriteImageURL: string;
-  spriteAnimation: SpriteAnimation;
-  sprite: Sprite | null;
+  petImageURL: string;
+  petAnimation: PetAnimation;
+  pet: Pet | null;
   loading?: boolean;
   onNewDownload: () => void;
 };
@@ -74,7 +74,7 @@ const RUNNING_SPEED_UNIT_MULTIPLIERS: Record<string, number> = {
 const RUNNING_SPEED_CACHE_TTL_MS = 3500;
 const RUNNING_SPEED_SMOOTHING_WEIGHT = 0.42;
 const RUNNING_CANCEL_SUPPRESS_TTL_MS = 12_000;
-const RUNNING_EMPTY_SPRITE_SIZE = 192;
+const RUNNING_EMPTY_PET_SIZE = 192;
 const RUNNING_DOWNLOAD_SPEED_KINDS = new Set<ParsedRunningSpeed["kind"]>([
   "bytes",
 ]);
@@ -161,8 +161,8 @@ function RunningActionButton(
       variant={primary ? "default" : "ghost"}
       className={cn(
         primary
-          ? "app-running-new-download-button h-10 rounded-full border border-primary/30 bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-[0_16px_34px_-22px_hsl(var(--primary)/0.78)] hover:bg-primary"
-          : "h-10 rounded-full border border-primary/[0.15] bg-primary/10 px-4 text-sm font-medium text-primary shadow-sm transition hover:bg-primary/[0.14] hover:text-primary",
+          ? "app-running-new-download-button h-10 px-4 text-sm font-semibold"
+          : "app-running-action-button h-10 px-4 text-sm font-medium",
         className,
       )}
       aria-label={label}
@@ -846,7 +846,7 @@ export function RunningPage(props: RunningPageProps) {
     hasDownloadOperation,
     hasTranscodeOperation,
   ]);
-  const useRunningSpriteGlow = props.spriteAnimation === "working";
+  const useRunningPetGlow = props.petAnimation === "running";
 
   React.useEffect(() => {
     if (!scrollRef.current || operations.length === 0) {
@@ -919,7 +919,7 @@ export function RunningPage(props: RunningPageProps) {
 
   if (props.loading) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center">
+      <div className="app-main-page app-main-running-page flex h-full min-h-0 items-center justify-center">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>{text.running.loading}</span>
@@ -930,16 +930,16 @@ export function RunningPage(props: RunningPageProps) {
 
   if (operations.length === 0) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center">
+      <div className="app-main-page app-main-running-page flex h-full min-h-0 items-center justify-center">
         <div className="flex max-w-sm flex-col items-center text-center">
-          <SpriteDisplay
-            sprite={props.sprite}
-            imageUrl={props.spriteImageURL}
-            animation={props.spriteAnimation}
+          <PetDisplay
+            pet={props.pet}
+            imageUrl={props.petImageURL}
+            animation={props.petAnimation}
             alt={text.appName}
             className="mb-6"
             glowClassName="h-[18rem] w-[18rem] blur-2xl"
-            size={RUNNING_EMPTY_SPRITE_SIZE}
+            size={RUNNING_EMPTY_PET_SIZE}
           />
           <RunningActionButton
             label={text.running.emptyAction}
@@ -954,7 +954,7 @@ export function RunningPage(props: RunningPageProps) {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 items-start justify-center">
+    <div className="app-main-page app-main-running-page relative flex h-full min-h-0 items-start justify-center">
       <h1 className="sr-only">{text.running.title}</h1>
       <div className="flex h-full min-h-0 w-full max-w-4xl flex-col">
         <div className="shrink-0 px-6">
@@ -969,7 +969,7 @@ export function RunningPage(props: RunningPageProps) {
                     {kindSegments.map((segment) => (
                       <div
                         key={segment.key}
-                        className="app-running-speed-segment grid h-8 w-40 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-visible rounded-lg border border-border/60 bg-background/[0.72] px-2.5 text-xs shadow-sm backdrop-blur-xl"
+                        className="app-running-speed-segment grid h-8 w-40 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-visible px-2.5 text-xs"
                         data-speed-kind={segment.key}
                       >
                         <span className="min-w-0 truncate font-semibold text-foreground/82">
@@ -986,19 +986,19 @@ export function RunningPage(props: RunningPageProps) {
             </div>
 
             <div className="relative z-10 flex shrink-0 justify-end">
-              <SpriteDisplay
-                sprite={props.sprite}
-                imageUrl={props.spriteImageURL}
-                animation={props.spriteAnimation}
+              <PetDisplay
+                pet={props.pet}
+                imageUrl={props.petImageURL}
+                animation={props.petAnimation}
                 alt={text.appName}
                 className="shrink-0"
                 glowClassName={
-                  useRunningSpriteGlow
+                  useRunningPetGlow
                     ? "h-[10rem] w-[13.5rem] blur-[18px]"
                     : undefined
                 }
                 glowStyle={
-                  useRunningSpriteGlow ? RUNNING_SPRITE_GLOW_STYLE : undefined
+                  useRunningPetGlow ? RUNNING_PET_GLOW_STYLE : undefined
                 }
               />
             </div>
@@ -1029,7 +1029,7 @@ export function RunningPage(props: RunningPageProps) {
 	                return (
                   <div
                     key={operation.operationId}
-                    className="group relative isolate overflow-hidden rounded-[26px] border border-primary/20 bg-[linear-gradient(135deg,hsl(var(--primary)/0.11),hsl(var(--card)/0.82)_46%,hsl(var(--accent)/0.42))] p-4 shadow-[0_22px_52px_-40px_hsl(var(--primary)/0.62)] backdrop-blur-xl"
+                    className="app-main-running-card app-dream-card group relative isolate overflow-hidden p-4"
                   >
                     {thumbnailCoverURL ? (
                       <div
@@ -1120,8 +1120,7 @@ export function RunningPage(props: RunningPageProps) {
 	                      </div>
 	                    ) : (
                       <>
-                        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_14%_0%,hsl(var(--primary)/0.18),transparent_48%),radial-gradient(ellipse_at_88%_100%,hsl(var(--accent-foreground)/0.12),transparent_54%)]" />
-                        <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--card)/0.86),hsl(var(--background)/0.78)_54%,hsl(var(--primary)/0.1))]" />
+                        <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--card)/0.82),hsl(var(--background)/0.70)_58%,hsl(var(--primary)/0.06))]" />
                       </>
                     )}
 	                    <div className="absolute inset-0 ring-1 ring-inset ring-white/[0.16] dark:ring-white/[0.08]" />
@@ -1136,9 +1135,9 @@ export function RunningPage(props: RunningPageProps) {
                           </div>
                         </div>
                         <div className="ml-auto flex shrink-0 items-center gap-2">
-                          <div className="flex min-w-0 max-w-full shrink-0 items-center overflow-hidden rounded-lg border border-border/70 bg-background/[0.76] shadow-sm backdrop-blur-xl">
+                          <div className="app-running-meta-strip flex min-w-0 max-w-full shrink-0 items-center overflow-hidden">
                             <span
-                              className="inline-flex h-[var(--app-control-height-compact)] w-[5.75rem] shrink-0 items-center justify-center bg-muted/60 px-2.5 text-[11px] font-medium text-foreground/78"
+                              className="app-running-meta-cell app-running-meta-cell-primary inline-flex h-[var(--app-control-height-compact)] w-[5.75rem] shrink-0 items-center justify-center px-2.5 text-[11px] font-medium"
                               title={kindLabel}
                             >
                               <span className="min-w-0 truncate">{kindLabel}</span>
@@ -1146,7 +1145,7 @@ export function RunningPage(props: RunningPageProps) {
                             {sourceLabel ? (
                               <DetailValueTooltip label={text.running.source}>
                                 <span
-                                  className="inline-flex h-[var(--app-control-height-compact)] w-[8.5rem] shrink-0 items-center border-l border-border/70 px-2.5 text-[11px] font-medium text-muted-foreground"
+                                  className="app-running-meta-cell inline-flex h-[var(--app-control-height-compact)] w-[8.5rem] shrink-0 items-center px-2.5 text-[11px] font-medium"
                                   title={sourceLabel}
                                 >
                                   <span className="min-w-0 truncate tracking-[0.08em] uppercase">
@@ -1158,7 +1157,7 @@ export function RunningPage(props: RunningPageProps) {
                             {createdLabel ? (
                               <DetailValueTooltip label={text.running.createdAt}>
                                 <span
-                                  className="inline-flex h-[var(--app-control-height-compact)] w-[6.25rem] shrink-0 items-center border-l border-border/70 px-2.5 text-[11px] font-medium text-muted-foreground"
+                                  className="app-running-meta-cell inline-flex h-[var(--app-control-height-compact)] w-[6.25rem] shrink-0 items-center px-2.5 text-[11px] font-medium"
                                   title={createdLabel}
                                 >
                                   <span className="min-w-0 truncate">
@@ -1172,7 +1171,7 @@ export function RunningPage(props: RunningPageProps) {
                             type="button"
                             variant="outline"
                             size="icon"
-                            className="rounded-lg border-border/70 bg-background/[0.68] text-muted-foreground backdrop-blur-xl hover:border-destructive/25 hover:bg-destructive/10 hover:text-destructive"
+                            className="app-running-cancel-button"
                             title={text.actions.cancel}
                             aria-label={text.actions.cancel}
                             onClick={() => {
@@ -1240,7 +1239,7 @@ export function RunningPage(props: RunningPageProps) {
             </DialogDescription>
           </DialogHeader>
           {cancelConfirmError ? (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="danger">
               {cancelConfirmError}
             </div>
           ) : null}

@@ -8,7 +8,7 @@ Link2,
 Plus,
 RefreshCcw,
 Settings2,
-Sparkles,
+PawPrint,
 Waves,
 Wrench
 } from "lucide-react";
@@ -24,15 +24,15 @@ import {
 setPendingSettingsTab,
 type XiaSettingsTabId,
 } from "@/app/settings/sectionStorage";
-import { SpriteStudioPage,type SpriteStudioNavigation } from "@/app/sprite-studio";
+import { PetsGalleryPage,type PetsGalleryNavigation } from "@/app/pets-gallery";
 import { WindowControls } from "@/components/layout/WindowControls";
 import {
 ConnectorsSection
 } from "@/features/settings/connectors";
 import {
-resolveActiveSprite,
-useRunningSpriteAnimation,
-} from "@/features/sprites/shared";
+resolveActivePet,
+useRunningPetAnimation,
+} from "@/features/pets/shared";
 import {
 getXiaText,
 resolveLibraryCoverURL
@@ -54,7 +54,7 @@ import {
 setWelcomeWindowChromeHidden,
 useShowSettingsWindow
 } from "@/shared/query/settings";
-import { useSprites } from "@/shared/query/sprites";
+import { usePets } from "@/shared/query/pets";
 import { useCurrentUserProfile } from "@/shared/query/system";
 import {
 useRestartToApply,
@@ -180,7 +180,7 @@ export function MainApp() {
   const profile = useCurrentUserProfile().data;
   const showSettingsWindow = useShowSettingsWindow();
   const { data: httpBaseURL = "" } = useHttpBaseURL();
-  const spritesQuery = useSprites();
+  const petsQuery = usePets();
   const toolsQuery = useDependencies({ refetchInterval: 3_000 });
   const dependencyUpdatesQuery = useDependencyUpdates();
   const updateStateQuery = useUpdateState();
@@ -200,8 +200,8 @@ export function MainApp() {
   const [setupState, setSetupState] = useSetupState();
   const [debugWelcomeOpen, setDebugWelcomeOpen] = React.useState(false);
   const [activeView, setActiveView] = React.useState<MainViewId>("running");
-  const [spriteStudioNavigation, setSpriteStudioNavigation] =
-    React.useState<SpriteStudioNavigation | null>(null);
+  const [petsGalleryNavigation, setPetsGalleryNavigation] =
+    React.useState<PetsGalleryNavigation | null>(null);
   const [newTaskDialogOpen, setNewTaskDialogOpen] = React.useState(false);
   const [newTaskDialogMode, setNewTaskDialogMode] =
     React.useState<NewTaskDialogMode>("download");
@@ -237,7 +237,7 @@ export function MainApp() {
     [libraries],
   );
   const visibleRunningOperations = runningOperations;
-  const runningSpriteAnimation = useRunningSpriteAnimation(
+  const runningPetAnimation = useRunningPetAnimation(
     visibleRunningOperations,
     terminalOperations,
     terminalQuery.isFetched,
@@ -287,16 +287,16 @@ export function MainApp() {
   const localDownloadDirectory = resolveEffectiveDownloadDirectory(
     settings?.downloadDirectory,
   );
-  const activeSprite = React.useMemo(
-    () => resolveActiveSprite(spritesQuery.data ?? [], settings),
-    [settings, spritesQuery.data],
+  const activePet = React.useMemo(
+    () => resolveActivePet(petsQuery.data ?? [], settings),
+    [settings, petsQuery.data],
   );
-  const activeSpriteImageURL = React.useMemo(
+  const activePetImageURL = React.useMemo(
     () =>
-      activeSprite
-        ? buildAssetPreviewURL(httpBaseURL, activeSprite.spritePath, activeSprite.updatedAt)
+      activePet
+        ? buildAssetPreviewURL(httpBaseURL, activePet.spritesheetPath, activePet.updatedAt)
         : "",
-    [activeSprite, httpBaseURL],
+    [activePet, httpBaseURL],
   );
 
   React.useEffect(() => {
@@ -514,11 +514,11 @@ export function MainApp() {
     };
   }, [openDownloadDialog]);
 
-  const openSpriteStudio = React.useCallback((navigation?: Omit<SpriteStudioNavigation, "nonce">) => {
-    setActiveView("spriteStudio");
-    setSpriteStudioNavigation({
+  const openPetsGallery = React.useCallback((navigation?: Omit<PetsGalleryNavigation, "nonce">) => {
+    setActiveView("petsGallery");
+    setPetsGalleryNavigation({
       action: navigation?.action ?? "gallery",
-      spriteId: navigation?.spriteId,
+      petId: navigation?.petId,
       nonce: Date.now(),
     });
   }, []);
@@ -534,20 +534,20 @@ export function MainApp() {
   );
 
   React.useEffect(() => {
-    const offNavigate = Events.On("sprites:studio:navigate", (event: any) => {
+    const offNavigate = Events.On("pets:gallery:navigate", (event: any) => {
       const payload = event?.data ?? event;
       const record =
         payload && typeof payload === "object"
           ? (payload as Record<string, unknown>)
           : {};
-      const action = record.action === "import" || record.action === "edit" ? record.action : "gallery";
-      const spriteId = typeof record.spriteId === "string" ? record.spriteId.trim() : "";
-      openSpriteStudio({ action, spriteId });
+      const action = record.action === "detail" ? record.action : "gallery";
+      const petId = typeof record.petId === "string" ? record.petId.trim() : "";
+      openPetsGallery({ action, petId });
     });
     return () => {
       offNavigate();
     };
-  }, [openSpriteStudio]);
+  }, [openPetsGallery]);
 
   const handleRestartPreparedUpdate = React.useCallback(async () => {
     try {
@@ -613,11 +613,15 @@ export function MainApp() {
   return (
     <div
       data-shell-theme={shellTheme}
-      className="app-main-shell relative flex h-screen overflow-hidden bg-background text-foreground"
+      className={cn(
+        "app-main-shell relative flex h-screen overflow-hidden bg-background text-foreground",
+        shellTheme === "default" && "app-dream-frame app-dream-window",
+      )}
     >
       <aside
         className={cn(
           "app-main-sidebar relative z-40 flex w-[var(--app-main-sidebar-width)] shrink-0 flex-col items-center justify-between border-sidebar-border/70 px-3 pb-4 pt-3 text-sidebar-foreground",
+          shellTheme === "default" && "app-main-default-sidebar",
           resolveSidebarSurface(theme.id, shellTheme),
         )}
       >
@@ -689,7 +693,7 @@ export function MainApp() {
                 aria-label={resolveUserDisplayName(profile)}
                 className={cn(
                   MAIN_SIDEBAR_ACTION_CLASS,
-                  "wails-no-drag relative flex items-center justify-center rounded-2xl bg-transparent p-0 outline-none",
+                  "app-main-user-button wails-no-drag relative flex items-center justify-center rounded-2xl bg-transparent p-0 outline-none",
                   "hover:bg-card/45",
                 )}
               >
@@ -730,13 +734,13 @@ export function MainApp() {
               <div className="p-1">
                 <DropdownMenuItem
                   className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
-                  onSelect={() => openSpriteStudio({ action: "gallery" })}
+                  onSelect={() => openPetsGallery({ action: "gallery" })}
                 >
                   <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
-                    <Sparkles className="h-4 w-4 text-muted-foreground" />
+                    <PawPrint className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <span className="truncate font-medium text-foreground">
-                    {text.spriteStudio.title}
+                    {text.petGallery.title}
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -798,9 +802,9 @@ export function MainApp() {
         </div>
       </aside>
 
-      <main className="relative flex min-w-0 flex-1 flex-col">
+      <main className="app-main-content relative flex min-w-0 flex-1 flex-col">
         {activeView === "running" ? (
-          <div className="wails-drag flex min-h-[3.75rem] items-center justify-between gap-4 px-5 pb-3 pt-4">
+          <div className="app-main-page-header wails-drag flex min-h-[3.75rem] items-center justify-between gap-4 px-5 pb-3 pt-4">
             <div />
             <div
               className={cn(
@@ -815,11 +819,11 @@ export function MainApp() {
 
         <div
           className={cn(
-            "min-h-0 flex-1",
+            "app-main-view-viewport min-h-0 flex-1",
             activeView === "connections" ||
               activeView === "completed" ||
               activeView === "dreamfm" ||
-              activeView === "spriteStudio"
+              activeView === "petsGallery"
               ? "flex overflow-hidden"
               : activeView === "running"
                 ? "overflow-hidden px-5 pb-5"
@@ -832,9 +836,9 @@ export function MainApp() {
               operations={visibleRunningOperations}
               filesById={filesById}
               httpBaseURL={httpBaseURL}
-              sprite={activeSprite}
-              spriteImageURL={activeSpriteImageURL}
-              spriteAnimation={runningSpriteAnimation}
+              pet={activePet}
+              petImageURL={activePetImageURL}
+              petAnimation={runningPetAnimation}
               loading={
                 visibleRunningOperations.length === 0 &&
                 !runningQuery.isFetched &&
@@ -848,16 +852,16 @@ export function MainApp() {
               libraries={libraries}
               terminalOperations={terminalOperations}
               httpBaseURL={httpBaseURL}
-              sprite={activeSprite}
-              spriteImageURL={activeSpriteImageURL}
+              pet={activePet}
+              petImageURL={activePetImageURL}
             />
           ) : activeView === "connections" ? (
             <ConnectorsSection />
-          ) : activeView === "spriteStudio" ? (
-            <SpriteStudioPage
+          ) : activeView === "petsGallery" ? (
+            <PetsGalleryPage
               text={text}
               settings={settings}
-              navigation={spriteStudioNavigation}
+              navigation={petsGalleryNavigation}
             />
           ) : null}
           <DreamFMPage
@@ -865,8 +869,8 @@ export function MainApp() {
             text={text}
             libraries={libraries}
             httpBaseURL={httpBaseURL}
-            sprite={activeSprite}
-            spriteImageURL={activeSpriteImageURL}
+            pet={activePet}
+            petImageURL={activePetImageURL}
             controlCommand={dreamFMControlCommand}
             onNowPlayingChange={setDreamFMNowPlaying}
             onOpenConnections={() => setActiveView("connections")}

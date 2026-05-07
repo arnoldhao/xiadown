@@ -21,6 +21,7 @@ useVerifyDependency
 import type { Dependency,DependencyUpdateInfo } from "@/shared/contracts/dependencies";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/shared/ui/tooltip";
 import {
 resolveSettingsTab,
 type XiaSettingsTabId
@@ -110,7 +111,7 @@ export function previewFontStack(family: string) {
   if (!trimmed) {
     return undefined;
   }
-  return `${quoteFontFamily(trimmed)}, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  return `${quoteFontFamily(trimmed)}, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
 }
 
 export function formatHostPort(host: string, port: number) {
@@ -195,11 +196,13 @@ export function InlineSwitch(props: {
       aria-label={props.ariaLabel}
       onClick={() => props.onChange(!props.checked)}
       className={cn(
-        "flex h-5 w-9 items-center rounded-full border px-0.5 transition",
-        props.checked ? "justify-end border-primary/40 bg-primary/15" : "justify-start border-border/70 bg-muted",
+        "flex h-7 w-[46px] items-center rounded-full border-0 px-0.5 transition-colors",
+        props.checked
+          ? "justify-end bg-primary"
+          : "justify-start bg-foreground/[0.13]",
       )}
     >
-      <span className="h-4 w-4 rounded-full bg-background shadow-sm" />
+      <span className="h-6 w-6 rounded-full bg-card shadow-[0_2px_7px_rgb(0_0_0/0.18)] transition-transform" />
     </button>
   );
 }
@@ -217,10 +220,10 @@ export function TabButton(props: {
       title={props.label}
       onClick={() => props.onClick(props.id)}
       className={cn(
-        "flex w-[74px] min-w-[74px] max-w-[74px] flex-col items-center justify-center gap-0 rounded-2xl border px-1.5 py-1 text-center transition",
+        "grid h-[52px] w-[76px] min-w-[76px] max-w-[76px] place-items-center gap-0 rounded-2xl border-0 px-1.5 py-1 text-center transition-colors",
         props.active
-          ? "border-border bg-muted text-foreground shadow-sm"
-          : "border-transparent text-muted-foreground hover:border-border/70 hover:bg-muted/70 hover:text-foreground",
+          ? "bg-primary/[0.13] text-primary shadow-[inset_0_1px_0_hsl(var(--background)/0.18)]"
+          : "bg-transparent text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground",
       )}
     >
       <span className="flex h-9 w-9 items-center justify-center">{props.icon}</span>
@@ -265,45 +268,65 @@ export function DependencySettingsItem(props: {
         <div className="min-w-0 truncate text-sm font-bold tracking-[0.08em] text-foreground">
           {formatDependencyDisplayName(dependency.name)}
         </div>
-        <div className="inline-flex max-w-full shrink-0 overflow-hidden rounded-md border border-input bg-background shadow-sm">
-          <Button
-            type="button"
-            variant="ghost"
-            size="compact"
-            className="rounded-none border-0 shadow-none"
-            onClick={() => void handleInstallOrReinstall()}
-            disabled={isPrimaryPending}
-          >
-            {isPrimaryPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-            <span className="truncate">{installLabel}</span>
-          </Button>
-          {showMaintenanceActions ? (
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                size="compact"
-                className="rounded-none border-0 border-l border-input shadow-none"
-                onClick={() => void verifyDependency.mutateAsync({ name: dependency.name })}
-                disabled={verifyDependency.isPending || isInstalling}
-              >
-                {verifyDependency.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                <span className="truncate">{text.actions.verify}</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="compact"
-                className="rounded-none border-0 border-l border-input shadow-none"
-                onClick={() => void openDependencyDirectory.mutateAsync({ name: dependency.name })}
-                disabled={!canOpenDirectory || openDependencyDirectory.isPending}
-              >
-                <FolderOpen className="h-4 w-4" />
-                <span className="truncate">{text.actions.openDirectory}</span>
-              </Button>
-            </>
-          ) : null}
-        </div>
+        <TooltipProvider delayDuration={0}>
+          <div className="app-dream-button-group app-dream-button-group-icon">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="compactIcon"
+                    onClick={() => void handleInstallOrReinstall()}
+                    disabled={isPrimaryPending}
+                    aria-label={installLabel}
+                  >
+                    {isPrimaryPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">{installLabel}</TooltipContent>
+            </Tooltip>
+            {showMaintenanceActions ? (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="compactIcon"
+                        onClick={() => void verifyDependency.mutateAsync({ name: dependency.name })}
+                        disabled={verifyDependency.isPending || isInstalling}
+                        aria-label={text.actions.verify}
+                      >
+                        {verifyDependency.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{text.actions.verify}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="compactIcon"
+                        onClick={() => void openDependencyDirectory.mutateAsync({ name: dependency.name })}
+                        disabled={!canOpenDirectory || openDependencyDirectory.isPending}
+                        aria-label={text.actions.openDirectory}
+                      >
+                        {openDependencyDirectory.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{text.actions.openDirectory}</TooltipContent>
+                </Tooltip>
+              </>
+            ) : null}
+          </div>
+        </TooltipProvider>
       </div>
 
       <div className="flex justify-start">

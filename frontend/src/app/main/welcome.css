@@ -1156,7 +1156,7 @@
     animation: welcome-chicken-shadow 0.44s steps(2, end) infinite;
   }
 
-  .welcome-chicken-sprite {
+  .welcome-chicken-pet {
     position: absolute;
     left: 0;
     bottom: 5px;

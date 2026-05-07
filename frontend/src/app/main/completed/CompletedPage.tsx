@@ -6,24 +6,30 @@ import { WindowControls } from "@/components/layout/WindowControls";
 import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import type { LibraryDTO, OperationListItemDTO } from "@/shared/contracts/library";
-import type { Sprite } from "@/shared/contracts/sprites";
+import type { Pet } from "@/shared/contracts/pets";
 import { useDeleteFiles, useDeleteOperations } from "@/shared/query/library";
 import { Button } from "@/shared/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
-import { SpriteDisplay } from "@/shared/ui/sprite-player";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
 import { formatBytes } from "@/shared/utils/formatBytes";
 import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripPathExtension } from "@/shared/utils/resourceHelpers";
 
-import { CompletedFileDetailContent,CompletedTaskDetailContent,SelectionCheckbox } from "@/app/main/completed/detail-components";
+import { CompletedFileDetailContent,CompletedFileDetailHeaderMeta,CompletedTaskDetailContent,CompletedTaskDetailHeaderMeta,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
-import { CompletedListTabButton } from "@/app/main/completed/ListTabButton";
+import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
 import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
-import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CHECKBOX_ITEM_CLASS_NAME,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
+import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
 import type { CompletedContextMenuTarget,CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedTaskEntry,CompletedViewMode } from "@/app/main/types";
+
+const COMPLETED_FILTER_MENU_CONTENT_CLASS = "app-completed-filter-menu w-64";
+const COMPLETED_FILTER_MENU_ITEM_CLASS = "app-completed-filter-menu-item";
+const COMPLETED_FILTER_MENU_CHECKBOX_CLASS =
+  "app-completed-filter-menu-checkbox";
+const COMPLETED_FILTER_MENU_ICON_CLASS =
+  "app-completed-filter-menu-icon flex h-4 w-4 shrink-0 items-center justify-center";
 
 function resolveCompletedTaskStatusIcon(status?: string) {
   switch ((status ?? "").trim().toLowerCase()) {
@@ -41,13 +47,13 @@ function resolveCompletedTaskStatusIcon(status?: string) {
 function resolveCompletedTaskStatusIconTone(status?: string) {
   switch ((status ?? "").trim().toLowerCase()) {
     case "succeeded":
-      return "text-emerald-500 drop-shadow-[0_1px_2px_rgba(0,0,0,0.24)] dark:text-emerald-300";
+      return "app-completed-status-icon-success";
     case "failed":
-      return "text-rose-500 drop-shadow-[0_1px_2px_rgba(0,0,0,0.24)] dark:text-rose-300";
+      return "app-completed-status-icon-danger";
     case "canceled":
-      return "text-amber-500 drop-shadow-[0_1px_2px_rgba(0,0,0,0.24)] dark:text-amber-300";
+      return "app-completed-status-icon-warning";
     default:
-      return "text-white/82 drop-shadow-[0_1px_2px_rgba(0,0,0,0.42)]";
+      return "app-completed-status-icon-muted";
   }
 }
 
@@ -76,8 +82,8 @@ export function CompletedPage(props: {
   libraries: LibraryDTO[];
   terminalOperations: OperationListItemDTO[];
   httpBaseURL: string;
-  sprite: Sprite | null;
-  spriteImageURL: string;
+  pet: Pet | null;
+  petImageURL: string;
 }) {
   const isWindows = System.IsWindows();
   const deleteOperations = useDeleteOperations();
@@ -120,6 +126,14 @@ export function CompletedPage(props: {
     [props.libraries],
   );
 
+  const operationUpdatedAtById = React.useMemo(() => {
+    const map = new Map<string, string>();
+    props.terminalOperations.forEach((operation) => {
+      map.set(operation.operationId, resolveOperationUpdatedAt(operation));
+    });
+    return map;
+  }, [props.terminalOperations]);
+
   const realFiles = React.useMemo<CompletedFileEntry[]>(
     () =>
       props.libraries.flatMap((library) => {
@@ -143,6 +157,9 @@ export function CompletedPage(props: {
                 file.metadata.title,
                 stripPathExtension(label),
               ) || label;
+            const operationUpdatedAt =
+              operationUpdatedAtById.get(file.latestOperationId || "") ||
+              operationUpdatedAtById.get(file.origin.operationId || "");
             return {
               id: file.id,
               libraryId: library.id,
@@ -163,7 +180,13 @@ export function CompletedPage(props: {
                 .toString()
                 .toUpperCase(),
               sizeBytes: file.media?.sizeBytes ?? 0,
-              updatedAt: file.updatedAt || library.updatedAt || "",
+              updatedAt:
+                operationUpdatedAt ||
+                file.origin.import?.importedAt ||
+                file.createdAt ||
+                file.updatedAt ||
+                library.updatedAt ||
+                "",
               previewURL: localPath
                 ? buildAssetPreviewURL(props.httpBaseURL, localPath)
                 : "",
@@ -178,7 +201,7 @@ export function CompletedPage(props: {
             };
           });
       }),
-    [props.httpBaseURL, props.libraries],
+    [operationUpdatedAtById, props.httpBaseURL, props.libraries],
   );
 
   const allFiles = React.useMemo<CompletedFileEntry[]>(() => {
@@ -604,7 +627,7 @@ export function CompletedPage(props: {
   const selectionCount =
     viewMode === "tasks" ? selectedTaskIds.length : selectedFileIds.length;
   const searchInputExpanded = !selectionMode && (searchFocused || searchHasText);
-  const tabsCompact = selectionMode || searchHasText;
+  const tabsCompact = searchHasText;
   const canDeleteSelectedTasks = selectedBatchTasks.length > 0;
   const canDeleteSelectedFiles =
     selectedBatchFiles.length > 0 &&
@@ -926,16 +949,15 @@ export function CompletedPage(props: {
 
         <div className="min-h-0 overflow-hidden">
           {deleteConfirmError ? (
-            <div className="overflow-hidden break-words text-xs leading-5 text-destructive [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            <div className="app-dream-status-message overflow-hidden break-words px-3 py-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]" data-intent="danger">
               {deleteConfirmError}
             </div>
           ) : null}
         </div>
 
-        <div className="flex flex-nowrap items-center justify-between gap-2">
+        <div className="app-dialog-footer flex flex-nowrap items-center justify-between gap-2">
           <DialogClose asChild>
             <Button
-              size="compact"
               variant="outline"
               disabled={isDeleteConfirmPending}
             >
@@ -943,7 +965,6 @@ export function CompletedPage(props: {
             </Button>
           </DialogClose>
           <Button
-            size="compact"
             variant="destructive"
             disabled={!deleteConfirmTarget || isDeleteConfirmPending}
             onClick={() => void executeDeleteConfirmation()}
@@ -967,12 +988,12 @@ export function CompletedPage(props: {
 
     return (
       <DropdownMenuContent
-        align="end"
-        className={cn(SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME, "w-64")}
+        align="center"
+        className={COMPLETED_FILTER_MENU_CONTENT_CLASS}
       >
         <DropdownMenuLabel>{filterLabel}</DropdownMenuLabel>
         <DropdownMenuItem
-          className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
+          className={COMPLETED_FILTER_MENU_ITEM_CLASS}
           onSelect={() => {
             if (viewMode === "tasks") {
               setTaskStatusFilters([]);
@@ -981,10 +1002,10 @@ export function CompletedPage(props: {
             setFileTypeFilters([]);
           }}
         >
-          <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
-            <X className="h-4 w-4 text-muted-foreground" />
+          <div className={COMPLETED_FILTER_MENU_ICON_CLASS}>
+            <X className="h-4 w-4" />
           </div>
-          <span className="truncate font-medium text-muted-foreground">
+          <span className="app-completed-filter-menu-label truncate font-medium">
             {props.text.actions.clear}
           </span>
         </DropdownMenuItem>
@@ -1002,10 +1023,7 @@ export function CompletedPage(props: {
                       : current.filter((item) => item !== status),
                   );
                 }}
-                className={cn(
-                  SIDEBAR_DROPDOWN_CHECKBOX_ITEM_CLASS_NAME,
-                  "text-muted-foreground data-[state=checked]:text-foreground/80",
-                )}
+                className={COMPLETED_FILTER_MENU_CHECKBOX_CLASS}
               >
                 {resolveCompletedStatusLabel(props.text, status)}
               </DropdownMenuCheckboxItem>
@@ -1022,10 +1040,7 @@ export function CompletedPage(props: {
                       : current.filter((item) => item !== type),
                   );
                 }}
-                className={cn(
-                  SIDEBAR_DROPDOWN_CHECKBOX_ITEM_CLASS_NAME,
-                  "text-muted-foreground data-[state=checked]:text-foreground/80",
-                )}
+                className={COMPLETED_FILTER_MENU_CHECKBOX_CLASS}
               >
                 {resolveCompletedFileTypeLabel(type, props.text)}
               </DropdownMenuCheckboxItem>
@@ -1089,24 +1104,9 @@ export function CompletedPage(props: {
     [clearCurrentListSelection],
   );
 
-  const renderDetailEmptyState = (label: string) => (
-    <div className="flex h-full items-center justify-center px-6">
-      <div className="flex flex-col items-center gap-3 text-center text-sm font-medium text-muted-foreground">
-        <SpriteDisplay
-          sprite={props.sprite}
-          imageUrl={props.spriteImageURL}
-          animation="seeking"
-          alt={label}
-          fallbackSrc="/appicon.png"
-        />
-        <div>{label}</div>
-      </div>
-    </div>
-  );
-
   const renderToolbarActionGroup = () => {
     return (
-      <div className="inline-flex h-9 shrink-0 items-center rounded-xl border border-border/70 bg-background/92 p-0.5 shadow-sm">
+      <div className="app-dream-button-group app-completed-toolbar-actions inline-flex h-9 shrink-0 items-center p-0.5">
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1116,7 +1116,7 @@ export function CompletedPage(props: {
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    "relative h-8 w-8 rounded-lg p-0",
+                    "app-completed-toolbar-button relative h-8 w-8 p-0",
                     activeFilterCount > 0
                       ? "bg-accent text-accent-foreground"
                       : "",
@@ -1149,7 +1149,7 @@ export function CompletedPage(props: {
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 rounded-lg p-0"
+                  className="app-completed-toolbar-button h-8 w-8 p-0"
                   aria-label={props.text.completed.selectFiles}
                   onClick={enterSelectionMode}
                 >
@@ -1163,14 +1163,15 @@ export function CompletedPage(props: {
           </>
         ) : (
           <>
-            <div className="flex h-8 items-center rounded-lg bg-accent/70 px-3 text-xs font-medium text-foreground">
+            <div className="app-completed-selection-summary h-8 px-3">
+              <CheckCircle2 className="h-3.5 w-3.5" />
               {resolveCompletedSelectionSummary(selectionCount, props.text)}
             </div>
             <Button
               type="button"
               variant="ghost"
-              size="compact"
-              className="h-8 rounded-lg px-3 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              size="sm"
+              className="app-completed-selection-action text-destructive"
               disabled={
                 !canDeleteCurrentSelection ||
                 deleteFiles.isPending ||
@@ -1184,10 +1185,11 @@ export function CompletedPage(props: {
             <Button
               type="button"
               variant="ghost"
-              size="compact"
-              className="h-8 rounded-lg px-3"
+              size="sm"
+              className="app-completed-selection-action"
               onClick={exitSelectionMode}
             >
+              <X className="h-3.5 w-3.5" />
               {props.text.actions.cancelDialog}
             </Button>
           </>
@@ -1196,101 +1198,168 @@ export function CompletedPage(props: {
     );
   };
 
-  return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-border/60">
-        <div className="flex min-w-0 items-center gap-2 px-5 py-4">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+  const renderSelectedDetailPanel = () => {
+    if (selectionMode) {
+      return null;
+    }
+
+    const detailContent =
+      viewMode === "tasks" && selectedTask ? (
+        <CompletedTaskDetailContent
+          text={props.text}
+          appName={props.text.appName}
+          task={selectedTask}
+          selectedPreviewFileId={selectedPreviewFileId}
+          onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
+          pet={props.pet}
+          petImageURL={props.petImageURL}
+        />
+      ) : viewMode === "files" && selectedFile ? (
+        <CompletedFileDetailContent
+          text={props.text}
+          appName={props.text.appName}
+          file={selectedFile}
+        />
+      ) : null;
+
+    if (!detailContent) {
+      return null;
+    }
+
+    return (
+      <aside className="app-main-detail-pane app-completed-inline-detail flex w-[25rem] shrink-0 flex-col overflow-hidden border-l border-border/60 xl:w-[27rem]">
+        <div
+          className={cn(
+            "app-completed-inline-detail-header flex shrink-0 gap-2 border-b border-border/60 px-4",
+            (viewMode === "tasks" && selectedTask) ||
+              (viewMode === "files" && selectedFile)
+              ? "items-start py-3"
+              : "min-h-12 items-center py-2.5",
+          )}
+        >
+          <span className="flex h-8 w-8 shrink-0 self-center items-center justify-center rounded-xl bg-primary/[0.08] text-primary/80">
+            <ContentHeaderIcon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
             <div
-              className={cn(
-                "app-control-shell-compact h-9 rounded-xl border-border/70 bg-background/92 shadow-sm transition-[width,box-shadow,border-color] duration-200 ease-out",
-                searchInputExpanded
-                  ? "w-[18rem] min-w-[10rem] px-3"
-                  : "w-9 min-w-9 shrink-0 grow-0 cursor-text justify-center px-0",
-              )}
-              onMouseDown={(event) => {
-                if (searchInputExpanded || selectionMode) {
-                  return;
-                }
-                event.preventDefault();
-                activateSearchInput();
-              }}
-              onKeyDown={(event) => {
-                if (searchInputExpanded || selectionMode) {
-                  return;
-                }
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  activateSearchInput();
-                }
-              }}
-              role={searchInputExpanded || selectionMode ? undefined : "button"}
-              tabIndex={searchInputExpanded || selectionMode ? undefined : 0}
+              className="truncate text-sm font-semibold leading-5 text-foreground/80"
+              title={contentTitle}
             >
-              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {searchInputExpanded ? (
-                <>
-                  <Input
-                    ref={searchInputRef}
-                    value={query}
-                    onChange={handleSearchChange}
-                    onFocus={() => setSearchFocused(true)}
-                    onBlur={handleSearchBlur}
-                    placeholder={searchPlaceholder}
-                    size="compact"
-                    className="app-control-input-compact h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none"
-                  />
-                  <span
-                    className={cn(
-                      "block shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
-                      searchHasText
-                        ? "w-5 translate-x-0 opacity-100"
-                        : "w-0 -translate-x-1 opacity-0",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      aria-label={props.text.actions.clear}
-                      title={props.text.actions.clear}
-                      disabled={!searchHasText}
-                      tabIndex={searchHasText ? 0 : -1}
-                      className="flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none disabled:pointer-events-none"
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={clearSearch}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                </>
-              ) : null}
+              {contentTitle}
             </div>
-            {renderToolbarActionGroup()}
-          </div>
-          <div
-            role="tablist"
-            className="ml-auto inline-flex h-9 shrink-0 items-center rounded-xl border border-border/70 bg-background/92 p-0.5 shadow-sm transition-[width,background-color,border-color] duration-200 ease-out"
-          >
-            <CompletedListTabButton
-              active={viewMode === "tasks"}
-              compact={tabsCompact}
-              label={props.text.views.tasks}
-              onClick={() => setViewMode("tasks")}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </CompletedListTabButton>
-            <CompletedListTabButton
-              active={viewMode === "files"}
-              compact={tabsCompact}
-              label={props.text.views.files}
-              onClick={() => setViewMode("files")}
-            >
-              <Files className="h-4 w-4" />
-            </CompletedListTabButton>
+            {viewMode === "tasks" && selectedTask ? (
+              <CompletedTaskDetailHeaderMeta
+                text={props.text}
+                task={selectedTask}
+                className="mt-2"
+              />
+            ) : viewMode === "files" && selectedFile ? (
+              <CompletedFileDetailHeaderMeta
+                text={props.text}
+                file={selectedFile}
+                className="mt-2"
+              />
+            ) : null}
           </div>
         </div>
+        <div className="min-h-0 flex-1 overflow-hidden">{detailContent}</div>
+      </aside>
+    );
+  };
 
+  return (
+    <div className="app-main-page app-main-completed-page flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="app-main-page-header wails-drag flex min-w-0 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
+        <div className="wails-no-drag flex min-w-0 flex-1 items-center gap-2">
+          <CompletedListViewSwitch
+            value={viewMode}
+            compact={tabsCompact}
+            tasksLabel={props.text.views.tasks}
+            filesLabel={props.text.views.files}
+            tasksIcon={<LayoutGrid className="h-4 w-4" />}
+            filesIcon={<Files className="h-4 w-4" />}
+            onValueChange={setViewMode}
+          />
+          {renderToolbarActionGroup()}
+          <div
+            className={cn(
+              "app-dream-search-control app-dream-control-shell app-completed-search-control h-9 transition-[width,box-shadow,border-color] duration-200 ease-out",
+              searchInputExpanded
+                ? "w-[18rem] min-w-[10rem] px-3"
+                : "w-9 min-w-9 shrink-0 grow-0 cursor-text justify-center px-0",
+            )}
+            onMouseDown={(event) => {
+              if (searchInputExpanded || selectionMode) {
+                return;
+              }
+              event.preventDefault();
+              activateSearchInput();
+            }}
+            onKeyDown={(event) => {
+              if (searchInputExpanded || selectionMode) {
+                return;
+              }
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                activateSearchInput();
+              }
+            }}
+            role={searchInputExpanded || selectionMode ? undefined : "button"}
+            tabIndex={searchInputExpanded || selectionMode ? undefined : 0}
+          >
+            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {searchInputExpanded ? (
+              <>
+                <Input
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={handleSearchChange}
+                  onFocus={() => setSearchFocused(true)}
+                  onBlur={handleSearchBlur}
+                  placeholder={searchPlaceholder}
+                  size="compact"
+                  className="app-control-input-compact h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none"
+                />
+                <span
+                  className={cn(
+                    "block shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
+                    searchHasText
+                      ? "w-5 translate-x-0 opacity-100"
+                      : "w-0 -translate-x-1 opacity-0",
+                  )}
+                >
+                  <button
+                    type="button"
+                    aria-label={props.text.actions.clear}
+                    title={props.text.actions.clear}
+                    disabled={!searchHasText}
+                    tabIndex={searchHasText ? 0 : -1}
+                    className="app-completed-search-clear flex h-5 w-5 items-center justify-center transition focus-visible:outline-none disabled:pointer-events-none"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={clearSearch}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              </>
+            ) : null}
+          </div>
+        </div>
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-5 pb-5"
+          className={cn(
+            "shrink-0 justify-end",
+            isWindows
+              ? "flex min-w-[var(--app-windows-caption-control-width)]"
+              : "hidden",
+          )}
+        >
+          {isWindows ? <WindowControls platform="windows" /> : null}
+        </div>
+      </div>
+
+      <div className="app-main-page-content app-main-completed-content flex min-h-0 flex-1 overflow-hidden">
+        <div
+          className="app-main-list-content min-h-0 flex-1 overflow-y-auto px-5 py-5"
           onMouseDown={handleBlankListMouseDown}
         >
           {viewMode === "tasks" ? (
@@ -1340,37 +1409,25 @@ export function CompletedPage(props: {
                         }
                         setSelectedTaskId(entry.operation.operationId);
                       }}
-                      onContextMenu={(event) =>
-                        openTaskContextMenu(event, entry)
-                      }
-                      className={cn(
-                        "group relative overflow-hidden rounded-[16px] border border-border/70 bg-background/72 text-left shadow-[0_10px_24px_-28px_rgba(15,23,42,0.34)] transition hover:border-foreground/25 hover:bg-accent/[0.18]",
-                        isActive &&
-                          "border-primary/55 bg-accent/60 shadow-[0_18px_36px_-28px_rgba(59,130,246,0.38)] ring-1 ring-primary/20",
-                        taskSelectionMode &&
-                          isChecked &&
-                          "border-primary/45 bg-primary/[0.07] shadow-[0_14px_30px_-30px_rgba(59,130,246,0.34)] ring-1 ring-primary/16",
-                      )}
-                    >
-                      <div className="relative aspect-[16/8.5] overflow-hidden bg-muted">
-                        <img
-                          src={entry.coverURL}
-                          alt={entry.operation.name}
-                          className="h-full w-full object-cover"
-                        />
-                        <div
-                          className={cn(
-                            "absolute inset-0 bg-[linear-gradient(180deg,transparent,rgba(15,23,42,0.28)_58%,rgba(15,23,42,0.6))] transition",
-                            isActive &&
-                              "bg-[linear-gradient(180deg,rgba(59,130,246,0.06),rgba(15,23,42,0.22)_52%,rgba(15,23,42,0.56))]",
-                            taskSelectionMode &&
-                              isChecked &&
-                              "bg-[linear-gradient(180deg,rgba(59,130,246,0.04),rgba(15,23,42,0.26)_58%,rgba(15,23,42,0.58))]",
-                          )}
-                        />
-                        {taskSelectionMode ? (
-                          <SelectionCheckbox
-                            checked={isChecked}
+	                      onContextMenu={(event) =>
+	                        openTaskContextMenu(event, entry)
+	                      }
+	                      data-active={isActive ? "true" : "false"}
+	                      data-selected={
+	                        taskSelectionMode && isChecked ? "true" : "false"
+	                      }
+	                      className="app-completed-task-card group relative overflow-hidden text-left transition"
+	                    >
+	                      <div className="app-completed-task-card-cover relative aspect-[16/8.5] overflow-hidden">
+	                        <img
+	                          src={entry.coverURL}
+	                          alt={entry.operation.name}
+	                          className="h-full w-full object-cover"
+	                        />
+	                        <div className="app-completed-task-card-cover-overlay absolute inset-0 transition" />
+	                        {taskSelectionMode ? (
+	                          <SelectionCheckbox
+	                            checked={isChecked}
                             className="absolute top-1 left-1"
                           />
                         ) : null}
@@ -1385,23 +1442,17 @@ export function CompletedPage(props: {
                           aria-label={statusLabel}
                         >
                           <StatusIcon className="h-4 w-4" aria-hidden="true" />
-                        </span>
-                        {entry.updatedAt ? (
-                          <span className="absolute bottom-1 left-1 inline-flex max-w-[calc(100%-0.5rem)] items-center truncate rounded-md bg-black/42 px-1.5 py-0.5 text-2xs font-medium text-white shadow-sm backdrop-blur-sm">
-                            {formatRelativeTime(entry.updatedAt)}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div
-                        className={cn(
-                          "relative grid grid-rows-[1rem_1.25rem] gap-1 p-1.5",
-                          isActive && "bg-accent/40",
-                          taskSelectionMode && isChecked && "bg-primary/[0.04]",
-                        )}
-                      >
-                        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-2xs font-medium leading-4 text-muted-foreground">
-                          {fileSummaryItems.length > 0 ? (
-                            fileSummaryItems.map((item, index) => {
+	                        </span>
+	                        {entry.updatedAt ? (
+	                          <span className="app-completed-task-card-time absolute bottom-1 left-1 inline-flex max-w-[calc(100%-0.5rem)] items-center truncate px-1.5 py-0.5 text-2xs font-medium">
+	                            {formatRelativeTime(entry.updatedAt)}
+	                          </span>
+	                        ) : null}
+	                      </div>
+	                      <div className="app-completed-task-card-body relative grid grid-rows-[1rem_1.25rem] gap-1 p-1.5">
+	                        <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1.5 overflow-hidden text-2xs font-medium leading-4">
+	                          {fileSummaryItems.length > 0 ? (
+	                            fileSummaryItems.map((item, index) => {
                               const Icon = item.icon;
                               return (
                                 <React.Fragment key={item.key}>
@@ -1410,15 +1461,15 @@ export function CompletedPage(props: {
                                       ·
                                     </span>
                                   ) : null}
-                                  <span
-                                    className="inline-flex min-w-0 shrink-0 items-center gap-0.5"
-                                    title={`${item.label} ${item.count}`}
-                                    aria-label={`${item.label} ${item.count}`}
-                                  >
-                                    <Icon className="h-3 w-3 shrink-0 text-muted-foreground/70" />
-                                    <span className="tabular-nums">
-                                      {item.count}
-                                    </span>
+	                                  <span
+	                                    className="inline-flex min-w-0 shrink-0 items-center gap-0.5"
+	                                    title={`${item.label} ${item.count}`}
+	                                    aria-label={`${item.label} ${item.count}`}
+	                                  >
+	                                    <Icon className="h-3 w-3 shrink-0" />
+	                                    <span className="tabular-nums">
+	                                      {item.count}
+	                                    </span>
                                   </span>
                                 </React.Fragment>
                               );
@@ -1427,18 +1478,12 @@ export function CompletedPage(props: {
                             <span className="truncate">
                               {props.text.completed.taskNoFiles}
                             </span>
-                          )}
-                        </div>
-                        <div
-                          className={cn(
-                            "truncate text-xs font-medium leading-5 text-foreground/82 transition-colors",
-                            isActive && "text-foreground/90",
-                            taskSelectionMode && isChecked && "text-foreground/88",
-                          )}
-                        >
-                          {entry.operation.name}
-                        </div>
-                      </div>
+	                          )}
+	                        </div>
+	                        <div className="app-completed-task-card-title truncate text-xs font-medium leading-5 transition-colors">
+	                          {entry.operation.name}
+	                        </div>
+	                      </div>
                     </button>
                   );
                 })}
@@ -1479,64 +1524,34 @@ export function CompletedPage(props: {
                         return;
                       }
                       setSelectedFileId(file.id);
-                    }}
-                    onContextMenu={(event) => openFileContextMenu(event, file)}
-                    className={cn(
-                      "relative flex w-full items-center gap-2.5 overflow-hidden rounded-[16px] border border-border/70 bg-background/72 px-2.5 py-2 text-left shadow-[0_12px_30px_-32px_rgba(15,23,42,0.32)] transition hover:border-foreground/25 hover:bg-accent/55",
-                      isActive &&
-                        "border-transparent bg-accent text-accent-foreground shadow-sm",
-                      fileSelectionMode &&
-                        isChecked &&
-                        "border-primary/45 bg-primary/[0.06] ring-1 ring-primary/16",
-                    )}
-                  >
-                    {fileSelectionMode ? (
-                      <SelectionCheckbox checked={isChecked} />
-                    ) : (
-                      <span
-                        className={cn(
-                          "flex h-6 w-6 shrink-0 items-center justify-center rounded-md shadow-sm ring-1 ring-transparent",
-                          isActive
-                            ? "bg-primary/10 text-primary/80 ring-primary/12"
-                            : "bg-background/92 text-muted-foreground",
-                        )}
-                      >
-                        <FileIcon className="h-3.5 w-3.5" />
-                      </span>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div
-                        className={cn(
-                          "truncate text-sm font-medium leading-5 text-foreground/82 transition-colors",
-                          isActive && "text-accent-foreground/86",
-                          fileSelectionMode && isChecked && "text-foreground/88",
-                        )}
-                      >
-                        {file.name}
-                      </div>
-                      <div
-                        className={cn(
-                          "mt-0.5 truncate text-xs text-muted-foreground",
-                          isActive && "text-accent-foreground/70",
-                        )}
-                      >
-                        {file.libraryName}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                      <span
-                        className={cn(
-                          "rounded-md border border-border/70 bg-background px-1.5 py-0.5 font-medium text-muted-foreground",
-                          isActive &&
-                            "border-transparent bg-background/90 text-accent-foreground/78",
-                        )}
-                      >
-                        {file.format}
-                      </span>
-                      <span>
-                        {file.sizeBytes > 0
-                          ? formatBytes(file.sizeBytes)
-                          : "--"}
+	                    }}
+	                    onContextMenu={(event) => openFileContextMenu(event, file)}
+	                    data-active={isActive ? "true" : "false"}
+	                    data-selected={
+	                      fileSelectionMode && isChecked ? "true" : "false"
+	                    }
+	                    className="app-completed-file-card relative flex w-full items-center gap-2.5 overflow-hidden px-2.5 py-2 text-left transition"
+	                  >
+	                    {fileSelectionMode ? (
+	                      <SelectionCheckbox checked={isChecked} />
+	                    ) : (
+	                      <span className="app-completed-file-icon flex h-6 w-6 shrink-0 items-center justify-center rounded-md">
+	                        <FileIcon className="h-3.5 w-3.5" />
+	                      </span>
+	                    )}
+	                    <div className="min-w-0 flex-1">
+	                      <div className="app-completed-file-title truncate text-sm font-medium leading-5 transition-colors">
+	                        {file.name}
+	                      </div>
+	                    </div>
+	                    <div className="app-completed-file-meta flex shrink-0 items-center gap-2 text-xs">
+	                      <span className="app-completed-file-format rounded-md px-1.5 py-0.5 font-medium">
+	                        {file.format}
+	                      </span>
+	                      <span className="app-completed-file-size">
+	                        {file.sizeBytes > 0
+	                          ? formatBytes(file.sizeBytes)
+	                          : "--"}
                       </span>
                     </div>
                   </button>
@@ -1545,8 +1560,10 @@ export function CompletedPage(props: {
             </div>
           )}
         </div>
+        {renderSelectedDetailPanel()}
+      </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-border/60 px-5 py-3">
+      <div className="app-main-page-footer flex items-center justify-between gap-3 border-t border-border/60 px-5 py-3">
           <div className="text-xs text-muted-foreground">
             {resolveCompletedTotalLabel(
               currentTotalCount,
@@ -1571,7 +1588,7 @@ export function CompletedPage(props: {
                 setFilePage(1);
               }}
               aria-label={props.text.completed.perPage}
-              className="h-8 min-w-[7.5rem] rounded-lg px-2.5 text-xs text-muted-foreground"
+              className="app-completed-page-size-select h-8 min-w-[7.5rem] px-2.5 text-xs"
             >
               {currentPageSizeOptions.map((option) => (
                 <option key={option} value={option}>
@@ -1586,12 +1603,12 @@ export function CompletedPage(props: {
                 props.text,
               )}
             </div>
-            <div className="inline-flex h-[var(--app-control-height-compact)] shrink-0 overflow-hidden rounded-lg border border-border/70 bg-background/92 shadow-sm">
+            <div className="app-dream-button-group app-completed-footer-pager inline-flex h-[var(--app-control-height-compact)] shrink-0 overflow-hidden">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="!h-full !w-[var(--app-control-height-compact)] rounded-none"
+                className="app-completed-footer-pager-button !h-full !w-[var(--app-control-height-compact)] rounded-none"
                 aria-label={props.text.completed.previousPage}
                 title={props.text.completed.previousPage}
                 disabled={currentPage <= 1}
@@ -1609,7 +1626,7 @@ export function CompletedPage(props: {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="!h-full !w-[var(--app-control-height-compact)] rounded-none border-l border-border/70"
+                className="app-completed-footer-pager-button !h-full !w-[var(--app-control-height-compact)] rounded-none"
                 aria-label={props.text.completed.nextPage}
                 title={props.text.completed.nextPage}
                 disabled={currentPage >= currentPageCount}
@@ -1625,49 +1642,6 @@ export function CompletedPage(props: {
               </Button>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div className="flex w-[25rem] shrink-0 flex-col overflow-hidden xl:w-[27rem]">
-        <div className="wails-drag flex min-h-[3.75rem] items-center justify-between gap-4 border-b border-border/60 px-4 py-4">
-          <div className="flex min-w-0 flex-1 items-center gap-2 text-sm font-semibold leading-5 text-foreground/80">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/[0.08] text-primary/80">
-              <ContentHeaderIcon className="h-4 w-4" />
-            </span>
-            <span className="min-w-0 truncate" title={contentTitle}>
-              {contentTitle}
-            </span>
-          </div>
-          <div className="flex min-w-[var(--app-windows-caption-control-width)] shrink-0 justify-end">
-            {isWindows ? <WindowControls platform="windows" /> : null}
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {viewMode === "tasks" ? (
-            selectedTask ? (
-              <CompletedTaskDetailContent
-                text={props.text}
-                appName={props.text.appName}
-                task={selectedTask}
-                selectedPreviewFileId={selectedPreviewFileId}
-                onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
-                sprite={props.sprite}
-                spriteImageURL={props.spriteImageURL}
-              />
-            ) : (
-              renderDetailEmptyState(props.text.completed.noSelectedTask)
-            )
-          ) : selectedFile ? (
-            <CompletedFileDetailContent
-              text={props.text}
-              appName={props.text.appName}
-              file={selectedFile}
-            />
-          ) : (
-            renderDetailEmptyState(props.text.completed.noSelectedFile)
-          )}
-        </div>
       </div>
 
       {renderItemContextMenu()}

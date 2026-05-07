@@ -1,8 +1,16 @@
 import TelemetryDeck from "@telemetrydeck/sdk";
+import telemetryDeckPackage from "@telemetrydeck/sdk/package.json";
 import { Call, Events } from "@wailsio/runtime";
 
 const TELEMETRY_SIGNAL_EVENT = "telemetry:signal";
 const TELEMETRY_HANDLER_SERVICE = "xiadown/internal/presentation/wails.TelemetryHandler";
+const TELEMETRY_TARGET = "https://nom.telemetrydeck.com/v2/";
+const TELEMETRY_CLIENT_NAME = "JavaScriptSDK";
+const TELEMETRY_CLIENT_VERSION =
+  typeof telemetryDeckPackage.version === "string" ? telemetryDeckPackage.version.trim() : "";
+const TELEMETRY_CLIENT_NAME_AND_VERSION = TELEMETRY_CLIENT_VERSION
+  ? `${TELEMETRY_CLIENT_NAME} ${TELEMETRY_CLIENT_VERSION}`
+  : TELEMETRY_CLIENT_NAME;
 const FORBIDDEN_PAYLOAD_KEYS = new Set([
   "count",
   "type",
@@ -27,16 +35,6 @@ type TelemetrySignal = {
   type: string;
   floatValue?: number;
   payload?: Record<string, unknown>;
-};
-
-type TelemetryDeckPrivateClient = TelemetryDeck & {
-  target: string;
-  _build: (
-    type: string,
-    payload?: Record<string, unknown>,
-    options?: Record<string, unknown>,
-    receivedAt?: string
-  ) => Promise<Record<string, unknown>>;
 };
 
 const resolveTimeZone = () => {
@@ -168,6 +166,30 @@ const sanitizedPayload = (payload: Record<string, unknown>) => {
   return result;
 };
 
+const telemetryPayloadValue = (key: string, value: unknown) => {
+  if (key === "floatValue") {
+    return Number.parseFloat(String(value));
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value !== null && typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return `${value}`;
+};
+
+const buildTelemetryPayload = (payload: Record<string, unknown>) => {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    result[key] = telemetryPayloadValue(key, value);
+  }
+  return result;
+};
+
 const restoreTypedTelemetryDeckPayload = (
   bodyPayload: Record<string, unknown>,
   sourcePayload: Record<string, unknown>
@@ -199,6 +221,17 @@ const appendSdkPayload = (body: Record<string, unknown>, bodyPayload: Record<str
   }
 };
 
+const sha256Hex = async (value: string) => {
+  const subtleCrypto = globalThis.crypto?.subtle;
+  if (!subtleCrypto) {
+    throw new Error("SubtleCrypto is unavailable");
+  }
+  const hashBuffer = await subtleCrypto.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
 const normalizeBootstrap = (value: unknown): TelemetryBootstrap => {
   const raw = isRecord(value) ? value : {};
   return {
@@ -223,13 +256,15 @@ const normalizeSignal = (value: unknown): TelemetrySignal | null => {
 };
 
 export class TelemetryManager {
-  private client: TelemetryDeckPrivateClient | null = null;
+  private client: TelemetryDeck | null = null;
   private stopFns: Array<() => void> = [];
   private pendingSignals = new Set<Promise<unknown>>();
   private sessionSummaryRequested = false;
   private readonly timeZone = resolveTimeZone();
   private readonly defaultPayload = browserDefaultPayload();
   private unloading = false;
+  private clientUserHashKey = "";
+  private clientUserHash = "";
 
   async start() {
     if (typeof window === "undefined") {
@@ -254,7 +289,7 @@ export class TelemetryManager {
         clientUser: bootstrap.installId,
         sessionID: bootstrap.sessionId || undefined,
         testMode: bootstrap.testMode,
-      }) as TelemetryDeckPrivateClient;
+      });
     } catch (error) {
       console.warn("[telemetry] sdk init failed", error);
       return;
@@ -314,7 +349,13 @@ export class TelemetryManager {
     if (!this.client) {
       return;
     }
-    const body = await this.buildSignalBody(signal);
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = await this.buildSignalBody(signal);
+    } catch (error) {
+      console.warn("[telemetry] signal build failed", signal.type, error);
+      return;
+    }
     if (!body) {
       return;
     }
@@ -342,8 +383,17 @@ export class TelemetryManager {
       payload["XiaDown.Locale.timeZone"] = this.timeZone;
     }
     const cleanPayload = sanitizedPayload(payload);
-    const body = await this.client._build(signal.type, cleanPayload);
-    const bodyPayload = isRecord(body.payload) ? body.payload : {};
+    const bodyPayload = buildTelemetryPayload(cleanPayload);
+    const body: Record<string, unknown> = {
+      clientUser: await this.hashedClientUser(),
+      sessionID: this.client.sessionID,
+      appID: this.client.appID,
+      type: signal.type,
+      telemetryClientVersion: TELEMETRY_CLIENT_NAME_AND_VERSION,
+    };
+    if (this.client.testMode) {
+      body.isTestMode = true;
+    }
     body.payload = bodyPayload;
     restoreTypedTelemetryDeckPayload(bodyPayload, cleanPayload);
     appendSdkPayload(body, bodyPayload);
@@ -359,10 +409,27 @@ export class TelemetryManager {
       return Promise.resolve(undefined);
     }
     return Call.ByName(`${TELEMETRY_HANDLER_SERVICE}.PostSignal`, {
-      target: this.client.target,
+      target: stringOrEmpty(this.client.target) || TELEMETRY_TARGET,
       body: [body],
       keepalive,
     });
+  }
+
+  private async hashedClientUser() {
+    if (!this.client) {
+      return "";
+    }
+    const clientUser = stringOrEmpty(this.client.clientUser);
+    if (!clientUser) {
+      throw new Error("TelemetryDeck clientUser is not set");
+    }
+    const salt = stringOrEmpty(this.client.salt);
+    const cacheKey = `${clientUser}\u0000${salt}`;
+    if (this.clientUserHashKey !== cacheKey) {
+      this.clientUserHash = await sha256Hex(`${clientUser}${salt}`);
+      this.clientUserHashKey = cacheKey;
+    }
+    return this.clientUserHash;
   }
 
   private async waitForPendingSignals(timeoutMs: number) {

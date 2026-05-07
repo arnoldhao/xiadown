@@ -24,7 +24,6 @@ type State struct {
 	CompletedSessionCount     int
 	TotalSessionSeconds       float64
 	PreviousSessionSeconds    *float64
-	FirstChatCompletedAt      *time.Time
 	FirstLibraryCompletedAt   *time.Time
 }
 
@@ -32,7 +31,6 @@ type StateRepository interface {
 	Ensure(ctx context.Context) (State, error)
 	IncrementLaunchCount(ctx context.Context, at time.Time) (State, error)
 	RecordSessionSummary(ctx context.Context, endedAt time.Time, durationSeconds float64) (State, error)
-	MarkFirstChatCompleted(ctx context.Context, at time.Time) (State, bool, error)
 	MarkFirstLibraryCompleted(ctx context.Context, at time.Time) (State, bool, error)
 }
 
@@ -82,12 +80,10 @@ type Service struct {
 }
 
 type sessionMetrics struct {
-	chatCompleted        int
 	libraryCompleted     int
 	connectorConnected   int
 	dependencyInstalled  int
 	updateReadyToRestart int
-	runIDs               map[string]struct{}
 	operationIDs         map[string]struct{}
 }
 
@@ -102,7 +98,6 @@ func NewService(repo StateRepository, emitter Emitter, settings SettingsReader, 
 		startedAt:  time.Now(),
 		now:        time.Now,
 		session: sessionMetrics{
-			runIDs:       make(map[string]struct{}),
 			operationIDs: make(map[string]struct{}),
 		},
 	}
@@ -219,31 +214,6 @@ func (service *Service) TrackDependencyInstalled(ctx context.Context, dependency
 	service.emitAsync(Signal{Type: "XiaDown.Setup.dependencyInstalled", Payload: payload})
 }
 
-func (service *Service) TrackUserChatCompleted(ctx context.Context, runID string) {
-	if !service.Enabled() {
-		return
-	}
-	normalizedRunID := strings.TrimSpace(runID)
-	if normalizedRunID == "" {
-		return
-	}
-	if !service.markRunCompleted(normalizedRunID) {
-		return
-	}
-
-	state, first, err := service.repo.MarkFirstChatCompleted(ctx, service.now())
-	if err != nil {
-		zap.L().Debug("telemetry: chat completion state update failed", zap.Error(err))
-		return
-	}
-	service.cacheState(state)
-	if !first {
-		return
-	}
-	payload := service.buildPayload(ctx, state)
-	service.emitAsync(Signal{Type: "XiaDown.Activation.firstChatCompleted", Payload: payload})
-}
-
 func (service *Service) TrackLibraryOperationCompleted(ctx context.Context, operationID string, kind string) {
 	if !service.Enabled() {
 		return
@@ -295,14 +265,23 @@ func (service *Service) TrackUpdateReadyToRestart(ctx context.Context, latestVer
 }
 
 func (service *Service) FlushSessionSummary(ctx context.Context) error {
+	signal, ok, err := service.FlushSessionSummarySignal(ctx)
+	if err != nil || !ok {
+		return err
+	}
+	service.emit(signal)
+	return nil
+}
+
+func (service *Service) FlushSessionSummarySignal(ctx context.Context) (Signal, bool, error) {
 	if !service.Enabled() {
-		return nil
+		return Signal{}, false, nil
 	}
 
 	service.mu.Lock()
 	if service.flushed || !service.launched {
 		service.mu.Unlock()
-		return nil
+		return Signal{}, false, nil
 	}
 	service.flushed = true
 	snapshot := service.session
@@ -317,35 +296,22 @@ func (service *Service) FlushSessionSummary(ctx context.Context) error {
 
 	state, err := service.repo.RecordSessionSummary(ctx, service.now(), durationSeconds)
 	if err != nil {
-		return err
+		return Signal{}, false, err
 	}
 	service.cacheState(state)
 
 	payload := service.buildPayload(ctx, state)
 	payload["TelemetryDeck.Signal.durationInSeconds"] = durationSeconds
 	payload["XiaDown.Session.durationBucket"] = bucketSessionDuration(time.Duration(durationSeconds * float64(time.Second)))
-	payload["XiaDown.Session.chatCompletedBucket"] = bucketCount(snapshot.chatCompleted)
 	payload["XiaDown.Session.libraryCompletedBucket"] = bucketCount(snapshot.libraryCompleted)
 	payload["XiaDown.Session.connectorConnectedBucket"] = bucketCount(snapshot.connectorConnected)
 	payload["XiaDown.Session.dependencyInstalledBucket"] = bucketCount(snapshot.dependencyInstalled)
 	payload["XiaDown.Session.updateReadyToRestartBucket"] = bucketCount(snapshot.updateReadyToRestart)
-	service.emit(Signal{
+	return Signal{
 		Type:       "XiaDown.Session.summaryRecorded",
 		FloatValue: float64Ptr(durationSeconds),
 		Payload:    payload,
-	})
-	return nil
-}
-
-func (service *Service) markRunCompleted(runID string) bool {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	if _, exists := service.session.runIDs[runID]; exists {
-		return false
-	}
-	service.session.runIDs[runID] = struct{}{}
-	service.session.chatCompleted++
-	return true
+	}, true, nil
 }
 
 func (service *Service) markLibraryOperationCompleted(operationID string) bool {

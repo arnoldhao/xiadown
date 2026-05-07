@@ -74,18 +74,18 @@ const STATUS_META: Record<
   connected: {
     statusKey: "connected",
     className:
-      "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-100",
+      "app-connectors-status-badge app-connectors-status-connected",
     icon: Plug2,
   },
   expired: {
     statusKey: "expired",
     className:
-      "bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-100",
+      "app-connectors-status-badge app-connectors-status-expired",
     icon: RefreshCw,
   },
   disconnected: {
     statusKey: "disconnected",
-    className: "bg-muted text-muted-foreground",
+    className: "app-connectors-status-badge app-connectors-status-disconnected",
     icon: CircleOff,
   },
 };
@@ -506,10 +506,10 @@ export function ConnectorsSection() {
   const isConnected = (selected?.status ?? "disconnected") === "connected";
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
-      <aside className="flex min-h-0 w-[320px] shrink-0 flex-col border-r border-sidebar-border/70 bg-sidebar-background/40">
+    <div className="app-main-page app-main-connectors-page flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
+      <aside className="app-main-list-pane app-connectors-list-pane flex min-h-0 w-[320px] shrink-0 flex-col border-r">
         <div className="px-4 py-4">
-          <div className="app-control-shell-compact h-9 rounded-xl border-border/70 bg-background/92 px-3 shadow-sm">
+          <div className="app-dream-search-control app-dream-control-shell h-9 px-3">
             <Search className="h-4 w-4 text-muted-foreground" />
             <Input
               value={query}
@@ -538,17 +538,13 @@ export function ConnectorsSection() {
                     <SidebarMenuButton
                       type="button"
                       isActive={isSelected}
-                      className="min-h-11 justify-between rounded-xl border border-transparent hover:bg-accent/68 hover:text-accent-foreground data-[active=true]:bg-accent data-[active=true]:text-accent-foreground data-[active=true]:shadow-sm"
+                      className="app-connectors-list-item min-h-11 justify-between"
                       onClick={() => setSelectedId(connector.id)}
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div
-                          className={cn(
-                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm transition-colors",
-                            isSelected
-                              ? "border-[hsl(var(--primary)/0.22)] bg-primary/[0.08] text-primary/85 shadow-[inset_0_1px_0_hsl(var(--background)/0.44)]"
-                              : "border-border/70 bg-background/92 text-muted-foreground",
-                          )}
+                          className="app-connectors-icon-slot flex h-8 w-8 shrink-0 items-center justify-center"
+                          data-active={isSelected ? "true" : undefined}
                         >
                           <ConnectorBrandIcon
                             connectorType={connector.type}
@@ -556,22 +552,15 @@ export function ConnectorsSection() {
                           />
                         </div>
                         <span
-                          className={cn(
-                            "truncate text-sm font-medium transition-colors",
-                            isSelected
-                              ? "text-accent-foreground/86"
-                              : "text-muted-foreground",
-                          )}
+                          className="app-connectors-list-label truncate text-sm font-medium transition-colors"
+                          data-active={isSelected ? "true" : undefined}
                         >
                           {resolveConnectorLabel(connector)}
                         </span>
                       </div>
                       <div className="shrink-0">
                         <span
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                            statusMeta.className,
-                          )}
+                          className={statusMeta.className}
                         >
                           {React.createElement(statusMeta.icon, {
                             className: "h-3.5 w-3.5",
@@ -587,17 +576,17 @@ export function ConnectorsSection() {
         </div>
       </aside>
 
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-card">
+      <section className="app-main-detail-pane flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           className={cn(
-            "wails-drag flex shrink-0 items-center justify-between border-b border-border/70 bg-card pl-5",
+            "app-main-page-header app-connectors-detail-header wails-drag flex shrink-0 items-center justify-between border-b pl-5",
             isWindows ? "pr-0" : "pr-5",
           )}
         >
           <div className="flex min-h-[56px] min-w-0 flex-1 items-center gap-3 pr-3 text-sm">
             {selected ? (
               <>
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background/92 text-muted-foreground shadow-sm">
+                <div className="app-connectors-detail-icon flex h-8 w-8 shrink-0 items-center justify-center">
                   <ConnectorBrandIcon
                     connectorType={selected.type}
                     className="h-5 w-5"
@@ -629,10 +618,7 @@ export function ConnectorsSection() {
                   {t("settings.connectors.detail.status")}
                 </div>
                 <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                    status.className,
-                  )}
+                  className={status.className}
                 >
                   {React.createElement(status.icon, {
                     className: "h-3.5 w-3.5",
@@ -648,7 +634,7 @@ export function ConnectorsSection() {
                   {t("settings.connectors.detail.data")}
                 </div>
                 <div className="flex min-w-0 items-center justify-end gap-2">
-                  <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  <span className="app-connectors-cookie-count">
                     {cookiesCount}
                   </span>
                   <Button
@@ -749,15 +735,12 @@ export function ConnectorsSection() {
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto pr-1">
             <div className="grid gap-2">
-            <Card className="border-border/70 bg-muted/20 shadow-none">
+            <Card className="app-connectors-info-card shadow-none">
               <CardContent className="p-0">
                 {loginStatusRows.map((row, index) => (
                   <div
                     key={row.label}
-                    className={cn(
-                      "flex items-center justify-between gap-4 px-3 py-2.5 text-sm",
-                      index > 0 && "border-t border-border/70",
-                    )}
+                    className="app-connectors-info-row flex items-center justify-between gap-4 px-3 py-2.5 text-sm"
                   >
                     <span className="text-muted-foreground">{row.label}</span>
                     <span className="max-w-[55%] overflow-hidden break-words text-right font-medium leading-5 text-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
@@ -768,7 +751,7 @@ export function ConnectorsSection() {
               </CardContent>
             </Card>
             {loginError ? (
-              <div className="overflow-hidden rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs leading-5 text-destructive [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
+              <div className="app-connectors-error p-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
                 {loginError}
               </div>
             ) : null}
@@ -777,14 +760,12 @@ export function ConnectorsSection() {
           <DialogFooter className="shrink-0">
             <Button
               variant="outline"
-              className="h-7"
               onClick={() => void handleDismissLogin()}
               disabled={isLoginRunning}
             >
               {t("common.cancel")}
             </Button>
             <Button
-              className="h-7"
               onClick={() => void handleFinishLogin()}
               disabled={isLoginRunning || !loginSessionId}
             >
@@ -811,14 +792,14 @@ export function ConnectorsSection() {
                 : t("settings.connectors.cookiesTitle")}
             </DialogTitle>
           </DialogHeader>
-          <div className="flex min-h-0 flex-col overflow-hidden rounded-md border">
+          <div className="app-connectors-table-shell flex min-h-0 flex-col overflow-hidden">
             {cookiesList.length === 0 ? (
               <div className="p-4 text-sm text-muted-foreground">
                 {t("settings.connectors.cookiesEmpty")}
               </div>
             ) : (
               <>
-                <div className="bg-card">
+                <div className="app-connectors-table-header">
                   <table className="w-full table-fixed text-xs">
                     <colgroup>
                       <col className="w-[120px]" />
@@ -829,7 +810,7 @@ export function ConnectorsSection() {
                       <col className="w-[60px]" />
                     </colgroup>
                     <thead>
-                      <tr className="border-b">
+                      <tr>
                         <th className="w-[120px] px-3 py-2 text-left font-medium text-muted-foreground">
                           {t("settings.connectors.cookieColumns.name")}
                         </th>
@@ -866,7 +847,7 @@ export function ConnectorsSection() {
                       {cookiesList.map((cookie, index) => (
                         <tr
                           key={`${cookie.name}-${cookie.domain}-${index}`}
-                          className="border-b last:border-b-0"
+                          className="app-connectors-table-row"
                         >
                           <td className="truncate px-3 py-2 font-medium text-foreground">
                             {cookie.name}
@@ -897,7 +878,6 @@ export function ConnectorsSection() {
           <DialogFooter className="shrink-0">
             <Button
               variant="outline"
-              className="h-7"
               onClick={() => setCookiesDialogOpen(false)}
             >
               {t("common.close")}

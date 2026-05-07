@@ -14,9 +14,9 @@ import (
 	appevents "xiadown/internal/application/events"
 	fontsservice "xiadown/internal/application/fonts/service"
 	libraryservice "xiadown/internal/application/library/service"
+	petsservice "xiadown/internal/application/pets/service"
 	"xiadown/internal/application/settings/service"
 	softwareupdate "xiadown/internal/application/softwareupdate"
-	spritesservice "xiadown/internal/application/sprites/service"
 	apptelemetry "xiadown/internal/application/telemetry"
 	applicationupdate "xiadown/internal/application/update"
 	"xiadown/internal/application/youtubemusic"
@@ -28,9 +28,9 @@ import (
 	"xiadown/internal/infrastructure/libraryrepo"
 	"xiadown/internal/infrastructure/logging"
 	"xiadown/internal/infrastructure/persistence"
+	"xiadown/internal/infrastructure/petsrepo"
 	"xiadown/internal/infrastructure/proxy"
 	"xiadown/internal/infrastructure/settingsrepo"
-	"xiadown/internal/infrastructure/spritesrepo"
 	"xiadown/internal/infrastructure/telemetryrepo"
 	infrastructureupdate "xiadown/internal/infrastructure/update"
 	"xiadown/internal/infrastructure/ws"
@@ -59,6 +59,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	var windowManager *wails.WindowManager
 	var dreamFMPlayer *wails.DreamFMYouTubeMusicPlayer
 	var dreamFMLivePlayer *wails.DreamFMYouTubeLivePlayer
+	var telemetryShutdown func()
 
 	app := application.New(application.Options{
 		Name:        AppName,
@@ -99,6 +100,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		return nil, err
 	}
 	var libraryService *libraryservice.LibraryService
+	var petsService *petsservice.Service
 	app.OnShutdown(func() {
 		if libraryService != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -110,6 +112,12 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		}
 		if windowManager != nil {
 			windowManager.PersistAllBounds()
+		}
+		if petsService != nil {
+			petsService.ShutdownOnlinePetImportSessions()
+		}
+		if telemetryShutdown != nil {
+			telemetryShutdown()
 		}
 		_ = database.Close()
 	})
@@ -270,19 +278,19 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	realtimeServer.Handle("/api/dreamfm/playlist", dreamFMPlaylistHandler)
 	realtimeServer.Handle("/api/dreamfm/playlist/", dreamFMPlaylistHandler)
 
-	spritesBaseDir, err := spritesservice.DefaultSpritesBaseDir()
+	petsBaseDir, err := petsservice.DefaultPetsBaseDir()
 	if err != nil {
 		return nil, err
 	}
-	spriteRepo := spritesrepo.NewSQLiteSpriteRepository(database.Bun)
-	spritesService := spritesservice.NewService(
-		spritesBaseDir,
-		spriteAssets,
-		"embedded/sprites",
-		filepath.Join("images", "sprites"),
-		spritesservice.WithMetadataRepository(spriteRepo),
+	petRepo := petsrepo.NewSQLitePetRepository(database.Bun)
+	petsService = petsservice.NewService(
+		petsBaseDir,
+		petAssets,
+		"embedded/pets",
+		filepath.Join("images", "pets"),
+		petsservice.WithMetadataRepository(petRepo),
 	)
-	if err := spritesService.EnsureBuiltinSprites(ctx); err != nil {
+	if err := petsService.EnsureBuiltinPets(ctx); err != nil {
 		return nil, err
 	}
 
@@ -335,12 +343,20 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	app.RegisterService(application.NewService(wails.NewSystemHandler(fontService)))
 	app.RegisterService(application.NewService(wails.NewOSNotificationHandlerWithHTTPClientProvider(osNotifications, app, proxyManager)))
 	app.RegisterService(application.NewService(wails.NewRealtimeHandler(realtimeServer)))
-	app.RegisterService(application.NewService(wails.NewSpritesHandler(spritesService)))
+	app.RegisterService(application.NewService(wails.NewPetsHandler(petsService)))
 	app.RegisterService(application.NewService(wails.NewDreamFMPlayerHandler(dreamFMPlayer)))
 	app.RegisterService(application.NewService(wails.NewDreamFMLivePlayerHandler(dreamFMLivePlayer)))
-	app.RegisterService(application.NewService(wails.NewTelemetryHandler(telemetryService, apptelemetry.AppLaunchContext{
+	telemetryHandler := wails.NewTelemetryHandler(telemetryService, apptelemetry.AppLaunchContext{
 		LaunchedByAutoStart: startup.launchedByAutoStart,
-	}, proxyManager)))
+	}, proxyManager)
+	telemetryShutdown = func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := telemetryHandler.FlushSessionSummaryForShutdown(shutdownCtx); err != nil {
+			zap.L().Debug("telemetry: shutdown session summary failed", zap.Error(err))
+		}
+	}
+	app.RegisterService(application.NewService(telemetryHandler))
 	app.RegisterService(application.NewService(wails.NewUpdateHandler(updateService, telemetryService, app)))
 
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {

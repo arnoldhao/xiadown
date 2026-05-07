@@ -56,7 +56,7 @@ const buttonVariants = ({ size, variant, className }: ButtonVariantsProps = {}) 
   const radiusClass = variant === "sidebar" ? "rounded-[var(--app-sidebar-radius)]" : undefined
 
   return cn(
-    "app-motion-surface app-motion-press",
+    "app-dream-button app-motion-surface app-motion-press",
     baseButtonVariants({ variant: mappedVariant, size: mappedSize }),
     controlClass,
     textClass,
@@ -77,7 +77,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         size={mappedSize}
         variant={mappedVariant}
-        className={cn("app-motion-surface app-motion-press", controlClass, textClass, gapClass, radiusClass, className)}
+        className={cn("app-dream-button app-motion-surface app-motion-press", controlClass, textClass, gapClass, radiusClass, className)}
         {...props}
       />
     )

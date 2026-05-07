@@ -1021,6 +1021,7 @@ func (service *LibraryService) CreateTranscodeJob(ctx context.Context, request d
 	if sourceFile.LibraryID == "" {
 		return dto.LibraryOperationDTO{}, fmt.Errorf("source file is not attached to a library")
 	}
+	request = service.enrichTranscodeRequestForSource(ctx, request, sourceFile)
 	plan, err := service.resolveTranscodePlanWithoutProbe(ctx, request, sourceFile.Storage.LocalPath)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err

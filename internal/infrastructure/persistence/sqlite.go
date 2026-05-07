@@ -644,34 +644,29 @@ CREATE TABLE IF NOT EXISTS dependencies (
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS sprites (
+CREATE TABLE IF NOT EXISTS pets (
 	id TEXT PRIMARY KEY,
-	name TEXT NOT NULL,
+	display_name TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
 	frame_count INTEGER NOT NULL,
-	frame_width INTEGER NOT NULL,
-	frame_height INTEGER NOT NULL,
 	columns INTEGER NOT NULL,
 	rows INTEGER NOT NULL,
-	sprite_file TEXT NOT NULL,
-	sprite_path TEXT NOT NULL,
-	source_type TEXT NOT NULL DEFAULT '',
+	cell_width INTEGER NOT NULL,
+	cell_height INTEGER NOT NULL,
+	spritesheet_file TEXT NOT NULL,
+	spritesheet_path TEXT NOT NULL,
 	origin TEXT NOT NULL DEFAULT '',
 	scope TEXT NOT NULL,
 	status TEXT NOT NULL,
 	validation_message TEXT,
 	image_width INTEGER NOT NULL,
 	image_height INTEGER NOT NULL,
-	author_id TEXT NOT NULL,
-	author_display_name TEXT NOT NULL,
 	created_at TIMESTAMP NOT NULL,
-	version TEXT NOT NULL,
-	cover_png BLOB,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS sprites_scope_name_idx
-	ON sprites(scope, status, name);
+CREATE INDEX IF NOT EXISTS pets_scope_name_idx
+	ON pets(scope, status, display_name);
 
 CREATE TABLE IF NOT EXISTS transcode_presets (
 	id TEXT PRIMARY KEY,
@@ -948,16 +943,6 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 		column    string
 		statement string
 	}{
-		{
-			table:     "sprites",
-			column:    "source_type",
-			statement: "ALTER TABLE sprites ADD COLUMN source_type TEXT NOT NULL DEFAULT ''",
-		},
-		{
-			table:     "sprites",
-			column:    "origin",
-			statement: "ALTER TABLE sprites ADD COLUMN origin TEXT NOT NULL DEFAULT ''",
-		},
 		{
 			table:     "gateway_sessions",
 			column:    "context_summary",

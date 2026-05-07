@@ -13,7 +13,7 @@ import {
   LIBRARY_WORKSPACE_QUERY_KEY,
 } from "@/shared/query/library";
 import { DEPENDENCIES_QUERY_KEY } from "@/shared/query/dependencies";
-import { SPRITES_QUERY_KEY } from "@/shared/query/sprites";
+import { PETS_QUERY_KEY } from "@/shared/query/pets";
 import { REALTIME_TOPICS, registerTopic, startRealtime } from "@/shared/realtime";
 import { messageBus } from "@/shared/message";
 import { TelemetryManager } from "@/shared/telemetry/manager";
@@ -194,8 +194,8 @@ export function AppProviders({ children }: PropsWithChildren) {
       queryClient.invalidateQueries({ queryKey: DEPENDENCIES_QUERY_KEY, refetchType: "all" });
       queryClient.invalidateQueries({ queryKey: ["dependencies-updates"], refetchType: "all" });
     });
-    const offSpritesUpdated = Events.On("sprites:updated", () => {
-      queryClient.invalidateQueries({ queryKey: SPRITES_QUERY_KEY, refetchType: "all" });
+    const offPetsUpdated = Events.On("pets:updated", () => {
+      queryClient.invalidateQueries({ queryKey: PETS_QUERY_KEY, refetchType: "all" });
     });
 
     const unsubscribeLibraryOperation = registerTopic(REALTIME_TOPICS.library.operation, (event) => {
@@ -216,7 +216,7 @@ export function AppProviders({ children }: PropsWithChildren) {
 
     return () => {
       offDependenciesUpdated();
-      offSpritesUpdated();
+      offPetsUpdated();
       unsubscribeLibraryOperation();
       unsubscribeLibraryFile();
       unsubscribeLibraryHistory();

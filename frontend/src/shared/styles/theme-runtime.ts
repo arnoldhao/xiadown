@@ -37,15 +37,8 @@ function systemFontStack() {
     "-apple-system",
     "BlinkMacSystemFont",
     '"Segoe UI"',
-    "Roboto",
-    '"Noto Sans"',
-    "Ubuntu",
-    "Cantarell",
-    '"Helvetica Neue"',
-    "Arial",
-    '"Apple Color Emoji"',
-    '"Segoe UI Emoji"',
-    '"Segoe UI Symbol"',
+    '"PingFang SC"',
+    '"Microsoft YaHei"',
     "sans-serif",
   ].join(", ");
 }
@@ -166,6 +159,11 @@ function applyThemeColor(
   }
 
   applyPrimaryColor(color, undefined, effectiveAppearance);
+  document.documentElement.style.setProperty("--secondary", accentTokens.secondary);
+  document.documentElement.style.setProperty(
+    "--secondary-foreground",
+    accentTokens.secondaryForeground,
+  );
   document.documentElement.style.setProperty("--accent", accentTokens.accent);
   document.documentElement.style.setProperty("--accent-foreground", accentTokens.accentForeground);
   document.documentElement.style.setProperty("--sidebar-accent", accentTokens.sidebarAccent);

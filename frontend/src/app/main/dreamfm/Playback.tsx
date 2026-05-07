@@ -36,7 +36,7 @@ getXiaText
 } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
-import type { Sprite } from "@/shared/contracts/sprites";
+import type { Pet } from "@/shared/contracts/pets";
 import { messageBus } from "@/shared/message";
 import { openExternalURL } from "@/shared/query/system";
 import {
@@ -45,7 +45,7 @@ DropdownMenuContent,
 DropdownMenuItem,
 DropdownMenuTrigger
 } from "@/shared/ui/dropdown-menu";
-import { SpriteDisplay } from "@/shared/ui/sprite-player";
+import { PetDisplay } from "@/shared/ui/pet-player";
 import {
 Tooltip,
 TooltipContent,
@@ -418,8 +418,8 @@ export function DreamFMPlayback(props: {
   onlineState: DreamFMRemotePlaybackState;
   favoriteActive: boolean;
   favoriteBusy: boolean;
-  sprite: Sprite | null;
-  spriteImageURL: string;
+  pet: Pet | null;
+  petImageURL: string;
   localProgress: {
     currentTime: number;
     duration: number;
@@ -961,10 +961,10 @@ export function DreamFMPlayback(props: {
         <div className="flex h-full items-center justify-center">
           <div className="relative shrink-0">
             <div className="relative flex flex-col items-center justify-center gap-3">
-              <SpriteDisplay
-                sprite={props.sprite}
-                imageUrl={props.spriteImageURL}
-                animation="seeking"
+              <PetDisplay
+                pet={props.pet}
+                imageUrl={props.petImageURL}
+                animation="waiting"
                 alt={props.text.dreamFm.selectStation}
               />
               <div className="text-sm font-medium text-sidebar-foreground/58">
@@ -1025,10 +1025,10 @@ export function DreamFMPlayback(props: {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="relative flex flex-col items-center justify-center gap-3">
-          <SpriteDisplay
-            sprite={props.sprite}
-            imageUrl={props.spriteImageURL}
-            animation="seeking"
+          <PetDisplay
+            pet={props.pet}
+            imageUrl={props.petImageURL}
+            animation="waiting"
             alt={props.text.dreamFm.local}
           />
           <div className="text-sm font-medium text-sidebar-foreground/58">

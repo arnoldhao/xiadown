@@ -57,7 +57,7 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDropdownMenuLabel
     ref={ref}
-    className={cn("app-menu-label text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground", className)}
+    className={cn("app-menu-label text-2xs font-semibold uppercase tracking-[0.08em]", className)}
     {...props}
   />
 ));
@@ -79,7 +79,7 @@ function DropdownMenuShortcut({
   className,
   ...props
 }: React.HTMLAttributes<HTMLSpanElement>) {
-  return <span className={cn("app-menu-shortcut text-2xs tracking-[0.08em] text-muted-foreground", className)} {...props} />;
+  return <span className={cn("app-menu-shortcut text-2xs tracking-[0.08em]", className)} {...props} />;
 }
 
 export {

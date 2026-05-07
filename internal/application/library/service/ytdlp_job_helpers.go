@@ -700,6 +700,8 @@ func (service *LibraryService) runDownloadEmbeddedTranscode(
 		RootFileID:                     rootFileID(primaryFile),
 		PresetID:                       strings.TrimSpace(request.TranscodePresetID),
 		Title:                          strings.TrimSpace(title),
+		CoverPath:                      resolveSnapshotTranscodeCoverPath(snapshot),
+		SubtitlePaths:                  dedupePaths(snapshot.resolvedSubtitles),
 		Source:                         "YTDLP",
 		RunID:                          strings.TrimSpace(request.RunID),
 		DeleteSourceFileAfterTranscode: request.DeleteSourceFileAfterTranscode,

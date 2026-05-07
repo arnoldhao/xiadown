@@ -142,6 +142,20 @@ export function deriveAccentTokens(hex: string | undefined, isDark: boolean) {
     s: clampPercent(base.s * (isDark ? 0.7 : 0.9), isDark ? 24 : 32, 96),
     l: isDark ? 92 : 28,
   };
+  const secondary = {
+    h: base.h,
+    s: clampPercent(
+      base.s * (isDark ? 0.22 : 0.28),
+      isDark ? 8 : 12,
+      isDark ? 32 : 40,
+    ),
+    l: isDark ? 17 : 94,
+  };
+  const secondaryForeground = {
+    h: base.h,
+    s: clampPercent(base.s * (isDark ? 0.42 : 0.5), isDark ? 16 : 20, 72),
+    l: isDark ? 92 : 22,
+  };
   const sidebarAccent = {
     h: base.h,
     s: clampPercent(base.s * (isDark ? 0.36 : 0.5), isDark ? 14 : 18, isDark ? 48 : 64),
@@ -156,6 +170,8 @@ export function deriveAccentTokens(hex: string | undefined, isDark: boolean) {
   return {
     accent: toHslToken(accent),
     accentForeground: toHslToken(accentForeground),
+    secondary: toHslToken(secondary),
+    secondaryForeground: toHslToken(secondaryForeground),
     sidebarAccent: toHslToken(sidebarAccent),
     sidebarAccentForeground: toHslToken(sidebarAccentForeground),
   };

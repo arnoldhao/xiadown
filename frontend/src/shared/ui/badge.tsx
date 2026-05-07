@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 export type BadgeProps = React.ComponentPropsWithoutRef<typeof BaseBadge>;
 
 export function Badge({ className, ...props }: BadgeProps) {
-  return <BaseBadge className={cn("app-motion-color", className)} {...props} />;
+  return <BaseBadge className={cn("app-dream-badge app-motion-color", className)} {...props} />;
 }
 
 export { badgeVariants };

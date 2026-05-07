@@ -14,21 +14,35 @@ func TestParseFFprobeMediaProbe(t *testing.T) {
 
 	output := []byte(`{
 		"streams": [
-			{
-				"codec_type": "video",
-				"codec_name": "h264",
-				"width": 1920,
+				{
+					"index": 0,
+					"codec_type": "video",
+					"codec_name": "h264",
+					"width": 1920,
 				"height": 1080,
 				"avg_frame_rate": "60000/1001",
 				"bit_rate": "400000"
-			},
-			{
-				"codec_type": "audio",
-				"codec_name": "aac",
-				"channels": 2,
-				"bit_rate": "256000"
-			}
-		],
+				},
+				{
+					"index": 1,
+					"codec_type": "audio",
+					"codec_name": "aac",
+					"channels": 2,
+					"bit_rate": "256000"
+				},
+				{
+					"index": 2,
+					"codec_type": "video",
+					"codec_name": "mjpeg",
+					"disposition": {"attached_pic": 1}
+				},
+				{
+					"index": 3,
+					"codec_type": "subtitle",
+					"codec_name": "subrip",
+					"tags": {"language": "eng"}
+				}
+			],
 		"format": {
 			"format_name": "mov,mp4,m4a,3gp,3g2,mj2",
 			"duration": "12.345",
@@ -76,6 +90,12 @@ func TestParseFFprobeMediaProbe(t *testing.T) {
 	}
 	if got.FrameRate < 59.93 || got.FrameRate > 59.95 {
 		t.Fatalf("expected frame rate near 59.94, got %.4f", got.FrameRate)
+	}
+	if got.AttachedPicCount != 1 {
+		t.Fatalf("expected one attached picture, got %d", got.AttachedPicCount)
+	}
+	if len(got.SubtitleStreams) != 1 || got.SubtitleStreams[0].Index != 3 || got.SubtitleStreams[0].Codec != "subrip" || got.SubtitleStreams[0].Language != "eng" {
+		t.Fatalf("expected subtitle stream metadata, got %#v", got.SubtitleStreams)
 	}
 }
 

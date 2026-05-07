@@ -1,8 +1,5 @@
-@import "./shared/styles/tokens.css";
-@import "./shared/styles/design-system.css";
+@import "./shared/styles/dream.css";
 @import "./app/main/welcome.css";
-@import "./shared/styles/color-schemes.css";
-@import "./shared/styles/effects.css";
 @import "@vidstack/react/player/styles/base.css";
 @import "@vidstack/react/player/styles/default/theme.css";
 @import "tw-shimmer";
@@ -109,7 +106,7 @@
   }
 
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
 
   * {
@@ -136,15 +133,17 @@
   }
 
   html {
-    @apply h-full;
+    height: 100%;
   }
 
   body {
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
-
-    @apply h-full bg-background text-foreground font-body antialiased;
+    height: 100%;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--app-font-body);
 
     font-synthesis: none;
     text-rendering: optimizeLegibility;
@@ -169,7 +168,7 @@
 
   #root {
     min-height: 100%;
-    @apply bg-background;
+    background-color: hsl(var(--background));
   }
 
   :root[data-window="tray-miniplayer"],

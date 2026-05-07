@@ -16,7 +16,7 @@ const Card = React.forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof BaseCard>
 >(({ className, ...props }, ref) => (
-  <BaseCard ref={ref} className={cn("app-motion-surface", className)} {...props} />
+  <BaseCard ref={ref} className={cn("app-dream-card app-motion-surface", className)} {...props} />
 ))
 Card.displayName = "Card"
 

@@ -338,7 +338,7 @@ const WELCOME_CHICKEN_PIXEL_LAYERS: Array<{
 function WelcomePixelChicken() {
   return (
     <svg
-      className="welcome-chicken-sprite"
+      className="welcome-chicken-pet"
       viewBox="0 0 48 48"
       aria-hidden="true"
     >

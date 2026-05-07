@@ -19,13 +19,13 @@
 
 XiaDown is an online music player, and also a video download tool.
 
-It is built for content creators: when you need source material, it provides powerful YT-DLP-based download capabilities; when you need to work, it can keep online music playing in the background. With sprites and customizable appearance, the app stays simple without feeling dull.
+It is built for content creators: when you need source material, it provides powerful YT-DLP-based download capabilities; when you need to work, it can keep online music playing in the background. With pets and customizable appearance, the app stays simple without feeling dull.
 
 ## Core Capabilities
 
 - **Online music playback**: YouTube Lo-Fi stations and YouTube Music in one place, with account sign-in, song/artist/playlist search, playback queues, lyrics, covers, and download handoff for tracks you want to keep.
 - **Video and audio downloads**: powered by YT-DLP, with support for material downloads from thousands of online video sites; paste a link to save video, audio, subtitles, and covers, then transcode and manage them in the local library.
-- **Personalized media space**: theme packs, accent colors, appearance modes, sidebar styles, sprites, and connections, with dependencies and updates maintained automatically for long-term daily use.
+- **Personalized media space**: theme packs, accent colors, appearance modes, sidebar styles, pets, and connections, with dependencies and updates maintained automatically for long-term daily use.
 
 ## Product Preview
 

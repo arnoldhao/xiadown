@@ -89,7 +89,7 @@ export function CompletedFileMaintenanceControls(props: {
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 rounded-lg p-0"
+            className="app-completed-toolbar-button h-8 w-8 p-0"
             aria-label={props.text.completed.verifyFiles}
             disabled={action !== ""}
             onClick={() => void runMaintenance("verify")}
@@ -109,7 +109,7 @@ export function CompletedFileMaintenanceControls(props: {
             type="button"
             variant="ghost"
             size="icon"
-            className="h-8 w-8 rounded-lg p-0"
+            className="app-completed-toolbar-button h-8 w-8 p-0"
             aria-label={props.text.completed.clearMissingFiles}
             disabled={action !== ""}
             onClick={() => void runMaintenance("clear")}
