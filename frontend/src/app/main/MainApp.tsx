@@ -283,6 +283,8 @@ export function MainApp() {
     updateInfo.status === "installing";
   const hasUserMenuUpdate = hasAppUpdateMenu || hasDependencyUpdate;
   const shellTheme = activeView === "dreamfm" ? "dream" : "default";
+  const reverseShellBackground =
+    activeView === "completed" || activeView === "petsGallery";
 
   const localDownloadDirectory = resolveEffectiveDownloadDirectory(
     settings?.downloadDirectory,
@@ -622,6 +624,7 @@ export function MainApp() {
         className={cn(
           "app-main-sidebar relative z-40 flex w-[var(--app-main-sidebar-width)] shrink-0 flex-col items-center justify-between border-sidebar-border/70 px-3 pb-4 pt-3 text-sidebar-foreground",
           shellTheme === "default" && "app-main-default-sidebar",
+          reverseShellBackground && "app-main-sidebar-reverse-shell",
           resolveSidebarSurface(theme.id, shellTheme),
         )}
       >

@@ -1227,7 +1227,7 @@ export function CompletedPage(props: {
     }
 
     return (
-      <aside className="app-main-detail-pane app-completed-inline-detail flex w-[25rem] shrink-0 flex-col overflow-hidden border-l border-border/60 xl:w-[27rem]">
+      <aside className="app-main-detail-pane app-completed-inline-detail my-3 mr-3 flex w-[25rem] shrink-0 flex-col overflow-hidden xl:w-[27rem]">
         <div
           className={cn(
             "app-completed-inline-detail-header flex shrink-0 gap-2 border-b border-border/60 px-4",
@@ -1269,7 +1269,7 @@ export function CompletedPage(props: {
 
   return (
     <div className="app-main-page app-main-completed-page flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="app-main-page-header wails-drag flex min-w-0 shrink-0 items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
+      <div className="app-completed-page-toolbar wails-drag flex min-w-0 shrink-0 items-center justify-between gap-3 px-5 py-4">
         <div className="wails-no-drag flex min-w-0 flex-1 items-center gap-2">
           <CompletedListViewSwitch
             value={viewMode}
@@ -1563,7 +1563,7 @@ export function CompletedPage(props: {
         {renderSelectedDetailPanel()}
       </div>
 
-      <div className="app-main-page-footer flex items-center justify-between gap-3 border-t border-border/60 px-5 py-3">
+      <div className="app-main-page-footer flex items-center justify-between gap-3 px-5 py-3">
           <div className="text-xs text-muted-foreground">
             {resolveCompletedTotalLabel(
               currentTotalCount,
