@@ -3596,6 +3596,182 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
     }
   }
 
+  @keyframes app-running-playground-jump {
+    0%,
+    100% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(0) scale(1);
+    }
+    42% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(-34px) scale(1.04);
+    }
+    62% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(-18px) scale(1.02);
+    }
+  }
+
+  @keyframes app-running-playground-wave {
+    0%,
+    100% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) rotateZ(0deg);
+    }
+    28% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) rotateZ(-4deg);
+    }
+    58% {
+      transform: perspective(680px) rotateY(var(--running-pet-rotation)) rotateZ(4deg);
+    }
+  }
+
+  @keyframes app-running-playground-ball-float {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    50% {
+      transform: translate3d(5px, -8px, 0) rotate(12deg);
+    }
+  }
+
+  .app-running-pet-playground {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .app-running-pet-playground:active {
+    cursor: grabbing;
+  }
+
+  .app-running-playground-pet {
+    width: 12rem;
+    height: 12rem;
+    cursor: grab;
+    touch-action: none;
+    transform-origin: center center;
+    will-change: left, top, transform;
+  }
+
+  .app-running-playground-pet[data-dragging="true"] {
+    cursor: grabbing;
+  }
+
+  .app-running-playground-pet-core {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: perspective(680px) rotateY(var(--running-pet-rotation));
+    transform-style: preserve-3d;
+    transition: filter var(--app-motion-duration-base) var(--app-motion-ease-standard);
+    will-change: transform;
+  }
+
+  .app-running-playground-pet[data-dragging="true"] .app-running-playground-pet-core {
+    filter: saturate(1.06) brightness(1.04);
+  }
+
+  .app-running-playground-pet[data-sitting="true"] .app-running-playground-pet-core {
+    transform: perspective(680px) rotateY(var(--running-pet-rotation)) translateY(10px) scaleY(0.96);
+  }
+
+  .app-running-playground-pet-core[data-action="jumping"] {
+    animation: app-running-playground-jump 760ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .app-running-playground-pet-core[data-action="waving"] {
+    animation: app-running-playground-wave 980ms ease-in-out both;
+  }
+
+  .app-running-playground-shadow {
+    position: absolute;
+    left: 50%;
+    bottom: 1.35rem;
+    z-index: 0;
+    width: 7rem;
+    height: 1.3rem;
+    border-radius: 9999px;
+    background:
+      radial-gradient(ellipse 58% 72% at 50% 50%, hsl(var(--foreground) / 0.14), transparent 72%),
+      radial-gradient(ellipse 82% 70% at 50% 50%, hsl(var(--primary) / 0.12), transparent 78%);
+    filter: blur(7px);
+    transform: translateX(-50%);
+  }
+
+  .app-running-playground-pad {
+    position: absolute;
+    left: 50%;
+    bottom: 0.9rem;
+    z-index: 1;
+    width: 9.4rem;
+    height: 2.35rem;
+    border-radius: 9999px;
+    background:
+      linear-gradient(90deg, hsl(174 54% 42% / 0.18), hsl(var(--primary) / 0.24), hsl(43 74% 54% / 0.18)),
+      hsl(var(--background) / 0.46);
+    box-shadow:
+      inset 0 0 0 1px hsl(var(--foreground) / 0.08),
+      0 18px 42px -28px hsl(var(--primary) / 0.52);
+    transform: translateX(-50%);
+  }
+
+  .app-running-playground-ball {
+    position: absolute;
+    right: 1.3rem;
+    bottom: 2.7rem;
+    z-index: 3;
+    width: 1.85rem;
+    height: 1.85rem;
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at 32% 26%, hsl(48 100% 84% / 0.92), transparent 24%),
+      radial-gradient(circle at 64% 72%, hsl(214 82% 58% / 0.42), transparent 38%),
+      linear-gradient(135deg, hsl(34 94% 56%), hsl(16 84% 50%));
+    box-shadow:
+      inset -5px -7px 12px hsl(var(--foreground) / 0.16),
+      0 8px 18px -10px hsl(var(--foreground) / 0.58);
+    animation: app-running-playground-ball-float 1.8s ease-in-out infinite;
+  }
+
+  .app-running-playground-action {
+    filter: drop-shadow(0 16px 28px hsl(var(--foreground) / 0.08));
+  }
+
+  .app-running-playground-hint {
+    min-height: 2.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    padding: 0.55rem 0.9rem;
+    background:
+      linear-gradient(180deg, hsl(var(--background) / 0.78), hsl(var(--background) / 0.58)),
+      hsl(var(--card) / 0.68);
+    color: hsl(var(--foreground) / 0.74);
+    box-shadow:
+      0 18px 42px -30px hsl(var(--foreground) / 0.42),
+      inset 0 0 0 1px hsl(var(--foreground) / 0.08);
+    -webkit-backdrop-filter: blur(18px) saturate(1.12);
+    backdrop-filter: blur(18px) saturate(1.12);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.35;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translate3d(-50%, 10px, 0);
+    transition:
+      opacity var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      transform var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  }
+
+  .app-running-playground-hint[data-visible="true"] {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0);
+  }
+
   .app-running-speed-segment {
     position: relative;
     isolation: isolate;
@@ -3862,6 +4038,9 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
     .app-running-thumbnail-stage[data-arriving="true"] .app-running-thumbnail-sweep,
     .app-running-speed-segment[data-speed-kind="download"]::before,
     .app-running-speed-segment[data-speed-kind="transcode"]::before,
+    .app-running-playground-pet-core[data-action="jumping"],
+    .app-running-playground-pet-core[data-action="waving"],
+    .app-running-playground-ball,
     .app-running-new-download-button::before,
     .app-running-new-download-button::after {
       animation: none;

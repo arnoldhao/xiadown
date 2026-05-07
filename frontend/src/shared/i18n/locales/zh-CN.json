@@ -243,6 +243,7 @@
       "emptyAction": "下个新蛋",
       "emptyTitle": "当前没有进行中的任务",
       "empty": "新建下载或转码任务后，会在这里展示进度。",
+      "playgroundHint": "ＷＡＳＤ 移动 · ⇧ 冲刺 · 空格跳跃 · Ｅ 挥手 · Ｑ 坐下 · 滚轮缩放 · Ｂ 球 · Ｔ 垫子 · Ｒ 复位",
       "loading": "正在加载任务",
       "overviewTitle": "任务总览",
       "taskCount": "任务数量",

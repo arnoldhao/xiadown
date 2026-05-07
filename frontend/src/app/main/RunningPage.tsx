@@ -18,6 +18,7 @@ import {
 import { Progress } from "@/shared/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { PetDisplay } from "@/shared/ui/pet-player";
+import { RunningPetPlayground } from "@/app/main/RunningPetPlayground";
 import { useCancelOperation } from "@/shared/query/library";
 import { getLanguage, resolveI18nText } from "@/shared/i18n";
 import { cn } from "@/lib/utils";
@@ -74,7 +75,6 @@ const RUNNING_SPEED_UNIT_MULTIPLIERS: Record<string, number> = {
 const RUNNING_SPEED_CACHE_TTL_MS = 3500;
 const RUNNING_SPEED_SMOOTHING_WEIGHT = 0.42;
 const RUNNING_CANCEL_SUPPRESS_TTL_MS = 12_000;
-const RUNNING_EMPTY_PET_SIZE = 192;
 const RUNNING_DOWNLOAD_SPEED_KINDS = new Set<ParsedRunningSpeed["kind"]>([
   "bytes",
 ]);
@@ -930,17 +930,14 @@ export function RunningPage(props: RunningPageProps) {
 
   if (operations.length === 0) {
     return (
-      <div className="app-main-page app-main-running-page flex h-full min-h-0 items-center justify-center">
-        <div className="flex max-w-sm flex-col items-center text-center">
-          <PetDisplay
-            pet={props.pet}
-            imageUrl={props.petImageURL}
-            animation={props.petAnimation}
-            alt={text.appName}
-            className="mb-6"
-            glowClassName="h-[18rem] w-[18rem] blur-2xl"
-            size={RUNNING_EMPTY_PET_SIZE}
-          />
+      <div className="app-main-page app-main-running-page h-full min-h-0">
+        <RunningPetPlayground
+          pet={props.pet}
+          imageUrl={props.petImageURL}
+          animation={props.petAnimation}
+          alt={text.appName}
+          hint={text.running.playgroundHint}
+        >
           <RunningActionButton
             label={text.running.emptyAction}
             icon={<Plus className="h-4 w-4" />}
@@ -948,7 +945,7 @@ export function RunningPage(props: RunningPageProps) {
             effect={newDownloadEffect}
             onClick={props.onNewDownload}
           />
-        </div>
+        </RunningPetPlayground>
       </div>
     );
   }
