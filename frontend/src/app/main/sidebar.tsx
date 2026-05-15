@@ -1,4 +1,5 @@
 import {
+CassetteTape,
 Loader2,
 Pause,
 Play,
@@ -9,8 +10,8 @@ X
 import * as React from "react";
 
 import {
-type DreamFMNowPlayingStatus
-} from "@/app/main/DreamFM";
+type ListenNowPlayingStatus
+} from "@/app/main/Listen";
 import {
 getXiaText
 } from "@/features/xiadown/shared";
@@ -19,16 +20,18 @@ import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import { Button } from "@/shared/ui/button";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
 import {
-DREAM_FM_MINI_PRIMARY_CONTROL_CLASS,
-DREAM_FM_MINI_SIDE_CONTROL_CLASS,
-DREAM_FM_NOW_PLAYING_PANEL_CLASS,
-} from "@/shared/styles/dreamfm";
+LISTEN_MINI_PRIMARY_CONTROL_CLASS,
+LISTEN_MINI_SIDE_CONTROL_CLASS,
+LISTEN_NOW_PLAYING_PANEL_CLASS,
+} from "@/shared/styles/listen";
 import {
 MAIN_SIDEBAR_ACTION_CLASS,
 resolveXiaMainSidebarSurface,
 } from "@/shared/styles/xiadown";
 
-type DreamFMNowPlayingControlCommand = "previous" | "toggle" | "next";
+type ListenNowPlayingControlCommand = "previous" | "toggle" | "next";
+type ListenMiniPanelVariant = "hush" | "timeline";
+export type ListenNowPlayingPanelSurface = "white" | "dark" | "tray";
 
 export const resolveSidebarSurface = resolveXiaMainSidebarSurface;
 
@@ -42,54 +45,68 @@ export const SidebarIconButton = React.forwardRef<
   HTMLButtonElement,
   SidebarIconButtonProps
 >(function SidebarIconButton(
-  { label, active, className, children, "aria-label": ariaLabel, ...props },
+  {
+    label,
+    active,
+    className,
+    children,
+    "aria-current": ariaCurrent,
+    "aria-label": ariaLabel,
+    ...props
+  },
   ref,
 ) {
   return (
-    <Button
-      ref={ref}
-      type="button"
-      variant="ghost"
-      size="icon"
-      className={cn(
-        "app-main-sidebar-action",
-        MAIN_SIDEBAR_ACTION_CLASS,
-        "relative border border-transparent bg-transparent text-sidebar-foreground/72 transition [&_svg]:!h-[var(--app-main-sidebar-icon-size)] [&_svg]:!w-[var(--app-main-sidebar-icon-size)]",
-        active
-          ? "bg-sidebar-accent text-sidebar-primary shadow-sm"
-          : "hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground",
-        className,
-      )}
-      data-active={active ? "true" : undefined}
-      aria-label={ariaLabel ?? label}
-      {...props}
-    >
-      {children}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          ref={ref}
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "app-main-sidebar-action",
+            MAIN_SIDEBAR_ACTION_CLASS,
+            "relative border border-transparent bg-transparent text-sidebar-foreground/72 transition [&_svg]:!h-[var(--app-main-sidebar-icon-size)] [&_svg]:!w-[var(--app-main-sidebar-icon-size)]",
+            active
+              ? "bg-sidebar-accent text-sidebar-primary shadow-sm"
+              : "hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground",
+            className,
+          )}
+          data-active={active ? "true" : undefined}
+          aria-current={ariaCurrent ?? (active ? "page" : undefined)}
+          aria-label={ariaLabel ?? label}
+          {...props}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
   );
 });
 
-export function dreamFMStatusLabel(
-  status: DreamFMNowPlayingStatus | null,
+export function listenStatusLabel(
+  status: ListenNowPlayingStatus | null,
   text: ReturnType<typeof getXiaText>,
 ) {
   switch (status?.state) {
     case "idle":
-      return text.dreamFm.idleStatus;
+      return text.listen.idleStatus;
     case "playing":
-      return text.dreamFm.playingStatus;
+      return text.listen.playingStatus;
     case "paused":
-      return text.dreamFm.pausedStatus;
+      return text.listen.pausedStatus;
     case "loading":
-      return text.dreamFm.loadingStatus;
+      return text.listen.loadingStatus;
     case "error":
-      return text.dreamFm.errorStatus;
+      return text.listen.errorStatus;
     default:
-      return text.views.dreamFM;
+      return text.views.listen;
   }
 }
 
-function resolveDreamFMProgress(status: DreamFMNowPlayingStatus) {
+function resolveListenProgress(status: ListenNowPlayingStatus) {
   const duration = Number.isFinite(status.progress.duration)
     ? Math.max(0, status.progress.duration)
     : 0;
@@ -112,25 +129,112 @@ function resolveDreamFMProgress(status: DreamFMNowPlayingStatus) {
   };
 }
 
+function resolveListenMiniPanelVariant(
+  status: ListenNowPlayingStatus | null,
+): ListenMiniPanelVariant {
+  return status?.mode === "hush" ? "hush" : "timeline";
+}
+
+function renderListenMiniControlIcon(
+  state: ListenNowPlayingStatus["state"],
+  isPlaying: boolean,
+) {
+  if (state === "loading") {
+    return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
+  }
+  if (state === "error") {
+    return <X className="h-3.5 w-3.5" />;
+  }
+  if (isPlaying) {
+    return <Pause className="h-3.5 w-3.5 fill-current" />;
+  }
+  return <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />;
+}
+
+function ListenMiniScrollingText(props: {
+  text: string;
+  className?: string;
+}) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const contentRef = React.useRef<HTMLSpanElement | null>(null);
+  const [overflow, setOverflow] = React.useState(0);
+  const normalizedText = props.text.trim();
+  const scrolling = overflow > 1;
+  const style = scrolling
+    ? ({
+        "--listen-marquee-shift": `-${Math.ceil(overflow + 18)}px`,
+        "--listen-marquee-duration": `${Math.min(
+          12,
+          Math.max(6, (overflow + 150) / 28),
+        )}s`,
+      } as React.CSSProperties)
+    : undefined;
+
+  React.useLayoutEffect(() => {
+    const container = containerRef.current;
+    const contentElement = contentRef.current;
+    if (!container || !contentElement) {
+      return;
+    }
+    const syncOverflow = () => {
+      setOverflow(
+        Math.max(0, contentElement.scrollWidth - container.clientWidth),
+      );
+    };
+    syncOverflow();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(syncOverflow);
+    observer.observe(container);
+    observer.observe(contentElement);
+    return () => observer.disconnect();
+  }, [normalizedText]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={cn(
+        "listen-mini-marquee relative block max-w-full min-w-0 overflow-hidden whitespace-nowrap",
+        scrolling ? "text-left" : "text-center",
+        props.className,
+      )}
+      data-overflow={scrolling ? "true" : "false"}
+      title={normalizedText}
+    >
+      <span
+        ref={contentRef}
+        className={cn(
+          "inline-block max-w-none align-top",
+          scrolling ? "listen-marquee-text pr-4" : "max-w-full truncate",
+        )}
+        style={style}
+      >
+        {normalizedText}
+      </span>
+    </div>
+  );
+}
+
 function resolveMiniPanelText(
-  status: DreamFMNowPlayingStatus | null,
+  status: ListenNowPlayingStatus | null,
   text: ReturnType<typeof getXiaText>,
 ) {
   if (!status || status.state === "idle") {
     return {
-      title: text.views.dreamFM,
-      subtitle: text.dreamFm.idleSubtitle,
+      title: text.views.listen,
+      subtitle: text.listen.idleSubtitle,
     };
   }
 
   return {
-    title: status.title.trim() || text.dreamFm.nowPlaying,
-    subtitle: status.subtitle.trim() || text.dreamFm.nowPlaying,
+    title: status.title.trim() || text.listen.nowPlaying,
+    subtitle: status.subtitle.trim() || text.listen.nowPlaying,
   };
 }
 
-function DreamFMNowPlayingPanelArtwork(props: {
-  status: DreamFMNowPlayingStatus | null;
+function ListenNowPlayingPanelArtwork(props: {
+  status: ListenNowPlayingStatus | null;
 }) {
   if (!props.status || props.status.state === "idle") {
     return (
@@ -143,15 +247,16 @@ function DreamFMNowPlayingPanelArtwork(props: {
     );
   }
 
-  return <DreamFMSidebarArtwork status={props.status} />;
+  return <ListenSidebarArtwork status={props.status} />;
 }
 
-function DreamFMNowPlayingPanelTransport(props: {
-  status: DreamFMNowPlayingStatus | null;
+function ListenNowPlayingPanelTransport(props: {
+  status: ListenNowPlayingStatus | null;
   text: ReturnType<typeof getXiaText>;
-  onControlCommand?: (command: DreamFMNowPlayingControlCommand) => void;
+  onControlCommand?: (command: ListenNowPlayingControlCommand) => void;
 }) {
   const state = props.status?.state ?? "idle";
+  const variant = resolveListenMiniPanelVariant(props.status);
   const canControl = Boolean(
     props.onControlCommand &&
       props.status?.canControl &&
@@ -159,14 +264,42 @@ function DreamFMNowPlayingPanelTransport(props: {
       state !== "loading",
   );
   const isPlaying = state === "playing";
-  const playLabel = isPlaying ? props.text.dreamFm.pause : props.text.dreamFm.play;
+  const playLabel = isPlaying ? props.text.listen.pause : props.text.listen.play;
+  const primaryLabel =
+    state === "loading"
+      ? props.text.listen.loading
+      : state === "error"
+        ? props.text.listen.errorStatus
+        : playLabel;
+
+  if (variant === "hush") {
+    return (
+      <div
+        className="listen-mini-transport flex h-9 items-center justify-center gap-1.5"
+        data-variant="hush"
+      >
+        <button
+          type="button"
+          className={LISTEN_MINI_PRIMARY_CONTROL_CLASS}
+          aria-label={primaryLabel}
+          disabled={!canControl}
+          onClick={() => props.onControlCommand?.("toggle")}
+        >
+          {renderListenMiniControlIcon(state, isPlaying)}
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-9 items-center justify-center gap-1.5">
+    <div
+      className="listen-mini-transport flex h-9 items-center justify-center gap-1.5"
+      data-variant="timeline"
+    >
       <button
         type="button"
-        className={DREAM_FM_MINI_SIDE_CONTROL_CLASS}
-        aria-label={props.text.dreamFm.previous}
+        className={LISTEN_MINI_SIDE_CONTROL_CLASS}
+        aria-label={props.text.listen.previous}
         disabled={!canControl}
         onClick={() => props.onControlCommand?.("previous")}
       >
@@ -174,23 +307,17 @@ function DreamFMNowPlayingPanelTransport(props: {
       </button>
       <button
         type="button"
-        className={DREAM_FM_MINI_PRIMARY_CONTROL_CLASS}
-        aria-label={state === "loading" ? props.text.dreamFm.loading : playLabel}
+        className={LISTEN_MINI_PRIMARY_CONTROL_CLASS}
+        aria-label={primaryLabel}
         disabled={!canControl}
         onClick={() => props.onControlCommand?.("toggle")}
       >
-        {state === "loading" ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : isPlaying ? (
-          <Pause className="h-3.5 w-3.5 fill-current" />
-        ) : (
-          <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />
-        )}
+        {renderListenMiniControlIcon(state, isPlaying)}
       </button>
       <button
         type="button"
-        className={DREAM_FM_MINI_SIDE_CONTROL_CLASS}
-        aria-label={props.text.dreamFm.next}
+        className={LISTEN_MINI_SIDE_CONTROL_CLASS}
+        aria-label={props.text.listen.next}
         disabled={!canControl}
         onClick={() => props.onControlCommand?.("next")}
       >
@@ -200,18 +327,56 @@ function DreamFMNowPlayingPanelTransport(props: {
   );
 }
 
-function DreamFMNowPlayingPanelProgress(props: {
-  status: DreamFMNowPlayingStatus | null;
+function ListenNowPlayingPanelProgress(props: {
+  status: ListenNowPlayingStatus | null;
+  text: ReturnType<typeof getXiaText>;
 }) {
+  const variant = resolveListenMiniPanelVariant(props.status);
+  if (variant === "hush") {
+    const state = props.status?.state ?? "idle";
+    return (
+      <div
+        className="listen-mini-progress-row flex h-[18px] items-center"
+        data-variant="hush"
+      >
+        <div
+          className="listen-mini-live-progress relative flex h-3.5 w-full items-center overflow-hidden rounded-full"
+          data-state={state}
+          role="status"
+          aria-label={listenStatusLabel(props.status, props.text)}
+        >
+          <span
+            aria-hidden="true"
+            className="listen-mini-live-line relative min-w-0 flex-1 rounded-full"
+          />
+          <span
+            aria-hidden="true"
+            className="listen-mini-live-dot absolute right-0 top-1/2 rounded-full"
+          />
+        </div>
+      </div>
+    );
+  }
+
   const progress =
     props.status && props.status.state !== "idle"
-      ? resolveDreamFMProgress(props.status)
+      ? resolveListenProgress(props.status)
       : null;
 
   return (
-    <div className="flex h-[18px] items-center">
+    <div
+      className="listen-mini-progress-row flex h-[18px] items-center"
+      data-variant="timeline"
+    >
       <div
-        className="relative h-1.5 w-full overflow-hidden rounded-full bg-[hsl(var(--tray-control-foreground)/0.16)]"
+        className="listen-mini-progress-track relative h-1 w-full overflow-hidden rounded-full bg-[hsl(var(--tray-control-foreground)/0.16)]"
+        data-state={
+          progress
+            ? "ready"
+            : props.status?.state === "loading"
+              ? "loading"
+              : "empty"
+        }
         role={progress ? "progressbar" : undefined}
         aria-valuemin={progress ? 0 : undefined}
         aria-valuemax={progress ? Math.round(progress.duration) : undefined}
@@ -221,19 +386,19 @@ function DreamFMNowPlayingPanelProgress(props: {
           <>
             <span
               aria-hidden="true"
-              className="absolute inset-y-0 left-0 rounded-full bg-[hsl(var(--tray-control-foreground)/0.22)] transition-[width] duration-300"
+              className="listen-mini-progress-buffer absolute inset-y-0 left-0 rounded-full bg-[hsl(var(--tray-control-foreground)/0.22)] transition-[width] duration-300"
               style={{ width: `${progress.bufferedPercent}%` }}
             />
             <span
               aria-hidden="true"
-              className="absolute inset-y-0 left-0 rounded-full bg-[hsl(var(--tray-control-foreground))] transition-[width] duration-150"
+              className="listen-mini-progress-value absolute inset-y-0 left-0 rounded-full bg-sidebar-primary transition-[width] duration-150"
               style={{ width: `${progress.progressPercent}%` }}
             />
           </>
         ) : props.status?.state === "loading" ? (
           <span
             aria-hidden="true"
-            className="absolute inset-y-0 left-0 w-1/3 animate-pulse rounded-full bg-[hsl(var(--tray-control-foreground)/0.34)]"
+            className="listen-mini-progress-loading absolute inset-y-0 left-0 w-1/3 animate-pulse rounded-full bg-sidebar-primary/45"
           />
         ) : null}
       </div>
@@ -241,8 +406,8 @@ function DreamFMNowPlayingPanelProgress(props: {
   );
 }
 
-export function DreamFMSidebarSourceBadge(props: {
-  status: DreamFMNowPlayingStatus | null;
+export function ListenSidebarSourceBadge(props: {
+  status: ListenNowPlayingStatus | null;
 }) {
   switch (props.status?.state) {
     case "loading":
@@ -278,56 +443,49 @@ export function DreamFMSidebarSourceBadge(props: {
   }
 }
 
-export function DreamFMNowPlayingHoverPanel(props: {
-  status: DreamFMNowPlayingStatus | null;
+export function ListenNowPlayingHoverPanel(props: {
+  status: ListenNowPlayingStatus | null;
   text: ReturnType<typeof getXiaText>;
   className?: string;
-  onControlCommand?: (command: DreamFMNowPlayingControlCommand) => void;
+  surface?: ListenNowPlayingPanelSurface;
+  onControlCommand?: (command: ListenNowPlayingControlCommand) => void;
 }) {
   const text = resolveMiniPanelText(props.status, props.text);
+  const surface = props.surface ?? "white";
 
   return (
     <div
       className={cn(
-        DREAM_FM_NOW_PLAYING_PANEL_CLASS,
+        LISTEN_NOW_PLAYING_PANEL_CLASS,
         props.className,
       )}
-      aria-label={`${props.text.dreamFm.nowPlaying}: ${text.title}`}
+      data-surface={surface}
+      aria-label={`${props.text.listen.nowPlaying}: ${text.title}`}
     >
       <div className="relative grid h-full min-w-0 grid-cols-2 overflow-hidden rounded-[21px]">
         <div className="relative min-w-0 overflow-visible">
-          <div className="absolute inset-y-[-26px] left-[-30px] w-[calc(100%+118px)] opacity-72 blur-[38px] saturate-[1.55] contrast-[1.12] [mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)] [-webkit-mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)]">
-            <DreamFMNowPlayingPanelArtwork status={props.status} />
+          <div className="listen-panel-artwork-glow absolute inset-y-[-26px] left-[-30px] w-[calc(100%+118px)] opacity-72 blur-[38px] saturate-[1.55] contrast-[1.12] [mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)] [-webkit-mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)]">
+            <ListenNowPlayingPanelArtwork status={props.status} />
           </div>
-          <div className="absolute inset-y-0 left-0 z-[1] w-[calc(100%+42px)] overflow-hidden [mask-image:linear-gradient(90deg,#000_0%,#000_64%,rgba(0,0,0,0.72)_84%,transparent_100%)] [-webkit-mask-image:linear-gradient(90deg,#000_0%,#000_64%,rgba(0,0,0,0.72)_84%,transparent_100%)]">
-            <DreamFMNowPlayingPanelArtwork status={props.status} />
+          <div className="listen-panel-artwork-main absolute inset-y-0 left-0 z-[1] w-[calc(100%+42px)] overflow-hidden [mask-image:linear-gradient(90deg,#000_0%,#000_64%,rgba(0,0,0,0.72)_84%,transparent_100%)] [-webkit-mask-image:linear-gradient(90deg,#000_0%,#000_64%,rgba(0,0,0,0.72)_84%,transparent_100%)]">
+            <ListenNowPlayingPanelArtwork status={props.status} />
           </div>
         </div>
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(90deg,transparent_0%,transparent_44%,hsl(var(--tray-control-color)/0.14)_54%,hsl(var(--tray-control-color)/0.62)_68%,hsl(var(--tray-control-color))_86%)]"
+          className="listen-panel-color-wash pointer-events-none absolute inset-0 z-10"
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-[44%] z-10 w-[30%]"
-          style={{
-            backdropFilter: "blur(8px) saturate(1.08)",
-            WebkitBackdropFilter: "blur(8px) saturate(1.08)",
-            background:
-              "linear-gradient(90deg,transparent 0%,hsl(var(--tray-control-color)/0.18) 42%,hsl(var(--tray-control-color)/0.42) 100%)",
-            maskImage:
-              "linear-gradient(90deg,transparent 0%,rgba(0,0,0,0.28) 22%,rgba(0,0,0,0.78) 64%,transparent 100%)",
-            WebkitMaskImage:
-              "linear-gradient(90deg,transparent 0%,rgba(0,0,0,0.28) 22%,rgba(0,0,0,0.78) 64%,transparent 100%)",
-          }}
+          className="listen-panel-blur-veil pointer-events-none absolute inset-y-0 left-[44%] z-10 w-[30%]"
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-0 right-0 z-10 h-[58%] w-[74%] bg-[linear-gradient(0deg,hsl(var(--tray-control-color)/0.88)_0%,hsl(var(--tray-control-color)/0.42)_46%,transparent_100%)] [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.18)_20%,#000_48%,#000_100%)] [-webkit-mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.18)_20%,#000_48%,#000_100%)]"
+          className="listen-panel-bottom-vignette pointer-events-none absolute bottom-0 right-0 z-10 h-[58%] w-[74%] [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.18)_20%,#000_48%,#000_100%)] [-webkit-mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.18)_20%,#000_48%,#000_100%)]"
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-10 opacity-[0.12] mix-blend-overlay [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.35)_28%,#000_54%,#000_100%)] [-webkit-mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.35)_28%,#000_54%,#000_100%)]"
+          className="listen-panel-grain pointer-events-none absolute inset-0 z-10 opacity-[0.12] mix-blend-overlay [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.35)_28%,#000_54%,#000_100%)] [-webkit-mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.35)_28%,#000_54%,#000_100%)]"
           style={{
             backgroundImage: [
               "repeating-radial-gradient(circle at 0 0,rgba(255,255,255,0.2)_0_0.55px,transparent_0.8px_3.8px)",
@@ -338,30 +496,35 @@ export function DreamFMNowPlayingHoverPanel(props: {
         />
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-30 rounded-[21px] ring-1 ring-inset ring-[hsl(var(--tray-control-foreground)/0.12)]"
+          className="listen-panel-ring pointer-events-none absolute inset-0 z-30 rounded-[21px]"
         />
         <div className="relative z-20 col-start-2 flex h-full min-w-0 flex-col px-2.5 py-2.5">
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
-            <div className="max-w-full truncate text-[13px] font-semibold leading-5">
-              {text.title}
-            </div>
-            <div className="mt-0.5 max-w-full truncate text-[11px] font-medium leading-4 text-[hsl(var(--tray-control-foreground)/0.72)]">
-              {text.subtitle}
-            </div>
+            <ListenMiniScrollingText
+              text={text.title}
+              className="text-[13px] font-semibold leading-5"
+            />
+            <ListenMiniScrollingText
+              text={text.subtitle}
+              className="mt-0.5 text-[11px] font-medium leading-4 text-[hsl(var(--tray-control-foreground)/0.72)]"
+            />
           </div>
-          <DreamFMNowPlayingPanelTransport
+          <ListenNowPlayingPanelTransport
             status={props.status}
             text={props.text}
             onControlCommand={props.onControlCommand}
           />
-          <DreamFMNowPlayingPanelProgress status={props.status} />
+          <ListenNowPlayingPanelProgress
+            status={props.status}
+            text={props.text}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-export function DreamFMSidebarArtwork(props: { status: DreamFMNowPlayingStatus }) {
+export function ListenSidebarArtwork(props: { status: ListenNowPlayingStatus }) {
   const [failedURL, setFailedURL] = React.useState("");
   const source =
     props.status.artworkURL && props.status.artworkURL !== failedURL
@@ -383,32 +546,49 @@ export function DreamFMSidebarArtwork(props: { status: DreamFMNowPlayingStatus }
   );
 }
 
-export function DreamFMNowPlayingMiniPlayer(props: {
-  status: DreamFMNowPlayingStatus | null;
+export function ListenNowPlayingMiniPlayer(props: {
+  status: ListenNowPlayingStatus | null;
   text: ReturnType<typeof getXiaText>;
+  active?: boolean;
+  surface?: Exclude<ListenNowPlayingPanelSurface, "tray">;
   onOpen: () => void;
   onToggle: () => void;
-  onControlCommand?: (command: DreamFMNowPlayingControlCommand) => void;
+  onControlCommand?: (command: ListenNowPlayingControlCommand) => void;
 }) {
   if (!props.status || props.status.state === "idle") {
-    return null;
+    return (
+      <SidebarIconButton
+        label={props.text.views.listen}
+        active={props.active}
+        onClick={props.onOpen}
+        className="listen-sidebar-entry listen-sidebar-entry-idle"
+      >
+        <CassetteTape className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)]" />
+      </SidebarIconButton>
+    );
   }
-  const statusLabel = dreamFMStatusLabel(props.status, props.text);
+  const statusLabel = listenStatusLabel(props.status, props.text);
   const canToggle = Boolean(
     props.status?.canControl && props.status.state !== "loading",
   );
   const isPlaying = props.status?.state === "playing";
 
   return (
-    <div className="wails-no-drag group/dreamfm-mini relative flex w-[var(--app-main-sidebar-action-size)] flex-col items-center gap-1.5 rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/45 p-1.5 shadow-sm backdrop-blur-xl">
+    <div
+      className={cn(
+        "wails-no-drag group/listen-mini listen-sidebar-entry listen-mini-player relative flex w-[var(--app-main-sidebar-action-size)] flex-col items-center gap-1.5 rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/45 p-1.5 shadow-sm backdrop-blur-xl",
+        props.active && "bg-sidebar-accent text-sidebar-primary",
+      )}
+      data-active={props.active ? "true" : undefined}
+    >
       <button
         type="button"
-        className="relative h-10 w-10 overflow-hidden rounded-xl bg-background/80 text-sidebar-foreground outline-none ring-1 ring-sidebar-border/70 transition hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-sidebar-ring/45"
-        aria-label={`${props.text.dreamFm.nowPlaying}: ${props.status.title}`}
+        className="listen-mini-artwork-button relative h-10 w-10 overflow-hidden rounded-xl bg-background/80 text-sidebar-foreground outline-none ring-1 ring-sidebar-border/70 transition hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-sidebar-ring/45"
+        aria-label={`${props.text.listen.nowPlaying}: ${props.status.title}`}
         onClick={props.onOpen}
       >
-        <DreamFMSidebarArtwork status={props.status} />
-        <span className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/8 to-transparent" />
+        <ListenSidebarArtwork status={props.status} />
+        <span className="listen-mini-artwork-overlay absolute inset-0 bg-gradient-to-t from-black/40 via-black/8 to-transparent" />
         {props.status.state === "playing" ? (
           <span className="absolute inset-x-1 bottom-1 flex items-end justify-center gap-[2px] rounded-full bg-black/24 px-1 py-0.5 backdrop-blur-sm">
             <span className="h-1.5 w-0.5 animate-pulse rounded-full bg-white" />
@@ -418,11 +598,12 @@ export function DreamFMNowPlayingMiniPlayer(props: {
         ) : null}
       </button>
 
-      <div className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-50 hidden -translate-y-1/2 group-focus-within/dreamfm-mini:block group-hover/dreamfm-mini:block">
+      <div className="listen-mini-hover-panel-wrap absolute left-full top-1/2 z-50 -translate-y-1/2 pl-3">
         <div className="pointer-events-auto">
-          <DreamFMNowPlayingHoverPanel
+          <ListenNowPlayingHoverPanel
             status={props.status}
             text={props.text}
+            surface={props.surface}
             onControlCommand={props.onControlCommand}
           />
         </div>
@@ -432,9 +613,9 @@ export function DreamFMNowPlayingMiniPlayer(props: {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="flex h-7 w-7 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar-background/90 text-sidebar-foreground shadow-sm transition hover:bg-sidebar-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55"
+            className="listen-mini-toggle-button flex h-7 w-7 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar-background/90 text-sidebar-foreground shadow-sm transition hover:bg-sidebar-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55"
             aria-label={
-              isPlaying ? props.text.dreamFm.pause : props.text.dreamFm.play
+              isPlaying ? props.text.listen.pause : props.text.listen.play
             }
             disabled={!canToggle}
             onClick={props.onToggle}

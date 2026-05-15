@@ -40,10 +40,10 @@ func TestManifestCatalogProviderSelectsCurrentPlatformAssets(t *testing.T) {
 							}
 						}
 					},
-					"dreamFm":{
+					"listen":{
 						"liveChannel":{
 							"schemaVersion":1,
-							"url":"https://updates.example.com/dream.fm/live/channel.json",
+							"url":"https://updates.example.com/listen/live/channel.json",
 							"version":"2026.04.26.1",
 							"updatedAt":"2026-04-26T08:30:00Z",
 							"minAppVersion":"0.0.1",
@@ -101,28 +101,28 @@ func TestManifestCatalogProviderSelectsCurrentPlatformAssets(t *testing.T) {
 	if ffmpeg.Asset.PrimaryExecutableName() != "ffmpeg" {
 		t.Fatalf("unexpected primary executable: %s", ffmpeg.Asset.PrimaryExecutableName())
 	}
-	if catalog.DreamFM.LiveChannel.URL != "https://updates.example.com/dream.fm/live/channel.json" {
-		t.Fatalf("unexpected DreamFM live catalog URL: %s", catalog.DreamFM.LiveChannel.URL)
+	if catalog.Listen.LiveChannel.URL != "https://updates.example.com/listen/live/channel.json" {
+		t.Fatalf("unexpected Listen live catalog URL: %s", catalog.Listen.LiveChannel.URL)
 	}
-	if catalog.DreamFM.LiveChannel.SchemaVersion != 1 {
-		t.Fatalf("unexpected DreamFM live catalog schema version: %d", catalog.DreamFM.LiveChannel.SchemaVersion)
+	if catalog.Listen.LiveChannel.SchemaVersion != 1 {
+		t.Fatalf("unexpected Listen live catalog schema version: %d", catalog.Listen.LiveChannel.SchemaVersion)
 	}
-	if catalog.DreamFM.LiveChannel.Version != "2026.04.26.1" {
-		t.Fatalf("unexpected DreamFM live catalog version: %s", catalog.DreamFM.LiveChannel.Version)
+	if catalog.Listen.LiveChannel.Version != "2026.04.26.1" {
+		t.Fatalf("unexpected Listen live catalog version: %s", catalog.Listen.LiveChannel.Version)
 	}
-	if catalog.DreamFM.LiveChannel.UpdatedAt.IsZero() {
-		t.Fatal("expected DreamFM live catalog updatedAt")
+	if catalog.Listen.LiveChannel.UpdatedAt.IsZero() {
+		t.Fatal("expected Listen live catalog updatedAt")
 	}
-	if catalog.DreamFM.LiveChannel.SHA256 != "abc123" {
-		t.Fatalf("unexpected DreamFM live catalog sha256: %s", catalog.DreamFM.LiveChannel.SHA256)
+	if catalog.Listen.LiveChannel.SHA256 != "abc123" {
+		t.Fatalf("unexpected Listen live catalog sha256: %s", catalog.Listen.LiveChannel.SHA256)
 	}
-	if catalog.DreamFM.LiveChannel.MinAppVersion != "0.0.1" {
-		t.Fatalf("unexpected DreamFM live catalog min app version: %s", catalog.DreamFM.LiveChannel.MinAppVersion)
+	if catalog.Listen.LiveChannel.MinAppVersion != "0.0.1" {
+		t.Fatalf("unexpected Listen live catalog min app version: %s", catalog.Listen.LiveChannel.MinAppVersion)
 	}
-	if catalog.DreamFM.LiveChannel.TTLSeconds != 300 {
-		t.Fatalf("unexpected DreamFM live catalog ttl: %d", catalog.DreamFM.LiveChannel.TTLSeconds)
+	if catalog.Listen.LiveChannel.TTLSeconds != 300 {
+		t.Fatalf("unexpected Listen live catalog ttl: %d", catalog.Listen.LiveChannel.TTLSeconds)
 	}
-	if catalog.DreamFM.LiveChannel.Fallback != "embedded" {
-		t.Fatalf("unexpected DreamFM live catalog fallback: %s", catalog.DreamFM.LiveChannel.Fallback)
+	if catalog.Listen.LiveChannel.Fallback != "embedded" {
+		t.Fatalf("unexpected Listen live catalog fallback: %s", catalog.Listen.LiveChannel.Fallback)
 	}
 }

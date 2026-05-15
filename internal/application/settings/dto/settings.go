@@ -28,6 +28,9 @@ type Settings struct {
 	MenuBarVisibility     string         `json:"menuBarVisibility"`
 	AutoStart             bool           `json:"autoStart"`
 	MinimizeToTrayOnStart bool           `json:"minimizeToTrayOnStart"`
+	SyncedLyricsEnabled   bool           `json:"syncedLyricsEnabled"`
+	RomanizedLyrics       bool           `json:"romanizedLyrics"`
+	PinyinLyrics          bool           `json:"pinyinLyrics"`
 	Proxy                 Proxy          `json:"proxy"`
 	AppearanceConfig      map[string]any `json:"appearanceConfig,omitempty"`
 }
@@ -50,6 +53,9 @@ type UpdateSettingsRequest struct {
 	MenuBarVisibility     *string        `json:"menuBarVisibility"`
 	AutoStart             *bool          `json:"autoStart"`
 	MinimizeToTrayOnStart *bool          `json:"minimizeToTrayOnStart"`
+	SyncedLyricsEnabled   *bool          `json:"syncedLyricsEnabled"`
+	RomanizedLyrics       *bool          `json:"romanizedLyrics"`
+	PinyinLyrics          *bool          `json:"pinyinLyrics"`
 	Proxy                 *Proxy         `json:"proxy"`
 	AppearanceConfig      map[string]any `json:"appearanceConfig,omitempty"`
 }

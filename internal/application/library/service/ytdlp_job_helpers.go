@@ -464,7 +464,7 @@ func (service *LibraryService) runYTDLPOperation(ctx context.Context, operation 
 		return
 	}
 	for _, fileItem := range outputSnapshot.files {
-		service.syncDreamFMLocalTrackFromFile(ctx, fileItem, nil)
+		service.syncListenLocalTrackFromFile(ctx, fileItem, nil)
 		service.publishFileUpdate(service.mustBuildFileDTO(ctx, fileItem))
 	}
 }
@@ -772,7 +772,7 @@ func (service *LibraryService) createDownloadedPrimaryFile(ctx context.Context, 
 	if err := service.renameLibraryFromFirstFileIfNeeded(ctx, operation.LibraryID, fileItem.DisplayName, createdAt); err != nil {
 		return library.LibraryFile{}, err
 	}
-	service.syncDreamFMLocalTrackFromFile(ctx, fileItem, &probe)
+	service.syncListenLocalTrackFromFile(ctx, fileItem, &probe)
 	return fileItem, nil
 }
 

@@ -12,6 +12,7 @@ export interface CurrentUserProfile {
 
 export const CURRENT_USER_PROFILE_QUERY_KEY = ["system", "current-user-profile"];
 export const FONT_FAMILIES_QUERY_KEY = ["system", "font-families"];
+export const LYRICS_TRANSCRIPTION_AVAILABLE_QUERY_KEY = ["system", "lyrics-transcription-available"];
 const SYSTEM_HANDLER_SERVICE = "xiadown/internal/presentation/wails.SystemHandler";
 
 export async function openExternalURL(url: string): Promise<void> {
@@ -40,6 +41,19 @@ export function useFontFamilies() {
     },
     staleTime: Infinity,
     retry: false,
+  });
+}
+
+export function useLyricsTranscriptionAvailable(enabled = true) {
+  return useQuery({
+    queryKey: LYRICS_TRANSCRIPTION_AVAILABLE_QUERY_KEY,
+    queryFn: async (): Promise<boolean> => {
+      const result = await Call.ByName(`${SYSTEM_HANDLER_SERVICE}.GetLyricsTranscriptionAvailable`);
+      return result === true;
+    },
+    staleTime: Infinity,
+    retry: false,
+    enabled,
   });
 }
 

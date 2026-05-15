@@ -79,7 +79,7 @@ function clampPercent(value: number, min = 0, max = 100) {
   return Math.min(Math.max(value, min), max);
 }
 
-function deriveDreamFMTrayControlTokens(color: string | undefined, isDark: boolean) {
+function deriveListenTrayControlTokens(color: string | undefined, isDark: boolean) {
   const base = hexToHslColor(color);
   if (!base) {
     return null;
@@ -121,7 +121,7 @@ function applyPrimaryColor(
   const hsl = hexToHsl(resolved);
   const fgHex = pickAccessibleForeground(resolved);
   const fgHsl = hexToHsl(fgHex ?? undefined);
-  const trayTokens = deriveDreamFMTrayControlTokens(
+  const trayTokens = deriveListenTrayControlTokens(
     resolved,
     resolveIsDarkAppearance(effectiveAppearance),
   );
@@ -132,7 +132,7 @@ function applyPrimaryColor(
 
   document.documentElement.style.setProperty("--primary", hsl);
   document.documentElement.style.setProperty("--primary-foreground", fgHsl);
-  document.documentElement.style.setProperty("--dreamfm-hover-line", trayTokens.line);
+  document.documentElement.style.setProperty("--listen-hover-line", trayTokens.line);
   document.documentElement.style.setProperty("--tray-control-color", trayTokens.surface);
   document.documentElement.style.setProperty("--tray-control-foreground", trayTokens.foreground);
   document.documentElement.style.setProperty("--ring", hsl);
@@ -269,18 +269,20 @@ function resolveTrayThemeColor(settings?: Settings | null) {
   return hexToHsl(configuredColor) ? configuredColor : packColor;
 }
 
-export function createDreamFMTrayControlStyle(settings?: Settings | null) {
+export function createListenTrayControlStyle(settings?: Settings | null) {
   const color = resolveTrayThemeColor(settings);
-  const trayTokens = deriveDreamFMTrayControlTokens(
+  const accentHsl = hexToHsl(color) ?? "22 90% 52%";
+  const accentForegroundHsl =
+    hexToHsl(pickAccessibleForeground(color) ?? "#ffffff") ?? "0 0% 100%";
+  const trayTokens = deriveListenTrayControlTokens(
     color,
     settings?.effectiveAppearance === "dark",
   );
   return {
-    "--dreamfm-hover-line": trayTokens?.line ?? hexToHsl(color) ?? "22 90% 52%",
-    "--tray-control-color": trayTokens?.surface ?? hexToHsl(color) ?? "22 90% 52%",
-    "--tray-control-foreground":
-      trayTokens?.foreground ??
-      hexToHsl(pickAccessibleForeground(color) ?? "#ffffff") ??
-      "0 0% 100%",
+    "--listen-hover-line": trayTokens?.line ?? accentHsl,
+    "--tray-control-color": trayTokens?.surface ?? accentHsl,
+    "--tray-control-foreground": trayTokens?.foreground ?? accentForegroundHsl,
+    "--sidebar-primary": accentHsl,
+    "--sidebar-primary-foreground": accentForegroundHsl,
   } as React.CSSProperties;
 }

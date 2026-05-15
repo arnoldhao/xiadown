@@ -18,7 +18,7 @@ const SidebarMenuItem = React.forwardRef<
   HTMLLIElement,
   React.ComponentPropsWithoutRef<"li">
 >(({ className, ...props }, ref) => (
-  <li ref={ref} className={cn("relative", className)} {...props} />
+  <li ref={ref} className={cn("relative list-none", className)} {...props} />
 ));
 SidebarMenuItem.displayName = "SidebarMenuItem";
 

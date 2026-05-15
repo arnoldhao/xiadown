@@ -24,6 +24,7 @@ export function PetDisplay(props: {
   petClassName?: string;
   fallbackSrc?: string;
   size?: number;
+  load?: boolean;
 }) {
   const {
     pet,
@@ -37,6 +38,7 @@ export function PetDisplay(props: {
     petClassName,
     fallbackSrc,
     size,
+    load,
   } = props;
   const petSize = size ?? 64;
   const containerStyle: React.CSSProperties = { userSelect: "none" };
@@ -66,6 +68,7 @@ export function PetDisplay(props: {
         imageUrl={imageUrl}
         animation={animation}
         animate={animate}
+        load={load}
         size={petSize}
         alt={alt}
         fallbackSrc={fallbackSrc}
@@ -81,6 +84,7 @@ export function PetPlayer(props: {
   animation?: PetAnimation;
   size?: number;
   animate?: boolean;
+  load?: boolean;
   alt: string;
   className?: string;
   fallbackSrc?: string;
@@ -91,6 +95,7 @@ export function PetPlayer(props: {
     animation = "idle",
     size = 112,
     animate = true,
+    load = true,
     alt,
     className,
     fallbackSrc = "/appicon.png",
@@ -107,7 +112,8 @@ export function PetPlayer(props: {
       pet.rows > 0 &&
       pet.cellWidth > 0 &&
       pet.cellHeight > 0 &&
-      imageUrl,
+      imageUrl &&
+      load,
   );
 
   React.useEffect(() => {

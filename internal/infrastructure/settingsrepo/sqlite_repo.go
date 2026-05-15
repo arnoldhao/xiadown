@@ -60,6 +60,9 @@ func (repo *SQLiteSettingsRepository) Get(ctx context.Context) (settings.Setting
 	}
 	autoStart := boolOrDefault(row.AutoStart, false)
 	minimizeToTrayOnStart := boolOrDefault(row.MinimizeToTrayOnStart, false)
+	syncedLyricsEnabled := boolOrDefault(row.SyncedLyricsEnabled, settings.DefaultSyncedLyricsEnabled)
+	romanizedLyrics := boolOrDefault(row.RomanizedLyrics, settings.DefaultRomanizedLyrics)
+	pinyinLyrics := boolOrDefault(row.PinyinLyrics, settings.DefaultPinyinLyrics)
 
 	var lastTestedAt *time.Time
 	if row.ProxyTestedAt.Valid {
@@ -105,6 +108,9 @@ func (repo *SQLiteSettingsRepository) Get(ctx context.Context) (settings.Setting
 		MenuBarVisibility:     &menuBarVisibility,
 		AutoStart:             &autoStart,
 		MinimizeToTrayOnStart: &minimizeToTrayOnStart,
+		SyncedLyricsEnabled:   &syncedLyricsEnabled,
+		RomanizedLyrics:       &romanizedLyrics,
+		PinyinLyrics:          &pinyinLyrics,
 		AppearanceConfig:      parseAnyMap(row.AppearanceConfigJSON),
 	})
 }
@@ -128,6 +134,9 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		MenuBarVisibility:     nullString(current.MenuBarVisibility().String()),
 		AutoStart:             nullBool(current.AutoStart()),
 		MinimizeToTrayOnStart: nullBool(current.MinimizeToTrayOnStart()),
+		SyncedLyricsEnabled:   nullBool(current.SyncedLyricsEnabled()),
+		RomanizedLyrics:       nullBool(current.RomanizedLyrics()),
+		PinyinLyrics:          nullBool(current.PinyinLyrics()),
 		AppearanceConfigJSON:  jsonAnyMap(current.AppearanceConfig()),
 		MainX:                 nullInt64(current.MainBounds().X()),
 		MainY:                 nullInt64(current.MainBounds().Y()),
@@ -168,6 +177,9 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		Set("menu_bar_visibility = EXCLUDED.menu_bar_visibility").
 		Set("auto_start = EXCLUDED.auto_start").
 		Set("minimize_to_tray_on_start = EXCLUDED.minimize_to_tray_on_start").
+		Set("synced_lyrics_enabled = EXCLUDED.synced_lyrics_enabled").
+		Set("romanized_lyrics = EXCLUDED.romanized_lyrics").
+		Set("pinyin_lyrics = EXCLUDED.pinyin_lyrics").
 		Set("appearance_config_json = EXCLUDED.appearance_config_json").
 		Set("main_x = EXCLUDED.main_x").
 		Set("main_y = EXCLUDED.main_y").

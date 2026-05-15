@@ -28,6 +28,7 @@ import { getXiaText } from "@/features/xiadown/shared";
 import type { PetAnimation } from "@/shared/pets/animation";
 import { RUNNING_PET_GLOW_STYLE } from "@/shared/styles/xiadown";
 import { resolveOperationKindLabel } from "@/app/main/helpers";
+import { WindowControls } from "@/components/layout/WindowControls";
 
 type RunningPageProps = {
   text: ReturnType<typeof getXiaText>;
@@ -38,6 +39,7 @@ type RunningPageProps = {
   petAnimation: PetAnimation;
   pet: Pet | null;
   loading?: boolean;
+  isWindows?: boolean;
   onNewDownload: () => void;
 };
 
@@ -59,6 +61,8 @@ type RunningNewDownloadEffect =
   | "sun"
   | "mist"
   | "shadow";
+
+type RunningVisualQuality = "full" | "balanced" | "low";
 
 const RUNNING_SPEED_UNIT_MULTIPLIERS: Record<string, number> = {
   b: 1,
@@ -249,6 +253,16 @@ function resolveOperationThumbnailCoverURL(
     return "";
   }
   return buildAssetPreviewURL(baseURL, thumbnailPreviewPath);
+}
+
+function resolveRunningVisualQuality(operationCount: number): RunningVisualQuality {
+  if (operationCount >= 48) {
+    return "low";
+  }
+  if (operationCount >= 18) {
+    return "balanced";
+  }
+  return "full";
 }
 
 function normalizeStageCode(stage?: string) {
@@ -752,6 +766,10 @@ export function RunningPage(props: RunningPageProps) {
         }),
     [props.operations, cancelSuppressedIds],
   );
+  const visualQuality = React.useMemo(
+    () => resolveRunningVisualQuality(operations.length),
+    [operations.length],
+  );
   const runningSpeedCache = useRunningSpeedCache(operations);
   const runningCount = React.useMemo(
     () =>
@@ -917,20 +935,52 @@ export function RunningPage(props: RunningPageProps) {
     [],
   );
 
+  const renderShell = (children: React.ReactNode) => (
+    <div
+      className="app-main-page app-main-running-page relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
+      data-operation-count={operations.length}
+      data-running-state={
+        props.loading ? "loading" : operations.length > 0 ? "tasks" : "empty"
+      }
+      data-visual-quality={visualQuality}
+    >
+      <div
+        className={cn(
+          "app-running-page-toolbar wails-drag flex min-h-[var(--app-page-top-drag-height)] items-center justify-between gap-4 px-5",
+          props.isWindows
+            ? "min-h-[var(--app-page-top-drag-height)] pb-3 pt-4"
+            : "pb-3 pt-4",
+        )}
+      >
+        <h1 className="sr-only">{text.running.title}</h1>
+        <div className="min-w-0 flex-1" aria-hidden="true" />
+        <div
+          className={cn(
+            "flex min-w-0 items-center justify-end gap-2",
+            props.isWindows && "min-w-[var(--app-windows-caption-control-width)]",
+          )}
+        >
+          {props.isWindows ? <WindowControls platform="windows" /> : null}
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+
   if (props.loading) {
-    return (
-      <div className="app-main-page app-main-running-page flex h-full min-h-0 items-center justify-center">
+    return renderShell(
+      <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-5">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           <span>{text.running.loading}</span>
         </div>
-      </div>
+      </div>,
     );
   }
 
   if (operations.length === 0) {
-    return (
-      <div className="app-main-page app-main-running-page h-full min-h-0">
+    return renderShell(
+      <div className="min-h-0 flex-1 px-5 pb-5">
         <RunningPetPlayground
           pet={props.pet}
           imageUrl={props.petImageURL}
@@ -946,16 +996,15 @@ export function RunningPage(props: RunningPageProps) {
             onClick={props.onNewDownload}
           />
         </RunningPetPlayground>
-      </div>
+      </div>,
     );
   }
 
-  return (
-    <div className="app-main-page app-main-running-page relative flex h-full min-h-0 items-start justify-center">
-      <h1 className="sr-only">{text.running.title}</h1>
+  return renderShell(
+    <div className="relative flex min-h-0 flex-1 items-start justify-center px-5 pb-5">
       <div className="flex h-full min-h-0 w-full max-w-4xl flex-col">
         <div className="shrink-0 px-6">
-          <div className="grid h-32 grid-cols-[minmax(0,1fr)_auto] items-center gap-6 px-[10%]">
+          <div className="app-running-summary-panel grid h-32 grid-cols-[minmax(0,1fr)_auto] items-center gap-6 px-[10%]">
             <div className="relative isolate min-w-0">
               <div className="relative z-10 min-w-0">
                 <div className="truncate text-2xl font-semibold leading-8 tabular-nums text-foreground">
@@ -1003,7 +1052,7 @@ export function RunningPage(props: RunningPageProps) {
         </div>
 
         <div className="relative min-h-0 flex-1 px-6">
-          <div ref={scrollRef} className="h-full overflow-y-auto pr-3">
+          <div ref={scrollRef} className="app-running-card-scroll h-full overflow-y-auto pr-3">
             <div className="flex flex-col gap-3 pb-7 pt-5">
               {operations.map((operation) => {
                 const thumbnailCoverURL = resolveOperationThumbnailCoverURL(
@@ -1016,17 +1065,25 @@ export function RunningPage(props: RunningPageProps) {
                 );
                 const kindLabel = resolveOperationKindLabel(text, operation.kind);
                 const sourceLabel = resolveOperationSourceLabel(text, operation);
-	                const createdLabel = operation.createdAt
-	                  ? formatRelativeTime(operation.createdAt)
-	                  : "";
-	                const thumbnailArrivalActive = thumbnailArrivalIds.has(
-	                  operation.operationId,
-	                );
+                const createdLabel = operation.createdAt
+                  ? formatRelativeTime(operation.createdAt)
+                  : "";
+                const thumbnailArrivalActive = thumbnailArrivalIds.has(
+                  operation.operationId,
+                );
+                const kindCode = normalizeStageCode(operation.kind) || "operation";
+                const statusCode = normalizeStageCode(operation.status) || "unknown";
+                const stageCode =
+                  normalizeStageCode(operation.progress?.stage) || statusCode;
 
-	                return (
+                return (
                   <div
                     key={operation.operationId}
                     className="app-main-running-card app-dream-card group relative isolate overflow-hidden p-4"
+                    data-cover-arriving={thumbnailArrivalActive ? "true" : undefined}
+                    data-kind={kindCode}
+                    data-stage={stageCode}
+                    data-status={statusCode}
                   >
                     {thumbnailCoverURL ? (
                       <div
@@ -1120,10 +1177,10 @@ export function RunningPage(props: RunningPageProps) {
                         <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--card)/0.82),hsl(var(--background)/0.70)_58%,hsl(var(--primary)/0.06))]" />
                       </>
                     )}
-	                    <div className="absolute inset-0 ring-1 ring-inset ring-white/[0.16] dark:ring-white/[0.08]" />
-	                    <div className="relative space-y-3">
-	                      <div className="flex min-w-0 items-start gap-4">
-	                        <div className="min-w-0 flex-1 pt-0.5">
+                    <div className="app-running-card-ring pointer-events-none absolute inset-0 z-30 rounded-[inherit] ring-1 ring-inset ring-white/[0.16] dark:ring-white/[0.08]" />
+                    <div className="relative z-10 space-y-3">
+                      <div className="flex min-w-0 items-start gap-4">
+                        <div className="min-w-0 flex-1 pt-0.5">
                           <div
                             className="truncate text-base font-semibold text-foreground/86"
                             title={operation.name}
@@ -1182,7 +1239,9 @@ export function RunningPage(props: RunningPageProps) {
                       </div>
                       <Progress
                         value={percent}
-                        className="h-2.5 bg-primary/[0.10] dark:bg-primary/[0.16]"
+                        className="app-running-progress h-2.5 bg-primary/[0.10] dark:bg-primary/[0.16]"
+                        data-kind={kindCode}
+                        data-stage={stageCode}
                       />
                       <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
                         <span className="truncate">
@@ -1203,14 +1262,6 @@ export function RunningPage(props: RunningPageProps) {
               })}
             </div>
           </div>
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute left-6 right-[calc(1.5rem+0.75rem+10px)] top-0 z-20 h-5 bg-gradient-to-b from-background via-background/92 to-transparent"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute bottom-0 left-6 right-[calc(1.5rem+0.75rem+10px)] z-20 h-7 bg-gradient-to-t from-background via-background/92 to-transparent"
-          />
         </div>
       </div>
       <Dialog
@@ -1266,6 +1317,6 @@ export function RunningPage(props: RunningPageProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div>,
   );
 }

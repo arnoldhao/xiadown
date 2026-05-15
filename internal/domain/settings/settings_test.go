@@ -2,6 +2,16 @@ package settings
 
 import "testing"
 
+func TestParseLanguageAcceptsTraditionalChinese(t *testing.T) {
+	language, err := ParseLanguage("zh-TW")
+	if err != nil {
+		t.Fatalf("parse traditional chinese language: %v", err)
+	}
+	if language != LanguageChineseTraditional {
+		t.Fatalf("expected %q, got %q", LanguageChineseTraditional, language)
+	}
+}
+
 func TestWithAppearanceConfigClonesNestedValues(t *testing.T) {
 	source := map[string]any{
 		"appearance": map[string]any{

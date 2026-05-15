@@ -2,14 +2,17 @@ package youtubemusic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	appcookies "xiadown/internal/application/cookies"
+	"xiadown/internal/application/lyricsromanization"
 	"xiadown/internal/domain/connectors"
 )
 
@@ -120,6 +123,34 @@ func TestRequestUsesLatestHTTPClientProviderClient(t *testing.T) {
 	}
 }
 
+func TestRequestUsesLocaleFromContext(t *testing.T) {
+	client := NewClient(fakeCookieProvider{records: []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "test-sapisid", Domain: ".youtube.com", Path: "/", Expires: 4102444800, Secure: true},
+	}})
+	client.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	var requestBody map[string]any
+	var acceptLanguage string
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		acceptLanguage = request.Header.Get("Accept-Language")
+		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		return testHTTPResponse(request, http.StatusOK, `{}`), nil
+	})}
+
+	if _, err := client.SearchSongs(WithLocale(context.Background(), "zh-CN"), "lofi", 1); err != nil {
+		t.Fatalf("request with locale: %v", err)
+	}
+	contextPayload, _ := requestBody["context"].(map[string]any)
+	clientPayload, _ := contextPayload["client"].(map[string]any)
+	if got := clientPayload["hl"]; got != "zh-CN" {
+		t.Fatalf("expected zh-CN hl, got %#v", got)
+	}
+	if !strings.HasPrefix(acceptLanguage, "zh-CN") {
+		t.Fatalf("expected zh-CN accept language, got %q", acceptLanguage)
+	}
+}
+
 func TestParseSearchSongs(t *testing.T) {
 	data := map[string]any{
 		"contents": map[string]any{
@@ -202,6 +233,31 @@ func TestTrackThumbnailMatchesKasetRendererThumbnail(t *testing.T) {
 	}
 	if track.ThumbnailURL != "https://lh3.googleusercontent.com/song-large" {
 		t.Fatalf("unexpected thumbnail: %q", track.ThumbnailURL)
+	}
+}
+
+func TestListTrackRendererDoesNotPromoteEndpointMusicVideoType(t *testing.T) {
+	track, ok := trackFromMusicResponsiveRenderer(map[string]any{
+		"playlistItemData": map[string]any{"videoId": "TESTVID007G"},
+		"navigationEndpoint": map[string]any{"watchEndpoint": map[string]any{
+			"watchEndpointMusicSupportedConfigs": map[string]any{
+				"watchEndpointMusicConfig": map[string]any{
+					"musicVideoType": "MUSIC_VIDEO_TYPE_ATV",
+				},
+			},
+		}},
+		"flexColumns": []any{
+			map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"runs": []any{map[string]any{"text": "Lofi Mix"}}}}},
+			map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"runs": []any{
+				map[string]any{"text": "Super Lofi World"},
+			}}}},
+		},
+	})
+	if !ok {
+		t.Fatal("expected track")
+	}
+	if track.MusicVideoType != "" {
+		t.Fatalf("list rows should leave video availability to track metadata, got %q", track.MusicVideoType)
 	}
 }
 
@@ -326,6 +382,74 @@ func TestParseSearchArtistsAndPlaylists(t *testing.T) {
 	}
 }
 
+func TestParseSearchPlaylistsPreservesAlbumArtist(t *testing.T) {
+	data := map[string]any{
+		"contents": map[string]any{
+			"sectionListRenderer": map[string]any{
+				"contents": []any{
+					map[string]any{
+						"musicShelfRenderer": map[string]any{
+							"contents": []any{
+								map[string]any{
+									"musicResponsiveListItemRenderer": map[string]any{
+										"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{
+											"browseId": "MPREalbum123",
+											"browseEndpointContextSupportedConfigs": map[string]any{
+												"browseEndpointContextMusicConfig": map[string]any{"pageType": "MUSIC_PAGE_TYPE_ALBUM"},
+											},
+										}},
+										"flexColumns": []any{
+											map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"runs": []any{map[string]any{"text": "Morning Album"}}}}},
+											map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"runs": []any{
+												map[string]any{"text": "Album"},
+												map[string]any{"text": " • "},
+												map[string]any{"text": "Dawn Artist"},
+											}}}},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	playlists := parseSearchPlaylists(data, 10)
+	if len(playlists) != 1 {
+		t.Fatalf("expected one album, got %d", len(playlists))
+	}
+	if playlists[0].ID != "MPREalbum123" ||
+		playlists[0].Title != "Morning Album" ||
+		playlists[0].Channel != "Album" ||
+		playlists[0].Description != "Dawn Artist" {
+		t.Fatalf("unexpected album metadata: %#v", playlists[0])
+	}
+}
+
+func TestPlaylistMetadataSkipsReleaseYearAsAuthor(t *testing.T) {
+	channel, description := playlistMetadataFromValues([]string{
+		"Album",
+		" • ",
+		"2009",
+		" • ",
+		"Dawn Artist",
+	})
+	if channel != "Album" || description != "Dawn Artist" {
+		t.Fatalf("unexpected album metadata: channel=%q description=%q", channel, description)
+	}
+
+	channel, description = playlistMetadataFromValues([]string{
+		"2009年",
+		" • ",
+		"Dawn Artist",
+	})
+	if channel != "Dawn Artist" || description != "" {
+		t.Fatalf("unexpected year-first metadata: channel=%q description=%q", channel, description)
+	}
+}
+
 func TestParseRadioTracks(t *testing.T) {
 	data := map[string]any{
 		"contents": map[string]any{
@@ -425,6 +549,29 @@ func TestParseHomeRecommendationTracks(t *testing.T) {
 	}
 	if tracks[1].ArtistBrowseID != "UCdreamy" {
 		t.Fatalf("unexpected two-row artist browse id: %q", tracks[1].ArtistBrowseID)
+	}
+}
+
+func TestHomeTwoRowTrackSkipsReleaseYearCreator(t *testing.T) {
+	track, ok := trackFromHomeTwoRowRenderer(map[string]any{
+		"title": map[string]any{"runs": []any{map[string]any{"text": "Moonlight"}}},
+		"subtitle": map[string]any{"runs": []any{
+			map[string]any{"text": "2009年"},
+			map[string]any{"text": " • "},
+			map[string]any{
+				"text":               "Dreamy Producer",
+				"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "UCdreamy"}},
+			},
+			map[string]any{"text": " • "},
+			map[string]any{"text": "2:49"},
+		}},
+		"navigationEndpoint": map[string]any{"watchEndpoint": map[string]any{"videoId": "a1b2c3d4e5F"}},
+	})
+	if !ok {
+		t.Fatal("expected track")
+	}
+	if track.Channel != "Dreamy Producer" || track.ArtistBrowseID != "UCdreamy" || track.DurationLabel != "2:49" {
+		t.Fatalf("unexpected two-row track: %#v", track)
 	}
 }
 
@@ -556,7 +703,7 @@ func TestParseHomeShelves(t *testing.T) {
 	}
 }
 
-func TestParseHomeShelvesSupportsCategoriesPodcastsAndContinuation(t *testing.T) {
+func TestParseHomeShelvesSupportsCategoriesAndSkipsPodcasts(t *testing.T) {
 	data := map[string]any{
 		"contents": map[string]any{
 			"singleColumnBrowseResultsRenderer": map[string]any{
@@ -621,14 +768,11 @@ func TestParseHomeShelvesSupportsCategoriesPodcastsAndContinuation(t *testing.T)
 	}
 
 	shelves := parseHomeShelves(data, 10, 10)
-	if len(shelves) != 2 {
-		t.Fatalf("expected two shelves, got %d", len(shelves))
+	if len(shelves) != 1 {
+		t.Fatalf("expected one shelf, got %d", len(shelves))
 	}
 	if shelves[0].Kind != ShelfCategories || len(shelves[0].Categories) != 1 || shelves[0].Categories[0].ColorHex != "#336699" {
 		t.Fatalf("unexpected category shelf: %#v", shelves[0])
-	}
-	if shelves[1].Kind != ShelfPodcasts || len(shelves[1].Podcasts) != 1 || shelves[1].Podcasts[0].ID != "MPSPPpodcast" {
-		t.Fatalf("unexpected podcast shelf: %#v", shelves[1])
 	}
 	if token := extractBrowseContinuationToken(data); token != "next-token" {
 		t.Fatalf("unexpected continuation token: %q", token)
@@ -721,6 +865,13 @@ func TestParseHomeShelvesCollectsAllSingleColumnTabs(t *testing.T) {
 										map[string]any{
 											"musicShelfRenderer": map[string]any{
 												"title": map[string]any{"runs": []any{map[string]any{"text": "Top songs"}}},
+												"bottomEndpoint": map[string]any{"browseEndpoint": map[string]any{
+													"browseId": "MPLAUCsuperlofi",
+													"params":   "wAEB",
+												}},
+												"continuations": []any{
+													map[string]any{"nextContinuationData": map[string]any{"continuation": "top-songs-more"}},
+												},
 												"contents": []any{
 													map[string]any{
 														"musicResponsiveListItemRenderer": map[string]any{
@@ -750,6 +901,12 @@ func TestParseHomeShelvesCollectsAllSingleColumnTabs(t *testing.T) {
 	}
 	if shelves[0].Title != "Video charts" || shelves[1].Title != "Top songs" {
 		t.Fatalf("unexpected shelf titles: %#v", shelves)
+	}
+	if shelves[1].Continuation != "top-songs-more" {
+		t.Fatalf("unexpected top songs continuation: %q", shelves[1].Continuation)
+	}
+	if shelves[1].BrowseID != "MPLAUCsuperlofi" || shelves[1].Params != "wAEB" {
+		t.Fatalf("unexpected top songs browse endpoint: %#v", shelves[1])
 	}
 }
 
@@ -1213,6 +1370,9 @@ func TestAlbumBrowseTracksIgnoreNonArtistMetadataAsArtist(t *testing.T) {
 	if tracks[2].PlayCountLabel != "" {
 		t.Fatalf("expected album metadata not to become play count, got %#v", tracks[2])
 	}
+	if tracks[2].RawDescription != "Album Name" {
+		t.Fatalf("expected album metadata in description, got %#v", tracks[2])
+	}
 }
 
 func TestAlbumBrowseTrackArtistMatchesKasetFlexColumnRules(t *testing.T) {
@@ -1251,6 +1411,9 @@ func TestAlbumBrowseTrackArtistMatchesKasetFlexColumnRules(t *testing.T) {
 	if track.Channel != "Album Artist, Featured Artist" || track.ArtistBrowseID != "UCalbumartist" {
 		t.Fatalf("unexpected artist: %#v", track)
 	}
+	if track.RawDescription != "Album Name" {
+		t.Fatalf("unexpected album metadata: %#v", track)
+	}
 }
 
 func TestPlaylistHeaderFromBrowseDataMatchesKasetAuthorRules(t *testing.T) {
@@ -1264,6 +1427,28 @@ func TestPlaylistHeaderFromBrowseDataMatchesKasetAuthorRules(t *testing.T) {
 					map[string]any{"text": "Album"},
 					map[string]any{"text": " • "},
 					map[string]any{"text": "10 songs"},
+				}},
+			},
+		},
+	}
+
+	header := playlistHeaderFromBrowseData(data)
+	if header.Title != "Midnight Album" || header.Author != "Album Artist" {
+		t.Fatalf("unexpected playlist header: %#v", header)
+	}
+}
+
+func TestPlaylistHeaderFromBrowseDataSkipsReleaseYearAuthor(t *testing.T) {
+	data := map[string]any{
+		"header": map[string]any{
+			"musicDetailHeaderRenderer": map[string]any{
+				"title": map[string]any{"runs": []any{map[string]any{"text": "Midnight Album"}}},
+				"subtitle": map[string]any{"runs": []any{
+					map[string]any{"text": "2009"},
+					map[string]any{"text": " • "},
+					map[string]any{"text": "Album Artist"},
+					map[string]any{"text": " • "},
+					map[string]any{"text": "Album"},
 				}},
 			},
 		},
@@ -1456,6 +1641,56 @@ func TestExtractTimedLyrics(t *testing.T) {
 	}
 }
 
+func TestExtractTimedLyricsRomanizesJapaneseKanji(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("system romanization is only available on darwin")
+	}
+	result := extractTimedLyrics(map[string]any{
+		"contents": map[string]any{
+			"nested": []any{
+				map[string]any{
+					"timedLyricsModel": map[string]any{
+						"lyricsData": []any{
+							map[string]any{
+								"lyricLine":   "東京に行く",
+								"startTimeMs": "1200",
+							},
+						},
+					},
+				},
+			},
+		},
+	}, "YTMusic")
+	if result.Kind != lyricsResultSynced || len(result.Lines) != 1 {
+		t.Fatalf("expected synced lyrics, got %+v", result)
+	}
+	if got := result.Lines[0].RomanizedText; got == "" || strings.Contains(got, "東京") {
+		t.Fatalf("expected kanji romanization, got %+v", result.Lines[0])
+	}
+	if result.Lines[0].RomanizedKind != string(lyricsromanization.KindRomanized) {
+		t.Fatalf("expected romanized kind, got %+v", result.Lines[0])
+	}
+}
+
+func TestPlainLyricLinesRomanizesJapaneseKanji(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("system romanization is only available on darwin")
+	}
+	lines := plainLyricLines("東京に行く\nHello")
+	if len(lines) != 2 {
+		t.Fatalf("expected two plain lines, got %+v", lines)
+	}
+	if got := lines[0].RomanizedText; got == "" || strings.Contains(got, "東京") {
+		t.Fatalf("expected kanji romanization, got %+v", lines[0])
+	}
+	if lines[0].RomanizedKind != string(lyricsromanization.KindRomanized) {
+		t.Fatalf("expected romanized kind, got %+v", lines[0])
+	}
+	if got := lines[1].RomanizedText; got != "" {
+		t.Fatalf("expected latin line to skip romanization, got %+v", lines[1])
+	}
+}
+
 func TestParseLRCLines(t *testing.T) {
 	lines := parseLRCLines("[offset:100]\n[00:01.20]First\n[00:03.50]<00:03.50>Sec<00:04.00>ond")
 	if len(lines) != 3 {
@@ -1472,26 +1707,65 @@ func TestParseLRCLines(t *testing.T) {
 	}
 }
 
-func TestBestLRCLibModelPrefersSyncedLyrics(t *testing.T) {
+func TestBestLRCLibModelPrefersSyncedOverPlain(t *testing.T) {
 	plainDuration := 213.0
 	syncedDuration := 260.0
-	model, ok := bestLRCLibModel([]lrcLibModel{
+	model, ok := bestLRCLibModelForInfo([]lrcLibModel{
 		{
 			ID:          1,
+			TrackName:   "Track",
+			ArtistName:  "Artist",
 			Duration:    &plainDuration,
 			PlainLyrics: "Plain",
 		},
 		{
 			ID:           2,
+			TrackName:    "Track",
+			ArtistName:   "Artist",
 			Duration:     &syncedDuration,
 			SyncedLyrics: "[00:01.00]Synced",
 		},
-	}, plainDuration)
+	}, LyricsSearchInfo{
+		Title:           "Track",
+		Artist:          "Artist",
+		DurationSeconds: plainDuration,
+	})
 	if !ok {
 		t.Fatalf("expected a lyric model")
 	}
 	if model.ID != 2 {
-		t.Fatalf("expected synced model to win over closer plain model, got %+v", model)
+		t.Fatalf("expected synced model to win over plain fallback, got %+v", model)
+	}
+}
+
+func TestBestLRCLibModelCanChooseSyncedTitleVariantByDuration(t *testing.T) {
+	plainDuration := 260.0
+	syncedDuration := 213.0
+	model, ok := bestLRCLibModelForInfo([]lrcLibModel{
+		{
+			ID:          1,
+			TrackName:   "Track",
+			ArtistName:  "Artist",
+			Duration:    &plainDuration,
+			PlainLyrics: "Plain",
+		},
+		{
+			ID:           2,
+			TrackName:    "Track - Radio Edit",
+			ArtistName:   "Artist",
+			Duration:     &syncedDuration,
+			SyncedLyrics: "[00:01.00]Synced",
+		},
+	}, LyricsSearchInfo{
+		Title:           "Track",
+		Artist:          "Artist",
+		DurationSeconds: syncedDuration,
+	})
+	if !ok {
+		t.Fatalf("expected a lyric model")
+	}
+	if model.ID != 2 {
+		t.Fatalf("expected closer synced model with title variant to win, got %+v", model)
 	}
 }
 
@@ -1507,8 +1781,10 @@ func TestTrackLyricsPrefersLRCLibSyncedOverYouTubePlain(t *testing.T) {
 			body = `{"contents":{"singleColumnMusicWatchNextResultsRenderer":{"tabbedRenderer":{"watchNextTabbedResultsRenderer":{"tabs":[{"tabRenderer":{"endpoint":{"browseEndpoint":{"browseId":"MPLYt_lyrics"}}}}]}}}}}`
 		case "/youtubei/v1/browse":
 			body = `{"contents":{"sectionListRenderer":{"contents":[{"musicDescriptionShelfRenderer":{"description":{"runs":[{"text":"Official plain lyrics"}]}}}]}}}`
+		case "/api/get":
+			return testHTTPResponse(request, http.StatusNotFound, `{}`), nil
 		case "/api/search":
-			body = `[{"id":1,"trackName":"Track","artistName":"Artist","duration":213,"plainLyrics":"Plain only"},{"id":2,"trackName":"Track","artistName":"Artist","duration":260,"syncedLyrics":"[00:01.00]Synced line"}]`
+			body = `[{"id":1,"trackName":"Track","artistName":"Artist","duration":260,"plainLyrics":"Plain only"},{"id":2,"trackName":"Track","artistName":"Artist","duration":213,"syncedLyrics":"[00:01.00]Synced line"}]`
 		default:
 			t.Fatalf("unexpected request path: %s", request.URL.Path)
 		}
@@ -1528,13 +1804,91 @@ func TestTrackLyricsPrefersLRCLibSyncedOverYouTubePlain(t *testing.T) {
 		t.Fatalf("expected LRCLib synced lyrics, got %+v", result)
 	}
 	if len(result.Lines) != 2 || result.Lines[1].Text != "Synced line" {
-		t.Fatalf("unexpected synced lines: %+v", result.Lines)
+		t.Fatalf("unexpected synced lyrics: %+v", result.Lines)
+	}
+}
+
+func TestTrackLyricsPlainOnlyUsesYouTubePlainFallback(t *testing.T) {
+	client := NewClient(fakeCookieProvider{records: []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "test-sapisid", Domain: ".youtube.com", Path: "/", Expires: 4102444800, Secure: true},
+	}})
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body string
+		switch request.URL.Path {
+		case "/youtubei/v1/next":
+			body = `{"contents":{"singleColumnMusicWatchNextResultsRenderer":{"tabbedRenderer":{"watchNextTabbedResultsRenderer":{"tabs":[{"tabRenderer":{"endpoint":{"browseEndpoint":{"browseId":"MPLYt_lyrics"}}}}]}}},"nested":[{"timedLyricsModel":{"lyricsData":[{"lyricLine":"Synced should not win","startTimeMs":"1000"}]}}]}}`
+		case "/youtubei/v1/browse":
+			body = `{"contents":{"sectionListRenderer":{"contents":[{"musicDescriptionShelfRenderer":{"description":{"runs":[{"text":"Official plain lyrics"}]},"footer":{"runs":[{"text":"YouTube Music"}]}}}]}}}`
+		case "/api/get", "/api/search":
+			t.Fatalf("plain-only video lyrics should not request LRCLib: %s", request.URL.Path)
+		default:
+			t.Fatalf("unexpected request path: %s", request.URL.Path)
+		}
+		return testHTTPResponse(request, http.StatusOK, body), nil
+	})}
+
+	result, err := client.TrackLyrics(context.Background(), LyricsSearchInfo{
+		VideoID:         "TESTVID007G",
+		Title:           "Track",
+		Artist:          "Artist",
+		DurationSeconds: 213,
+		PlainOnly:       true,
+	})
+	if err != nil {
+		t.Fatalf("track lyrics: %v", err)
+	}
+	if result.Kind != lyricsResultPlain || result.Source != "YouTube Music" || result.Text != "Official plain lyrics" {
+		t.Fatalf("expected YouTube plain lyrics, got %+v", result)
+	}
+}
+
+func TestTrackLyricsPlainOnlyFallsBackToLRCLibPlain(t *testing.T) {
+	client := NewClient(fakeCookieProvider{records: []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "test-sapisid", Domain: ".youtube.com", Path: "/", Expires: 4102444800, Secure: true},
+	}})
+	lrcGetCalls := 0
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var body string
+		switch request.URL.Path {
+		case "/youtubei/v1/next":
+			body = `{"contents":{"singleColumnMusicWatchNextResultsRenderer":{"tabbedRenderer":{"watchNextTabbedResultsRenderer":{"tabs":[{"tabRenderer":{"endpoint":{"browseEndpoint":{"browseId":"MPLYt_lyrics"}}}}]}}}}}`
+		case "/youtubei/v1/browse":
+			body = `{}`
+		case "/api/get":
+			lrcGetCalls++
+			body = `{"id":3,"trackName":"Track","artistName":"Artist","duration":213,"plainLyrics":"LRCLib plain","syncedLyrics":"[00:01.00]Should not win"}`
+		case "/api/search":
+			body = `[]`
+		default:
+			t.Fatalf("unexpected request path: %s", request.URL.Path)
+		}
+		return testHTTPResponse(request, http.StatusOK, body), nil
+	})}
+
+	result, err := client.TrackLyrics(context.Background(), LyricsSearchInfo{
+		VideoID:         "TESTVID007G",
+		Title:           "Track",
+		Artist:          "Artist",
+		DurationSeconds: 213,
+		PlainOnly:       true,
+	})
+	if err != nil {
+		t.Fatalf("track lyrics: %v", err)
+	}
+	if result.Kind != lyricsResultPlain || result.Source != "LRCLib" || result.Text != "LRCLib plain" || len(result.Lines) != 1 {
+		t.Fatalf("expected LRCLib plain lyrics, got %+v", result)
+	}
+	if lrcGetCalls != 1 {
+		t.Fatalf("expected LRCLib exact lookup, got %d calls", lrcGetCalls)
 	}
 }
 
 func TestTrackLyricsSearchesLRCLibWithoutVideoID(t *testing.T) {
 	client := NewClient(fakeCookieProvider{})
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path == "/api/get" {
+			return testHTTPResponse(request, http.StatusNotFound, `{}`), nil
+		}
 		if request.URL.Path != "/api/search" {
 			t.Fatalf("unexpected request path: %s", request.URL.Path)
 		}
@@ -1564,6 +1918,48 @@ func TestTrackLyricsSearchesLRCLibWithoutVideoID(t *testing.T) {
 	}
 }
 
+func TestTrackLyricsUsesLRCLibExactLookup(t *testing.T) {
+	client := NewClient(fakeCookieProvider{})
+	searchCalls := 0
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/api/get":
+			if got := request.URL.Query().Get("track_name"); got != "Track" {
+				t.Fatalf("unexpected track_name query: %q", got)
+			}
+			if got := request.URL.Query().Get("artist_name"); got != "Artist" {
+				t.Fatalf("unexpected artist_name query: %q", got)
+			}
+			if got := request.URL.Query().Get("duration"); got != "213" {
+				t.Fatalf("unexpected duration query: %q", got)
+			}
+			body := `{"id":2,"trackName":"Track","artistName":"Artist","duration":213,"syncedLyrics":"[00:01.00]Exact synced"}`
+			return testHTTPResponse(request, http.StatusOK, body), nil
+		case "/api/search":
+			searchCalls++
+			return testHTTPResponse(request, http.StatusOK, `[]`), nil
+		default:
+			t.Fatalf("unexpected request path: %s", request.URL.Path)
+			return nil, nil
+		}
+	})}
+
+	result, err := client.TrackLyrics(context.Background(), LyricsSearchInfo{
+		Title:           "Track",
+		Artist:          "Artist",
+		DurationSeconds: 213,
+	})
+	if err != nil {
+		t.Fatalf("track lyrics: %v", err)
+	}
+	if result.Kind != lyricsResultSynced || result.Source != "LRCLib" || len(result.Lines) != 2 || result.Lines[1].Text != "Exact synced" {
+		t.Fatalf("expected exact synced lyrics, got %+v", result)
+	}
+	if searchCalls > 1 {
+		t.Fatalf("expected at most one concurrent search lookup, got %d search calls", searchCalls)
+	}
+}
+
 func TestTrackLyricsRetriesTransientYouTubeMusicRequest(t *testing.T) {
 	previousDelays := lyricsRequestRetryDelays
 	lyricsRequestRetryDelays = []time.Duration{0, 0}
@@ -1575,15 +1971,22 @@ func TestTrackLyricsRetriesTransientYouTubeMusicRequest(t *testing.T) {
 	client.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
 	nextCalls := 0
 	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path != "/youtubei/v1/next" {
+		switch request.URL.Path {
+		case "/youtubei/v1/next":
+			nextCalls++
+			if nextCalls == 1 {
+				return nil, io.EOF
+			}
+			body := `{"contents":{"nested":[{"timedLyricsModel":{"lyricsData":[{"lyricLine":"Recovered line","startTimeMs":"1200","durationMs":"3000"}]}}]}}`
+			return testHTTPResponse(request, http.StatusOK, body), nil
+		case "/api/get":
+			return testHTTPResponse(request, http.StatusNotFound, `{}`), nil
+		case "/api/search":
+			return testHTTPResponse(request, http.StatusOK, `[]`), nil
+		default:
 			t.Fatalf("unexpected request path: %s", request.URL.Path)
+			return nil, nil
 		}
-		nextCalls++
-		if nextCalls == 1 {
-			return nil, io.EOF
-		}
-		body := `{"contents":{"nested":[{"timedLyricsModel":{"lyricsData":[{"lyricLine":"Recovered line","startTimeMs":"1200","durationMs":"3000"}]}}]}}`
-		return testHTTPResponse(request, http.StatusOK, body), nil
 	})}
 
 	result, err := client.TrackLyrics(context.Background(), LyricsSearchInfo{
@@ -1599,5 +2002,104 @@ func TestTrackLyricsRetriesTransientYouTubeMusicRequest(t *testing.T) {
 	}
 	if result.Kind != lyricsResultSynced || result.Source != "YTMusic" || len(result.Lines) != 1 || result.Lines[0].Text != "Recovered line" {
 		t.Fatalf("unexpected lyrics result: %+v", result)
+	}
+}
+
+func TestTrackLyricsCachesSyncedLyrics(t *testing.T) {
+	client := NewClient(fakeCookieProvider{records: []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "test-sapisid", Domain: ".youtube.com", Path: "/", Expires: 4102444800, Secure: true},
+	}})
+	client.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	nextCalls := 0
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/youtubei/v1/next":
+			nextCalls++
+			body := `{"contents":{"nested":[{"timedLyricsModel":{"lyricsData":[{"lyricLine":"Cached line","startTimeMs":"1200","durationMs":"3000"}]}}]}}`
+			return testHTTPResponse(request, http.StatusOK, body), nil
+		case "/api/get":
+			return testHTTPResponse(request, http.StatusNotFound, `{}`), nil
+		case "/api/search":
+			return testHTTPResponse(request, http.StatusOK, `[]`), nil
+		default:
+			t.Fatalf("unexpected request path: %s", request.URL.Path)
+			return nil, nil
+		}
+	})}
+
+	for i := 0; i < 2; i++ {
+		result, err := client.TrackLyrics(context.Background(), LyricsSearchInfo{
+			VideoID: "TESTVID007G",
+			Title:   "Track",
+			Artist:  "Artist",
+		})
+		if err != nil {
+			t.Fatalf("track lyrics call %d: %v", i+1, err)
+		}
+		if result.Kind != lyricsResultSynced || len(result.Lines) != 1 || result.Lines[0].Text != "Cached line" {
+			t.Fatalf("unexpected lyrics result on call %d: %+v", i+1, result)
+		}
+	}
+	if nextCalls != 1 {
+		t.Fatalf("expected synced lyrics cache to avoid second network call, got %d calls", nextCalls)
+	}
+}
+
+func TestTrackLyricsRefreshesCachedPlainAndUpgradesToSynced(t *testing.T) {
+	client := NewClient(fakeCookieProvider{records: []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "test-sapisid", Domain: ".youtube.com", Path: "/", Expires: 4102444800, Secure: true},
+	}})
+	client.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	nextCalls := 0
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/youtubei/v1/next":
+			nextCalls++
+			if nextCalls == 1 {
+				body := `{"contents":{"singleColumnMusicWatchNextResultsRenderer":{"tabbedRenderer":{"watchNextTabbedResultsRenderer":{"tabs":[{"tabRenderer":{"endpoint":{"browseEndpoint":{"browseId":"MPLYt_lyrics"}}}}]}}}}}`
+				return testHTTPResponse(request, http.StatusOK, body), nil
+			}
+			body := `{"contents":{"nested":[{"timedLyricsModel":{"lyricsData":[{"lyricLine":"Upgraded synced line","startTimeMs":"1200","durationMs":"3000"}]}}]}}`
+			return testHTTPResponse(request, http.StatusOK, body), nil
+		case "/youtubei/v1/browse":
+			body := `{"contents":{"sectionListRenderer":{"contents":[{"musicDescriptionShelfRenderer":{"description":{"runs":[{"text":"Cached plain lyrics"}]}}}]}}}`
+			return testHTTPResponse(request, http.StatusOK, body), nil
+		case "/api/get":
+			return testHTTPResponse(request, http.StatusNotFound, `{}`), nil
+		case "/api/search":
+			return testHTTPResponse(request, http.StatusOK, `[]`), nil
+		default:
+			t.Fatalf("unexpected request path: %s", request.URL.Path)
+			return nil, nil
+		}
+	})}
+
+	first, err := client.TrackLyrics(context.Background(), LyricsSearchInfo{
+		VideoID:         "TESTVID007G",
+		Title:           "Track",
+		Artist:          "Artist",
+		DurationSeconds: 213,
+	})
+	if err != nil {
+		t.Fatalf("first track lyrics: %v", err)
+	}
+	if first.Kind != lyricsResultPlain || first.Text != "Cached plain lyrics" {
+		t.Fatalf("expected first call to return plain lyrics, got %+v", first)
+	}
+
+	second, err := client.TrackLyrics(context.Background(), LyricsSearchInfo{
+		VideoID:         "TESTVID007G",
+		Title:           "Track",
+		Artist:          "Artist",
+		DurationSeconds: 213,
+	})
+	if err != nil {
+		t.Fatalf("second track lyrics: %v", err)
+	}
+	if second.Kind != lyricsResultSynced || len(second.Lines) != 1 || second.Lines[0].Text != "Upgraded synced line" {
+		t.Fatalf("expected second call to upgrade to synced lyrics, got %+v", second)
+	}
+	if nextCalls != 2 {
+		t.Fatalf("expected plain cache to refresh instead of short-circuiting, got %d next calls", nextCalls)
 	}
 }

@@ -22,12 +22,17 @@ type FileRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
-type DreamFMLocalTrackRepository interface {
-	List(ctx context.Context, options DreamFMLocalTrackListOptions) ([]DreamFMLocalTrack, error)
-	Get(ctx context.Context, fileID string) (DreamFMLocalTrack, error)
-	Save(ctx context.Context, item DreamFMLocalTrack) error
+type ListenLocalTrackRepository interface {
+	List(ctx context.Context, options ListenLocalTrackListOptions) ([]ListenLocalTrack, error)
+	Get(ctx context.Context, fileID string) (ListenLocalTrack, error)
+	Save(ctx context.Context, item ListenLocalTrack) error
 	Delete(ctx context.Context, fileID string) error
 	DeleteUnavailable(ctx context.Context) (int, error)
+}
+
+type ListenLiveChannelRepository interface {
+	List(ctx context.Context) (ListenLiveCatalogSnapshot, error)
+	Replace(ctx context.Context, snapshot ListenLiveCatalogSnapshot) error
 }
 
 type OperationRepository interface {

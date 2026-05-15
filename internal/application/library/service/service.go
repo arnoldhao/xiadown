@@ -49,7 +49,7 @@ type LibraryService struct {
 	libraries       library.LibraryRepository
 	moduleConfig    library.ModuleConfigRepository
 	files           library.FileRepository
-	localTracks     library.DreamFMLocalTrackRepository
+	localTracks     library.ListenLocalTrackRepository
 	operations      library.OperationRepository
 	operationChunks library.OperationChunkRepository
 	histories       library.HistoryRepository
@@ -76,7 +76,7 @@ func NewLibraryService(
 	libraries library.LibraryRepository,
 	moduleConfig library.ModuleConfigRepository,
 	files library.FileRepository,
-	localTracks library.DreamFMLocalTrackRepository,
+	localTracks library.ListenLocalTrackRepository,
 	operations library.OperationRepository,
 	operationChunks library.OperationChunkRepository,
 	histories library.HistoryRepository,
@@ -1244,7 +1244,7 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 	if err := service.touchLibrary(ctx, params.LibraryID, now); err != nil {
 		return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
 	}
-	service.syncDreamFMLocalTrackFromFile(ctx, fileItem, &media)
+	service.syncListenLocalTrackFromFile(ctx, fileItem, &media)
 	return fileItem, history, eventRecord, nil
 }
 

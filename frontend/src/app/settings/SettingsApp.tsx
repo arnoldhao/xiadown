@@ -54,7 +54,7 @@ useSystemProxyInfo,
 useTestProxy,
 useUpdateSettings,
 } from "@/shared/query/settings";
-import { useFontFamilies } from "@/shared/query/system";
+import { useFontFamilies,useLyricsTranscriptionAvailable } from "@/shared/query/system";
 import {
 useCheckForUpdate,
 useDownloadUpdate,
@@ -94,6 +94,36 @@ type XiaSettingsTabId
 } from "./sectionStorage";
 
 const ABOUT_AUTHOR_NAME = "Arnold HAO";
+const DREAM_CREATOR_ICON_SRC = "/dreamcreator.png";
+const HUSH_ICON_SRC = "/hush.png";
+const DREAM_APP_ICON_FALLBACK_SRC = "/appicon.png";
+
+function DreamAppIcon(props: {
+  src: string;
+}) {
+  const [source, setSource] = React.useState(props.src);
+
+  React.useEffect(() => {
+    setSource(props.src);
+  }, [props.src]);
+
+  return (
+    <div className="app-settings-dream-app-icon" aria-hidden="true">
+      <img
+        key={source}
+        src={source}
+        alt=""
+        draggable={false}
+        decoding="async"
+        onError={() => {
+          if (source !== DREAM_APP_ICON_FALLBACK_SRC) {
+            setSource(DREAM_APP_ICON_FALLBACK_SRC);
+          }
+        }}
+      />
+    </div>
+  );
+}
 
 export function SettingsApp() {
   const settings = useSettingsStore((state) => state.settings);
@@ -118,6 +148,9 @@ export function SettingsApp() {
   const text = getXiaText(currentSettings?.language);
   const isWindows = System.IsWindows();
   const isMac = System.IsMac();
+  const lyricsTranscriptionAvailability = useLyricsTranscriptionAvailable(isMac);
+  const lyricsTranscriptionAvailable =
+    isMac && lyricsTranscriptionAvailability.data === true;
   const [activeTab, setActiveTab] = React.useState<XiaSettingsTabId>("general");
   const [proxyDraft, setProxyDraft] = React.useState<ProxySettings>(() => normalizeProxy(currentSettings?.proxy));
   const [proxyNoProxyText, setProxyNoProxyText] = React.useState("");
@@ -271,6 +304,34 @@ export function SettingsApp() {
 
   async function saveSettingsPatch(patch: Parameters<typeof updateSettings.mutateAsync>[0]) {
     await updateSettings.mutateAsync(patch);
+  }
+
+  function renderLyricsTranscriptionSwitch(props: {
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+    ariaLabel: string;
+  }) {
+    const switchElement = (
+      <InlineSwitch
+        checked={lyricsTranscriptionAvailable && props.checked}
+        disabled={!lyricsTranscriptionAvailable}
+        onChange={props.onChange}
+        ariaLabel={props.ariaLabel}
+      />
+    );
+    if (lyricsTranscriptionAvailable) {
+      return switchElement;
+    }
+    return (
+      <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">{switchElement}</span>
+          </TooltipTrigger>
+          <TooltipContent side="top">{text.settings.macOSOnly}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
   }
 
   async function saveAppearancePatch(patch: Partial<XiaAppearanceSettings>) {
@@ -498,20 +559,21 @@ export function SettingsApp() {
   const activeSegmentStyle: React.CSSProperties = {
     backgroundColor: "hsl(var(--primary) / 0.13)",
     color: "hsl(var(--primary))",
-    boxShadow: "inset 0 0 0 1px hsl(var(--primary) / 0.14)",
   };
   const dreamApps = [
     {
+      id: "dreamcreator",
       name: text.about.dreamCreator,
       description: text.about.dreamCreatorDescription,
       url: "https://dreamcreator.dreamapp.cc/",
-      iconSrc: "/dreamcreator.png",
+      iconSrc: DREAM_CREATOR_ICON_SRC,
     },
     {
+      id: "hush",
       name: text.about.hush,
       description: text.about.hushDescription,
       url: "https://dreamapp.cc/",
-      iconSrc: "/hush.png",
+      iconSrc: HUSH_ICON_SRC,
     },
   ];
   const runProxyStatusCheck = React.useCallback(
@@ -775,11 +837,11 @@ export function SettingsApp() {
   }, [hasStatusAddress, proxyCheckKey, proxyCheckStatus, runProxyStatusCheck, statusAddress, statusKey, statusMode]);
 
   return (
-    <div className="app-dream-window flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="app-dream-window app-settings-window flex h-screen flex-col overflow-hidden text-foreground">
       <header className="app-dream-header">
         <div
           className={cn(
-            "wails-drag grid h-[52px] items-center px-4",
+            "wails-drag grid h-[var(--app-page-top-drag-height)] items-center px-4",
             isWindows
               ? "grid-cols-[minmax(var(--app-windows-caption-control-width),1fr)_auto_minmax(var(--app-windows-caption-control-width),1fr)]"
               : "grid-cols-[1fr_auto_1fr]",
@@ -804,7 +866,11 @@ export function SettingsApp() {
       </header>
 
       <div className="app-dream-content min-h-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-4xl space-y-6">
+        <div
+          key={activeTab}
+          className="app-settings-tab-content mx-auto max-w-4xl space-y-6"
+          data-tab={activeTab}
+        >
           {activeTab === "general" ? (
             <>
               <SettingsCompactListCard>
@@ -850,7 +916,38 @@ export function SettingsApp() {
                   >
                     <option value="en">{text.common.languages.en}</option>
                     <option value="zh-CN">{text.common.languages.zhCN}</option>
+                    <option value="zh-TW">{text.common.languages.zhTW}</option>
                   </Select>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.syncedLyrics}>
+                  <InlineSwitch
+                    checked={currentSettings?.syncedLyricsEnabled !== false}
+                    onChange={(checked) => void saveSettingsPatch({ syncedLyricsEnabled: checked })}
+                    ariaLabel={text.settings.syncedLyrics}
+                  />
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.romanizedLyrics}>
+                  {renderLyricsTranscriptionSwitch({
+                    checked: currentSettings?.romanizedLyrics !== false,
+                    onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
+                    ariaLabel: text.settings.romanizedLyrics,
+                  })}
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.pinyinLyrics}>
+                  {renderLyricsTranscriptionSwitch({
+                    checked: currentSettings?.pinyinLyrics !== false,
+                    onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
+                    ariaLabel: text.settings.pinyinLyrics,
+                  })}
                 </SettingsCompactRow>
               </SettingsCompactListCard>
 
@@ -1381,15 +1478,13 @@ export function SettingsApp() {
                 <SettingsCompactListCard contentClassName="app-settings-dream-app-card">
                   {dreamApps.map((app, index) => (
                     <div
-                      key={app.name}
+                      key={app.id}
                       className={cn(
                         "app-settings-dream-app-item",
                         index > 0 ? "app-settings-dream-app-item-bordered" : "",
                       )}
                     >
-                      <div className="app-settings-dream-app-icon" aria-hidden="true">
-                        <img src={app.iconSrc} alt="" />
-                      </div>
+                      <DreamAppIcon src={app.iconSrc} />
                       <div className="app-settings-dream-app-text">
                         <div className="app-settings-dream-app-name">{app.name}</div>
                         <div className="app-settings-dream-app-description">{app.description}</div>

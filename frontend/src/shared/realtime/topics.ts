@@ -9,8 +9,8 @@ export const REALTIME_TOPICS = {
     workspace: "library.workspace",
     workspaceProject: "library.workspace_project",
   },
-  dreamfm: {
-    liveCatalog: "dreamfm.live.catalog",
+  listen: {
+    liveCatalog: "listen.live.catalog",
   },
 } as const
 

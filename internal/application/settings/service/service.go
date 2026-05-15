@@ -135,6 +135,20 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		minimizeToTrayOnStart = *request.MinimizeToTrayOnStart
 	}
 
+	syncedLyricsEnabled := current.SyncedLyricsEnabled()
+	if request.SyncedLyricsEnabled != nil {
+		syncedLyricsEnabled = *request.SyncedLyricsEnabled
+	}
+
+	romanizedLyrics := current.RomanizedLyrics()
+	if request.RomanizedLyrics != nil {
+		romanizedLyrics = *request.RomanizedLyrics
+	}
+	pinyinLyrics := current.PinyinLyrics()
+	if request.PinyinLyrics != nil {
+		pinyinLyrics = *request.PinyinLyrics
+	}
+
 	proxyParams := proxySettingsParamsFromDomain(current.Proxy())
 	if request.Proxy != nil {
 		proxyParams = proxySettingsParamsFromDTO(*request.Proxy)
@@ -198,6 +212,9 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		MenuBarVisibility:     &menuBarVisibility,
 		AutoStart:             &autoStart,
 		MinimizeToTrayOnStart: &minimizeToTrayOnStart,
+		SyncedLyricsEnabled:   &syncedLyricsEnabled,
+		RomanizedLyrics:       &romanizedLyrics,
+		PinyinLyrics:          &pinyinLyrics,
 		AppearanceConfig:      appearanceConfig,
 	})
 	if err != nil {
@@ -284,6 +301,9 @@ func toDTO(current settings.Settings, effective settings.AppearanceMode, systemT
 		MenuBarVisibility:     sanitizeMenuBarVisibility(current.MenuBarVisibility().String()),
 		AutoStart:             current.AutoStart(),
 		MinimizeToTrayOnStart: current.MinimizeToTrayOnStart(),
+		SyncedLyricsEnabled:   current.SyncedLyricsEnabled(),
+		RomanizedLyrics:       current.RomanizedLyrics(),
+		PinyinLyrics:          current.PinyinLyrics(),
 		Proxy:                 toProxyDTO(current.Proxy()),
 		AppearanceConfig:      current.AppearanceConfig(),
 	}

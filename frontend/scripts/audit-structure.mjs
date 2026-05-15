@@ -22,7 +22,7 @@ const scanRoots = [
   },
 ];
 const allowedExtensions = new Set([".ts", ".tsx", ".go"]);
-const localeKeyPattern = /^[a-z0-9][A-Za-z0-9_-]*(?:\.[a-z0-9][A-Za-z0-9_-]*)*$/;
+const localeKeySegmentPattern = /^(?:[a-z][A-Za-z0-9]*|[0-9]+)$/;
 
 async function collectFiles(root) {
   const results = [];
@@ -98,10 +98,10 @@ async function collectLocaleKeyFindings() {
     const content = JSON.parse(await readFile(filePath, "utf8"));
     const keys = flattenLocale(content);
     for (const key of keys) {
-      if (localeKeyPattern.test(key)) {
+      if (key.split(".").every((segment) => localeKeySegmentPattern.test(segment))) {
         continue;
       }
-      findings.push(`frontend/src/shared/i18n/locales/${fileName}: invalid locale key \`${key}\``);
+      findings.push(`frontend/src/shared/i18n/locales/${fileName}: invalid locale key \`${key}\` (use semantic lowerCamelCase segments)`);
     }
   }
   return findings;

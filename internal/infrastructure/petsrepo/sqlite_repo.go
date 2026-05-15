@@ -40,6 +40,10 @@ func (repo *SQLitePetRepository) Save(ctx context.Context, pet dto.Pet) error {
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
+	updatedAt := parsePetUpdatedAt(pet.UpdatedAt)
+	if updatedAt.IsZero() {
+		updatedAt = time.Now().UTC()
+	}
 
 	row := petRow{
 		ID:                strings.TrimSpace(pet.ID),
@@ -55,11 +59,12 @@ func (repo *SQLitePetRepository) Save(ctx context.Context, pet dto.Pet) error {
 		Origin:            strings.TrimSpace(pet.Origin),
 		Scope:             strings.TrimSpace(pet.Scope),
 		Status:            strings.TrimSpace(pet.Status),
+		ValidationCode:    nullString(pet.ValidationCode),
 		ValidationMessage: nullString(pet.ValidationMessage),
 		ImageWidth:        pet.ImageWidth,
 		ImageHeight:       pet.ImageHeight,
 		CreatedAt:         createdAt,
-		UpdatedAt:         time.Now().UTC(),
+		UpdatedAt:         updatedAt,
 	}
 
 	_, err := repo.db.NewInsert().
@@ -77,6 +82,7 @@ func (repo *SQLitePetRepository) Save(ctx context.Context, pet dto.Pet) error {
 		Set("origin = EXCLUDED.origin").
 		Set("scope = EXCLUDED.scope").
 		Set("status = EXCLUDED.status").
+		Set("validation_code = EXCLUDED.validation_code").
 		Set("validation_message = EXCLUDED.validation_message").
 		Set("image_width = EXCLUDED.image_width").
 		Set("image_height = EXCLUDED.image_height").
@@ -108,6 +114,7 @@ func rowToPet(row petRow) dto.Pet {
 		Origin:            row.Origin,
 		Scope:             row.Scope,
 		Status:            row.Status,
+		ValidationCode:    stringOrEmpty(row.ValidationCode),
 		ValidationMessage: stringOrEmpty(row.ValidationMessage),
 		ImageWidth:        row.ImageWidth,
 		ImageHeight:       row.ImageHeight,
@@ -117,11 +124,19 @@ func rowToPet(row petRow) dto.Pet {
 }
 
 func parsePetCreatedAt(value string) time.Time {
+	return parsePetTime(value)
+}
+
+func parsePetUpdatedAt(value string) time.Time {
+	return parsePetTime(value)
+}
+
+func parsePetTime(value string) time.Time {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return time.Time{}
 	}
-	parsed, err := time.Parse(time.RFC3339, trimmed)
+	parsed, err := time.Parse(time.RFC3339Nano, trimmed)
 	if err != nil {
 		return time.Time{}
 	}

@@ -13,6 +13,7 @@ import {
   DialogDescription as BaseDialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { Separator } from "@/shared/ui/separator";
 
 const Dialog = BaseDialog;
 const DialogPortal = BaseDialogPortal;
@@ -53,6 +54,57 @@ function DialogFooter({
   return <BaseDialogFooter className={cn("app-dialog-footer pt-2", className)} {...props} />;
 }
 
+const DialogListCard = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("app-dialog-list-card app-dream-card app-motion-surface", className)}
+    {...props}
+  />
+));
+DialogListCard.displayName = "DialogListCard";
+
+const DialogListCardContent = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("app-dialog-list-card-content", className)}
+    {...props}
+  />
+));
+DialogListCardContent.displayName = "DialogListCardContent";
+
+const DialogRow = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement> & {
+    interactive?: boolean;
+  }
+>(({ className, interactive, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("app-dialog-row app-dream-row app-dream-row-compact", className)}
+    data-interactive={interactive ? "true" : undefined}
+    {...props}
+  />
+));
+DialogRow.displayName = "DialogRow";
+
+const DialogSeparator = React.forwardRef<
+  React.ElementRef<typeof Separator>,
+  React.ComponentPropsWithoutRef<typeof Separator>
+>(({ className, ...props }, ref) => (
+  <Separator
+    ref={ref}
+    className={cn("app-dialog-separator app-divider-soft app-divider-inset", className)}
+    {...props}
+  />
+));
+DialogSeparator.displayName = "DialogSeparator";
+
 const DialogTitle = React.forwardRef<
   React.ElementRef<typeof BaseDialogTitle>,
   React.ComponentPropsWithoutRef<typeof BaseDialogTitle>
@@ -86,6 +138,10 @@ export {
   DialogContent,
   DialogHeader,
   DialogFooter,
+  DialogListCard,
+  DialogListCardContent,
+  DialogRow,
+  DialogSeparator,
   DialogTitle,
   DialogDescription,
 };

@@ -2,6 +2,7 @@ package wails
 
 import (
 	"runtime"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/icons"
@@ -101,7 +102,15 @@ func (controller *SystemTrayController) Update(current dto.Settings) {
 	menu.AddSeparator()
 	menu.Add(strings.Quit).OnClick(func(_ *application.Context) {
 		if controller.actions != nil {
-			controller.actions.Quit()
+			actions := controller.actions
+			if runtime.GOOS == "windows" {
+				go func() {
+					time.Sleep(150 * time.Millisecond)
+					actions.Quit()
+				}()
+				return
+			}
+			actions.Quit()
 		}
 	})
 

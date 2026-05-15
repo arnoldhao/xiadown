@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	appcookies "xiadown/internal/application/cookies"
@@ -30,6 +31,8 @@ const (
 	searchArtistsParams   = "EgWKAQIgAWoMEA4QChADEAQQCRAF"
 	searchPlaylistsParams = "EgWKAQIoAWoMEA4QChADEAQQCRAF"
 	defaultLimit          = 12
+	readRequestCacheTTL   = 2 * time.Minute
+	readRequestCacheLimit = 128
 )
 
 const (
@@ -45,6 +48,7 @@ var (
 
 	videoIDPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 	durationLabelPattern = regexp.MustCompile(`^\d{1,2}:\d{2}(?::\d{2})?$`)
+	releaseYearPattern   = regexp.MustCompile(`^(?:19|20)\d{2}\s*年?$`)
 )
 
 type CookieProvider interface {
@@ -60,6 +64,21 @@ type Client struct {
 	httpClient         *http.Client
 	httpClientProvider HTTPClientProvider
 	now                func() time.Time
+	requestCacheMu     sync.Mutex
+	requestCache       map[string]requestCacheEntry
+	lyricsMu           sync.Mutex
+	lyricsCache        map[string]lyricsCacheEntry
+	lyricsInFlight     map[string]*lyricsFetchCall
+}
+
+type requestOptions struct {
+	cacheTTL             time.Duration
+	retryTransientStatus bool
+}
+
+type requestCacheEntry struct {
+	expiresAt time.Time
+	data      map[string]any
 }
 
 type Track struct {
@@ -104,9 +123,12 @@ type TrackMetadata struct {
 
 func NewClient(cookies CookieProvider) *Client {
 	return &Client{
-		cookies:    cookies,
-		httpClient: &http.Client{Timeout: 20 * time.Second},
-		now:        time.Now,
+		cookies:        cookies,
+		httpClient:     &http.Client{Timeout: 20 * time.Second},
+		now:            time.Now,
+		requestCache:   make(map[string]requestCacheEntry),
+		lyricsCache:    make(map[string]lyricsCacheEntry),
+		lyricsInFlight: make(map[string]*lyricsFetchCall),
 	}
 }
 
@@ -117,19 +139,34 @@ func NewClientWithHTTPClientProvider(cookies CookieProvider, provider HTTPClient
 }
 
 func (client *Client) SearchSongs(ctx context.Context, query string, limit int) ([]Track, error) {
-	trimmed := strings.TrimSpace(query)
-	if trimmed == "" {
-		return nil, nil
-	}
-	body := map[string]any{
-		"query":  trimmed,
-		"params": searchSongsParams,
-	}
-	data, err := client.request(ctx, "search", body)
+	page, err := client.SearchSongsPage(ctx, query, "", limit)
 	if err != nil {
 		return nil, err
 	}
-	return parseSearchSongs(data, normalizeLimit(limit)), nil
+	return page.Tracks, nil
+}
+
+func (client *Client) SearchSongsPage(ctx context.Context, query string, continuation string, limit int) (TrackListPage, error) {
+	trimmed := strings.TrimSpace(query)
+	trimmedContinuation := strings.TrimSpace(continuation)
+	if trimmed == "" && trimmedContinuation == "" {
+		return TrackListPage{}, nil
+	}
+	body := map[string]any{}
+	if trimmedContinuation != "" {
+		body["continuation"] = trimmedContinuation
+	} else {
+		body["query"] = trimmed
+		body["params"] = searchSongsParams
+	}
+	data, err := client.requestRead(ctx, "search", body)
+	if err != nil {
+		return TrackListPage{}, err
+	}
+	return TrackListPage{
+		Tracks:       parseSearchSongs(data, normalizeLimit(limit)),
+		Continuation: extractBrowseContinuationToken(data),
+	}, nil
 }
 
 func (client *Client) SearchArtists(ctx context.Context, query string, limit int) ([]Artist, error) {
@@ -141,7 +178,7 @@ func (client *Client) SearchArtists(ctx context.Context, query string, limit int
 		"query":  trimmed,
 		"params": searchArtistsParams,
 	}
-	data, err := client.request(ctx, "search", body)
+	data, err := client.requestRead(ctx, "search", body)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +194,7 @@ func (client *Client) SearchPlaylists(ctx context.Context, query string, limit i
 		"query":  trimmed,
 		"params": searchPlaylistsParams,
 	}
-	data, err := client.request(ctx, "search", body)
+	data, err := client.requestRead(ctx, "search", body)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +213,7 @@ func (client *Client) Radio(ctx context.Context, videoID string, limit int) ([]T
 		"isAudioOnly":                   true,
 		"tunerSettingValue":             "AUTOMIX_SETTING_NORMAL",
 	}
-	data, err := client.request(ctx, "next", body)
+	data, err := client.requestRead(ctx, "next", body)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +225,7 @@ func (client *Client) TrackMetadata(ctx context.Context, videoID string) (TrackM
 	if !videoIDPattern.MatchString(trimmed) {
 		return TrackMetadata{}, fmt.Errorf("invalid youtube video id")
 	}
-	data, err := client.request(ctx, "next", map[string]any{
+	data, err := client.requestRead(ctx, "next", map[string]any{
 		"videoId":                       trimmed,
 		"enablePersistentPlaylistPanel": true,
 		"isAudioOnly":                   true,
@@ -205,7 +242,7 @@ func (client *Client) TrackDurations(ctx context.Context, videoIDs []string) (ma
 	if len(ids) == 0 {
 		return map[string]string{}, nil
 	}
-	data, err := client.request(ctx, "music/get_queue", map[string]any{
+	data, err := client.requestRead(ctx, "music/get_queue", map[string]any{
 		"videoIds": ids,
 	})
 	if err != nil {
@@ -243,22 +280,44 @@ func (client *Client) RateSong(ctx context.Context, videoID string, rating LikeS
 			"videoId": trimmed,
 		},
 	})
+	if err == nil {
+		client.clearRequestCache()
+	}
 	return err
 }
 
 func (client *Client) request(ctx context.Context, endpoint string, body map[string]any) (map[string]any, error) {
+	return client.requestWithOptions(ctx, endpoint, body, requestOptions{})
+}
+
+func (client *Client) requestRead(ctx context.Context, endpoint string, body map[string]any) (map[string]any, error) {
+	return client.requestWithOptions(ctx, endpoint, body, requestOptions{
+		cacheTTL:             readRequestCacheTTL,
+		retryTransientStatus: true,
+	})
+}
+
+func (client *Client) requestWithOptions(ctx context.Context, endpoint string, body map[string]any, options requestOptions) (map[string]any, error) {
 	if client == nil {
 		return nil, fmt.Errorf("youtube music client is nil")
 	}
+	locale := localeFromContext(ctx)
 	requestBody := make(map[string]any, len(body)+1)
 	for key, value := range body {
 		requestBody[key] = value
 	}
-	requestBody["context"] = buildContext()
+	requestBody["context"] = buildContext(locale)
 
 	payload, err := json.Marshal(requestBody)
 	if err != nil {
 		return nil, err
+	}
+	cacheKey := ""
+	if options.cacheTTL > 0 {
+		cacheKey = client.requestCacheKey(endpoint, locale, payload)
+		if data, ok := client.cachedRequest(cacheKey); ok {
+			return data, nil
+		}
 	}
 
 	requestURL, err := url.Parse(apiBaseURL + "/" + strings.Trim(endpoint, "/"))
@@ -270,18 +329,39 @@ func (client *Client) request(ctx context.Context, endpoint string, body map[str
 	query.Set("prettyPrint", "false")
 	requestURL.RawQuery = query.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL.String(), bytes.NewReader(payload))
+	headers, err := client.authHeaders(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	headers, err := client.authHeaders(ctx)
+	var result map[string]any
+	for attempt := 0; ; attempt++ {
+		result, err = client.doRequest(ctx, requestURL.String(), payload, headers, locale)
+		if err == nil || !shouldRetryYouTubeMusicRequest(err, options, attempt) {
+			break
+		}
+		if waitErr := waitYouTubeMusicRetry(ctx, attempt); waitErr != nil {
+			return nil, waitErr
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if cacheKey != "" {
+		client.setCachedRequest(cacheKey, result, options.cacheTTL)
+	}
+	return result, nil
+}
+
+func (client *Client) doRequest(ctx context.Context, requestURL string, payload []byte, headers map[string]string, locale string) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
+	req.Header.Set("Accept-Language", acceptLanguageForLocale(locale))
 
 	resp, err := client.httpClientForRequest().Do(req)
 	if err != nil {
@@ -304,6 +384,119 @@ func (client *Client) request(ctx context.Context, endpoint string, body map[str
 		return nil, wrapRequestError(err)
 	}
 	return result, nil
+}
+
+func (client *Client) requestCacheKey(endpoint string, locale string, payload []byte) string {
+	hash := sha1.Sum(payload)
+	return strings.Trim(endpoint, "/") + "\x00" + NormalizeLocale(locale) + "\x00" + fmt.Sprintf("%x", hash)
+}
+
+func (client *Client) cachedRequest(key string) (map[string]any, bool) {
+	if client == nil || key == "" {
+		return nil, false
+	}
+	now := client.now
+	if now == nil {
+		now = time.Now
+	}
+	client.requestCacheMu.Lock()
+	defer client.requestCacheMu.Unlock()
+	entry, ok := client.requestCache[key]
+	if !ok {
+		return nil, false
+	}
+	if !entry.expiresAt.After(now()) {
+		delete(client.requestCache, key)
+		return nil, false
+	}
+	return entry.data, true
+}
+
+func (client *Client) setCachedRequest(key string, data map[string]any, ttl time.Duration) {
+	if client == nil || key == "" || ttl <= 0 || data == nil {
+		return
+	}
+	now := client.now
+	if now == nil {
+		now = time.Now
+	}
+	client.requestCacheMu.Lock()
+	defer client.requestCacheMu.Unlock()
+	if client.requestCache == nil {
+		client.requestCache = make(map[string]requestCacheEntry)
+	}
+	if len(client.requestCache) >= readRequestCacheLimit {
+		client.pruneRequestCacheLocked(now())
+	}
+	if len(client.requestCache) >= readRequestCacheLimit {
+		for existingKey := range client.requestCache {
+			delete(client.requestCache, existingKey)
+			break
+		}
+	}
+	client.requestCache[key] = requestCacheEntry{
+		expiresAt: now().Add(ttl),
+		data:      data,
+	}
+}
+
+func (client *Client) clearRequestCache() {
+	if client == nil {
+		return
+	}
+	client.requestCacheMu.Lock()
+	defer client.requestCacheMu.Unlock()
+	client.requestCache = make(map[string]requestCacheEntry)
+}
+
+func (client *Client) pruneRequestCacheLocked(now time.Time) {
+	for key, entry := range client.requestCache {
+		if !entry.expiresAt.After(now) {
+			delete(client.requestCache, key)
+		}
+	}
+}
+
+func shouldRetryYouTubeMusicRequest(err error, options requestOptions, attempt int) bool {
+	if err == nil || !options.retryTransientStatus || attempt >= len(readRequestRetryDelays()) {
+		return false
+	}
+	return isTransientYouTubeMusicRequestError(err)
+}
+
+func waitYouTubeMusicRetry(ctx context.Context, attempt int) error {
+	delays := readRequestRetryDelays()
+	if attempt < 0 || attempt >= len(delays) {
+		return nil
+	}
+	delay := delays[attempt]
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func readRequestRetryDelays() []time.Duration {
+	return []time.Duration{150 * time.Millisecond, 450 * time.Millisecond}
+}
+
+func isTransientYouTubeMusicRequestError(err error) bool {
+	if err == nil || errors.Is(err, ErrAuthExpired) || errors.Is(err, ErrNotAuthenticated) {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(lower, "youtube music api status 429") ||
+		strings.Contains(lower, "youtube music api status 500") ||
+		strings.Contains(lower, "youtube music api status 502") ||
+		strings.Contains(lower, "youtube music api status 503") ||
+		strings.Contains(lower, "youtube music api status 504")
 }
 
 func (client *Client) httpClientForRequest() *http.Client {
@@ -363,6 +556,44 @@ func (client *Client) authHeaders(ctx context.Context) (map[string]string, error
 	}, nil
 }
 
+func (client *Client) FavoriteCacheScope(ctx context.Context) string {
+	if client == nil || client.cookies == nil {
+		return ""
+	}
+	records, err := client.cookies.CookiesForConnectorType(ctx, connectors.ConnectorYouTube)
+	if err != nil {
+		return ""
+	}
+	matched := appcookies.MatchURL(records, origin+"/")
+	if len(matched) == 0 {
+		return ""
+	}
+	now := client.now
+	if now == nil {
+		now = time.Now
+	}
+	currentTime := now()
+	parts := make([]string, 0, 4)
+	for _, name := range []string{"__Secure-3PAPISID", "SAPISID", "__Secure-1PAPISID", "SID", "__Secure-3PSID", "__Secure-1PSID"} {
+		for _, record := range matched {
+			if record.Name != name || isExpired(record, currentTime) {
+				continue
+			}
+			value := strings.TrimSpace(record.Value)
+			if value == "" {
+				continue
+			}
+			parts = append(parts, name+"="+value)
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	hash := sha1.Sum([]byte(strings.Join(parts, ";")))
+	return fmt.Sprintf("%x", hash)
+}
+
 func wrapRequestError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return err
@@ -420,13 +651,17 @@ func isRequestNetworkError(err error) bool {
 	return false
 }
 
-func buildContext() map[string]any {
+func buildContext(locale string) map[string]any {
 	_, offsetSeconds := time.Now().Zone()
+	hl := NormalizeLocale(locale)
+	if hl == "" {
+		hl = "en"
+	}
 	return map[string]any{
 		"client": map[string]any{
 			"clientName":       clientName,
 			"clientVersion":    clientVersion,
-			"hl":               "en",
+			"hl":               hl,
 			"gl":               "US",
 			"browserName":      "Safari",
 			"browserVersion":   "17.0",
@@ -588,6 +823,7 @@ func trackFromMusicResponsiveRenderer(renderer map[string]any) (Track, bool) {
 	}
 
 	channel, artistBrowseID := artistRunFromFlexColumns(flexColumns)
+	album := albumRunFromFlexColumns(flexColumns)
 	duration := durationFromFixedColumns(renderer)
 	if duration == "" {
 		duration = firstDurationLabel(metadataRuns)
@@ -603,7 +839,7 @@ func trackFromMusicResponsiveRenderer(renderer map[string]any) (Track, bool) {
 		DurationLabel:  duration,
 		PlayCountLabel: playCount,
 		ThumbnailURL:   lastThumbnailURL(renderer),
-		MusicVideoType: musicVideoTypeFromRenderer(renderer),
+		RawDescription: album,
 	}, true
 }
 
@@ -632,7 +868,6 @@ func trackFromPlaylistPanelRenderer(renderer map[string]any) (Track, bool) {
 		ArtistBrowseID: artistBrowseID,
 		DurationLabel:  duration,
 		ThumbnailURL:   lastThumbnailURL(renderer),
-		MusicVideoType: musicVideoTypeFromRenderer(renderer),
 	}, true
 }
 
@@ -941,6 +1176,23 @@ func artistRunsFromFlexColumns(flexColumns []map[string]any) []textRun {
 	return artistRuns(textRunsWithNavigationFromFlexColumn(flexColumns[1]))
 }
 
+func albumRunFromFlexColumns(flexColumns []map[string]any) string {
+	for _, column := range flexColumns[1:] {
+		for _, run := range textRunsWithNavigationFromFlexColumn(column) {
+			browseID := strings.TrimSpace(run.BrowseID)
+			if !isAlbumBrowseID(browseID) {
+				continue
+			}
+			trimmed := strings.TrimSpace(run.Text)
+			if trimmed == "" || isSeparatorText(trimmed) || isKasetContentTypeKeyword(trimmed) {
+				continue
+			}
+			return trimmed
+		}
+	}
+	return ""
+}
+
 func artistRuns(values []textRun) []textRun {
 	artists := make([]textRun, 0, len(values))
 	for _, run := range values {
@@ -967,11 +1219,39 @@ func firstUsefulText(values []string) string {
 	return ""
 }
 
+func playlistMetadataFromValues(values []string) (string, string) {
+	metadata := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" ||
+			isSeparatorText(trimmed) ||
+			durationLabelPattern.MatchString(trimmed) ||
+			isReleaseYearText(trimmed) ||
+			isPlayCountLabel(trimmed) {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		metadata = append(metadata, trimmed)
+	}
+	if len(metadata) == 0 {
+		return "", ""
+	}
+	description := ""
+	if len(metadata) > 1 {
+		description = metadata[1]
+	}
+	return metadata[0], description
+}
+
 func isUsefulCreatorText(value string) bool {
 	if value == "" || isSeparatorText(value) || durationLabelPattern.MatchString(value) {
 		return false
 	}
-	if isPlayCountLabel(value) {
+	if isReleaseYearText(value) || isPlayCountLabel(value) {
 		return false
 	}
 	switch strings.ToLower(value) {
@@ -981,6 +1261,10 @@ func isUsefulCreatorText(value string) bool {
 	lower := strings.ToLower(value)
 	return !strings.Contains(lower, "views") &&
 		!strings.Contains(lower, "songs")
+}
+
+func isReleaseYearText(value string) bool {
+	return releaseYearPattern.MatchString(strings.TrimSpace(value))
 }
 
 func isKasetContentTypeKeyword(value string) bool {

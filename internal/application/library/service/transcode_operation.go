@@ -494,7 +494,7 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 	service.publishHistoryUpdate(toHistoryDTO(history))
 	service.publishFileUpdate(service.mustBuildFileDTO(ctx, sourceFile))
 	for _, file := range files {
-		service.syncDreamFMLocalTrackFromFile(ctx, file, nil)
+		service.syncListenLocalTrackFromFile(ctx, file, nil)
 		service.publishFileUpdate(service.mustBuildFileDTO(ctx, file))
 	}
 }
@@ -699,7 +699,7 @@ func (service *LibraryService) registerManagedLocalOutputFile(ctx context.Contex
 	if err := service.files.Save(ctx, fileItem); err != nil {
 		return library.LibraryFile{}, err
 	}
-	service.syncDreamFMLocalTrackFromFile(ctx, fileItem, &probedProbe)
+	service.syncListenLocalTrackFromFile(ctx, fileItem, &probedProbe)
 	return fileItem, nil
 }
 

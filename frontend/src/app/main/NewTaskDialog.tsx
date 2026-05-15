@@ -43,6 +43,9 @@ DialogContent,
 DialogDescription,
 DialogFooter,
 DialogHeader,
+DialogListCard,
+DialogListCardContent,
+DialogRow,
 DialogTitle
 } from "@/shared/ui/dialog";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
@@ -711,138 +714,142 @@ export function NewTaskDialog(props: {
         ) : (
           <div className="max-h-[min(68vh,34rem)] space-y-4 overflow-x-hidden overflow-y-auto pr-1">
             {activeMode === "download" && downloadStep === "input" ? (
-              <div className="app-new-task-panel p-4">
-                <form
-                  className="flex gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void handlePrepareDownload();
-                  }}
-                >
-                  <Input
-                    value={downloadUrl}
-                    onChange={(event) => setDownloadUrl(event.target.value)}
-                    placeholder={text.dialogs.downloadPlaceholder}
-                    className="min-w-0 flex-1"
-                  />
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex shrink-0">
-                        <Button
-                          type="submit"
-                          size="compactIcon"
-                          title={text.dialogs.requestDownload}
-                          aria-label={text.dialogs.requestDownload}
-                          disabled={
-                            !downloadUrl.trim() ||
-                            !ytdlpInstalled ||
-                            prepareDownload.isPending
-                          }
-                        >
-                          {prepareDownload.isPending ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <ArrowRight className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{text.dialogs.requestDownload}</TooltipContent>
-                  </Tooltip>
-                </form>
-                {!ytdlpInstalled ? (
-                  <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="warning">
-                    {text.dependencies.missingDependency.replace(
-                      "{name}",
-                      "yt-dlp",
-                    )}
-                  </div>
-                ) : null}
-                {downloadPrepareError ? (
-                  <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="danger">
-                    {downloadPrepareError}
-                  </div>
-                ) : null}
-              </div>
+              <DialogListCard className="app-new-task-panel">
+                <DialogListCardContent className="p-4">
+                  <form
+                    className="flex gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handlePrepareDownload();
+                    }}
+                  >
+                    <Input
+                      value={downloadUrl}
+                      onChange={(event) => setDownloadUrl(event.target.value)}
+                      placeholder={text.dialogs.downloadPlaceholder}
+                      className="min-w-0 flex-1"
+                    />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex shrink-0">
+                          <Button
+                            type="submit"
+                            size="compactIcon"
+                            title={text.dialogs.requestDownload}
+                            aria-label={text.dialogs.requestDownload}
+                            disabled={
+                              !downloadUrl.trim() ||
+                              !ytdlpInstalled ||
+                              prepareDownload.isPending
+                            }
+                          >
+                            {prepareDownload.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <ArrowRight className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>{text.dialogs.requestDownload}</TooltipContent>
+                    </Tooltip>
+                  </form>
+                  {!ytdlpInstalled ? (
+                    <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="warning">
+                      {text.dependencies.missingDependency.replace(
+                        "{name}",
+                        "yt-dlp",
+                      )}
+                    </div>
+                  ) : null}
+                  {downloadPrepareError ? (
+                    <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="danger">
+                      {downloadPrepareError}
+                    </div>
+                  ) : null}
+                </DialogListCardContent>
+              </DialogListCard>
             ) : null}
 
             {activeMode === "download" && downloadStep === "config" ? (
               <>
-                <div className="app-new-task-panel space-y-2 p-4">
-                  <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-                    {downloadConnectorType ? (
-                      <ConnectorBrandIcon
-                        connectorType={downloadConnectorType}
-                        fallback="none"
-                        className="h-3.5 w-3.5 shrink-0"
-                      />
-                    ) : null}
-                    <span className="truncate">{downloadDomainLabel}</span>
-                    {downloadPrepared?.reachable === false ? (
-                      <Badge
-                        variant="outline"
-                        className="app-dream-status-badge-warning"
-                      >
-                        {text.common.unknown}
-                      </Badge>
-                    ) : null}
-                  </div>
-                  <div className="app-new-task-field-strip flex h-9 w-full min-w-0 items-center overflow-hidden">
-                    <Input
-                      size="default"
-                      value={downloadPrepared?.url ?? downloadUrl}
-                      readOnly
-                      className="h-full min-w-0 flex-1 truncate rounded-none border-0 bg-transparent py-0 text-xs leading-none shadow-none"
-                    />
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="compactIcon"
-                          className="app-new-task-field-action !h-full !w-9 shrink-0"
-                          aria-label={text.dialogs.modifyLink}
-                          onClick={() => {
-                            if (downloadPrepared?.url) {
-                              setDownloadUrl(downloadPrepared.url);
-                            }
-                            resetDownloadConfig();
-                          }}
+                <DialogListCard className="app-new-task-panel">
+                  <DialogListCardContent className="space-y-2 p-4">
+                    <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
+                      {downloadConnectorType ? (
+                        <ConnectorBrandIcon
+                          connectorType={downloadConnectorType}
+                          fallback="none"
+                          className="h-3.5 w-3.5 shrink-0"
+                        />
+                      ) : null}
+                      <span className="truncate">{downloadDomainLabel}</span>
+                      {downloadPrepared?.reachable === false ? (
+                        <Badge
+                          variant="outline"
+                          className="app-dream-status-badge-warning"
                         >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{text.dialogs.modifyLink}</TooltipContent>
-                    </Tooltip>
-                    <div className="app-new-task-field-switch-slot flex h-full w-12 shrink-0 items-center justify-center">
+                          {text.common.unknown}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="app-new-task-field-strip flex h-9 w-full min-w-0 items-center overflow-hidden">
+                      <Input
+                        size="default"
+                        value={downloadPrepared?.url ?? downloadUrl}
+                        readOnly
+                        className="h-full min-w-0 flex-1 truncate rounded-none border-0 bg-transparent py-0 text-xs leading-none shadow-none"
+                      />
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="flex items-center justify-center">
-                            <InlineSwitch
-                              checked={
-                                downloadPrepared?.connectorAvailable
-                                  ? downloadUseConnector
-                                  : false
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="compactIcon"
+                            className="app-new-task-field-action !h-full !w-9 shrink-0"
+                            aria-label={text.dialogs.modifyLink}
+                            onClick={() => {
+                              if (downloadPrepared?.url) {
+                                setDownloadUrl(downloadPrepared.url);
                               }
-                              onChange={(checked) => {
-                                if (downloadPrepared?.connectorAvailable) {
-                                  setDownloadUseConnector(checked);
-                                }
-                              }}
-                              ariaLabel={text.dialogs.useConnector}
-                              disabled={!downloadPrepared?.connectorAvailable}
-                            />
-                          </span>
+                              resetDownloadConfig();
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
                         </TooltipTrigger>
-                        <TooltipContent>
-                          {downloadPrepared?.connectorAvailable
-                            ? text.dialogs.connectorAvailable
-                            : text.dialogs.connectorUnavailable}
-                        </TooltipContent>
+                        <TooltipContent>{text.dialogs.modifyLink}</TooltipContent>
                       </Tooltip>
+                      <div className="app-new-task-field-switch-slot flex h-full w-12 shrink-0 items-center justify-center">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="flex items-center justify-center">
+                              <InlineSwitch
+                                checked={
+                                  downloadPrepared?.connectorAvailable
+                                    ? downloadUseConnector
+                                    : false
+                                }
+                                onChange={(checked) => {
+                                  if (downloadPrepared?.connectorAvailable) {
+                                    setDownloadUseConnector(checked);
+                                  }
+                                }}
+                                ariaLabel={text.dialogs.useConnector}
+                                disabled={!downloadPrepared?.connectorAvailable}
+                              />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {downloadPrepared?.connectorAvailable
+                              ? text.dialogs.connectorAvailable
+                              : text.dialogs.connectorUnavailable}
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </DialogListCardContent>
+                </DialogListCard>
 
                 <div className="flex justify-center">
                   <DreamSegmentSwitch
@@ -865,9 +872,9 @@ export function NewTaskDialog(props: {
                 </div>
 
                 {downloadTab === "quick" ? (
-                  <div className="app-new-task-panel app-new-task-list-panel">
-                    <div>
-                      <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                  <DialogListCard className="app-new-task-panel app-new-task-list-panel">
+                    <DialogListCardContent>
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                         <span className="text-muted-foreground">
                           {text.dialogs.quality}
                         </span>
@@ -893,8 +900,8 @@ export function NewTaskDialog(props: {
                             {text.dialogs.qualityAudio}
                           </Button>
                         </div>
-                      </div>
-                      <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                      </DialogRow>
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                         <span className="text-muted-foreground">
                           {text.dialogs.subtitles}
                         </span>
@@ -903,13 +910,13 @@ export function NewTaskDialog(props: {
                           onChange={setQuickSubtitle}
                           ariaLabel={text.dialogs.subtitles}
                         />
-                      </div>
-                      <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                      </DialogRow>
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                         <span className="text-muted-foreground">
                           {text.actions.transcode}
                         </span>
                         <Select
-                            className="w-56 max-w-[58vw]"
+                          className="w-56 max-w-[58vw]"
                           value={quickPresetId}
                           onChange={(event) =>
                             setQuickPresetId(event.target.value)
@@ -922,9 +929,9 @@ export function NewTaskDialog(props: {
                             </option>
                           ))}
                         </Select>
-                      </div>
+                      </DialogRow>
                       {quickPresetId ? (
-                        <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                        <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                           <div className="text-muted-foreground">
                             {text.dialogs.keepOnlyTranscodedFile}
                           </div>
@@ -933,17 +940,17 @@ export function NewTaskDialog(props: {
                             onChange={setDownloadKeepOnlyTranscodedFile}
                             ariaLabel={text.dialogs.keepOnlyTranscodedFile}
                           />
-                        </div>
+                        </DialogRow>
                       ) : null}
-                    </div>
-                  </div>
+                    </DialogListCardContent>
+                  </DialogListCard>
                 ) : null}
 
                 {downloadTab === "custom" ? (
                   customParseResult ? (
-                    <div className="app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden">
-                      <div>
-                        <div className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                    <DialogListCard className="app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden">
+                      <DialogListCardContent>
+                        <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
                           <span className="app-new-task-select-row-label text-muted-foreground">
                             {text.dialogs.quality}
                           </span>
@@ -976,8 +983,8 @@ export function NewTaskDialog(props: {
                               </optgroup>
                             ) : null}
                           </Select>
-                        </div>
-                        <div className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                        </DialogRow>
+                        <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
                           <span className="app-new-task-select-row-label text-muted-foreground">
                             {text.dialogs.subtitles}
                           </span>
@@ -995,8 +1002,8 @@ export function NewTaskDialog(props: {
                               </option>
                             ))}
                           </Select>
-                        </div>
-                        <div className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                        </DialogRow>
+                        <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
                           <span className="app-new-task-select-row-label text-muted-foreground">
                             {text.actions.transcode}
                           </span>
@@ -1010,13 +1017,13 @@ export function NewTaskDialog(props: {
                             <option value="">{text.dialogs.noTranscode}</option>
                             {(customPresetsQuery.data ?? []).map((preset) => (
                               <option key={preset.id} value={preset.id}>
-                                {preset.name}
-                              </option>
-                            ))}
-                          </Select>
-                        </div>
+                              {preset.name}
+                            </option>
+                          ))}
+                        </Select>
+                        </DialogRow>
                         {customPresetId ? (
-                          <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                          <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                             <div className="text-muted-foreground">
                               {text.dialogs.keepOnlyTranscodedFile}
                             </div>
@@ -1025,10 +1032,10 @@ export function NewTaskDialog(props: {
                               onChange={setDownloadKeepOnlyTranscodedFile}
                               ariaLabel={text.dialogs.keepOnlyTranscodedFile}
                             />
-                          </div>
+                          </DialogRow>
                         ) : null}
-                      </div>
-                    </div>
+                      </DialogListCardContent>
+                    </DialogListCard>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-2 py-4">
                       <Button
@@ -1067,64 +1074,68 @@ export function NewTaskDialog(props: {
             ) : null}
 
             {activeMode === "transcode" && !transcodeInputPath ? (
-              <div className="app-new-task-panel flex justify-center p-4">
-                <Button
-                  type="button"
-                  size="compact"
-                  onClick={() => void handleChooseFile()}
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  {text.actions.chooseFile}
-                </Button>
-              </div>
+              <DialogListCard className="app-new-task-panel">
+                <DialogListCardContent className="flex justify-center p-4">
+                  <Button
+                    type="button"
+                    size="compact"
+                    onClick={() => void handleChooseFile()}
+                  >
+                    <FolderOpen className="h-4 w-4" />
+                    {text.actions.chooseFile}
+                  </Button>
+                </DialogListCardContent>
+              </DialogListCard>
             ) : null}
 
             {activeMode === "transcode" && transcodeInputPath ? (
               <>
-                <div className="app-new-task-panel space-y-2 p-4">
-                  <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-                    <span className="app-new-task-file-format flex h-5 min-w-10 shrink-0 items-center justify-center px-1.5 text-[9px] font-semibold leading-none">
-                      {transcodeFileFormat}
-                    </span>
-                    <span className="flex min-w-0 flex-1 items-baseline">
-                      <span className="min-w-0 truncate text-foreground">
-                        {transcodeFileName.stem}
+                <DialogListCard className="app-new-task-panel">
+                  <DialogListCardContent className="space-y-2 p-4">
+                    <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <span className="app-new-task-file-format flex h-5 min-w-10 shrink-0 items-center justify-center px-1.5 text-[9px] font-semibold leading-none">
+                        {transcodeFileFormat}
                       </span>
-                      {transcodeFileName.extension ? (
-                        <span className="shrink-0 text-muted-foreground">
-                          {transcodeFileName.extension}
+                      <span className="flex min-w-0 flex-1 items-baseline">
+                        <span className="min-w-0 truncate text-foreground">
+                          {transcodeFileName.stem}
                         </span>
-                      ) : null}
-                    </span>
-                  </div>
-                  <div className="app-new-task-field-strip flex h-9 w-full min-w-0 items-center overflow-hidden">
-                    <Input
-                      size="default"
-                      value={transcodeInputPath}
-                      readOnly
-                      className="h-full min-w-0 flex-1 truncate rounded-none border-0 bg-transparent py-0 text-xs leading-none shadow-none"
-                    />
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="compactIcon"
-                          className="app-new-task-field-action !h-full !w-9 shrink-0"
-                          aria-label={text.dialogs.modifyFile}
-                          onClick={() => void handleChooseFile()}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{text.dialogs.modifyFile}</TooltipContent>
-                    </Tooltip>
-                  </div>
-                </div>
+                        {transcodeFileName.extension ? (
+                          <span className="shrink-0 text-muted-foreground">
+                            {transcodeFileName.extension}
+                          </span>
+                        ) : null}
+                      </span>
+                    </div>
+                    <div className="app-new-task-field-strip flex h-9 w-full min-w-0 items-center overflow-hidden">
+                      <Input
+                        size="default"
+                        value={transcodeInputPath}
+                        readOnly
+                        className="h-full min-w-0 flex-1 truncate rounded-none border-0 bg-transparent py-0 text-xs leading-none shadow-none"
+                      />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="compactIcon"
+                            className="app-new-task-field-action !h-full !w-9 shrink-0"
+                            aria-label={text.dialogs.modifyFile}
+                            onClick={() => void handleChooseFile()}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.dialogs.modifyFile}</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </DialogListCardContent>
+                </DialogListCard>
 
-                <div className="app-new-task-panel app-new-task-list-panel">
-                  <div>
-                    <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                <DialogListCard className="app-new-task-panel app-new-task-list-panel">
+                  <DialogListCardContent>
+                    <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                       <span className="text-muted-foreground">
                         {text.dialogs.size}
                       </span>
@@ -1141,8 +1152,8 @@ export function NewTaskDialog(props: {
                           </option>
                         ))}
                       </Select>
-                    </div>
-                    <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                    </DialogRow>
+                    <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                       <span className="text-muted-foreground">
                         {text.dialogs.container}
                       </span>
@@ -1159,8 +1170,8 @@ export function NewTaskDialog(props: {
                           </option>
                         ))}
                       </Select>
-                    </div>
-                    <div className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                    </DialogRow>
+                    <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
                       <span className="text-muted-foreground">
                         {text.dialogs.codec}
                       </span>
@@ -1177,9 +1188,9 @@ export function NewTaskDialog(props: {
                           </option>
                         ))}
                       </Select>
-                    </div>
-                  </div>
-                </div>
+                    </DialogRow>
+                  </DialogListCardContent>
+                </DialogListCard>
                 {!ffmpegInstalled ? (
                   <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="warning">
                     {text.dependencies.missingDependency.replace(

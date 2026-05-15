@@ -2,7 +2,7 @@ import { Copy, FolderOpen, Loader2, RotateCcw } from "lucide-react";
 import * as React from "react";
 
 import { CompletedVidstackPreview } from "@/app/main/CompletedVidstackPreview";
-import { DreamFMLocalPreviewPlayer } from "@/app/main/DreamFM";
+import { ListenLocalPreviewPlayer } from "@/app/main/Listen";
 import { ConnectorBrandIcon } from "@/features/settings/connectors";
 import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
@@ -13,8 +13,7 @@ import { getLanguage } from "@/shared/i18n";
 import { messageBus } from "@/shared/message";
 import { useOpenLibraryFileLocation, useOpenLibraryPath, useResumeOperation } from "@/shared/query/library";
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent } from "@/shared/ui/card";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogListCard, DialogListCardContent, DialogTitle } from "@/shared/ui/dialog";
 import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -432,6 +431,7 @@ export function CompletedPreviewSurface(props: {
         text={getXiaText(getLanguage())}
         mediaUrl={props.file.previewURL}
         title={props.file.name}
+        persistKey={props.file.id || props.file.path || props.file.previewURL}
         posterUrl={
           props.file.coverURL || props.coverURL || DEFAULT_COVER_IMAGE_URL
         }
@@ -442,7 +442,7 @@ export function CompletedPreviewSurface(props: {
 
   if (previewKind === "audio" && props.file.previewURL) {
     return (
-      <DreamFMLocalPreviewPlayer
+      <ListenLocalPreviewPlayer
         track={{
           id: props.file.id,
           title: props.file.title || props.file.name,
@@ -452,6 +452,7 @@ export function CompletedPreviewSurface(props: {
           coverURL: props.file.coverURL || props.coverURL,
         }}
         text={getXiaText(getLanguage())}
+        persistKey={props.file.id || props.file.path || props.file.previewURL}
       />
     );
   }
@@ -656,19 +657,19 @@ export function CompletedTaskDetailHeaderMeta(props: {
             >
               {props.text.completed.taskDtoTitle}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              {props.text.completed.taskDtoDescription}
+            </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 overflow-hidden">
-            <Card className="app-completed-info-card h-full overflow-hidden shadow-none">
-              <CardContent className="h-full overflow-y-auto overflow-x-hidden p-0">
-                {taskDTOInfoRows.map((row, index) => {
+          <div className="min-h-0 overflow-y-auto overflow-x-hidden pr-1">
+            <DialogListCard className="app-completed-info-card shadow-none">
+              <DialogListCardContent>
+                {taskDTOInfoRows.map((row) => {
                   const copyValue = row.copyValue;
                   return (
                     <div
                       key={row.label}
-                      className={cn(
-                        "grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] items-center gap-4 px-3 py-2.5 text-sm",
-                        index > 0 && "border-t border-border/70",
-                      )}
+                      className="app-dialog-row grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] items-center gap-4 px-3 py-2.5 text-sm"
                     >
                       <span
                         className="min-w-0 truncate text-left text-muted-foreground"
@@ -726,8 +727,8 @@ export function CompletedTaskDetailHeaderMeta(props: {
                     </div>
                   );
                 })}
-              </CardContent>
-            </Card>
+              </DialogListCardContent>
+            </DialogListCard>
           </div>
           <DialogFooter className="shrink-0">
             <Button

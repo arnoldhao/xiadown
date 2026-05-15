@@ -64,6 +64,15 @@ type petImportInspection struct {
 	validationMessage string
 }
 
+type petLoadOptions struct {
+	ValidationCode    string
+	ValidationMessage string
+	ImageWidth        int
+	ImageHeight       int
+	TrustValidation   bool
+	Cached            *dto.Pet
+}
+
 type MetadataRepository interface {
 	List(ctx context.Context) ([]dto.Pet, error)
 	Save(ctx context.Context, pet dto.Pet) error
@@ -342,7 +351,13 @@ func (service *Service) syncEmbeddedBuiltinPetLocked(entryName string) (dto.Pet,
 	if err := writePetPackage(targetDir, manifest, sheetBytes); err != nil {
 		return dto.Pet{}, err
 	}
-	return service.petFromStoredPackage(scopeBuiltin, targetDir, validationCode, validation, width, height)
+	return service.petFromStoredPackage(scopeBuiltin, targetDir, petLoadOptions{
+		ValidationCode:    validationCode,
+		ValidationMessage: validation,
+		ImageWidth:        width,
+		ImageHeight:       height,
+		TrustValidation:   true,
+	})
 }
 
 func (service *Service) pruneStaleBuiltinPetsLocked(ctx context.Context, synced map[string]struct{}) error {
@@ -465,7 +480,11 @@ func (service *Service) storeImportedPetLocked(inspection petImportInspection, o
 	if err := writePetPackage(targetDir, manifest, inspection.spritesheetBytes); err != nil {
 		return dto.Pet{}, err
 	}
-	pet, err := service.petFromStoredPackage(scopeImported, targetDir, "", "", inspection.imageWidth, inspection.imageHeight)
+	pet, err := service.petFromStoredPackage(scopeImported, targetDir, petLoadOptions{
+		ImageWidth:      inspection.imageWidth,
+		ImageHeight:     inspection.imageHeight,
+		TrustValidation: true,
+	})
 	if err != nil {
 		return dto.Pet{}, err
 	}
@@ -489,6 +508,7 @@ func (service *Service) uniqueImportedPetIDLocked(baseID string) string {
 
 func (service *Service) scanPetsLocked() ([]dto.Pet, error) {
 	pets := make([]dto.Pet, 0)
+	cachedPets := service.cachedMetadataByIDLocked(context.Background())
 	for _, scope := range []string{scopeBuiltin, scopeImported} {
 		entries, err := os.ReadDir(service.scopeDir(scope))
 		if err != nil {
@@ -501,7 +521,10 @@ func (service *Service) scanPetsLocked() ([]dto.Pet, error) {
 			if !entry.IsDir() {
 				continue
 			}
-			pet, err := service.petFromStoredPackage(scope, service.petDir(scope, entry.Name()), "", "", 0, 0)
+			cached := cachedPets[entry.Name()]
+			pet, err := service.petFromStoredPackage(scope, service.petDir(scope, entry.Name()), petLoadOptions{
+				Cached: cached,
+			})
 			if err != nil {
 				continue
 			}
@@ -511,7 +534,7 @@ func (service *Service) scanPetsLocked() ([]dto.Pet, error) {
 	return pets, nil
 }
 
-func (service *Service) petFromStoredPackage(scope string, petDir string, validationCode string, validation string, width int, height int) (dto.Pet, error) {
+func (service *Service) petFromStoredPackage(scope string, petDir string, options petLoadOptions) (dto.Pet, error) {
 	manifestBytes, err := os.ReadFile(filepath.Join(petDir, petManifestFileName))
 	if err != nil {
 		return dto.Pet{}, fmt.Errorf("read pet manifest: %w", err)
@@ -523,22 +546,36 @@ func (service *Service) petFromStoredPackage(scope string, petDir string, valida
 	manifest.ID = normalizePetID(manifest.ID, filepath.Base(petDir))
 	manifest.DisplayName = normalizePetDisplayName(manifest.DisplayName, manifest.Name, manifest.ID)
 	sheetPath := filepath.Join(petDir, petSheetFileName)
-	if width == 0 || height == 0 || validation == "" {
-		sheetBytes, readErr := os.ReadFile(sheetPath)
-		if readErr != nil {
-			validationCode = petErrorCodePackageMissingSpritesheet
-			validation = fmt.Sprintf("read pet spritesheet: %v", readErr)
+	width := options.ImageWidth
+	height := options.ImageHeight
+	validationCode := strings.TrimSpace(options.ValidationCode)
+	validation := strings.TrimSpace(options.ValidationMessage)
+	updatedAt := service.now().UTC()
+	if stat, statErr := os.Stat(sheetPath); statErr == nil {
+		updatedAt = stat.ModTime().UTC()
+	}
+	updatedAtValue := updatedAt.Format(time.RFC3339Nano)
+	if !options.TrustValidation {
+		if cachedPetUsable(options.Cached, manifest.ID, scope, sheetPath, updatedAtValue) {
+			width = options.Cached.ImageWidth
+			height = options.Cached.ImageHeight
+			validationCode = strings.TrimSpace(options.Cached.ValidationCode)
+			validation = strings.TrimSpace(options.Cached.ValidationMessage)
 		} else {
-			width, height, validationCode, validation = validateSpritesheetBytes(sheetBytes)
+			sheetBytes, readErr := os.ReadFile(sheetPath)
+			if readErr != nil {
+				width = 0
+				height = 0
+				validationCode = petErrorCodePackageMissingSpritesheet
+				validation = fmt.Sprintf("read pet spritesheet: %v", readErr)
+			} else {
+				width, height, validationCode, validation = validateSpritesheetBytes(sheetBytes)
+			}
 		}
 	}
 	status := petStatusReady
 	if validation != "" {
 		status = petStatusInvalid
-	}
-	updatedAt := service.now().UTC()
-	if stat, statErr := os.Stat(sheetPath); statErr == nil {
-		updatedAt = stat.ModTime().UTC()
 	}
 	return dto.Pet{
 		ID:                manifest.ID,
@@ -558,7 +595,7 @@ func (service *Service) petFromStoredPackage(scope string, petDir string, valida
 		ImageWidth:        width,
 		ImageHeight:       height,
 		CreatedAt:         updatedAt.Format(time.RFC3339),
-		UpdatedAt:         updatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:         updatedAtValue,
 	}, nil
 }
 
@@ -586,13 +623,91 @@ func (service *Service) syncMetadataLocked(ctx context.Context, pets []dto.Pet) 
 			pets[index].Origin = strings.TrimSpace(pets[index].Origin)
 		}
 		known[pets[index].ID] = struct{}{}
-		service.saveMetadataLocked(ctx, pets[index])
+		if !samePetMetadata(existingByID[pets[index].ID], pets[index]) {
+			service.saveMetadataLocked(ctx, pets[index])
+		}
 	}
 	for _, pet := range existing {
 		if _, ok := known[pet.ID]; !ok {
 			_ = service.metadataRepo.Delete(ctx, pet.ID)
 		}
 	}
+}
+
+func (service *Service) cachedMetadataByIDLocked(ctx context.Context) map[string]*dto.Pet {
+	if service.metadataRepo == nil {
+		return nil
+	}
+	existing, err := service.metadataRepo.List(ctx)
+	if err != nil || len(existing) == 0 {
+		return nil
+	}
+	result := make(map[string]*dto.Pet, len(existing))
+	for index := range existing {
+		if strings.TrimSpace(existing[index].ID) == "" {
+			continue
+		}
+		result[existing[index].ID] = &existing[index]
+	}
+	return result
+}
+
+func cachedPetUsable(cached *dto.Pet, id string, scope string, sheetPath string, updatedAt string) bool {
+	if cached == nil {
+		return false
+	}
+	if cached.ID != id || cached.Scope != scope {
+		return false
+	}
+	if !samePetPath(cached.SpritesheetPath, sheetPath) {
+		return false
+	}
+	if strings.TrimSpace(cached.UpdatedAt) != strings.TrimSpace(updatedAt) &&
+		strings.TrimSpace(cached.CreatedAt) != strings.TrimSpace(updatedAt) {
+		return false
+	}
+	if cached.FrameCount != petFrameCount ||
+		cached.Columns != petColumns ||
+		cached.Rows != petRows ||
+		cached.CellWidth != petCellWidth ||
+		cached.CellHeight != petCellHeight ||
+		cached.SpritesheetFile != petSheetFileName {
+		return false
+	}
+	if cached.Status == petStatusReady {
+		return cached.ImageWidth > 0 && cached.ImageHeight > 0
+	}
+	return cached.Status == petStatusInvalid && strings.TrimSpace(cached.ValidationMessage) != ""
+}
+
+func samePetMetadata(left dto.Pet, right dto.Pet) bool {
+	return left.ID == right.ID &&
+		left.DisplayName == right.DisplayName &&
+		left.Description == right.Description &&
+		left.FrameCount == right.FrameCount &&
+		left.Columns == right.Columns &&
+		left.Rows == right.Rows &&
+		left.CellWidth == right.CellWidth &&
+		left.CellHeight == right.CellHeight &&
+		left.SpritesheetFile == right.SpritesheetFile &&
+		samePetPath(left.SpritesheetPath, right.SpritesheetPath) &&
+		normalizePetOrigin(left.Origin) == normalizePetOrigin(right.Origin) &&
+		left.Scope == right.Scope &&
+		left.Status == right.Status &&
+		strings.TrimSpace(left.ValidationCode) == strings.TrimSpace(right.ValidationCode) &&
+		strings.TrimSpace(left.ValidationMessage) == strings.TrimSpace(right.ValidationMessage) &&
+		left.ImageWidth == right.ImageWidth &&
+		left.ImageHeight == right.ImageHeight &&
+		strings.TrimSpace(left.UpdatedAt) == strings.TrimSpace(right.UpdatedAt)
+}
+
+func samePetPath(left string, right string) bool {
+	left = filepath.Clean(strings.TrimSpace(left))
+	right = filepath.Clean(strings.TrimSpace(right))
+	if left == right {
+		return true
+	}
+	return strings.EqualFold(left, right)
 }
 
 func (service *Service) saveMetadataLocked(ctx context.Context, pet dto.Pet) {

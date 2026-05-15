@@ -44,6 +44,9 @@ type Settings struct {
 	menuBarVisibility     MenuBarVisibility
 	autoStart             bool
 	minimizeToTrayOnStart bool
+	syncedLyricsEnabled   bool
+	romanizedLyrics       bool
+	pinyinLyrics          bool
 	appearanceConfig      map[string]any
 }
 
@@ -67,6 +70,9 @@ type SettingsParams struct {
 	MenuBarVisibility     *string
 	AutoStart             *bool
 	MinimizeToTrayOnStart *bool
+	SyncedLyricsEnabled   *bool
+	RomanizedLyrics       *bool
+	PinyinLyrics          *bool
 	AppearanceConfig      map[string]any
 }
 
@@ -77,9 +83,10 @@ const (
 )
 
 const (
-	LanguageEnglish           Language = "en"
-	LanguageChineseSimplified Language = "zh-CN"
-	DefaultLanguage                    = LanguageEnglish
+	LanguageEnglish            Language = "en"
+	LanguageChineseSimplified  Language = "zh-CN"
+	LanguageChineseTraditional Language = "zh-TW"
+	DefaultLanguage                     = LanguageEnglish
 )
 
 const (
@@ -138,6 +145,12 @@ const (
 
 const (
 	DefaultProxyTimeoutSeconds = 30
+)
+
+const (
+	DefaultSyncedLyricsEnabled = true
+	DefaultRomanizedLyrics     = true
+	DefaultPinyinLyrics        = true
 )
 
 const (
@@ -284,6 +297,20 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		minimizeToTrayOnStart = *params.MinimizeToTrayOnStart
 	}
 
+	syncedLyricsEnabled := DefaultSyncedLyricsEnabled
+	if params.SyncedLyricsEnabled != nil {
+		syncedLyricsEnabled = *params.SyncedLyricsEnabled
+	}
+
+	romanizedLyrics := DefaultRomanizedLyrics
+	if params.RomanizedLyrics != nil {
+		romanizedLyrics = *params.RomanizedLyrics
+	}
+	pinyinLyrics := DefaultPinyinLyrics
+	if params.PinyinLyrics != nil {
+		pinyinLyrics = *params.PinyinLyrics
+	}
+
 	return Settings{
 		appearance:            appearance,
 		fontFamily:            strings.TrimSpace(params.FontFamily),
@@ -304,6 +331,9 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		menuBarVisibility:     menuBarVisibility,
 		autoStart:             autoStart,
 		minimizeToTrayOnStart: minimizeToTrayOnStart,
+		syncedLyricsEnabled:   syncedLyricsEnabled,
+		romanizedLyrics:       romanizedLyrics,
+		pinyinLyrics:          pinyinLyrics,
 		appearanceConfig:      cloneAnyMap(params.AppearanceConfig),
 	}, nil
 }
@@ -331,6 +361,9 @@ func DefaultSettingsWithLanguage(language string) Settings {
 		menuBarVisibility:     DefaultMenuBarVisibility,
 		autoStart:             false,
 		minimizeToTrayOnStart: false,
+		syncedLyricsEnabled:   DefaultSyncedLyricsEnabled,
+		romanizedLyrics:       DefaultRomanizedLyrics,
+		pinyinLyrics:          DefaultPinyinLyrics,
 		appearanceConfig:      nil,
 	}
 }
@@ -354,7 +387,7 @@ func ParseLanguage(value string) (Language, error) {
 		return DefaultLanguage, nil
 	}
 	switch Language(trimmed) {
-	case LanguageEnglish, LanguageChineseSimplified:
+	case LanguageEnglish, LanguageChineseSimplified, LanguageChineseTraditional:
 		return Language(trimmed), nil
 	default:
 		return "", fmt.Errorf("%w: language", ErrInvalidSettings)
@@ -537,6 +570,9 @@ func (settings Settings) Proxy() ProxySettings                 { return settings
 func (settings Settings) MenuBarVisibility() MenuBarVisibility { return settings.menuBarVisibility }
 func (settings Settings) AutoStart() bool                      { return settings.autoStart }
 func (settings Settings) MinimizeToTrayOnStart() bool          { return settings.minimizeToTrayOnStart }
+func (settings Settings) SyncedLyricsEnabled() bool            { return settings.syncedLyricsEnabled }
+func (settings Settings) RomanizedLyrics() bool                { return settings.romanizedLyrics }
+func (settings Settings) PinyinLyrics() bool                   { return settings.pinyinLyrics }
 func (settings Settings) AppearanceConfig() map[string]any {
 	return cloneAnyMap(settings.appearanceConfig)
 }

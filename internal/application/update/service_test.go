@@ -180,22 +180,22 @@ func TestManualCheckStillRunsWhenUpdateAlreadyAvailableToday(t *testing.T) {
 	}
 }
 
-func TestCheckForUpdatePublishesDreamFMLiveCatalogUpdate(t *testing.T) {
+func TestCheckForUpdatePublishesListenLiveCatalogUpdate(t *testing.T) {
 	t.Parallel()
 
 	previous := buildCatalog("1.2.3", "https://example.com/download.zip")
-	previous.DreamFM.LiveChannel = softwareupdate.RemoteContentRef{
+	previous.Listen.LiveChannel = softwareupdate.RemoteContentRef{
 		SchemaVersion: 1,
-		URL:           "https://updates.example.com/dream.fm/live/channel.json",
+		URL:           "https://updates.example.com/listen/live/channel.json",
 		Version:       "2026.04.26.1",
 		MinAppVersion: "0.0.1",
 		TTLSeconds:    300,
 		Fallback:      "embedded",
 	}
 	next := buildCatalog("1.2.3", "https://example.com/download.zip")
-	next.DreamFM.LiveChannel = softwareupdate.RemoteContentRef{
+	next.Listen.LiveChannel = softwareupdate.RemoteContentRef{
 		SchemaVersion: 1,
-		URL:           "https://updates.example.com/dream.fm/live/channel.json",
+		URL:           "https://updates.example.com/listen/live/channel.json",
 		Version:       "2026.04.26.2",
 		MinAppVersion: "0.0.1",
 		TTLSeconds:    300,
@@ -209,7 +209,7 @@ func TestCheckForUpdatePublishesDreamFMLiveCatalogUpdate(t *testing.T) {
 
 	bus := events.NewInMemoryBus()
 	received := make([]events.Event, 0, 1)
-	unsubscribe := bus.Subscribe(dreamFMLiveCatalogTopic, func(event events.Event) {
+	unsubscribe := bus.Subscribe(listenLiveCatalogTopic, func(event events.Event) {
 		received = append(received, event)
 	})
 	defer unsubscribe()
@@ -220,49 +220,49 @@ func TestCheckForUpdatePublishesDreamFMLiveCatalogUpdate(t *testing.T) {
 	}
 
 	if len(received) != 1 {
-		t.Fatalf("expected one DreamFM live catalog event, got %d", len(received))
+		t.Fatalf("expected one Listen live catalog event, got %d", len(received))
 	}
-	if received[0].Type != dreamFMLiveCatalogUpdatedType {
+	if received[0].Type != listenLiveCatalogUpdatedType {
 		t.Fatalf("unexpected event type: %s", received[0].Type)
 	}
-	payload, ok := received[0].Payload.(dreamFMLiveCatalogUpdatePayload)
+	payload, ok := received[0].Payload.(listenLiveCatalogUpdatePayload)
 	if !ok {
 		t.Fatalf("unexpected payload type: %T", received[0].Payload)
 	}
 	if payload.Version != "2026.04.26.2" {
-		t.Fatalf("unexpected DreamFM live catalog version: %s", payload.Version)
+		t.Fatalf("unexpected Listen live catalog version: %s", payload.Version)
 	}
 	if payload.SchemaVersion != 1 {
-		t.Fatalf("unexpected DreamFM live catalog schema version: %d", payload.SchemaVersion)
+		t.Fatalf("unexpected Listen live catalog schema version: %d", payload.SchemaVersion)
 	}
 	if payload.MinAppVersion != "0.0.1" {
-		t.Fatalf("unexpected DreamFM live catalog min app version: %s", payload.MinAppVersion)
+		t.Fatalf("unexpected Listen live catalog min app version: %s", payload.MinAppVersion)
 	}
 	if payload.TTLSeconds != 300 {
-		t.Fatalf("unexpected DreamFM live catalog ttl: %d", payload.TTLSeconds)
+		t.Fatalf("unexpected Listen live catalog ttl: %d", payload.TTLSeconds)
 	}
 	if payload.Fallback != "embedded" {
-		t.Fatalf("unexpected DreamFM live catalog fallback: %s", payload.Fallback)
+		t.Fatalf("unexpected Listen live catalog fallback: %s", payload.Fallback)
 	}
 	if payload.Fingerprint == "" {
-		t.Fatal("expected DreamFM live catalog fingerprint")
+		t.Fatal("expected Listen live catalog fingerprint")
 	}
 }
 
-func TestCheckForUpdateSkipsDreamFMLiveCatalogEventOnInitialSnapshot(t *testing.T) {
+func TestCheckForUpdateSkipsListenLiveCatalogEventOnInitialSnapshot(t *testing.T) {
 	t.Parallel()
 
 	catalog := buildCatalog("1.2.3", "https://example.com/download.zip")
-	catalog.DreamFM.LiveChannel = softwareupdate.RemoteContentRef{
+	catalog.Listen.LiveChannel = softwareupdate.RemoteContentRef{
 		SchemaVersion: 1,
-		URL:           "https://updates.example.com/dream.fm/live/channel.json",
+		URL:           "https://updates.example.com/listen/live/channel.json",
 		Version:       "2026.04.26.1",
 		TTLSeconds:    300,
 		Fallback:      "embedded",
 	}
 	bus := events.NewInMemoryBus()
 	received := make([]events.Event, 0, 1)
-	unsubscribe := bus.Subscribe(dreamFMLiveCatalogTopic, func(event events.Event) {
+	unsubscribe := bus.Subscribe(listenLiveCatalogTopic, func(event events.Event) {
 		received = append(received, event)
 	})
 	defer unsubscribe()
@@ -276,7 +276,7 @@ func TestCheckForUpdateSkipsDreamFMLiveCatalogEventOnInitialSnapshot(t *testing.
 	}
 
 	if len(received) != 0 {
-		t.Fatalf("expected no initial DreamFM live catalog event, got %d", len(received))
+		t.Fatalf("expected no initial Listen live catalog event, got %d", len(received))
 	}
 }
 

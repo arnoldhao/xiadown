@@ -50,6 +50,9 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogListCard,
+  DialogListCardContent,
+  DialogRow,
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
@@ -404,14 +407,21 @@ export function PetsGalleryPage(props: {
 
   return (
     <div className="app-main-page app-main-pets-page relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <div className="app-pets-page-toolbar wails-drag flex min-h-[3.75rem] items-center justify-between gap-4 px-5 pb-3 pt-4">
-        <div className="wails-no-drag flex min-w-0 items-center gap-3">
+      <div
+        className={cn(
+          "app-pets-page-toolbar wails-drag flex min-h-[var(--app-page-top-drag-height)] items-center justify-between gap-4 px-5",
+          isWindows
+            ? "min-h-[var(--app-page-top-drag-height)] pb-3 pt-4"
+            : "pb-3 pt-4",
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-3">
           {mode === "detail" ? (
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-full"
+              className="wails-no-drag h-8 w-8 rounded-full"
               onClick={() => setSelectedPetId("")}
               aria-label={text.actions.back}
             >
@@ -430,7 +440,7 @@ export function PetsGalleryPage(props: {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45"
+                    className="wails-no-drag inline-flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45"
                     onClick={() => setGuideOpen(true)}
                     aria-label={text.petGallery.generationGuide.action}
                   >
@@ -962,13 +972,15 @@ function PetImportDialog(props: {
                   {dialogText.browse}
                 </Button>
               </div>
-              <div className="app-pets-info-box grid gap-2 p-3 text-xs">
-                <ImportInfoRow label={dialogText.onlineSite} value={selectedSiteLabel} />
-                <ImportInfoRow
-                  label={dialogText.browserStatus}
-                  value={resolvePetImportBrowserStatusLabel(text, browserStatus)}
-                />
-              </div>
+              <DialogListCard className="app-pets-info-box">
+                <DialogListCardContent className="text-xs">
+                  <ImportInfoRow label={dialogText.onlineSite} value={selectedSiteLabel} />
+                  <ImportInfoRow
+                    label={dialogText.browserStatus}
+                    value={resolvePetImportBrowserStatusLabel(text, browserStatus)}
+                  />
+                </DialogListCardContent>
+              </DialogListCard>
               {onlineError ? (
                 <ImportStatusMessage intent="danger" icon={<AlertCircle className="h-4 w-4" />}>
                   {onlineError}
@@ -992,17 +1004,19 @@ function PetImportDialog(props: {
               </div>
             ) : (
               <div className="app-pets-import-section space-y-3 p-4">
-                <div className="app-pets-info-box grid gap-2 p-3 text-xs">
-                  <ImportInfoRow label={dialogText.fileName} value={getPathBaseName(localPath)} />
-                  <ImportInfoRow label={dialogText.path} value={localPath} />
-                  {localDraft ? (
-                    <>
-                      <ImportInfoRow label={dialogText.petName} value={localDraft.displayName || "-"} />
-                      <ImportInfoRow label={text.petGallery.sizeLabel} value={`${localDraft.imageWidth} x ${localDraft.imageHeight}`} />
-                      <ImportInfoRow label={text.petGallery.gridLabel} value={`${localDraft.columns} x ${localDraft.rows}`} />
-                    </>
-                  ) : null}
-                </div>
+                <DialogListCard className="app-pets-info-box">
+                  <DialogListCardContent className="text-xs">
+                    <ImportInfoRow label={dialogText.fileName} value={getPathBaseName(localPath)} />
+                    <ImportInfoRow label={dialogText.path} value={localPath} />
+                    {localDraft ? (
+                      <>
+                        <ImportInfoRow label={dialogText.petName} value={localDraft.displayName || "-"} />
+                        <ImportInfoRow label={text.petGallery.sizeLabel} value={`${localDraft.imageWidth} x ${localDraft.imageHeight}`} />
+                        <ImportInfoRow label={text.petGallery.gridLabel} value={`${localDraft.columns} x ${localDraft.rows}`} />
+                      </>
+                    ) : null}
+                  </DialogListCardContent>
+                </DialogListCard>
                 {localDraft ? (
                   <ImportStatusMessage
                     intent={localReady ? "success" : "danger"}
@@ -1072,10 +1086,10 @@ function PetImportDialog(props: {
 
 function ImportInfoRow(props: { label: string; value: string }) {
   return (
-    <div className="app-pets-info-row flex min-w-0 items-center justify-between gap-3">
+    <DialogRow className="app-pets-info-row flex min-w-0 items-center justify-between gap-3 px-3 py-2">
       <span className="shrink-0">{props.label}</span>
       <span className="min-w-0 truncate text-right font-medium">{props.value}</span>
-    </div>
+    </DialogRow>
   );
 }
 

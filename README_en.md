@@ -5,6 +5,7 @@
   <p>Listen Keep, Make it Yours</p>
   <p>
     <a href="./README.md">简体中文</a> ·
+    <a href="./README_zh-Hant.md">繁體中文</a> ·
     <strong>English</strong>
   </p>
   <p>
@@ -23,9 +24,9 @@ It is built for content creators: when you need source material, it provides pow
 
 ## Core Capabilities
 
-- **Online music playback**: YouTube Lo-Fi stations and YouTube Music in one place, with account sign-in, song/artist/playlist search, playback queues, lyrics, covers, and download handoff for tracks you want to keep.
+- **Online music player**: a desktop player designed for YouTube Lo-Fi stations and YouTube Music, with account sign-in, song/artist/playlist search, playback queues, lyrics, artwork, and custom online Lo-Fi station support. Tracks worth keeping can be downloaded into the local library.
 - **Video and audio downloads**: powered by YT-DLP, with support for material downloads from thousands of online video sites; paste a link to save video, audio, subtitles, and covers, then transcode and manage them in the local library.
-- **Personalized media space**: theme packs, accent colors, appearance modes, sidebar styles, pets, and connections, with dependencies and updates maintained automatically for long-term daily use.
+- **Personalized media space**: carefully designed theme packs, accent colors, appearance modes, sidebar styles, and full Codex Pets support, with dependencies and app updates maintained automatically for long-term daily use.
 
 ## Product Preview
 
@@ -34,7 +35,7 @@ It is built for content creators: when you need source material, it provides pow
 </p>
 
 <p align="center">
-  <img src="./images/dreamfm.png" alt="XiaDown Dream.FM online music playback view" width="88%" />
+  <img src="./images/listen.png" alt="XiaDown Listen online music playback view" width="88%" />
 </p>
 
 <p align="center">

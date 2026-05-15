@@ -13,11 +13,9 @@ const (
 	browseChartsID          = "FEmusic_charts"
 	browseMoodsAndGenresID  = "FEmusic_moods_and_genres"
 	browseNewReleasesID     = "FEmusic_new_releases"
-	browsePodcastsID        = "FEmusic_podcasts"
 	browseHistoryID         = "FEmusic_history"
 	browseLibraryLandingID  = "FEmusic_library_landing"
 	browseLibraryArtistsID  = "FEmusic_library_corpus_artists"
-	browseLibraryPodcastsID = "FEmusic_library_non_music_audio_list"
 	browseLikedPlaylistsID  = "FEmusic_liked_playlists"
 	browseLikedSongsID      = "VLLM"
 	defaultPlaylistQueueMax = 100
@@ -30,7 +28,6 @@ const (
 	ShelfTracks     ShelfKind = "tracks"
 	ShelfPlaylists  ShelfKind = "playlists"
 	ShelfCategories ShelfKind = "categories"
-	ShelfPodcasts   ShelfKind = "podcasts"
 	ShelfArtists    ShelfKind = "artists"
 )
 
@@ -58,23 +55,17 @@ type Category struct {
 	ThumbnailURL string
 }
 
-type PodcastShow struct {
+type Shelf struct {
 	ID           string
 	Title        string
-	Author       string
-	Description  string
-	ThumbnailURL string
-}
-
-type Shelf struct {
-	ID         string
-	Title      string
-	Kind       ShelfKind
-	Tracks     []Track
-	Playlists  []Playlist
-	Categories []Category
-	Podcasts   []PodcastShow
-	Artists    []Artist
+	Kind         ShelfKind
+	Continuation string
+	BrowseID     string
+	Params       string
+	Tracks       []Track
+	Playlists    []Playlist
+	Categories   []Category
+	Artists      []Artist
 }
 
 type BrowseTab struct {
@@ -113,7 +104,7 @@ type ArtistPage struct {
 }
 
 func (client *Client) HomeRecommendations(ctx context.Context, limit int) ([]Track, error) {
-	data, err := client.request(ctx, "browse", map[string]any{
+	data, err := client.requestRead(ctx, "browse", map[string]any{
 		"browseId": browseHomeID,
 	})
 	if err != nil {
@@ -137,7 +128,7 @@ func (client *Client) BrowseShelves(ctx context.Context, browseID string, sectio
 func (client *Client) BrowseShelvesPage(ctx context.Context, browseID string, params string, continuation string, sectionLimit int, itemLimit int) (BrowsePage, error) {
 	trimmedContinuation := strings.TrimSpace(continuation)
 	if trimmedContinuation != "" {
-		data, err := client.request(ctx, "browse", map[string]any{
+		data, err := client.requestRead(ctx, "browse", map[string]any{
 			"continuation": trimmedContinuation,
 		})
 		if err != nil {
@@ -163,7 +154,7 @@ func (client *Client) BrowseShelvesPage(ctx context.Context, browseID string, pa
 	if cleanedParams != "" {
 		body["params"] = cleanedParams
 	}
-	data, err := client.request(ctx, "browse", body)
+	data, err := client.requestRead(ctx, "browse", body)
 	if err != nil {
 		return BrowsePage{}, err
 	}
@@ -178,7 +169,7 @@ func (client *Client) BrowseShelvesPage(ctx context.Context, browseID string, pa
 }
 
 func (client *Client) LibraryPlaylists(ctx context.Context, limit int) ([]Playlist, error) {
-	data, err := client.request(ctx, "browse", map[string]any{
+	data, err := client.requestRead(ctx, "browse", map[string]any{
 		"browseId": browseLikedPlaylistsID,
 	})
 	if err != nil {
@@ -188,7 +179,7 @@ func (client *Client) LibraryPlaylists(ctx context.Context, limit int) ([]Playli
 }
 
 func (client *Client) LibraryArtists(ctx context.Context, limit int) ([]Artist, error) {
-	data, err := client.request(ctx, "browse", map[string]any{
+	data, err := client.requestRead(ctx, "browse", map[string]any{
 		"browseId": browseLibraryArtistsID,
 		"params":   "ggMCCAU=",
 	})
@@ -199,35 +190,13 @@ func (client *Client) LibraryArtists(ctx context.Context, limit int) ([]Artist, 
 	if len(artists) > 0 {
 		return artists, nil
 	}
-	landing, landingErr := client.request(ctx, "browse", map[string]any{
+	landing, landingErr := client.requestRead(ctx, "browse", map[string]any{
 		"browseId": browseLibraryLandingID,
 	})
 	if landingErr != nil {
 		return nil, err
 	}
 	return parseLibraryBrowseArtists(landing, normalizeLimit(limit)), nil
-}
-
-func (client *Client) LibraryPodcasts(ctx context.Context, limit int) ([]PodcastShow, error) {
-	data, err := client.request(ctx, "browse", map[string]any{
-		"browseId": browseLibraryPodcastsID,
-	})
-	if err == nil {
-		podcasts := parseLibraryBrowsePodcasts(data, normalizeLimit(limit))
-		if len(podcasts) > 0 {
-			return podcasts, nil
-		}
-	}
-	landing, landingErr := client.request(ctx, "browse", map[string]any{
-		"browseId": browseLibraryLandingID,
-	})
-	if landingErr != nil {
-		if err != nil {
-			return nil, err
-		}
-		return nil, landingErr
-	}
-	return parseLibraryBrowsePodcasts(landing, normalizeLimit(limit)), nil
 }
 
 func (client *Client) LikedSongs(ctx context.Context, limit int) ([]Track, error) {
@@ -240,7 +209,7 @@ func (client *Client) PlaylistQueue(ctx context.Context, playlistID string, limi
 	if queueLimit <= 0 {
 		queueLimit = defaultPlaylistQueueMax
 	}
-	if isPodcastBrowseID(trimmedPlaylistID) || isMoodCategoryBrowseID(trimmedPlaylistID) {
+	if isMoodCategoryBrowseID(trimmedPlaylistID) {
 		return client.browseTracks(ctx, trimmedPlaylistID, queueLimit)
 	}
 	if isAlbumBrowseID(trimmedPlaylistID) {
@@ -283,12 +252,12 @@ func (client *Client) PlaylistPage(ctx context.Context, playlistID string, conti
 
 	trimmedPlaylistID := strings.TrimSpace(playlistID)
 	browseID := playlistBrowseID(trimmedPlaylistID)
-	if isPodcastBrowseID(browseID) || isMoodCategoryBrowseID(browseID) || isAlbumBrowseID(browseID) || isPlaylistBrowseID(browseID) {
+	if isMoodCategoryBrowseID(browseID) || isAlbumBrowseID(browseID) || isPlaylistBrowseID(browseID) {
 		page, err := client.browseTracksPage(ctx, browseID, "", "", itemLimit)
 		if err == nil && len(page.Tracks) > 0 {
 			return page, nil
 		}
-		if isPodcastBrowseID(browseID) || isMoodCategoryBrowseID(browseID) || isAlbumBrowseID(browseID) {
+		if isMoodCategoryBrowseID(browseID) || isAlbumBrowseID(browseID) {
 			return page, err
 		}
 	}
@@ -310,7 +279,6 @@ func playlistBrowseID(playlistID string) string {
 		strings.HasPrefix(trimmed, "OLAK") ||
 		strings.HasPrefix(trimmed, "MPRE") ||
 		strings.HasPrefix(trimmed, "UC") ||
-		isPodcastBrowseID(trimmed) ||
 		isMoodCategoryBrowseID(trimmed) {
 		return trimmed
 	}
@@ -326,7 +294,7 @@ func (client *Client) browseTracks(ctx context.Context, browseID string, limit i
 		return nil, err
 	}
 	itemLimit := normalizeLimit(limit)
-	data, err := client.request(ctx, "browse", map[string]any{
+	data, err := client.requestRead(ctx, "browse", map[string]any{
 		"browseId": cleanedBrowseID,
 	})
 	if err != nil {
@@ -360,7 +328,7 @@ func (client *Client) ArtistPage(ctx context.Context, browseID string, limit int
 		return ArtistPage{}, err
 	}
 	itemLimit := normalizeLimit(limit)
-	data, err := client.request(ctx, "browse", map[string]any{
+	data, err := client.requestRead(ctx, "browse", map[string]any{
 		"browseId": artistBrowseID,
 	})
 	if err != nil {
@@ -410,6 +378,9 @@ func (client *Client) editArtistSubscription(ctx context.Context, channelID stri
 	_, err := client.request(ctx, endpoint, map[string]any{
 		"channelIds": []string{trimmed},
 	})
+	if err == nil {
+		client.clearRequestCache()
+	}
 	return err
 }
 
@@ -423,6 +394,9 @@ func (client *Client) editPlaylistLibrary(ctx context.Context, playlistID string
 			"playlistId": rawPlaylistID,
 		},
 	})
+	if err == nil {
+		client.clearRequestCache()
+	}
 	return err
 }
 
@@ -593,27 +567,6 @@ func parseLibraryBrowseArtists(data map[string]any, limit int) []Artist {
 	return artists
 }
 
-func parseLibraryBrowsePodcasts(data map[string]any, limit int) []PodcastShow {
-	items := browseSectionItems(data)
-	podcasts := make([]PodcastShow, 0, len(items))
-	seen := make(map[string]struct{}, len(items))
-	for _, item := range items {
-		podcast, ok := podcastShowFromLibraryItem(item)
-		if !ok {
-			continue
-		}
-		if _, exists := seen[podcast.ID]; exists {
-			continue
-		}
-		seen[podcast.ID] = struct{}{}
-		podcasts = append(podcasts, podcast)
-		if len(podcasts) >= limit {
-			break
-		}
-	}
-	return podcasts
-}
-
 func parseQueueTracks(data map[string]any, limit int) []Track {
 	queueDatas, ok := data["queueDatas"].([]any)
 	if !ok {
@@ -652,6 +605,8 @@ func parseQueueTracks(data map[string]any, limit int) []Track {
 
 func shelvesFromSection(section map[string]any, itemLimit int) []Shelf {
 	title := sectionTitle(section)
+	continuation := sectionContinuationToken(section)
+	browseRef := sectionBrowseEndpoint(section)
 	items := sectionItems(section)
 	if len(items) == 0 {
 		return nil
@@ -660,12 +615,10 @@ func shelvesFromSection(section map[string]any, itemLimit int) []Shelf {
 	tracks := make([]Track, 0, min(len(items), itemLimit))
 	playlists := make([]Playlist, 0, min(len(items), itemLimit))
 	categories := make([]Category, 0, min(len(items), itemLimit))
-	podcasts := make([]PodcastShow, 0, min(len(items), itemLimit))
 	artists := make([]Artist, 0, min(len(items), itemLimit))
 	seenTracks := make(map[string]struct{}, len(items))
 	seenPlaylists := make(map[string]struct{}, len(items))
 	seenCategories := make(map[string]struct{}, len(items))
-	seenPodcasts := make(map[string]struct{}, len(items))
 	seenArtists := make(map[string]struct{}, len(items))
 	for _, item := range items {
 		if len(tracks) < itemLimit {
@@ -692,14 +645,6 @@ func shelvesFromSection(section map[string]any, itemLimit int) []Shelf {
 				}
 			}
 		}
-		if len(podcasts) < itemLimit {
-			if podcast, ok := podcastShowFromLibraryItem(item); ok {
-				if _, exists := seenPodcasts[podcast.ID]; !exists {
-					seenPodcasts[podcast.ID] = struct{}{}
-					podcasts = append(podcasts, podcast)
-				}
-			}
-		}
 		if len(artists) < itemLimit {
 			if artist, ok := artistFromLibraryItem(item); ok {
 				if _, exists := seenArtists[artist.ID]; !exists {
@@ -708,50 +653,54 @@ func shelvesFromSection(section map[string]any, itemLimit int) []Shelf {
 				}
 			}
 		}
-		if len(tracks) >= itemLimit && len(playlists) >= itemLimit && len(categories) >= itemLimit && len(podcasts) >= itemLimit && len(artists) >= itemLimit {
+		if len(tracks) >= itemLimit && len(playlists) >= itemLimit && len(categories) >= itemLimit && len(artists) >= itemLimit {
 			break
 		}
 	}
 
-	result := make([]Shelf, 0, 5)
+	result := make([]Shelf, 0, 4)
 	if len(categories) > 0 {
 		result = append(result, Shelf{
-			ID:         buildShelfID(title, ShelfCategories, categories[0].ID),
-			Title:      fallbackShelfTitle(title, ShelfCategories),
-			Kind:       ShelfCategories,
-			Categories: categories,
-		})
-	}
-	if len(podcasts) > 0 {
-		result = append(result, Shelf{
-			ID:       buildShelfID(title, ShelfPodcasts, podcasts[0].ID),
-			Title:    fallbackShelfTitle(title, ShelfPodcasts),
-			Kind:     ShelfPodcasts,
-			Podcasts: podcasts,
+			ID:           buildShelfID(title, ShelfCategories, categories[0].ID),
+			Title:        fallbackShelfTitle(title, ShelfCategories),
+			Kind:         ShelfCategories,
+			Continuation: continuation,
+			BrowseID:     browseRef.BrowseID,
+			Params:       browseRef.Params,
+			Categories:   categories,
 		})
 	}
 	if len(artists) > 0 {
 		result = append(result, Shelf{
-			ID:      buildShelfID(title, ShelfArtists, artists[0].ID),
-			Title:   fallbackShelfTitle(title, ShelfArtists),
-			Kind:    ShelfArtists,
-			Artists: artists,
+			ID:           buildShelfID(title, ShelfArtists, artists[0].ID),
+			Title:        fallbackShelfTitle(title, ShelfArtists),
+			Kind:         ShelfArtists,
+			Continuation: continuation,
+			BrowseID:     browseRef.BrowseID,
+			Params:       browseRef.Params,
+			Artists:      artists,
 		})
 	}
 	if len(tracks) > 0 {
 		result = append(result, Shelf{
-			ID:     buildShelfID(title, ShelfTracks, tracks[0].VideoID),
-			Title:  fallbackShelfTitle(title, ShelfTracks),
-			Kind:   ShelfTracks,
-			Tracks: tracks,
+			ID:           buildShelfID(title, ShelfTracks, tracks[0].VideoID),
+			Title:        fallbackShelfTitle(title, ShelfTracks),
+			Kind:         ShelfTracks,
+			Continuation: continuation,
+			BrowseID:     browseRef.BrowseID,
+			Params:       browseRef.Params,
+			Tracks:       tracks,
 		})
 	}
 	if len(playlists) > 0 {
 		result = append(result, Shelf{
-			ID:        buildShelfID(title, ShelfPlaylists, playlists[0].ID),
-			Title:     fallbackShelfTitle(title, ShelfPlaylists),
-			Kind:      ShelfPlaylists,
-			Playlists: playlists,
+			ID:           buildShelfID(title, ShelfPlaylists, playlists[0].ID),
+			Title:        fallbackShelfTitle(title, ShelfPlaylists),
+			Kind:         ShelfPlaylists,
+			Continuation: continuation,
+			BrowseID:     browseRef.BrowseID,
+			Params:       browseRef.Params,
+			Playlists:    playlists,
 		})
 	}
 	return result
@@ -1118,6 +1067,124 @@ func sectionTitle(section map[string]any) string {
 	return ""
 }
 
+func sectionContinuationToken(section map[string]any) string {
+	renderer := sectionRenderer(section)
+	if token := continuationTokenFromRenderer(renderer); token != "" {
+		return token
+	}
+	return continuationTokenFromContents(sectionItems(section))
+}
+
+type browseEndpointRef struct {
+	BrowseID string
+	Params   string
+}
+
+func sectionBrowseEndpoint(section map[string]any) browseEndpointRef {
+	return browseEndpointFromRenderer(sectionRenderer(section))
+}
+
+func browseEndpointFromRenderer(renderer map[string]any) browseEndpointRef {
+	if renderer == nil {
+		return browseEndpointRef{}
+	}
+	candidates := []map[string]any{
+		asMap(renderer["bottomEndpoint"]),
+		asMap(renderer["navigationEndpoint"]),
+		asMap(renderer["moreContentButton"]),
+	}
+	if title := asMap(renderer["title"]); title != nil {
+		candidates = append(candidates, title)
+	}
+	if header := asMap(renderer["header"]); header != nil {
+		candidates = append(candidates, header)
+		for _, key := range []string{
+			"musicCarouselShelfBasicHeaderRenderer",
+			"musicShelfBasicHeaderRenderer",
+			"musicCardShelfHeaderBasicRenderer",
+			"gridHeaderRenderer",
+		} {
+			candidates = append(candidates, asMap(header[key]))
+		}
+	}
+	for _, candidate := range candidates {
+		if ref := browseEndpointFromCandidate(candidate); ref.BrowseID != "" {
+			return ref
+		}
+	}
+	return browseEndpointRef{}
+}
+
+func browseEndpointFromCandidate(candidate map[string]any) browseEndpointRef {
+	if candidate == nil {
+		return browseEndpointRef{}
+	}
+	if ref := browseEndpointFromEndpoint(candidate); ref.BrowseID != "" {
+		return ref
+	}
+	for _, key := range []string{"navigationEndpoint", "command", "clickCommand"} {
+		if ref := browseEndpointFromEndpoint(asMap(candidate[key])); ref.BrowseID != "" {
+			return ref
+		}
+	}
+	for _, key := range []string{"buttonRenderer", "musicPlayButtonRenderer", "toggleButtonRenderer"} {
+		if ref := browseEndpointFromCandidate(asMap(candidate[key])); ref.BrowseID != "" {
+			return ref
+		}
+	}
+	for _, key := range []string{"moreContentButton", "moreButton"} {
+		if ref := browseEndpointFromCandidate(asMap(candidate[key])); ref.BrowseID != "" {
+			return ref
+		}
+	}
+	for _, run := range mapsFromArray(candidate["runs"]) {
+		if ref := browseEndpointFromCandidate(run); ref.BrowseID != "" {
+			return ref
+		}
+	}
+	for _, item := range mapsFromArray(candidate["items"]) {
+		if ref := browseEndpointFromCandidate(item); ref.BrowseID != "" {
+			return ref
+		}
+	}
+	return browseEndpointRef{}
+}
+
+func browseEndpointFromEndpoint(endpoint map[string]any) browseEndpointRef {
+	if endpoint == nil {
+		return browseEndpointRef{}
+	}
+	browseEndpoint := asMap(endpoint["browseEndpoint"])
+	browseID := stringInMap(browseEndpoint, "browseId")
+	if browseID == "" {
+		return browseEndpointRef{}
+	}
+	return browseEndpointRef{
+		BrowseID: browseID,
+		Params:   stringInMap(browseEndpoint, "params"),
+	}
+}
+
+func sectionRenderer(section map[string]any) map[string]any {
+	if section == nil {
+		return nil
+	}
+	for _, key := range []string{
+		"musicCarouselShelfRenderer",
+		"musicShelfRenderer",
+		"musicPlaylistShelfRenderer",
+		"musicCardShelfRenderer",
+		"musicImmersiveCarouselShelfRenderer",
+		"gridRenderer",
+		"itemSectionRenderer",
+	} {
+		if renderer := asMap(section[key]); renderer != nil {
+			return renderer
+		}
+	}
+	return nil
+}
+
 func sectionItems(section map[string]any) []map[string]any {
 	if section == nil {
 		return nil
@@ -1153,9 +1220,6 @@ func trackFromHomeItem(item map[string]any) (Track, bool) {
 	if renderer := asMap(item["musicTwoRowItemRenderer"]); renderer != nil {
 		return trackFromHomeTwoRowRenderer(renderer)
 	}
-	if renderer := asMap(item["musicMultiRowListItemRenderer"]); renderer != nil {
-		return trackFromPodcastMultiRowRenderer(renderer)
-	}
 	return Track{}, false
 }
 
@@ -1186,45 +1250,6 @@ func trackFromHomeTwoRowRenderer(renderer map[string]any) (Track, bool) {
 		ArtistBrowseID: artistBrowseID,
 		DurationLabel:  duration,
 		ThumbnailURL:   lastThumbnailURL(renderer),
-		MusicVideoType: musicVideoTypeFromWatchEndpoint(watchEndpoint),
-	}, true
-}
-
-func trackFromPodcastMultiRowRenderer(renderer map[string]any) (Track, bool) {
-	watchEndpoint := asMap(asMap(renderer["onTap"])["watchEndpoint"])
-	videoID := stringInMap(watchEndpoint, "videoId")
-	if videoID == "" {
-		videoID = findFirstStringByKey(renderer, "videoId")
-	}
-	if !videoIDPattern.MatchString(videoID) {
-		return Track{}, false
-	}
-	title := firstUsefulText(runsText(asMap(renderer["title"])))
-	if title == "" {
-		title = videoID
-	}
-	subtitleNavigationRuns := textRunsWithNavigation(asMap(renderer["subtitle"]))
-	subtitleRuns := textValuesFromRuns(subtitleNavigationRuns)
-	channel := firstCreatorText(subtitleRuns)
-	channelFromRun, artistBrowseID := firstCreatorRun(subtitleNavigationRuns)
-	if channelFromRun != "" {
-		channel = channelFromRun
-	}
-	duration := firstUsefulText(runsText(asMap(renderer["durationText"])))
-	if duration == "" {
-		duration = firstDurationLabel(collectTextRuns(renderer))
-	}
-	description := firstUsefulText(runsText(asMap(renderer["description"])))
-	return Track{
-		ID:             videoID,
-		VideoID:        videoID,
-		Title:          title,
-		Channel:        fallbackString(channel, "YouTube Music"),
-		ArtistBrowseID: artistBrowseID,
-		DurationLabel:  duration,
-		ThumbnailURL:   lastThumbnailURL(renderer),
-		RawDescription: description,
-		MusicVideoType: musicVideoTypeFromWatchEndpoint(watchEndpoint),
 	}, true
 }
 
@@ -1270,61 +1295,6 @@ func categoryFromNavigationButtonRenderer(renderer map[string]any) (Category, bo
 	}, true
 }
 
-func podcastShowFromLibraryItem(item map[string]any) (PodcastShow, bool) {
-	if renderer := asMap(item["musicTwoRowItemRenderer"]); renderer != nil {
-		return podcastShowFromTwoRowRenderer(renderer)
-	}
-	if renderer := asMap(item["musicResponsiveListItemRenderer"]); renderer != nil {
-		return podcastShowFromResponsiveRenderer(renderer)
-	}
-	return PodcastShow{}, false
-}
-
-func podcastShowFromTwoRowRenderer(renderer map[string]any) (PodcastShow, bool) {
-	browseID := browseIDFromNavigationEndpoint(asMap(renderer["navigationEndpoint"]))
-	if !isPodcastBrowseID(browseID) {
-		return PodcastShow{}, false
-	}
-	title := firstUsefulText(runsText(asMap(renderer["title"])))
-	if title == "" {
-		title = browseID
-	}
-	return PodcastShow{
-		ID:           browseID,
-		Title:        title,
-		Author:       firstUsefulText(runsText(asMap(renderer["subtitle"]))),
-		ThumbnailURL: lastThumbnailURL(renderer),
-	}, true
-}
-
-func podcastShowFromResponsiveRenderer(renderer map[string]any) (PodcastShow, bool) {
-	browseID := browseIDFromNavigationEndpoint(asMap(renderer["navigationEndpoint"]))
-	if !isPodcastBrowseID(browseID) {
-		return PodcastShow{}, false
-	}
-	flexColumns := mapsFromArray(renderer["flexColumns"])
-	title := ""
-	if len(flexColumns) > 0 {
-		title = firstUsefulText(textRunsFromFlexColumn(flexColumns[0]))
-	}
-	if title == "" {
-		title = firstUsefulText(collectTextRuns(renderer))
-	}
-	if title == "" {
-		title = browseID
-	}
-	subtitleRuns := make([]string, 0, 4)
-	for _, column := range flexColumns[1:] {
-		subtitleRuns = append(subtitleRuns, textRunsFromFlexColumn(column)...)
-	}
-	return PodcastShow{
-		ID:           browseID,
-		Title:        title,
-		Author:       firstUsefulText(subtitleRuns),
-		ThumbnailURL: lastThumbnailURL(renderer),
-	}, true
-}
-
 func artistFromLibraryItem(item map[string]any) (Artist, bool) {
 	if renderer := asMap(item["musicResponsiveListItemRenderer"]); renderer != nil {
 		return artistFromSearchResponsiveRenderer(renderer)
@@ -1363,11 +1333,12 @@ func playlistFromTwoRowRenderer(renderer map[string]any) (Playlist, bool) {
 	if title == "" {
 		title = browseID
 	}
-	channel := firstUsefulText(runsText(asMap(renderer["subtitle"])))
+	channel, description := playlistMetadataFromValues(runsText(asMap(renderer["subtitle"])))
 	return Playlist{
 		ID:           browseID,
 		Title:        title,
 		Channel:      channel,
+		Description:  description,
 		ThumbnailURL: lastThumbnailURL(renderer),
 	}, true
 }
@@ -1388,15 +1359,16 @@ func playlistFromResponsiveRenderer(renderer map[string]any) (Playlist, bool) {
 	if title == "" {
 		title = browseID
 	}
-	channelRuns := make([]string, 0, 4)
+	metadataRuns := make([]string, 0, 4)
 	for _, column := range flexColumns[1:] {
-		channelRuns = append(channelRuns, textRunsFromFlexColumn(column)...)
+		metadataRuns = append(metadataRuns, textRunsFromFlexColumn(column)...)
 	}
-	channel := firstUsefulText(channelRuns)
+	channel, description := playlistMetadataFromValues(metadataRuns)
 	return Playlist{
 		ID:           browseID,
 		Title:        title,
 		Channel:      channel,
+		Description:  description,
 		ThumbnailURL: lastThumbnailURL(renderer),
 	}, true
 }
@@ -1438,7 +1410,7 @@ func applyPlaylistDetailHeaderRenderer(headerDict map[string]any, header *playli
 		header.ThumbnailURL = thumbnailURL
 	}
 	if runs := runsText(asMap(renderer["subtitle"])); len(runs) > 0 {
-		header.Author = runs[0]
+		header.Author = firstCreatorText(runs)
 	}
 }
 
@@ -1458,7 +1430,7 @@ func applyPlaylistImmersiveHeaderRenderer(headerDict map[string]any, header *pla
 	}
 	if header.Author == "" {
 		if runs := runsText(asMap(renderer["subtitle"])); len(runs) > 0 {
-			header.Author = runs[0]
+			header.Author = firstCreatorText(runs)
 		}
 	}
 }
@@ -1491,7 +1463,7 @@ func applyPlaylistEditableHeaderRenderer(headerDict map[string]any, header *play
 	}
 	if header.Author == "" {
 		if runs := runsText(asMap(renderer["subtitle"])); len(runs) > 0 {
-			header.Author = runs[0]
+			header.Author = firstCreatorText(runs)
 		}
 	}
 }
@@ -1548,7 +1520,7 @@ func applyPlaylistResponsiveHeaderRenderer(renderer map[string]any, header *play
 		facepile := asMap(renderer["facepile"])
 		avatarStack := asMap(facepile["avatarStackViewModel"])
 		text := asMap(avatarStack["text"])
-		header.Author = stringInMap(text, "content")
+		header.Author = firstCreatorText([]string{stringInMap(text, "content")})
 	}
 }
 
@@ -1594,10 +1566,6 @@ func isMoodCategoryBrowseID(browseID string) bool {
 	return strings.HasPrefix(strings.TrimSpace(browseID), browseMoodsAndGenresID)
 }
 
-func isPodcastBrowseID(browseID string) bool {
-	return strings.HasPrefix(strings.TrimSpace(browseID), "MPSPP")
-}
-
 func isPlaylistBrowseID(browseID string) bool {
 	switch {
 	case strings.HasPrefix(browseID, "VL"),
@@ -1625,8 +1593,6 @@ func fallbackShelfTitle(title string, kind ShelfKind) string {
 		return "Playlists"
 	case ShelfCategories:
 		return "Categories"
-	case ShelfPodcasts:
-		return "Podcasts"
 	case ShelfArtists:
 		return "Artists"
 	default:
