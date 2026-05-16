@@ -81,7 +81,7 @@ import { fetchListenTrackInfo } from "@/app/main/listen/api";
 import { clampVolume,formatProgressSeconds,resolveAudioSource } from "@/app/main/listen/local-library";
 import { buildListenPosterCandidates,buildYouTubeWatchURL } from "@/app/main/listen/storage";
 import type { ListenLocalItem,ListenLyricsData,ListenLyricsKind,ListenMode,ListenNativePlayerEvent,ListenOnlineItem,ListenPlayMode,ListenPlayerCommand,ListenRemotePlaybackState } from "@/app/main/listen/types";
-import { ListenArtworkShell,ListenOnlineArtwork,ListenSourceBadge } from "@/app/main/listen/ui";
+import { ListenArtworkShell,ListenOnlineArtwork,ListenSourceBadge,useListenStableImageSource } from "@/app/main/listen/ui";
 
 type ListenMediaMode = "cover" | "lyrics";
 type ListenAirPlayAnchor = {
@@ -4809,43 +4809,20 @@ function ListenCompactCoverSurface(props: {
   srcCandidates: string[];
   title: string;
 }) {
-  const candidateKey = props.srcCandidates.join("\n");
-  const candidates = React.useMemo(() => {
-    const normalized = props.srcCandidates
-      .map((url) => url.trim())
-      .filter(Boolean);
-    return Array.from(new Set([...normalized, DEFAULT_COVER_IMAGE_URL]));
-  }, [candidateKey]);
-  const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const activeSrc =
-    candidates[Math.min(candidateIndex, Math.max(candidates.length - 1, 0))] ||
-    DEFAULT_COVER_IMAGE_URL;
-  const [loadedSrc, setLoadedSrc] = React.useState("");
-  const imageReady = loadedSrc === activeSrc;
-
-  React.useEffect(() => {
-    setCandidateIndex(0);
-    setLoadedSrc("");
-  }, [candidateKey]);
+  const {
+    activeSrc,
+    visibleSrc,
+    imageReady,
+  } = useListenStableImageSource(props.srcCandidates);
 
   return (
     <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[1.15rem] bg-white shadow-[0_10px_28px_-18px_rgba(15,23,42,0.48)]">
       <img
-        key={activeSrc}
-        src={activeSrc}
+        key={visibleSrc}
+        src={visibleSrc}
         alt={props.title}
-        className={cn(
-          "block h-full w-full object-cover transition-opacity duration-300",
-          imageReady ? "opacity-100" : "opacity-0",
-        )}
+        className="block h-full w-full object-cover"
         loading="eager"
-        onLoad={() => setLoadedSrc(activeSrc)}
-        onError={() => {
-          setLoadedSrc("");
-          setCandidateIndex((current) =>
-            current + 1 < candidates.length ? current + 1 : current,
-          );
-        }}
       />
       {imageReady ? (
         <span

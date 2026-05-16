@@ -193,6 +193,78 @@ export function ListenLocalArtwork(props: {
   );
 }
 
+export function useListenStableImageSource(srcCandidates: string[]) {
+  const candidateKey = srcCandidates.join("\n");
+  const candidates = React.useMemo(() => {
+    const normalized = srcCandidates.map((url) => url.trim()).filter(Boolean);
+    return Array.from(new Set([...normalized, DEFAULT_COVER_IMAGE_URL]));
+  }, [candidateKey]);
+  const [candidateIndex, setCandidateIndex] = React.useState(0);
+  const [visibleSrc, setVisibleSrc] = React.useState(DEFAULT_COVER_IMAGE_URL);
+  const activeSrc =
+    candidates[Math.min(candidateIndex, Math.max(candidates.length - 1, 0))] ||
+    DEFAULT_COVER_IMAGE_URL;
+  const activeSrcRef = React.useRef(activeSrc);
+
+  React.useEffect(() => {
+    activeSrcRef.current = activeSrc;
+  }, [activeSrc]);
+
+  React.useEffect(() => {
+    setCandidateIndex(0);
+  }, [candidateKey]);
+
+  React.useEffect(() => {
+    const source = activeSrc.trim() || DEFAULT_COVER_IMAGE_URL;
+    if (source === visibleSrc) {
+      return;
+    }
+    let disposed = false;
+    const commitSource = () => {
+      if (!disposed && activeSrcRef.current === source) {
+        setVisibleSrc(source);
+      }
+    };
+    const advanceSource = () => {
+      if (disposed || activeSrcRef.current !== source) {
+        return;
+      }
+      setCandidateIndex((current) =>
+        current + 1 < candidates.length ? current + 1 : current,
+      );
+    };
+
+    if (typeof window === "undefined" || typeof window.Image === "undefined") {
+      commitSource();
+      return () => {
+        disposed = true;
+      };
+    }
+
+    const image = new window.Image();
+    image.decoding = "async";
+    image.loading = "eager";
+    image.onload = commitSource;
+    image.onerror = advanceSource;
+    image.src = source;
+    if (image.complete && image.naturalWidth > 0) {
+      commitSource();
+    }
+
+    return () => {
+      disposed = true;
+      image.onload = null;
+      image.onerror = null;
+    };
+  }, [activeSrc, candidates.length, visibleSrc]);
+
+  return {
+    activeSrc,
+    visibleSrc,
+    imageReady: activeSrc === visibleSrc,
+  };
+}
+
 export function ListenOnlineArtwork(props: {
   httpBaseURL: string;
   track: ListenOnlineItem;
@@ -202,42 +274,21 @@ export function ListenOnlineArtwork(props: {
     () => buildListenPosterCandidates(props.httpBaseURL, props.track),
     [props.httpBaseURL, props.track.thumbnailUrl, props.track.videoId],
   );
-  const posterCandidateKey = posterCandidates.join("\n");
-  const [posterIndex, setPosterIndex] = React.useState(0);
-  const activePoster =
-    posterCandidates[
-      Math.min(posterIndex, Math.max(posterCandidates.length - 1, 0))
-    ] || DEFAULT_COVER_IMAGE_URL;
-  const [loadedPoster, setLoadedPoster] = React.useState("");
-  const posterReady = loadedPoster === activePoster;
-
-  React.useEffect(() => {
-    setPosterIndex(0);
-    setLoadedPoster("");
-  }, [posterCandidateKey]);
+  const {
+    activeSrc: activePoster,
+    visibleSrc: visiblePoster,
+    imageReady: posterReady,
+  } = useListenStableImageSource(posterCandidates);
 
   return (
     <ListenArtworkShell className={props.className}>
       <>
         <img
-          key={activePoster}
-          src={activePoster}
+          key={visiblePoster}
+          src={visiblePoster}
           alt={props.track.title}
-          className={cn(
-            "block h-full w-full object-cover transition-[opacity,transform] duration-500 ease-out group-hover/listen-artwork:scale-[1.035]",
-            posterReady ? "opacity-100" : "opacity-0",
-          )}
+          className="block h-full w-full object-cover transition-transform duration-500 ease-out group-hover/listen-artwork:scale-[1.035]"
           loading="eager"
-          onLoad={() => setLoadedPoster(activePoster)}
-          onError={() => {
-            setLoadedPoster("");
-            setPosterIndex((current) => {
-              if (current >= posterCandidates.length - 1) {
-                return current;
-              }
-              return current + 1;
-            });
-          }}
         />
         {posterReady ? (
           <span
