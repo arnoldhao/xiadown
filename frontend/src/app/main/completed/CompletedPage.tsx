@@ -1,5 +1,5 @@
 import { System } from "@wailsio/runtime";
-import { CheckCircle2, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, FileCog, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 import * as React from "react";
 
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -17,7 +17,7 @@ import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
 import { formatBytes } from "@/shared/utils/formatBytes";
 import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripPathExtension } from "@/shared/utils/resourceHelpers";
 
-import { CompletedFileDetailContent,CompletedFileDetailHeaderMeta,CompletedTaskDetailContent,CompletedTaskDetailHeaderMeta,SelectionCheckbox } from "@/app/main/completed/detail-components";
+import { CompletedFileDetailContent,CompletedFileDetailHeader,CompletedTaskDetailContent,CompletedTaskDetailHeader,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
 import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
@@ -167,6 +167,12 @@ function buildCompletedTaskFileSummaryItems(
       icon: Languages,
       key: "subtitle",
       label: text.completed.subtitleCount,
+    },
+    {
+      count: entry.counts.image,
+      icon: ImageIcon,
+      key: "image",
+      label: text.completed.imageCount,
     },
   ].filter(Boolean);
 }
@@ -1366,7 +1372,6 @@ export function CompletedPage(props: {
           appName={props.text.appName}
           task={selectedTask}
           selectedPreviewFileId={selectedPreviewFileId}
-          onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
           onTranscodeFile={props.onTranscodeFile}
           pet={props.pet}
           petImageURL={props.petImageURL}
@@ -1397,52 +1402,25 @@ export function CompletedPage(props: {
         ref={detailPaneRef}
         className="app-main-detail-pane app-completed-inline-detail my-3 flex w-[25rem] shrink-0 flex-col overflow-hidden xl:w-[27rem]"
       >
-        <div
-          className={cn(
-            "app-completed-inline-detail-header flex shrink-0 gap-2 border-b border-border/60 px-4",
-            (viewMode === "tasks" && selectedTask) ||
-              (viewMode === "files" && selectedFile)
-              ? "items-start py-3"
-              : "min-h-12 items-center py-2.5",
-          )}
-        >
-          <span className="app-completed-detail-cover relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden">
-            {detailCoverURL ? (
-              <img
-                src={detailCoverURL}
-                alt=""
-                aria-hidden="true"
-                className="h-full w-full object-cover"
-                loading="lazy"
-                decoding="async"
-                draggable={false}
-              />
-            ) : (
-              <ContentHeaderIcon className="h-5 w-5" />
-            )}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div
-              className="overflow-hidden break-words text-sm font-semibold leading-5 text-foreground/82 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
-              title={contentTitle}
-            >
-              {contentTitle}
-            </div>
-            {viewMode === "tasks" && selectedTask ? (
-              <CompletedTaskDetailHeaderMeta
-                text={props.text}
-                task={selectedTask}
-                className="mt-2"
-              />
-            ) : viewMode === "files" && selectedFile ? (
-              <CompletedFileDetailHeaderMeta
-                text={props.text}
-                file={selectedFile}
-                className="mt-2"
-              />
-            ) : null}
-          </div>
-        </div>
+        {viewMode === "tasks" && selectedTask ? (
+          <CompletedTaskDetailHeader
+            text={props.text}
+            task={selectedTask}
+            coverURL={detailCoverURL}
+            title={contentTitle}
+            fallbackIcon={<ContentHeaderIcon className="h-5 w-5" />}
+            selectedPreviewFileId={selectedPreviewFileId}
+            onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
+          />
+        ) : viewMode === "files" && selectedFile ? (
+          <CompletedFileDetailHeader
+            text={props.text}
+            file={selectedFile}
+            coverURL={detailCoverURL}
+            title={contentTitle}
+            fallbackIcon={<ContentHeaderIcon className="h-5 w-5" />}
+          />
+        ) : null}
         <div className="min-h-0 flex-1 overflow-hidden">{detailContent}</div>
       </aside>
     );
@@ -1596,11 +1574,6 @@ export function CompletedPage(props: {
                     entry,
                     props.text,
                   ).filter((item) => item.count > 0);
-                  const transcodeSourceLabel =
-                    formatCompletedTranscodedFromLabel(
-                      props.text,
-                      entry.sourceFileName,
-                    );
 
                   return (
                     <button
@@ -1676,20 +1649,9 @@ export function CompletedPage(props: {
                         >
                           {entry.operation.name}
                         </div>
-                        <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1 overflow-hidden text-2xs font-medium leading-4">
-                          {transcodeSourceLabel ? (
-                            <span
-                              className="inline-flex min-w-0 items-center gap-1"
-                              title={transcodeSourceLabel}
-                              aria-label={transcodeSourceLabel}
-                            >
-                              <FileCog className="h-3 w-3 shrink-0" />
-                              <span className="min-w-0 truncate">
-                                {transcodeSourceLabel}
-                              </span>
-                            </span>
-                          ) : fileSummaryItems.length > 0 ? (
-                            fileSummaryItems.map((item) => {
+                        {fileSummaryItems.length > 0 ? (
+                          <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1 overflow-hidden text-2xs font-medium leading-4">
+                            {fileSummaryItems.map((item) => {
                               const Icon = item.icon;
                               return (
                                 <span
@@ -1704,13 +1666,14 @@ export function CompletedPage(props: {
                                   </span>
                                 </span>
                               );
-                            })
-                          ) : (
-                            <span className="truncate">
-                              {props.text.completed.taskNoFiles}
-                            </span>
-                          )}
-                        </div>
+                            })}
+                          </div>
+                        ) : (
+                          <div
+                            className="app-completed-task-card-meta flex min-w-0 items-center overflow-hidden text-2xs font-medium leading-4"
+                            aria-hidden="true"
+                          />
+                        )}
                       </div>
                     </button>
                   );

@@ -1,4 +1,4 @@
-import { Copy, FileCog, FolderOpen, Loader2, RotateCcw } from "lucide-react";
+import { CheckCircle2, CircleSlash, Clock3, Copy, FileCog, FolderOpen, Loader2, RotateCcw, XCircle } from "lucide-react";
 import * as React from "react";
 
 import { CompletedVidstackPreview } from "@/app/main/CompletedVidstackPreview";
@@ -17,8 +17,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { formatBytes } from "@/shared/utils/formatBytes";
 
-import { canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveStatusTone,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import type { CompletedFileEntry,CompletedPreviewGroupKind,CompletedTaskEntry } from "@/app/main/types";
 
 const TASK_DETAIL_GROUP_ORDER: CompletedPreviewGroupKind[] = [
@@ -89,6 +90,7 @@ function formatTaskDTOValue(value: unknown): string {
 function buildTaskDTOInfoRows(
   operation: OperationListItemDTO,
   text: ReturnType<typeof getXiaText>,
+  transcodeSourceName?: string,
 ): TaskDTOInfoRow[] {
   const labels = text.completed.taskDataFields;
   const request = operation.request;
@@ -101,6 +103,9 @@ function buildTaskDTOInfoRows(
     ? text.completed.taskDataFields.enabled
     : "";
   const status = (operation.status ?? "").trim().toLowerCase();
+  const taskKind = (operation.kind ?? "").trim().toLowerCase();
+  const transcodeSourceLabel =
+    taskKind === "transcode" ? transcodeSourceName?.trim() ?? "" : "";
   const errorCode = (operation.errorCode ?? "").trim();
   const errorMessage = (operation.errorMessage ?? "").trim();
   const failureReason = errorMessage || errorCode || text.common.unknown;
@@ -116,6 +121,10 @@ function buildTaskDTOInfoRows(
       copyValue: request?.url?.trim() || undefined,
     },
     { label: labels.inputPath, value: formatTaskDTOValue(request?.inputPath) },
+    {
+      label: text.completed.transcodedFrom,
+      value: formatTaskDTOValue(transcodeSourceLabel),
+    },
     { label: labels.format, value: formatTaskDTOValue(request?.format) },
     { label: labels.preset, value: formatTaskDTOValue(request?.presetId) },
     { label: labels.videoCodec, value: formatTaskDTOValue(request?.videoCodec) },
@@ -529,45 +538,140 @@ export function CompletedPreviewSurface(props: {
   );
 }
 
-export function CompletedTaskDetailHeaderMeta(props: {
-  text: ReturnType<typeof getXiaText>;
-  task: CompletedTaskEntry;
-  className?: string;
-}) {
-  const resumeOperation = useResumeOperation();
-  const [taskInfoDialogOpen, setTaskInfoDialogOpen] = React.useState(false);
-  const sourceLabel = resolveCompletedTaskSourceLabel(props.task.operation);
-  const sourceConnectorType = resolveConnectorTypeForDomain(
-    props.task.operation.domain,
-  );
-  const updatedLabel = props.task.updatedAt
-    ? formatRelativeTime(props.task.updatedAt)
-    : props.text.common.unknown;
-  const taskStatus = (props.task.operation.status ?? "").trim().toLowerCase();
-  const taskKind = (props.task.operation.kind ?? "").trim().toLowerCase();
-  const transcodeSourceLabel = formatCompletedTranscodedFromLabel(
-    props.text,
-    props.task.sourceFileName,
-  );
-  const primarySourceLabel =
-    taskKind === "transcode" && transcodeSourceLabel
-      ? transcodeSourceLabel
-      : sourceLabel;
-  const canResumeTask =
-    (taskStatus === "failed" || taskStatus === "canceled") &&
-    (taskKind === "download" || taskKind === "transcode");
-  const taskDTOInfoRows = React.useMemo(
-    () => buildTaskDTOInfoRows(props.task.operation, props.text),
-    [props.task.operation, props.text],
+function buildFileDetailInfoRows(
+  file: CompletedFileEntry,
+  text: ReturnType<typeof getXiaText>,
+): TaskDTOInfoRow[] {
+  const labels = text.completed.taskDataFields;
+  const infoLabel = resolveCompletedFileDetailInfo(file, text).join(" / ");
+  const sourceLabel =
+    formatCompletedTranscodedFromLabel(text, file.sourceFileName) ||
+    file.libraryName;
+  return [
+    {
+      label: labels.name,
+      value: formatTaskDTOValue(file.name),
+      always: true,
+    },
+    {
+      label: text.completed.source,
+      value: formatTaskDTOValue(sourceLabel),
+      valueTooltip: sourceLabel,
+    },
+    {
+      label: text.completed.fileInfo,
+      value: formatTaskDTOValue(infoLabel),
+    },
+    {
+      label: text.completed.fileFormat,
+      value: resolveCompletedFileFormatLabel(file, text),
+    },
+    {
+      label: text.completed.fileSize,
+      value: file.sizeBytes > 0 ? formatBytes(file.sizeBytes) : "-",
+    },
+    {
+      label: labels.inputPath,
+      value: formatTaskDTOValue(file.path),
+      valueTooltip: file.path,
+    },
+    {
+      label: text.completed.updatedAt,
+      value: formatTaskDTOValue(file.updatedAt),
+      always: true,
+    },
+  ].filter((row) => row.always || row.value !== "-");
+}
+
+function resolveCompletedTaskHeaderStatusIcon(status?: string) {
+  switch ((status ?? "").trim().toLowerCase()) {
+    case "succeeded":
+      return CheckCircle2;
+    case "failed":
+      return XCircle;
+    case "canceled":
+      return CircleSlash;
+    default:
+      return Clock3;
+  }
+}
+
+function resolveCompletedTaskHeaderStatusIconTone(status?: string) {
+  switch ((status ?? "").trim().toLowerCase()) {
+    case "succeeded":
+      return "app-completed-status-icon-success";
+    case "failed":
+      return "app-completed-status-icon-danger";
+    case "canceled":
+      return "app-completed-status-icon-warning";
+    default:
+      return "app-completed-status-icon-muted";
+  }
+}
+
+function useCompletedTaskDetailFileGroups(
+  task: CompletedTaskEntry,
+  selectedPreviewFileId: string,
+) {
+  const groupedFiles = React.useMemo(() => {
+    const map = new Map<CompletedPreviewGroupKind, CompletedFileEntry[]>();
+    TASK_DETAIL_GROUP_ORDER.forEach((kind) => {
+      map.set(kind, []);
+    });
+    task.files.forEach((file) => {
+      const kind = resolveCompletedPreviewGroupKind(file);
+      const current = map.get(kind);
+      if (current) {
+        current.push(file);
+        return;
+      }
+      map.set(kind, [file]);
+    });
+    return map;
+  }, [task.files]);
+  const previewGroups = React.useMemo(
+    () =>
+      TASK_DETAIL_GROUP_ORDER.map((kind) => ({
+        kind,
+        files: groupedFiles.get(kind) ?? [],
+      })).filter((group) => group.files.length > 0),
+    [groupedFiles],
   );
 
-  const openTaskInfoDialog = () => setTaskInfoDialogOpen(true);
-  const handleCopyTaskDataValue = React.useCallback(
+  const selectedFile =
+    task.files.find((file) => file.id === selectedPreviewFileId) ??
+    previewGroups[0]?.files[0] ??
+    null;
+  const activeGroup =
+    previewGroups.find((group) =>
+      group.files.some((file) => file.id === selectedFile?.id),
+    ) ??
+    previewGroups[0] ??
+    null;
+
+  return {
+    groupedFiles,
+    previewGroups,
+    selectedFile,
+    activeGroup,
+    activeGroupFiles: activeGroup?.files ?? [],
+  };
+}
+
+function CompletedDetailInfoDialog(props: {
+  text: ReturnType<typeof getXiaText>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  rows: TaskDTOInfoRow[];
+}) {
+  const handleCopyValue = React.useCallback(
     async (value: string) => {
       try {
         await copyTextToClipboard(value);
         messageBus.publishToast({
-          id: "completed-task-data-clipboard",
+          id: "completed-detail-data-clipboard",
           intent: "success",
           title: props.text.completed.downloadUrlCopied,
           source: "xiadown.completed",
@@ -575,7 +679,7 @@ export function CompletedTaskDetailHeaderMeta(props: {
         });
       } catch (error) {
         messageBus.publishToast({
-          id: "completed-task-data-clipboard-failed",
+          id: "completed-detail-data-clipboard-failed",
           intent: "danger",
           title: props.text.completed.copyFailed,
           description: resolveUnknownErrorMessage(
@@ -588,6 +692,118 @@ export function CompletedTaskDetailHeaderMeta(props: {
       }
     },
     [props.text],
+  );
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="grid h-[min(30rem,calc(100vh-2rem))] w-[min(34rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="truncate pr-6 text-left">
+            {props.title}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {props.description}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogScrollArea className="min-h-0">
+          <DialogListCard className="app-completed-info-card shadow-none">
+            <DialogListCardContent>
+              {props.rows.map((row, index) => {
+                const copyValue = row.copyValue;
+                return (
+                  <div
+                    key={`${row.label}-${index}`}
+                    className="app-dialog-row grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] items-center gap-4 px-3 py-2.5 text-sm"
+                  >
+                    <span className="min-w-0 truncate text-left text-muted-foreground">
+                      {row.label}
+                    </span>
+                    <div className="flex min-w-0 items-center justify-end gap-1.5">
+                      {row.valueTooltip ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              tabIndex={0}
+                              className="min-w-0 cursor-help truncate rounded-sm text-right font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            >
+                              {row.value}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="top"
+                            align="end"
+                            sideOffset={6}
+                            multiline
+                            className="text-left"
+                          >
+                            {row.valueTooltip}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <span className="min-w-0 truncate text-right font-medium text-foreground">
+                          {row.value}
+                        </span>
+                      )}
+                      {copyValue ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild openOnFocus={false}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="compactIcon"
+                              className="app-completed-clipboard-action !h-6 !w-6 shrink-0"
+                              aria-label={props.text.completed.copyDownloadUrl}
+                              onClick={() => void handleCopyValue(copyValue)}
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="center" sideOffset={6}>
+                            {props.text.completed.copyDownloadUrl}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </DialogListCardContent>
+          </DialogListCard>
+        </DialogScrollArea>
+        <DialogFooter className="shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => props.onOpenChange(false)}
+          >
+            {props.text.actions.close}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function CompletedTaskDetailHeaderMeta(props: {
+  text: ReturnType<typeof getXiaText>;
+  task: CompletedTaskEntry;
+  className?: string;
+}) {
+  const resumeOperation = useResumeOperation();
+  const sourceLabel = resolveCompletedTaskSourceLabel(props.task.operation);
+  const sourceConnectorType = resolveConnectorTypeForDomain(
+    props.task.operation.domain,
+  );
+  const updatedLabel = props.task.updatedAt
+    ? formatRelativeTime(props.task.updatedAt)
+    : props.text.common.unknown;
+  const taskStatus = (props.task.operation.status ?? "").trim().toLowerCase();
+  const taskKind = (props.task.operation.kind ?? "").trim().toLowerCase();
+  const canResumeTask =
+    (taskStatus === "failed" || taskStatus === "canceled") &&
+    (taskKind === "download" || taskKind === "transcode");
+  const StatusIcon = resolveCompletedTaskHeaderStatusIcon(
+    props.task.operation.status,
   );
 
   const handleResumeTask = async () => {
@@ -611,186 +827,75 @@ export function CompletedTaskDetailHeaderMeta(props: {
   };
 
   return (
-    <>
-      <div
-        className={cn(
-          "app-completed-detail-meta-bar grid h-[var(--app-control-height-compact)] min-w-0 grid-cols-2 overflow-hidden text-xs font-medium",
-          props.className,
-        )}
-      >
-        <DetailValueTooltip label={props.text.completed.source}>
-          <button
-            type="button"
-            className="app-completed-detail-meta-button flex h-full min-w-0 items-center gap-1.5 px-2.5 text-left transition focus-visible:outline-none"
-            aria-label={props.text.completed.openTaskDto}
-            onClick={openTaskInfoDialog}
-          >
-            {taskKind === "transcode" && transcodeSourceLabel ? (
-              <FileCog className="h-3.5 w-3.5 shrink-0" />
-            ) : sourceConnectorType ? (
-              <ConnectorBrandIcon
-                connectorType={sourceConnectorType}
-                fallback="none"
-                className="h-3.5 w-3.5 shrink-0"
-              />
-            ) : null}
-            <span className="truncate">
-              {primarySourceLabel || props.text.common.unknown}
-            </span>
-          </button>
-        </DetailValueTooltip>
-
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] border-l border-border/70">
-          <DetailValueTooltip label={props.text.completed.updatedAt}>
-            <button
-              type="button"
-              className="app-completed-detail-meta-button flex h-full min-w-0 items-center justify-start px-2.5 text-left transition focus-visible:outline-none"
-              aria-label={props.text.completed.openTaskDto}
-              onClick={openTaskInfoDialog}
-            >
-              <span className="truncate">{updatedLabel}</span>
-            </button>
-          </DetailValueTooltip>
-          <DetailValueTooltip label={props.text.completed.taskStatus}>
-            <button
-              type="button"
-              className="app-completed-detail-meta-button inline-flex h-full shrink-0 items-center border-l border-border/70 px-2 transition focus-visible:outline-none"
-              aria-label={props.text.completed.openTaskDto}
-              onClick={openTaskInfoDialog}
-            >
-              <span
-                className={cn(
-                  "inline-flex h-5 items-center rounded-md px-1.5 text-2xs font-semibold",
-                  resolveStatusTone(props.task.operation.status),
-                )}
-              >
-                {resolveCompletedStatusLabel(
-                  props.text,
-                  props.task.operation.status,
-                )}
-              </span>
-            </button>
-          </DetailValueTooltip>
-          {canResumeTask ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="app-completed-detail-meta-action !h-[var(--app-control-height-compact)] !w-[var(--app-control-height-compact)] shrink-0 rounded-none border-l border-border/70 p-0"
-                  aria-label={props.text.actions.resume}
-                  disabled={resumeOperation.isPending}
-                  onClick={() => void handleResumeTask()}
-                >
-                  {resumeOperation.isPending ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RotateCcw className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {props.text.actions.resume}
-              </TooltipContent>
-            </Tooltip>
+    <div
+      className={cn(
+        "app-completed-detail-inline-meta flex min-w-0 items-center gap-2 text-xs font-medium",
+        props.className,
+      )}
+    >
+      <DetailValueTooltip label={props.text.completed.source}>
+        <span
+          className="app-completed-detail-inline-meta-item flex min-w-0 items-center gap-1.5 text-left transition focus-visible:outline-none"
+        >
+          {taskKind === "transcode" ? (
+            <FileCog className="h-3.5 w-3.5 shrink-0" />
+          ) : sourceConnectorType ? (
+            <ConnectorBrandIcon
+              connectorType={sourceConnectorType}
+              fallback="none"
+              className="h-3.5 w-3.5 shrink-0"
+            />
           ) : null}
-        </div>
-      </div>
+          <span className="truncate">
+            {sourceLabel || props.text.common.unknown}
+          </span>
+        </span>
+      </DetailValueTooltip>
 
-      <Dialog open={taskInfoDialogOpen} onOpenChange={setTaskInfoDialogOpen}>
-        <DialogContent className="grid h-[min(30rem,calc(100vh-2rem))] w-[min(34rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
-          <DialogHeader className="min-w-0">
-            <DialogTitle
-              className="truncate pr-6 text-left"
-            >
-              {props.text.completed.taskDtoTitle}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              {props.text.completed.taskDtoDescription}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogScrollArea className="min-h-0">
-            <DialogListCard className="app-completed-info-card shadow-none">
-              <DialogListCardContent>
-                {taskDTOInfoRows.map((row) => {
-                  const copyValue = row.copyValue;
-                  return (
-                    <div
-                      key={row.label}
-                      className="app-dialog-row grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] items-center gap-4 px-3 py-2.5 text-sm"
-                    >
-                      <span
-                        className="min-w-0 truncate text-left text-muted-foreground"
-                      >
-                        {row.label}
-                      </span>
-                      <div className="flex min-w-0 items-center justify-end gap-1.5">
-                        {row.valueTooltip ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span
-                                tabIndex={0}
-                                className="min-w-0 cursor-help truncate rounded-sm text-right font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                              >
-                                {row.value}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent
-                              side="top"
-                              align="end"
-                              sideOffset={6}
-                              multiline
-                              className="text-left"
-                            >
-                              {row.valueTooltip}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          <span className="min-w-0 truncate text-right font-medium text-foreground">
-                            {row.value}
-                          </span>
-                        )}
-                        {copyValue ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild openOnFocus={false}>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="compactIcon"
-                                className="app-completed-clipboard-action !h-6 !w-6 shrink-0"
-                                aria-label={props.text.completed.copyDownloadUrl}
-                                onClick={() =>
-                                  void handleCopyTaskDataValue(copyValue)
-                                }
-                              >
-                                <Copy className="h-3.5 w-3.5" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" align="center" sideOffset={6}>
-                              {props.text.completed.copyDownloadUrl}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </DialogListCardContent>
-            </DialogListCard>
-          </DialogScrollArea>
-          <DialogFooter className="shrink-0">
+      <DetailValueTooltip
+        label={`${props.text.completed.taskStatus} / ${props.text.completed.updatedAt}`}
+        value={`${resolveCompletedStatusLabel(props.text, props.task.operation.status)} ${updatedLabel}`}
+      >
+        <span
+          className="app-completed-detail-inline-meta-item app-completed-detail-inline-status-time flex min-w-0 items-center gap-1.5 text-left transition focus-visible:outline-none"
+        >
+          <StatusIcon
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              resolveCompletedTaskHeaderStatusIconTone(
+                props.task.operation.status,
+              ),
+            )}
+          />
+          <span className="min-w-0 truncate">{updatedLabel}</span>
+        </span>
+      </DetailValueTooltip>
+
+      {canResumeTask ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
               type="button"
-              variant="outline"
-              onClick={() => setTaskInfoDialogOpen(false)}
+              variant="ghost"
+              size="icon"
+              className="app-completed-detail-inline-action !h-6 !w-6 shrink-0 p-0"
+              aria-label={props.text.actions.resume}
+              disabled={resumeOperation.isPending}
+              onClick={() => void handleResumeTask()}
             >
-              {props.text.actions.close}
+              {resumeOperation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {props.text.actions.resume}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </div>
   );
 }
 
@@ -799,18 +904,14 @@ export function CompletedFileDetailHeaderMeta(props: {
   file: CompletedFileEntry;
   className?: string;
 }) {
-  const formatLabel = resolveCompletedFileFormatLabel(props.file, props.text);
-  const infoLabel = resolveCompletedFileDetailInfo(props.file, props.text).join(
-    " / ",
-  );
   const transcodeSourceLabel = formatCompletedTranscodedFromLabel(
     props.text,
     props.file.sourceFileName,
   );
-  const primaryInfoLabel = transcodeSourceLabel || infoLabel;
-  const primaryInfoTooltipLabel = transcodeSourceLabel
+  const sourceLabel = transcodeSourceLabel || props.file.libraryName;
+  const sourceTooltipLabel = transcodeSourceLabel
     ? props.text.completed.transcodedFrom
-    : props.text.completed.fileInfo;
+    : props.text.completed.source;
   const updatedLabel = props.file.updatedAt
     ? formatRelativeTime(props.file.updatedAt)
     : props.text.common.unknown;
@@ -818,30 +919,270 @@ export function CompletedFileDetailHeaderMeta(props: {
   return (
     <div
       className={cn(
-        "app-completed-detail-meta-bar grid h-[var(--app-control-height-compact)] min-w-0 grid-cols-2 overflow-hidden text-xs font-medium",
+        "app-completed-detail-inline-meta flex min-w-0 items-center gap-2 text-xs font-medium",
         props.className,
       )}
     >
-      <DetailValueTooltip label={primaryInfoTooltipLabel}>
-        <div className="app-completed-detail-meta-cell flex min-w-0 items-center px-2.5">
+      <DetailValueTooltip label={sourceTooltipLabel} value={sourceLabel}>
+        <span
+          className="app-completed-detail-inline-meta-item flex min-w-0 items-center gap-1.5 text-left transition focus-visible:outline-none"
+        >
+          {transcodeSourceLabel ? (
+            <FileCog className="h-3.5 w-3.5 shrink-0" />
+          ) : null}
           <span className="truncate">
-            {primaryInfoLabel || props.text.common.unknown}
+            {sourceLabel || props.text.common.unknown}
           </span>
-        </div>
+        </span>
       </DetailValueTooltip>
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] border-l border-border/70">
-        <DetailValueTooltip label={props.text.completed.updatedAt}>
-          <span className="app-completed-detail-meta-cell flex h-full min-w-0 items-center justify-start px-2.5 text-left">
-            <span className="truncate">{updatedLabel}</span>
-          </span>
-        </DetailValueTooltip>
-        <DetailValueTooltip label={props.text.completed.fileFormat}>
-          <span className="app-completed-detail-meta-cell inline-flex h-full max-w-[5.5rem] shrink-0 items-center border-l border-border/70 px-2.5">
-            <span className="truncate">{formatLabel}</span>
-          </span>
-        </DetailValueTooltip>
+      <DetailValueTooltip label={props.text.completed.updatedAt}>
+        <span
+          className="app-completed-detail-inline-meta-item flex min-w-0 items-center text-left transition focus-visible:outline-none"
+        >
+          <span className="truncate">{updatedLabel}</span>
+        </span>
+      </DetailValueTooltip>
+    </div>
+  );
+}
+
+export function CompletedTaskFilePicker(props: {
+  text: ReturnType<typeof getXiaText>;
+  task: CompletedTaskEntry;
+  selectedPreviewFileId: string;
+  onSelectedPreviewFileIdChange: (fileId: string) => void;
+  className?: string;
+}) {
+  const {
+    groupedFiles,
+    selectedFile,
+    activeGroup,
+    activeGroupFiles,
+  } = useCompletedTaskDetailFileGroups(
+    props.task,
+    props.selectedPreviewFileId,
+  );
+
+  return (
+    <div
+      className={cn(
+        "app-completed-task-file-picker overflow-hidden text-xs font-medium",
+        props.className,
+      )}
+    >
+      <div className="grid h-[var(--app-control-height-compact)] grid-cols-2">
+        <div
+          role="tablist"
+          className="app-completed-task-file-tabs grid min-w-0 grid-cols-3 items-center overflow-hidden"
+        >
+          {TASK_DETAIL_TAB_KINDS.map((kind) => {
+            const files = groupedFiles.get(kind) ?? [];
+            const Icon = resolveCompletedPreviewGroupIcon(kind);
+            const active = activeGroup?.kind === kind;
+            const enabled = files.length > 0;
+            return (
+              <Tooltip key={kind}>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    role="tab"
+                    aria-selected={enabled && active}
+                    aria-disabled={!enabled}
+                    disabled={!enabled}
+                    variant="ghost"
+                    size="compact"
+                    className={cn(
+                      "app-completed-task-file-tab !h-full w-full min-w-0 justify-center px-1 text-2xs disabled:pointer-events-auto",
+                      active && "app-completed-task-file-tab-active",
+                    )}
+                    onClick={() =>
+                      props.onSelectedPreviewFileIdChange(
+                        files.find((file) =>
+                          canPreviewCompletedFile(file),
+                        )?.id ?? files[0].id,
+                      )
+                    }
+                  >
+                    <Icon className="!h-2.5 !w-2.5" />
+                    <span className="tabular-nums">{files.length}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {resolveCompletedPreviewGroupLabel(kind, props.text)}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+
+        <div className="app-completed-task-file-select-slot flex min-w-0 items-center">
+          <Select
+            value={selectedFile?.id ?? activeGroupFiles[0]?.id ?? ""}
+            onChange={(event) =>
+              props.onSelectedPreviewFileIdChange(event.target.value)
+            }
+            disabled={activeGroupFiles.length === 0}
+            className="app-completed-task-file-select !h-full w-full min-w-0 rounded-none border-0 bg-transparent px-2.5 pr-6 text-xs font-medium shadow-none"
+          >
+            {activeGroupFiles.length > 0 ? (
+              activeGroupFiles.map((file, index) => (
+                <option key={file.id} value={file.id}>
+                  {file.name?.trim() ||
+                    `${resolveCompletedPreviewGroupLabel(activeGroup?.kind ?? "other", props.text)} ${index + 1}`}
+                </option>
+              ))
+            ) : (
+              <option value="" />
+            )}
+          </Select>
+        </div>
       </div>
     </div>
+  );
+}
+
+export function CompletedTaskDetailHeader(props: {
+  text: ReturnType<typeof getXiaText>;
+  task: CompletedTaskEntry;
+  coverURL: string;
+  title: string;
+  fallbackIcon: React.ReactNode;
+  selectedPreviewFileId: string;
+  onSelectedPreviewFileIdChange: (fileId: string) => void;
+}) {
+  const [taskInfoDialogOpen, setTaskInfoDialogOpen] = React.useState(false);
+  const taskDTOInfoRows = React.useMemo(
+    () =>
+      buildTaskDTOInfoRows(
+        props.task.operation,
+        props.text,
+        props.task.sourceFileName,
+      ),
+    [props.task.operation, props.task.sourceFileName, props.text],
+  );
+  const openTaskInfoDialog = () => setTaskInfoDialogOpen(true);
+
+  return (
+    <>
+      <div className="app-completed-inline-detail-header grid shrink-0 gap-3 border-b border-border/60 px-4 py-3">
+        <div className="flex min-w-0 gap-2">
+          <button
+            type="button"
+            className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
+            aria-label={props.text.completed.openTaskDto}
+            onClick={openTaskInfoDialog}
+          >
+            {props.coverURL ? (
+              <img
+                src={props.coverURL}
+                alt=""
+                aria-hidden="true"
+                className="h-full w-full object-cover"
+                loading="lazy"
+                decoding="async"
+                draggable={false}
+              />
+            ) : (
+              props.fallbackIcon
+            )}
+          </button>
+          <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              className="app-completed-detail-title-button overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition focus-visible:outline-none [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+              title={props.title}
+              onClick={openTaskInfoDialog}
+            >
+              {props.title}
+            </button>
+            <CompletedTaskDetailHeaderMeta
+              text={props.text}
+              task={props.task}
+              className="mt-1.5"
+            />
+          </div>
+        </div>
+        <CompletedTaskFilePicker
+          text={props.text}
+          task={props.task}
+          selectedPreviewFileId={props.selectedPreviewFileId}
+          onSelectedPreviewFileIdChange={props.onSelectedPreviewFileIdChange}
+        />
+      </div>
+      <CompletedDetailInfoDialog
+        text={props.text}
+        open={taskInfoDialogOpen}
+        onOpenChange={setTaskInfoDialogOpen}
+        title={props.text.completed.taskDtoTitle}
+        description={props.text.completed.taskDtoDescription}
+        rows={taskDTOInfoRows}
+      />
+    </>
+  );
+}
+
+export function CompletedFileDetailHeader(props: {
+  text: ReturnType<typeof getXiaText>;
+  file: CompletedFileEntry;
+  coverURL: string;
+  title: string;
+  fallbackIcon: React.ReactNode;
+}) {
+  const [fileInfoDialogOpen, setFileInfoDialogOpen] = React.useState(false);
+  const fileInfoRows = React.useMemo(
+    () => buildFileDetailInfoRows(props.file, props.text),
+    [props.file, props.text],
+  );
+  const openFileInfoDialog = () => setFileInfoDialogOpen(true);
+
+  return (
+    <>
+      <div className="app-completed-inline-detail-header flex shrink-0 gap-2 border-b border-border/60 px-4 py-3">
+        <button
+          type="button"
+          className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
+          aria-label={props.text.completed.fileDetail}
+          onClick={openFileInfoDialog}
+        >
+          {props.coverURL ? (
+            <img
+              src={props.coverURL}
+              alt=""
+              aria-hidden="true"
+              className="h-full w-full object-cover"
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+            />
+          ) : (
+            props.fallbackIcon
+          )}
+        </button>
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            className="app-completed-detail-title-button overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition focus-visible:outline-none [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+            title={props.title}
+            onClick={openFileInfoDialog}
+          >
+            {props.title}
+          </button>
+          <CompletedFileDetailHeaderMeta
+            text={props.text}
+            file={props.file}
+            className="mt-1.5"
+          />
+        </div>
+      </div>
+      <CompletedDetailInfoDialog
+        text={props.text}
+        open={fileInfoDialogOpen}
+        onOpenChange={setFileInfoDialogOpen}
+        title={props.text.completed.fileDetail}
+        description={props.text.completed.fileDetail}
+        rows={fileInfoRows}
+      />
+    </>
   );
 }
 
@@ -850,123 +1191,18 @@ export function CompletedTaskDetailContent(props: {
   appName: string;
   task: CompletedTaskEntry;
   selectedPreviewFileId: string;
-  onSelectedPreviewFileIdChange: (fileId: string) => void;
   onTranscodeFile?: (file: CompletedFileEntry) => void;
   pet: Pet | null;
   petImageURL: string;
 }) {
-  const groupedFiles = React.useMemo(() => {
-    const map = new Map<CompletedPreviewGroupKind, CompletedFileEntry[]>();
-    TASK_DETAIL_GROUP_ORDER.forEach((kind) => {
-      map.set(kind, []);
-    });
-    props.task.files.forEach((file) => {
-      const kind = resolveCompletedPreviewGroupKind(file);
-      const current = map.get(kind);
-      if (current) {
-        current.push(file);
-        return;
-      }
-      map.set(kind, [file]);
-    });
-    return map;
-  }, [props.task.files]);
-  const previewGroups = React.useMemo(
-    () =>
-      TASK_DETAIL_GROUP_ORDER.map((kind) => ({
-        kind,
-        files: groupedFiles.get(kind) ?? [],
-      })).filter((group) => group.files.length > 0),
-    [groupedFiles],
+  const { selectedFile } = useCompletedTaskDetailFileGroups(
+    props.task,
+    props.selectedPreviewFileId,
   );
-
-  const selectedFile =
-    props.task.files.find((file) => file.id === props.selectedPreviewFileId) ??
-    previewGroups[0]?.files[0] ??
-    null;
-  const activeGroup =
-    previewGroups.find((group) =>
-      group.files.some((file) => file.id === selectedFile?.id),
-    ) ??
-    previewGroups[0] ??
-    null;
-  const activeGroupFiles = activeGroup?.files ?? [];
 
   return (
     <>
       <div className="flex h-full min-h-0 flex-col">
-        <div className="shrink-0 px-4 py-4">
-          <div className="app-completed-task-file-picker overflow-hidden text-xs font-medium">
-            <div className="grid h-[var(--app-control-height-compact)] grid-cols-2">
-              <div
-                role="tablist"
-                className="app-completed-task-file-tabs grid min-w-0 grid-cols-3 items-center overflow-hidden"
-              >
-                {TASK_DETAIL_TAB_KINDS.map((kind) => {
-                  const files = groupedFiles.get(kind) ?? [];
-                  const Icon = resolveCompletedPreviewGroupIcon(kind);
-                  const active = activeGroup?.kind === kind;
-                  const enabled = files.length > 0;
-                  return (
-                    <Tooltip key={kind}>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          role="tab"
-                          aria-selected={enabled && active}
-                          aria-disabled={!enabled}
-                          disabled={!enabled}
-                          variant="ghost"
-                          size="compact"
-                          className={cn(
-                            "app-completed-task-file-tab !h-full w-full min-w-0 justify-center px-1 text-2xs disabled:pointer-events-auto",
-                            active && "app-completed-task-file-tab-active",
-                          )}
-                          onClick={() =>
-                            props.onSelectedPreviewFileIdChange(
-                              files.find((file) =>
-                                canPreviewCompletedFile(file),
-                              )?.id ?? files[0].id,
-                            )
-                          }
-                        >
-                          <Icon className="!h-2.5 !w-2.5" />
-                          <span className="tabular-nums">{files.length}</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {resolveCompletedPreviewGroupLabel(kind, props.text)}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </div>
-
-              <div className="app-completed-task-file-select-slot flex min-w-0 items-center">
-                <Select
-                  value={selectedFile?.id ?? activeGroupFiles[0]?.id ?? ""}
-                  onChange={(event) =>
-                    props.onSelectedPreviewFileIdChange(event.target.value)
-                  }
-                  disabled={activeGroupFiles.length === 0}
-                  className="app-completed-task-file-select !h-full w-full min-w-0 rounded-none border-0 bg-transparent px-2.5 pr-6 text-xs font-medium shadow-none"
-                >
-                  {activeGroupFiles.length > 0 ? (
-                    activeGroupFiles.map((file, index) => (
-                      <option key={file.id} value={file.id}>
-                        {file.name?.trim() ||
-                          `${resolveCompletedPreviewGroupLabel(activeGroup?.kind ?? "other", props.text)} ${index + 1}`}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="" />
-                  )}
-                </Select>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div className="min-h-0 flex-1 overflow-hidden px-4 py-4">
           <CompletedPreviewSurface
             file={selectedFile}
