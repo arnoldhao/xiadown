@@ -1,3 +1,5 @@
+import type { Candidate as BrowserCDPCandidate } from "../../../bindings/xiadown/internal/application/browsercdp/models";
+
 export type AppearanceMode = "light" | "dark" | "auto";
 export type ThemeColor = string;
 export type ColorScheme = "default" | "contrast" | "slate" | "warm";
@@ -29,13 +31,7 @@ export interface Proxy {
 
 export type ProxySettings = Proxy;
 
-export interface BrowserCandidate {
-  id: string;
-  label: string;
-  execPath?: string;
-  available: boolean;
-  error?: string;
-}
+export type BrowserCandidate = Omit<BrowserCDPCandidate, "id"> & { id: string };
 
 export interface SystemProxyInfo {
   address: string;
