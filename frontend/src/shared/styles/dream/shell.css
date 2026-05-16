@@ -1,0 +1,619 @@
+.app-dream-window,
+.app-settings-window {
+  font-family:
+    var(--app-font-body),
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  font-synthesis: weight;
+}
+
+.app-settings-window.app-dream-window {
+  background: var(--app-main-shell-aba-surface);
+  color: hsl(var(--foreground));
+}
+
+.app-settings-window .app-dream-header {
+  border-color: hsl(var(--foreground) / 0.055);
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.app-settings-window .app-dream-content {
+  background: transparent;
+}
+
+.app-settings-window .app-dream-card {
+  background: var(--dream-settings-card-surface);
+  box-shadow: var(--dream-settings-card-shadow);
+}
+
+.app-settings-window .app-dream-row-compact {
+  min-height: var(--app-settings-row-compact-height);
+}
+
+.app-settings-window :is(.app-divider-soft, .app-dream-divider-soft) {
+  height: var(--app-settings-card-divider-size);
+  min-height: var(--app-settings-card-divider-size);
+  max-height: var(--app-settings-card-divider-size);
+  background: var(--app-settings-card-divider-color);
+}
+
+.app-settings-window :is(.app-divider-inset, .app-dream-divider-inset) {
+  width: calc(100% - (var(--app-settings-separator-inset) * 2));
+  margin-right: var(--app-settings-separator-inset);
+  margin-left: var(--app-settings-separator-inset);
+}
+
+.app-settings-window :is(.app-dream-badge[class], .app-settings-status-badge) {
+  height: var(--app-control-height-compact);
+  min-height: var(--app-control-height-compact);
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.app-settings-window .app-settings-status-badge {
+  padding-right: 0.75rem;
+  padding-left: 0.75rem;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(.app-dream-row-label, .app-settings-row-label) {
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--foreground) / 0.74);
+  font-size: 13px;
+  font-weight: 760;
+  font-variation-settings: "wght" 760;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(.app-dream-path-value, .app-settings-path-value) {
+  min-width: 0;
+  overflow: hidden;
+  color: hsl(var(--foreground) / 0.50);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(.app-dream-status-badge, .app-settings-status-badge) {
+  display: inline-flex;
+  height: 24px;
+  max-width: 10rem;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-secondary-surface);
+  box-shadow: none;
+  color: hsl(var(--foreground) / 0.68);
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(button.app-control-compact, button.app-control-compact-icon) {
+  height: 34px;
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-soft);
+  color: hsl(var(--foreground));
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 7px;
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact {
+  padding: 0 12px;
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact-icon {
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+}
+
+:is(.app-dream-window, .app-settings-window) :is(button.app-control-compact, button.app-control-compact-icon):hover {
+  background: var(--dream-surface-pressed);
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact.bg-destructive {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-window, .app-settings-window) button.app-control-compact.bg-destructive:hover {
+  background: hsl(var(--destructive) / 0.14);
+}
+
+:is(.app-dream-window, .app-settings-window) select.app-control-compact {
+  height: 34px;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--dream-surface-soft);
+  background-image:
+    linear-gradient(45deg, transparent 50%, hsl(var(--foreground) / 0.56) 50%),
+    linear-gradient(135deg, hsl(var(--foreground) / 0.56) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size:
+    5px 5px,
+    5px 5px;
+  box-shadow: none;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  padding: 0 28px 0 10px;
+}
+
+:is(.app-dream-window, .app-settings-window) select.app-control-compact:hover {
+  background-color: var(--dream-surface-pressed);
+}
+
+:is(.app-dream-window, .app-settings-window) select.app-control-compact:focus {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+:is(.app-dream-window, .app-settings-window) input.app-control-compact {
+  height: 34px;
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-soft);
+  box-shadow: none;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  padding: 0 10px;
+}
+
+:is(.app-dream-window, .app-settings-window) input.app-control-compact:focus {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) {
+  font-family:
+    var(--app-font-body),
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  font-synthesis: weight;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-content,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-view-viewport,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar {
+  border-color: var(--dream-divider-subtle);
+  background:
+    linear-gradient(180deg, var(--dream-accent-surface-muted), transparent 46%),
+    hsl(var(--background) / 0.82);
+  box-shadow: inset -1px 0 0 hsl(var(--foreground) / 0.04);
+  color: hsl(var(--foreground));
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+  backdrop-filter: blur(22px) saturate(1.12);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar::before {
+  opacity: 0;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar.app-main-sidebar-reverse-shell {
+  border-color: transparent;
+  background: var(--app-main-shell-aba-surface);
+  box-shadow: inset -1px 0 0 hsl(var(--foreground) / 0.035);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: 0;
+  border-radius: 1.125rem;
+  background: transparent;
+  color: hsl(var(--foreground) / 0.58);
+  box-shadow: none;
+  outline: none;
+  transform: translateZ(0);
+  transition:
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  opacity: 0;
+  transition:
+    opacity var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action::before {
+  inset: 5px;
+  z-index: 0;
+  border-radius: 0.875rem;
+  background:
+    radial-gradient(circle at 50% 0%, hsl(var(--primary) / 0.18), transparent 58%),
+    linear-gradient(180deg, hsl(var(--foreground) / 0.07), hsl(var(--foreground) / 0.035));
+  transform: scale(0.9);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action > svg {
+  position: relative;
+  z-index: 1;
+  transform: translateZ(0);
+  transition:
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    filter var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action:hover {
+  background: transparent;
+  color: hsl(var(--foreground));
+  transform: translateY(var(--app-motion-hover-lift-y));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action:hover::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action:hover > svg {
+  transform: scale(1.055);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action:active {
+  transform: scale(var(--app-motion-press-scale));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--ring) / 0.34),
+    0 10px 28px -24px hsl(var(--primary) / 0.44);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action[data-active="true"] {
+  background: transparent;
+  color: hsl(var(--primary));
+  box-shadow: 0 16px 34px -30px hsl(var(--primary) / 0.58);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action[data-active="true"]::before {
+  opacity: 1;
+  background:
+    radial-gradient(circle at 50% 0%, hsl(var(--primary) / 0.23), transparent 60%),
+    linear-gradient(180deg, hsl(var(--primary) / 0.16), hsl(var(--primary) / 0.09));
+  box-shadow: none;
+  transform: scale(1);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action[data-active="true"] > svg {
+  filter: drop-shadow(0 8px 12px hsl(var(--primary) / 0.18));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action[data-active="true"]:hover {
+  background: transparent;
+  color: hsl(var(--primary));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-user-button {
+  transition:
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-user-button:hover {
+  background: var(--dream-surface-hover);
+  transform: translateY(var(--app-motion-hover-lift-y));
+  box-shadow: 0 12px 26px -24px hsl(var(--foreground) / 0.48);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-user-button:active {
+  transform: scale(var(--app-motion-press-scale));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-user-button:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--ring) / 0.34),
+    0 10px 28px -24px hsl(var(--primary) / 0.44);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page-header,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page-toolbar {
+  border-color: var(--dream-divider-subtle);
+  background:
+    linear-gradient(180deg, var(--dream-accent-surface-muted), transparent),
+    var(--dream-header-surface);
+  -webkit-backdrop-filter: blur(22px) saturate(1.12);
+  backdrop-filter: blur(22px) saturate(1.12);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-page-footer {
+  border-color: var(--dream-divider-subtle);
+  background: var(--dream-footer-surface);
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-list-pane,
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-detail-pane {
+  border-color: var(--dream-divider-subtle);
+  background: hsl(var(--background));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-list-pane {
+  background: var(--dream-page-surface);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-main-completed-page, .app-main-pets-page, .app-main-connectors-page, .app-main-running-page) {
+  background: var(--app-main-shell-aba-surface);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-completed-page .app-main-list-content {
+  background: transparent;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-completed-page .app-main-page-footer {
+  border-color: transparent;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-completed-inline-detail {
+  border-color: transparent;
+  border-radius: var(--dream-radius-xl);
+  background:
+    linear-gradient(
+      180deg,
+      hsl(var(--background) / 0.46),
+      hsl(var(--background) / 0.30)
+    ),
+    hsl(var(--card) / 0.36);
+  box-shadow:
+    var(--dream-card-shadow),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.055),
+    inset 1px 0 0 var(--dream-line-muted);
+  -webkit-backdrop-filter: blur(28px) saturate(1.18);
+  backdrop-filter: blur(28px) saturate(1.18);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-completed-inline-detail-header {
+  border-color: var(--dream-line-muted);
+  background: transparent;
+}
+
+.app-completed-detail-cover {
+  border-radius: var(--dream-radius-md);
+  background:
+    linear-gradient(135deg, var(--dream-accent-surface-muted), hsl(var(--background) / 0.44));
+  color: hsl(var(--foreground) / 0.58);
+  box-shadow:
+    0 14px 30px -24px hsl(var(--foreground) / 0.62),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.08);
+}
+
+.app-completed-detail-cover > img {
+  transform: scale(1);
+  transition:
+    transform 300ms var(--app-motion-ease-standard),
+    filter 300ms var(--app-motion-ease-standard);
+}
+
+.app-completed-inline-detail:hover .app-completed-detail-cover > img {
+  transform: scale(1.035);
+  filter: saturate(1.04) contrast(1.02);
+}
+
+.app-completed-detail-cover-status {
+  border-radius: 9999px;
+  background: hsl(var(--background) / 0.76);
+  box-shadow:
+    0 8px 16px -12px hsl(var(--foreground) / 0.58),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.08);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-completed-detail-footer {
+  border-color: var(--dream-divider-muted);
+  background: transparent;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--app-radius-xl);
+  background: hsl(var(--card) / 0.82);
+  box-shadow: none;
+  isolation: isolate;
+  clip-path: inset(0 round var(--app-radius-xl));
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card .app-running-thumbnail-stage {
+  isolation: isolate;
+  contain: paint;
+  clip-path: inset(0 round var(--app-radius-xl));
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  opacity: 0.5;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card .app-running-thumbnail-stage + .absolute:not(.app-running-card-ring),
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card > .app-running-card-ring {
+  opacity: 0.55;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-soft);
+  color: hsl(var(--foreground));
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-surface-pressed);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-primary:not(.app-running-new-download-button) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-primary:not(.app-running-new-download-button):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-destructive,
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.text-destructive {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.bg-destructive:hover,
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.14);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.rounded-none {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) button.app-motion-surface.rounded-full {
+  border-radius: 9999px;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) {
+  border: 0;
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) {
+  overflow: hidden;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground) / 0.62);
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:not(.rounded-none) {
+  border-radius: var(--app-radius-sm);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:is([aria-selected="true"], [data-active="true"]),
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface.bg-primary:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button:is([aria-selected="true"], [data-active="true"]):hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-dream-tabs, .app-main-button-group, .app-main-tabs) button.app-motion-surface.bg-primary:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.text-destructive,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.app-motion-surface.text-destructive {
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.text-destructive:hover,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) button.app-motion-surface.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-summary,
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action {
+  display: inline-flex;
+  height: 2rem;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1;
+  margin: 0;
+  padding: 0 0.75rem;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-summary {
+  color: hsl(var(--foreground) / 0.62);
+  pointer-events: none;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action {
+  color: hsl(var(--foreground) / 0.62);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action:hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action.text-destructive {
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}

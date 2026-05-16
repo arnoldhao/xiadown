@@ -1,0 +1,295 @@
+.app-pets-skeleton-card {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
+}
+
+.app-pets-skeleton-glow {
+  background: linear-gradient(180deg, var(--dream-surface-soft), transparent 48%, hsl(var(--foreground) / 0.035));
+}
+
+.app-pets-skeleton-avatar,
+.app-pets-skeleton-label {
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-gallery-content {
+  background: transparent;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-gallery-toolbar {
+  color: var(--dream-text-strong);
+}
+
+.app-pets-loading {
+  color: var(--dream-text-soft);
+}
+
+.app-pets-empty-state {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  color: var(--dream-text-soft);
+}
+
+.app-pets-detail-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+}
+
+.app-pets-detail-card,
+.app-pets-guide-step,
+.app-pets-guide-tips,
+.app-pets-import-section {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
+  transform: translateZ(0);
+  transition:
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  animation: app-pets-panel-enter 260ms var(--app-motion-ease-enter) both;
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.app-pets-detail-card:hover,
+.app-pets-guide-step:hover {
+  transform: translateY(var(--app-motion-hover-lift-y));
+}
+
+.app-pets-metric {
+  color: var(--dream-text-muted);
+}
+
+.app-pets-metric-label {
+  color: var(--dream-text-soft);
+}
+
+.app-pets-metric-value {
+  color: var(--dream-text-strong);
+}
+
+.app-pets-detail-actions {
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  padding: 0;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action {
+  height: var(--dream-control-height);
+  min-height: var(--dream-control-height);
+  min-width: 0;
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  padding: 0 0.625rem;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action:hover,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action[data-active="true"],
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action[data-active="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  opacity: 1;
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action.text-destructive,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action.text-destructive {
+  color: hsl(var(--destructive));
+}
+
+:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action.text-destructive:hover,
+.app-dialog-content .app-pets-detail-actions .app-pets-detail-action.text-destructive:hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+.app-pets-animation-card {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-control-shadow);
+  color: var(--dream-text-muted);
+  outline: none;
+  transition:
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-pets-animation-card:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+  transform: translateY(var(--app-motion-hover-lift-y));
+}
+
+.app-pets-animation-card:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-pets-animation-card[data-active="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-pets-animation-card[data-active="true"]:hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-pets-gallery-card {
+  position: relative;
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
+  color: var(--dream-text-strong);
+  transform: translateZ(0);
+  transition:
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    filter var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  animation: app-pets-card-enter 260ms var(--app-motion-ease-enter) both;
+  -webkit-backdrop-filter: blur(14px) saturate(1.08);
+  backdrop-filter: blur(14px) saturate(1.08);
+}
+
+.app-pets-gallery-card::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset-block: -30%;
+  left: -44%;
+  z-index: 15;
+  width: 34%;
+  border-radius: inherit;
+  background:
+    linear-gradient(
+      100deg,
+      transparent 0%,
+      hsl(var(--background) / 0.12) 28%,
+      hsl(var(--background) / 0.56) 50%,
+      hsl(var(--primary) / 0.20) 64%,
+      transparent 100%
+    );
+  filter: blur(6px);
+  opacity: 0;
+  transform: translateX(-120%) skewX(-13deg);
+  mix-blend-mode: screen;
+}
+
+.app-pets-gallery-card:hover {
+  background: var(--dream-surface-hover);
+  box-shadow: var(--dream-card-shadow);
+  transform: translateY(var(--app-motion-hover-lift-y));
+  filter: saturate(1.04) contrast(1.01);
+}
+
+.app-pets-gallery-card:hover::after,
+.app-pets-gallery-card:focus-visible::after {
+  animation: app-pets-card-sheen 720ms var(--app-motion-ease-enter) both;
+}
+
+.app-pets-gallery-card:active {
+  transform: scale(var(--app-motion-press-scale));
+}
+
+.app-pets-gallery-card:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--dream-card-shadow),
+    inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-pets-gallery-card[data-default="true"] {
+  box-shadow:
+    var(--dream-card-shadow),
+    0 18px 42px -34px hsl(var(--primary) / 0.68),
+    inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-pets-gallery-card-imported {
+  background: var(--dream-primary-surface-muted);
+}
+
+.app-pets-gallery-card-online {
+  background: var(--dream-surface-card);
+}
+
+.app-pets-gallery-card-default {
+  background: var(--dream-surface-card);
+}
+
+.app-pets-guide-index {
+  background: var(--dream-primary-surface);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+  color: var(--dream-primary-text);
+}
+
+.app-pets-guide-bullet {
+  background: var(--dream-primary-text);
+  opacity: 0.72;
+}
+
+.app-pets-info-box {
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-settings-card-surface);
+  box-shadow: var(--dream-settings-card-shadow);
+  color: var(--dream-text-muted);
+}
+
+.app-pets-info-row > :first-child {
+  color: var(--dream-text-soft);
+}
+
+.app-pets-info-row > :last-child {
+  color: var(--dream-text-strong);
+}
+
+.app-pets-status-message {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+  animation: app-pets-status-enter 180ms var(--app-motion-ease-enter) both;
+}
+
+.app-pets-status-message[data-intent="success"] {
+  background: hsl(142 72% 42% / 0.11);
+  color: hsl(142 54% 30%);
+  box-shadow: inset 0 0 0 1px hsl(142 72% 42% / 0.14);
+}
+
+.dark .app-pets-status-message[data-intent="success"] {
+  color: hsl(142 62% 72%);
+}
+
+.app-pets-status-message[data-intent="danger"] {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.14);
+}
+
+@media (max-width: 900px) {
+  .app-pets-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

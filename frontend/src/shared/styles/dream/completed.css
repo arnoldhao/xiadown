@@ -1,0 +1,765 @@
+.app-completed-task-file-picker,
+.app-completed-detail-meta-bar {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+}
+
+.app-completed-detail-meta-bar :is(.border-l) {
+  border-color: var(--dream-line-muted);
+}
+
+.app-completed-detail-meta-cell {
+  color: var(--dream-text-muted);
+}
+
+.app-completed-detail-meta-button {
+  background: transparent;
+  color: var(--dream-text-muted);
+}
+
+.app-completed-detail-meta-button:hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-completed-detail-meta-button:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
+  border-radius: 0;
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-button.app-motion-surface.app-completed-detail-meta-action:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):disabled {
+  background: transparent;
+  color: var(--dream-text-soft);
+  opacity: 0.48;
+}
+
+.app-completed-task-card,
+.app-completed-file-card {
+  appearance: none;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  border: 0;
+  border-radius: var(--dream-radius-lg);
+  background: transparent;
+  color: var(--dream-text-strong);
+  box-shadow: none;
+  outline: none;
+  transition:
+    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+  animation: app-completed-card-enter 260ms var(--app-motion-ease-enter);
+}
+
+.app-completed-task-card:hover,
+.app-completed-file-card:hover {
+  box-shadow: none;
+}
+
+.app-completed-file-card:hover {
+  background: hsl(var(--background) / 0.36);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.045);
+}
+
+@media (hover: hover) {
+  .app-completed-task-card:hover,
+  .app-completed-file-card:hover {
+    transform: translateY(var(--app-motion-hover-lift-y));
+  }
+}
+
+.app-completed-task-card:active,
+.app-completed-file-card:active {
+  transform: scale(var(--app-motion-press-scale));
+}
+
+.app-completed-task-card:focus-visible,
+.app-completed-file-card:focus-visible {
+  box-shadow:
+    0 12px 28px -24px hsl(var(--foreground) / 0.35),
+    inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-completed-task-card[data-active="true"],
+.app-completed-file-card[data-active="true"] {
+  background: transparent;
+  box-shadow:
+    0 12px 28px -24px hsl(var(--primary) / 0.38),
+    inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-task-card[data-active="true"] {
+  box-shadow: none;
+}
+
+.app-completed-file-card[data-active="true"] {
+  background: hsl(var(--primary) / 0.055);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-task-card[data-selected="true"],
+.app-completed-file-card[data-selected="true"] {
+  background: hsl(var(--primary) / 0.045);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-task-card[data-selected="true"] {
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-completed-task-card-cover {
+  border-radius: var(--dream-radius-md);
+  background:
+    linear-gradient(135deg, var(--dream-accent-surface-muted), hsl(var(--background) / 0.44));
+  box-shadow:
+    0 14px 30px -24px hsl(var(--foreground) / 0.72),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.08);
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-cover,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-cover {
+  box-shadow:
+    0 16px 34px -26px hsl(var(--primary) / 0.58),
+    inset 0 0 0 1px var(--dream-primary-line-strong);
+}
+
+.app-completed-task-card-image {
+  transform: scale(1);
+  transition:
+    transform 300ms var(--app-motion-ease-standard),
+    filter 300ms var(--app-motion-ease-standard);
+}
+
+.app-completed-task-card:hover .app-completed-task-card-image,
+.app-completed-task-card:focus-visible .app-completed-task-card-image {
+  transform: scale(1.045);
+  filter: saturate(1.05) contrast(1.03);
+}
+
+.app-completed-task-card-glow {
+  opacity: 0;
+  filter: blur(5px) saturate(1.16);
+  transition: opacity var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-completed-task-card:hover .app-completed-task-card-glow,
+.app-completed-task-card:focus-visible .app-completed-task-card-glow {
+  opacity: 0.16;
+}
+
+.app-completed-task-card-cover-overlay {
+  background: linear-gradient(
+    180deg,
+    hsl(0 0% 100% / 0.10) 0%,
+    transparent 34%,
+    hsl(222 38% 8% / 0.20) 58%,
+    hsl(222 38% 8% / 0.56)
+  );
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-cover-overlay,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-cover-overlay {
+  background: linear-gradient(
+    180deg,
+    var(--dream-primary-surface-muted),
+    hsl(222 38% 8% / 0.2) 54%,
+    hsl(222 38% 8% / 0.5)
+  );
+}
+
+.app-completed-task-card-sheen {
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(0 0% 100% / 0.24),
+    transparent
+  );
+  filter: blur(7px);
+}
+
+.app-completed-task-card:hover .app-completed-task-card-sheen,
+.app-completed-task-card:focus-visible .app-completed-task-card-sheen {
+  animation: app-completed-card-sheen 700ms var(--app-motion-ease-enter) both;
+}
+
+.app-completed-task-card-status-icon {
+  border-radius: 9999px;
+  background: hsl(0 0% 0% / 0.34);
+  box-shadow:
+    inset 0 0 0 1px hsl(0 0% 100% / 0.10),
+    0 8px 20px -14px hsl(0 0% 0% / 0.75);
+  -webkit-backdrop-filter: blur(8px) saturate(1.12);
+  backdrop-filter: blur(8px) saturate(1.12);
+}
+
+.app-completed-task-card-time {
+  border-radius: calc(var(--dream-control-radius) - 0.35rem);
+  background: hsl(0 0% 0% / 0.34);
+  color: hsl(0 0% 100% / 0.82);
+  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.08);
+  -webkit-backdrop-filter: blur(8px) saturate(1.1);
+  backdrop-filter: blur(8px) saturate(1.1);
+}
+
+.app-completed-task-card-body {
+  background: transparent;
+}
+
+.app-completed-task-card-meta {
+  color: var(--dream-text-soft);
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-meta,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-meta {
+  color: var(--dream-primary-text);
+}
+
+.app-completed-task-card-title,
+.app-completed-file-title {
+  color: hsl(var(--foreground) / 0.78);
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-title,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-title,
+.app-completed-file-card[data-active="true"] .app-completed-file-title,
+.app-completed-file-card[data-selected="true"] .app-completed-file-title {
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.app-completed-file-card {
+  min-height: 3.75rem;
+  border-radius: var(--dream-radius-md);
+}
+
+.app-completed-file-thumb {
+  border-radius: var(--dream-radius-md);
+  background:
+    linear-gradient(135deg, var(--dream-accent-surface-muted), hsl(var(--background) / 0.42));
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--foreground) / 0.07),
+    0 12px 26px -22px hsl(var(--foreground) / 0.46);
+}
+
+.app-completed-file-thumb::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(180deg, hsl(0 0% 100% / 0.16), transparent 48%);
+  transition: opacity var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-completed-file-thumb > img {
+  transform: scale(1);
+  transition:
+    transform 300ms var(--app-motion-ease-standard),
+    filter 300ms var(--app-motion-ease-standard);
+}
+
+.app-completed-file-card:hover .app-completed-file-thumb > img,
+.app-completed-file-card:focus-visible .app-completed-file-thumb > img {
+  transform: scale(1.05);
+  filter: saturate(1.06) contrast(1.03);
+}
+
+.app-completed-file-card:hover .app-completed-file-thumb::after,
+.app-completed-file-card:focus-visible .app-completed-file-thumb::after {
+  opacity: 1;
+}
+
+.app-completed-file-icon {
+  background: hsl(var(--background) / 0.52);
+  color: hsl(var(--foreground) / 0.58);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.055);
+}
+
+.app-completed-file-icon-floating {
+  background: hsl(var(--background) / 0.72);
+  color: hsl(var(--foreground) / 0.68);
+  box-shadow:
+    0 8px 16px -13px hsl(var(--foreground) / 0.48),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.07);
+  -webkit-backdrop-filter: blur(8px) saturate(1.08);
+  backdrop-filter: blur(8px) saturate(1.08);
+}
+
+.app-completed-file-card[data-active="true"] .app-completed-file-icon,
+.app-completed-file-card[data-selected="true"] .app-completed-file-icon {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-file-subtitle,
+.app-completed-file-meta,
+.app-completed-file-size {
+  color: var(--dream-text-soft);
+}
+
+.app-completed-file-format {
+  min-width: 2.35rem;
+  text-align: center;
+  background: transparent;
+  color: var(--dream-text-soft);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.055);
+}
+
+.app-completed-file-card[data-preview-kind="video"] .app-completed-file-format,
+.app-completed-file-card[data-preview-kind="audio"] .app-completed-file-format {
+  background: transparent;
+  color: hsl(var(--primary) / 0.78);
+  box-shadow: inset 0 0 0 1px hsl(var(--primary) / 0.11);
+}
+
+.app-completed-file-card[data-preview-kind="image"] .app-completed-file-format {
+  background: transparent;
+  color: hsl(var(--accent-foreground) / 0.62);
+  box-shadow: inset 0 0 0 1px hsl(var(--accent-foreground) / 0.08);
+}
+
+.app-completed-file-card[data-active="true"] .app-completed-file-format,
+.app-completed-file-card[data-selected="true"] .app-completed-file-format {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-file-card[data-active="true"] .app-completed-file-subtitle,
+.app-completed-file-card[data-selected="true"] .app-completed-file-subtitle,
+.app-completed-file-card[data-active="true"] .app-completed-file-meta,
+.app-completed-file-card[data-selected="true"] .app-completed-file-meta,
+.app-completed-file-card[data-active="true"] .app-completed-file-size,
+.app-completed-file-card[data-selected="true"] .app-completed-file-size {
+  color: var(--dream-primary-text);
+}
+
+.app-completed-task-file-tabs {
+  gap: 0.125rem;
+  padding: 0.1875rem;
+}
+
+.app-completed-task-file-select-slot {
+  border-left: 1px solid var(--dream-line-muted);
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
+  min-height: 0;
+  border-radius: calc(var(--dream-control-radius) - 0.25rem);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  font-size: 0.625rem;
+  font-weight: 650;
+  gap: 0.25rem;
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.82);
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:is([aria-selected="true"], .app-completed-task-file-tab-active):not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+.app-dream-button.app-motion-surface.app-completed-task-file-tab:disabled:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
+  background: transparent;
+  color: var(--dream-text-soft);
+  opacity: 0.48;
+}
+
+select.app-dream-select.app-control-compact.app-completed-task-file-select {
+  height: 100%;
+  border-radius: 0;
+  background-color: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+select.app-dream-select.app-control-compact.app-completed-task-file-select:hover {
+  background-color: var(--dream-surface-hover);
+  color: hsl(var(--foreground) / 0.76);
+}
+
+select.app-dream-select.app-control-compact.app-completed-task-file-select:focus {
+  background-color: var(--dream-surface-pressed);
+  color: hsl(var(--foreground) / 0.82);
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-select.app-control-compact {
+  height: var(--dream-control-height-compact);
+  min-width: 0;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--dream-surface-soft);
+  background-image:
+    linear-gradient(45deg, transparent 50%, hsl(var(--foreground) / 0.48) 50%),
+    linear-gradient(135deg, hsl(var(--foreground) / 0.48) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size:
+    5px 5px,
+    5px 5px;
+  box-shadow: var(--dream-card-shadow);
+  color: var(--dream-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  padding: 0 28px 0 10px;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-select.app-control-compact {
+  color: var(--dream-text-muted);
+}
+
+.app-dream-select.app-control-compact:hover {
+  background-color: var(--dream-surface-pressed);
+  color: hsl(var(--foreground) / 0.72);
+}
+
+.app-dream-select.app-control-compact:focus,
+.app-dream-select.app-control-compact:focus-visible {
+  color: hsl(var(--foreground) / 0.78);
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-select.app-control-compact option {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+
+.app-dream-input.app-control-compact {
+  height: var(--dream-control-height-compact);
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  box-shadow: var(--dream-card-shadow);
+  color: var(--dream-text-strong);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  padding: 0 10px;
+}
+
+.app-dream-input.app-control-compact::placeholder {
+  color: hsl(var(--foreground) / 0.42);
+}
+
+.app-dream-input.app-control-compact:focus,
+.app-dream-input.app-control-compact:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-search-control .app-dream-input,
+.app-dream-search-control .app-dream-input:focus,
+.app-dream-search-control .app-dream-input:focus-visible {
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.app-dream-badge[class] {
+  min-height: 1.5rem;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  color: var(--dream-text-muted);
+  box-shadow: var(--dream-card-shadow);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.app-dream-badge.bg-primary,
+.app-dream-badge.text-primary,
+.app-dream-badge.text-primary-foreground {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-badge.bg-accent,
+.app-dream-badge.text-accent-foreground {
+  background: var(--dream-accent-surface);
+  color: var(--dream-accent-text);
+  box-shadow: inset 0 0 0 1px var(--dream-accent-line);
+}
+
+.app-dream-badge.bg-secondary,
+.app-dream-badge.text-secondary-foreground,
+.app-dream-badge.bg-muted,
+.app-dream-badge.text-muted-foreground,
+.app-dream-badge.text-foreground {
+  background: var(--dream-secondary-surface);
+  color: var(--dream-secondary-text);
+}
+
+.app-dream-badge.bg-destructive,
+.app-dream-badge.text-destructive,
+.app-dream-badge.text-destructive-foreground {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.08);
+}
+
+.app-dream-button-group,
+.app-dream-segment-group {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  overflow: hidden;
+}
+
+.app-dream-button-group :is(.app-dream-button, button.app-motion-surface, select.app-dream-select, input.app-dream-input, [role="tab"], [role="combobox"]),
+.app-dream-segment-group :is(.app-dream-button, button.app-motion-surface, select.app-dream-select, input.app-dream-input, [role="tab"], [role="combobox"]) {
+  min-height: var(--dream-control-height);
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(.app-dream-button, button.app-motion-surface, [role="tab"], [role="combobox"]):hover,
+.app-dream-segment-group :is(.app-dream-button, button.app-motion-surface, [role="tab"], [role="combobox"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+.app-dream-button-group :is(select.app-dream-select, input.app-dream-input),
+.app-dream-segment-group :is(select.app-dream-select, input.app-dream-input) {
+  height: var(--dream-control-height);
+  background-color: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground) {
+  background: var(--dream-accent-surface);
+  color: var(--dream-accent-text);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground):hover {
+  background: var(--dream-accent-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground),
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground) {
+  background: transparent;
+  color: hsl(var(--destructive));
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover,
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+.app-dream-button-group.app-dream-button-group-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: calc(var(--dream-control-height) + 0.25rem);
+  padding: 0.125rem;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
+  height: var(--dream-control-height);
+  min-height: var(--dream-control-height);
+  width: var(--dream-control-height);
+  min-width: var(--dream-control-height);
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  padding: 0;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-menu-content,
+.app-menu-content,
+.listen-dropdown-content {
+  overflow: hidden;
+  border: 1px solid hsl(var(--foreground) / 0.055);
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-settings-card-surface);
+  box-shadow:
+    var(--dream-settings-card-shadow),
+    0 18px 56px -36px hsl(var(--foreground) / 0.42);
+  padding: 0.25rem;
+  color: hsl(var(--popover-foreground));
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.app-dream-menu-item,
+.app-menu-item {
+  color: var(--dream-text-muted);
+}
+
+.app-menu-item[role="menuitemcheckbox"] {
+  padding-left: 2rem;
+}
+
+.app-menu-item[role="menuitemcheckbox"] > span:first-child {
+  left: 0.625rem;
+}
+
+.app-dream-menu-item:hover,
+.app-dream-menu-item:focus,
+.app-dream-menu-item[data-highlighted],
+.app-menu-item:hover,
+.app-menu-item:focus,
+.app-menu-item[data-highlighted] {
+  background: var(--dream-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-dream-menu-item:is(:hover, :focus, [data-highlighted]) :is(svg, span),
+.app-menu-item:is(:hover, :focus, [data-highlighted]) :is(svg, span) {
+  color: currentColor;
+}
+
+.app-dream-menu-item[data-state="checked"],
+.app-menu-item[data-state="checked"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-menu-item[data-state="checked"]:hover,
+.app-dream-menu-item[data-state="checked"]:focus,
+.app-dream-menu-item[data-state="checked"][data-highlighted],
+.app-menu-item[data-state="checked"]:hover,
+.app-menu-item[data-state="checked"]:focus,
+.app-menu-item[data-state="checked"][data-highlighted] {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-completed-filter-menu.app-menu-content {
+  border-radius: var(--dream-control-radius);
+  padding: 0.25rem;
+}
+
+.app-completed-filter-menu .app-menu-label {
+  padding: 0.375rem 0.5rem 0.5rem;
+  color: var(--dream-text-soft);
+}
+
+.app-completed-filter-menu .app-menu-separator {
+  margin: 0.25rem;
+  background: var(--app-settings-card-divider-color);
+}
+
+.app-completed-filter-menu-item,
+.app-completed-filter-menu-checkbox {
+  min-height: 2rem;
+  border-radius: var(--app-radius-md);
+  color: var(--dream-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.app-completed-filter-menu-item {
+  gap: 0.5rem;
+  padding: 0 0.625rem;
+}
+
+.app-completed-filter-menu-checkbox {
+  padding: 0 0.625rem 0 2rem;
+}
+
+.app-completed-filter-menu-icon,
+.app-completed-filter-menu-label {
+  color: var(--dream-text-muted);
+}
+
+.app-completed-filter-menu-checkbox > span:first-child {
+  left: 0.625rem;
+  color: var(--dream-primary-text);
+}
+
+.app-completed-filter-menu-item:is(:hover, :focus, [data-highlighted]),
+.app-completed-filter-menu-checkbox:is(:hover, :focus, [data-highlighted]) {
+  background: var(--dream-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-completed-filter-menu-item:is(:hover, :focus, [data-highlighted]) :is(.app-completed-filter-menu-icon, .app-completed-filter-menu-label) {
+  color: var(--dream-accent-text);
+}
+
+.app-completed-filter-menu-checkbox[data-state="checked"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-completed-filter-menu-checkbox[data-state="checked"]:is(:hover, :focus, [data-highlighted]) {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
