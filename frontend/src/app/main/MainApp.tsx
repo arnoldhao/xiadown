@@ -96,7 +96,7 @@ import { formatVersionBadge,normalizeDependencyVersion,resolveCompletedStatusLab
 import { CORE_DEPENDENCIES,MAIN_SIDEBAR_ACTION_CLASS,MAIN_SIDEBAR_ICON_CLASS,SETUP_STORAGE_KEY,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME,useSetupState } from "@/app/main/main-constants";
 import { NewTaskDialog } from "@/app/main/NewTaskDialog";
 import { ListenNowPlayingMiniPlayer,resolveSidebarSurface,SidebarIconButton } from "@/app/main/sidebar";
-import type { MainViewId,NewTaskDialogMode } from "@/app/main/types";
+import type { CompletedFileEntry,MainViewId,NewTaskDialogMode,NewTaskDialogTranscodeSource } from "@/app/main/types";
 import {
 WELCOME_DEBUG_EVENT,
 WelcomeScreen,
@@ -204,6 +204,8 @@ export function MainApp() {
   const [newTaskDialogMode, setNewTaskDialogMode] =
     React.useState<NewTaskDialogMode>("download");
   const [prefilledDownloadURL, setPrefilledDownloadURL] = React.useState("");
+  const [prefilledTranscodeSource, setPrefilledTranscodeSource] =
+    React.useState<NewTaskDialogTranscodeSource | null>(null);
   const [listenNowPlaying, setListenNowPlaying] =
     React.useState<ListenNowPlayingStatus | null>(null);
   const [listenControlCommand, setListenControlCommand] =
@@ -463,12 +465,29 @@ export function MainApp() {
   const openNewTaskDialog = React.useCallback((mode: NewTaskDialogMode, url = "") => {
     setNewTaskDialogMode(mode);
     setPrefilledDownloadURL(mode === "download" ? url : "");
+    setPrefilledTranscodeSource(null);
     setNewTaskDialogOpen(true);
   }, []);
 
   const openDownloadDialog = React.useCallback((url = "") => {
     openNewTaskDialog("download", url);
   }, [openNewTaskDialog]);
+
+  const openTranscodeDialog = React.useCallback((file: CompletedFileEntry) => {
+    const inputPath = file.path.trim();
+    if (!inputPath) {
+      return;
+    }
+    setNewTaskDialogMode("transcode");
+    setPrefilledDownloadURL("");
+    setPrefilledTranscodeSource({
+      fileId: file.canDelete ? file.id : undefined,
+      inputPath,
+      title: file.title || file.name,
+      author: file.author || undefined,
+    });
+    setNewTaskDialogOpen(true);
+  }, []);
 
   const sendListenCommand = React.useCallback(
     (command: ListenExternalCommand["command"]) => {
@@ -833,6 +852,7 @@ export function MainApp() {
               httpBaseURL={httpBaseURL}
               pet={activePet}
               petImageURL={activePetImageURL}
+              onTranscodeFile={openTranscodeDialog}
             />
           ) : activeView === "connections" ? (
             <ConnectorsSection />
@@ -877,6 +897,7 @@ export function MainApp() {
         onOpenChange={setNewTaskDialogOpen}
         initialMode={newTaskDialogMode}
         initialUrl={prefilledDownloadURL}
+        initialTranscodeSource={prefilledTranscodeSource}
         settings={settings}
       />
     </div>

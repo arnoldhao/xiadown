@@ -108,6 +108,7 @@ export function CompletedPage(props: {
   httpBaseURL: string;
   pet: Pet | null;
   petImageURL: string;
+  onTranscodeFile?: (file: CompletedFileEntry) => void;
 }) {
   const isWindows = System.IsWindows();
   const deleteOperations = useDeleteOperations();
@@ -1269,6 +1270,7 @@ export function CompletedPage(props: {
           task={selectedTask}
           selectedPreviewFileId={selectedPreviewFileId}
           onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
+          onTranscodeFile={props.onTranscodeFile}
           pet={props.pet}
           petImageURL={props.petImageURL}
         />
@@ -1277,6 +1279,7 @@ export function CompletedPage(props: {
           text={props.text}
           appName={props.text.appName}
           file={selectedFile}
+          onTranscodeFile={props.onTranscodeFile}
         />
       ) : null;
 
@@ -1292,11 +1295,6 @@ export function CompletedPage(props: {
             ? resolveCompletedImagePreviewURL(selectedFile)
             : selectedFile.coverURL
           : "";
-    const DetailStatusIcon =
-      viewMode === "tasks" && selectedTask
-        ? resolveCompletedTaskStatusIcon(selectedTask.operation.status)
-        : null;
-
     return (
       <aside
         ref={detailPaneRef}
@@ -1325,18 +1323,6 @@ export function CompletedPage(props: {
             ) : (
               <ContentHeaderIcon className="h-5 w-5" />
             )}
-            {DetailStatusIcon ? (
-              <span
-                className={cn(
-                  "app-completed-detail-cover-status absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center",
-                  resolveCompletedTaskStatusIconTone(
-                    selectedTask?.operation.status,
-                  ),
-                )}
-              >
-                <DetailStatusIcon className="h-3 w-3" aria-hidden="true" />
-              </span>
-            ) : null}
           </span>
           <div className="min-w-0 flex-1">
             <div
@@ -1503,6 +1489,12 @@ export function CompletedPage(props: {
                   const StatusIcon = resolveCompletedTaskStatusIcon(
                     entry.operation.status,
                   );
+                  const updatedAtLabel = entry.updatedAt
+                    ? formatRelativeTime(entry.updatedAt)
+                    : "";
+                  const statusTimeLabel = updatedAtLabel
+                    ? `${statusLabel} · ${updatedAtLabel}`
+                    : statusLabel;
                   const fileSummaryItems = buildCompletedTaskFileSummaryItems(
                     entry,
                     props.text,
@@ -1555,22 +1547,25 @@ export function CompletedPage(props: {
                           />
                         ) : null}
                         <span
-                          className={cn(
-                            "app-completed-task-card-status-icon absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center",
-                            resolveCompletedTaskStatusIconTone(
-                              entry.operation.status,
-                            ),
-                          )}
-                          title={statusLabel}
-                          aria-label={statusLabel}
+                          className="app-completed-task-card-status-time absolute bottom-1.5 left-1.5 inline-flex max-w-[calc(100%-0.75rem)] items-center gap-1 truncate px-2 py-1 text-2xs font-medium"
+                          title={statusTimeLabel}
+                          aria-label={statusTimeLabel}
                         >
-                          <StatusIcon className="h-4 w-4" aria-hidden="true" />
+                          <StatusIcon
+                            className={cn(
+                              "h-3 w-3 shrink-0",
+                              resolveCompletedTaskStatusIconTone(
+                                entry.operation.status,
+                              ),
+                            )}
+                            aria-hidden="true"
+                          />
+                          {updatedAtLabel ? (
+                            <span className="min-w-0 truncate">
+                              {updatedAtLabel}
+                            </span>
+                          ) : null}
                         </span>
-                        {entry.updatedAt ? (
-                          <span className="app-completed-task-card-time absolute bottom-1.5 left-1.5 inline-flex max-w-[calc(100%-0.75rem)] items-center truncate px-2 py-1 text-2xs font-medium">
-                            {formatRelativeTime(entry.updatedAt)}
-                          </span>
-                        ) : null}
                       </div>
                       <div className="app-completed-task-card-body relative grid gap-1 px-0.5 pt-1.5">
                         <div

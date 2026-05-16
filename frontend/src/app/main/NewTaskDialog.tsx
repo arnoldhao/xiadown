@@ -1,7 +1,7 @@
 import {
 ArrowRight,
 Download,
-FileVideo,
+FileCog,
 FolderOpen,
 Loader2,
 Pencil,
@@ -60,7 +60,7 @@ import { clampProgress,DependencyRepairCard } from "@/app/main/dependency-repair
 import { resolveUnknownErrorMessage } from "@/app/main/helpers";
 import { TASK_DIALOG_DEPENDENCIES } from "@/app/main/main-constants";
 import { applyTranscodePresetSelection,buildTranscodeCodecKey,filterTranscodePresetsForMediaType,formatSubtitleLabel,inferMediaTypeFromPath,pickDefaultFormat,pickDefaultTranscodePreset,resolveFileFormatLabel,resolveFormatMediaType,resolveOpenFileName,resolvePreparedConnectorType,resolveTranscodeCodecLabel,resolveTranscodeScaleLabel,resolveTranscodeScaleValue,selectAudioFormatId,splitFileNameForDisplay,uniqueOptions } from "@/app/main/new-task-dialog-helpers";
-import type { DownloadDialogStep,DownloadDialogTab,DownloadQuality,NewTaskDialogMode,SourceMediaType } from "@/app/main/types";
+import type { DownloadDialogStep,DownloadDialogTab,DownloadQuality,NewTaskDialogMode,NewTaskDialogTranscodeSource,SourceMediaType } from "@/app/main/types";
 
 export function InlineSwitch(props: {
   checked: boolean;
@@ -131,6 +131,7 @@ export function NewTaskDialog(props: {
   onOpenChange: (open: boolean) => void;
   initialMode?: NewTaskDialogMode;
   initialUrl?: string;
+  initialTranscodeSource?: NewTaskDialogTranscodeSource | null;
   settings: Settings | null;
 }) {
   const text = getXiaText(props.settings?.language);
@@ -173,6 +174,9 @@ export function NewTaskDialog(props: {
   const [customPresetId, setCustomPresetId] = React.useState("");
   const [customParseError, setCustomParseError] = React.useState("");
   const [transcodeInputPath, setTranscodeInputPath] = React.useState("");
+  const [transcodeSourceFileId, setTranscodeSourceFileId] = React.useState("");
+  const [transcodeSourceTitle, setTranscodeSourceTitle] = React.useState("");
+  const [transcodeSourceAuthor, setTranscodeSourceAuthor] = React.useState("");
   const [transcodePresetId, setTranscodePresetId] = React.useState("");
   const [transcodeScale, setTranscodeScale] = React.useState("");
   const [transcodeContainer, setTranscodeContainer] = React.useState("");
@@ -341,11 +345,34 @@ export function NewTaskDialog(props: {
   const showTranscodeFooter =
     activeMode === "transcode" && Boolean(transcodeInputPath);
 
+  const applyTranscodeInputPath = (
+    path: string,
+    source?: NewTaskDialogTranscodeSource | null,
+  ) => {
+    const mediaType = inferMediaTypeFromPath(path);
+    const defaultPreset = pickDefaultTranscodePreset(
+      presetsQuery.data ?? [],
+      mediaType,
+    );
+    setTranscodeInputPath(path);
+    setTranscodeSourceFileId(source?.fileId?.trim() ?? "");
+    setTranscodeSourceTitle(source?.title?.trim() ?? "");
+    setTranscodeSourceAuthor(source?.author?.trim() ?? "");
+    setTranscodePresetId(defaultPreset?.id ?? "");
+    applyTranscodePresetSelection(defaultPreset, {
+      setScale: setTranscodeScale,
+      setContainer: setTranscodeContainer,
+      setCodec: setTranscodeCodec,
+    });
+    setTranscodeSubmitError("");
+  };
+
   React.useEffect(() => {
     if (!props.open) {
       return;
     }
-    setActiveMode(props.initialMode ?? "download");
+    const initialMode = props.initialMode ?? "download";
+    setActiveMode(initialMode);
     setDownloadStep("input");
     setDownloadUrl(props.initialUrl ?? "");
     setDownloadPrepared(null);
@@ -362,14 +389,32 @@ export function NewTaskDialog(props: {
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
-    setTranscodeInputPath("");
-    setTranscodePresetId("");
-    setTranscodeScale("");
-    setTranscodeContainer("");
-    setTranscodeCodec("");
+    if (initialMode === "transcode" && props.initialTranscodeSource?.inputPath.trim()) {
+      applyTranscodeInputPath(
+        props.initialTranscodeSource.inputPath.trim(),
+        props.initialTranscodeSource,
+      );
+    } else {
+      setTranscodeInputPath("");
+      setTranscodeSourceFileId("");
+      setTranscodeSourceTitle("");
+      setTranscodeSourceAuthor("");
+      setTranscodePresetId("");
+      setTranscodeScale("");
+      setTranscodeContainer("");
+      setTranscodeCodec("");
+    }
     setTranscodeSubmitError("");
     autoPreparedInitialUrlRef.current = "";
-  }, [props.initialMode, props.initialUrl, props.open]);
+  }, [
+    props.initialMode,
+    props.initialTranscodeSource?.author,
+    props.initialTranscodeSource?.fileId,
+    props.initialTranscodeSource?.inputPath,
+    props.initialTranscodeSource?.title,
+    props.initialUrl,
+    props.open,
+  ]);
 
   React.useEffect(() => {
     if (!quickPresetId) {
@@ -619,19 +664,7 @@ export function NewTaskDialog(props: {
     if (!path) {
       return;
     }
-    const mediaType = inferMediaTypeFromPath(path);
-    const defaultPreset = pickDefaultTranscodePreset(
-      presetsQuery.data ?? [],
-      mediaType,
-    );
-    setTranscodeInputPath(path);
-    setTranscodePresetId(defaultPreset?.id ?? "");
-    applyTranscodePresetSelection(defaultPreset, {
-      setScale: setTranscodeScale,
-      setContainer: setTranscodeContainer,
-      setCodec: setTranscodeCodec,
-    });
-    setTranscodeSubmitError("");
+    applyTranscodeInputPath(path, null);
   };
 
   const handleCreateTranscode = async () => {
@@ -642,8 +675,10 @@ export function NewTaskDialog(props: {
     setTranscodeSubmitError("");
     try {
       await createTranscode.mutateAsync({
-        inputPath,
-        title: resolveOpenFileName(inputPath),
+        fileId: transcodeSourceFileId || undefined,
+        inputPath: transcodeSourceFileId ? undefined : inputPath,
+        title: transcodeSourceTitle || resolveOpenFileName(inputPath),
+        author: transcodeSourceAuthor || undefined,
         presetId: selectedTranscodePreset?.id || transcodePresetId || undefined,
         source: "xiadown.transcode.dialog",
       });
@@ -692,7 +727,7 @@ export function NewTaskDialog(props: {
               {
                 value: "transcode",
                 label: text.actions.transcode,
-                icon: <FileVideo className="h-3.5 w-3.5" />,
+                icon: <FileCog className="h-3.5 w-3.5" />,
               },
             ]}
             onValueChange={setActiveMode}

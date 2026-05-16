@@ -14,6 +14,19 @@
   color: var(--dream-text-muted);
 }
 
+.app-completed-detail-value-tooltip {
+  border: 1px solid var(--dream-line-muted);
+  background: var(--dream-surface-card);
+  color: var(--dream-text-strong);
+  box-shadow:
+    0 18px 48px -28px hsl(var(--foreground) / 0.65),
+    inset 0 1px 0 hsl(var(--background) / 0.62);
+}
+
+.app-completed-detail-value-tooltip > span[aria-hidden="true"] {
+  display: none;
+}
+
 .app-completed-detail-meta-button {
   background: transparent;
   color: var(--dream-text-muted);
@@ -70,6 +83,34 @@
   animation: app-completed-card-enter 260ms var(--app-motion-ease-enter);
 }
 
+.app-completed-task-card::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  opacity: 0;
+  transform: scale(0.985);
+  transition:
+    opacity var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.app-completed-task-card::before {
+  top: -0.25rem;
+  right: -0.25rem;
+  left: -0.25rem;
+  z-index: 0;
+  aspect-ratio: 1;
+  border-radius: calc(var(--dream-radius-md) + 0.25rem);
+  background:
+    radial-gradient(circle at 50% 45%, hsl(var(--primary) / 0.24), transparent 62%),
+    linear-gradient(180deg, hsl(var(--primary) / 0.09), transparent 72%);
+}
+
+.app-completed-task-card > * {
+  position: relative;
+  z-index: 1;
+}
+
 .app-completed-task-card:hover,
 .app-completed-file-card:hover {
   box-shadow: none;
@@ -108,6 +149,7 @@
 }
 
 .app-completed-task-card[data-active="true"] {
+  background: transparent;
   box-shadow: none;
 }
 
@@ -127,6 +169,12 @@
   box-shadow: none;
 }
 
+.app-completed-task-card[data-active="true"]::before,
+.app-completed-task-card[data-selected="true"]::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .app-completed-task-card-cover {
   border-radius: var(--dream-radius-md);
   background:
@@ -136,11 +184,26 @@
     inset 0 0 0 1px hsl(var(--foreground) / 0.08);
 }
 
+.app-completed-task-card-cover::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: linear-gradient(180deg, transparent 58%, hsl(var(--primary) / 0.12));
+  box-shadow: inset 0 -30px 46px -34px hsl(var(--primary) / 0.62);
+  transition: opacity var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
 .app-completed-task-card[data-active="true"] .app-completed-task-card-cover,
 .app-completed-task-card[data-selected="true"] .app-completed-task-card-cover {
-  box-shadow:
-    0 16px 34px -26px hsl(var(--primary) / 0.58),
-    inset 0 0 0 1px var(--dream-primary-line-strong);
+  box-shadow: 0 18px 38px -25px hsl(var(--primary) / 0.68);
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-cover::after,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-cover::after {
+  opacity: 1;
 }
 
 .app-completed-task-card-image {
@@ -163,8 +226,15 @@
 }
 
 .app-completed-task-card:hover .app-completed-task-card-glow,
-.app-completed-task-card:focus-visible .app-completed-task-card-glow {
+.app-completed-task-card:focus-visible .app-completed-task-card-glow,
+.app-completed-task-card[data-active="true"] .app-completed-task-card-glow,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-glow {
   opacity: 0.16;
+}
+
+.app-completed-task-card[data-active="true"] .app-completed-task-card-glow,
+.app-completed-task-card[data-selected="true"] .app-completed-task-card-glow {
+  opacity: 0.24;
 }
 
 .app-completed-task-card-cover-overlay {
@@ -204,23 +274,29 @@
   animation: app-completed-card-sheen 700ms var(--app-motion-ease-enter) both;
 }
 
-.app-completed-task-card-status-icon {
-  border-radius: 9999px;
-  background: hsl(0 0% 0% / 0.34);
+.app-completed-task-card-status-time {
+  border-radius: calc(var(--dream-control-radius) - 0.35rem);
+  background:
+    linear-gradient(180deg, hsl(var(--background) / 0.34), hsl(var(--background) / 0.18)),
+    hsl(222 38% 8% / 0.26);
+  color: hsl(0 0% 100% / 0.82);
   box-shadow:
-    inset 0 0 0 1px hsl(0 0% 100% / 0.10),
-    0 8px 20px -14px hsl(0 0% 0% / 0.75);
-  -webkit-backdrop-filter: blur(8px) saturate(1.12);
-  backdrop-filter: blur(8px) saturate(1.12);
+    0 7px 16px -14px hsl(0 0% 0% / 0.62),
+    inset 0 0 0 1px hsl(0 0% 100% / 0.09),
+    inset 0 1px 0 hsl(0 0% 100% / 0.10);
+  text-shadow: 0 1px 1px hsl(0 0% 0% / 0.34);
+  -webkit-backdrop-filter: blur(12px) saturate(1.12);
+  backdrop-filter: blur(12px) saturate(1.12);
 }
 
-.app-completed-task-card-time {
-  border-radius: calc(var(--dream-control-radius) - 0.35rem);
-  background: hsl(0 0% 0% / 0.34);
-  color: hsl(0 0% 100% / 0.82);
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.08);
-  -webkit-backdrop-filter: blur(8px) saturate(1.1);
-  backdrop-filter: blur(8px) saturate(1.1);
+.dark .app-completed-task-card-status-time {
+  background:
+    linear-gradient(180deg, hsl(var(--background) / 0.44), hsl(var(--background) / 0.24)),
+    hsl(0 0% 0% / 0.22);
+  box-shadow:
+    0 7px 16px -14px hsl(0 0% 0% / 0.74),
+    inset 0 0 0 1px hsl(0 0% 100% / 0.08),
+    inset 0 1px 0 hsl(0 0% 100% / 0.07);
 }
 
 .app-completed-task-card-body {

@@ -1,4 +1,4 @@
-import { Copy, FolderOpen, Loader2, RotateCcw } from "lucide-react";
+import { Copy, FileCog, FolderOpen, Loader2, RotateCcw } from "lucide-react";
 import * as React from "react";
 
 import { CompletedVidstackPreview } from "@/app/main/CompletedVidstackPreview";
@@ -18,7 +18,7 @@ import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
-import { canPreviewCompletedFile,formatRelativeTime,resolveCompletedFileDetailFooterMeta,resolveCompletedFileDetailInfo,resolveCompletedFileFooterTooltipLabels,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveStatusTone,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { canPreviewCompletedFile,formatRelativeTime,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveStatusTone,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import type { CompletedFileEntry,CompletedPreviewGroupKind,CompletedTaskEntry } from "@/app/main/types";
 
 const TASK_DETAIL_GROUP_ORDER: CompletedPreviewGroupKind[] = [
@@ -177,17 +177,28 @@ function buildTaskDTOInfoRows(
 export function DetailValueTooltip(props: {
   label: string;
   side?: React.ComponentProps<typeof TooltipContent>["side"];
+  value?: string;
   children: React.ReactElement;
 }) {
   const label = props.label?.trim();
   if (!label) {
     return props.children;
   }
+  const value = props.value?.trim() ?? "";
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>{props.children}</TooltipTrigger>
-      <TooltipContent side={props.side ?? "top"}>{label}</TooltipContent>
+      {value ? (
+        <TooltipContent
+          side={props.side ?? "top"}
+          className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+        >
+          {label} {value}
+        </TooltipContent>
+      ) : (
+        <TooltipContent side={props.side ?? "top"}>{label}</TooltipContent>
+      )}
     </Tooltip>
   );
 }
@@ -196,6 +207,7 @@ export function CompletedFileInfoSegmentGroup(props: {
   file: CompletedFileEntry | null;
   text: ReturnType<typeof getXiaText>;
   className?: string;
+  onTranscodeFile?: (file: CompletedFileEntry) => void;
 }) {
   const openFileLocation = useOpenLibraryFileLocation();
   const openPath = useOpenLibraryPath();
@@ -207,13 +219,12 @@ export function CompletedFileInfoSegmentGroup(props: {
   const previewKind = props.file
     ? resolveCompletedPreviewKind(props.file)
     : "other";
-  const footerMeta = props.file
-    ? resolveCompletedFileDetailFooterMeta(props.file, props.text)
+  const footerItems = props.file
+    ? resolveCompletedFileDetailFooterItems(props.file, props.text)
     : [];
-  const footerTooltipLabels = resolveCompletedFileFooterTooltipLabels(
-    previewKind,
-    props.text,
-  );
+  const canTranscode =
+    Boolean(props.file && path && props.onTranscodeFile) &&
+    (previewKind === "video" || previewKind === "audio");
 
   const handleOpenFolder = async () => {
     if (!props.file || !canOpenLocation) {
@@ -258,11 +269,12 @@ export function CompletedFileInfoSegmentGroup(props: {
     <div className={cn("flex justify-center", props.className)}>
       <div className="app-completed-detail-meta-bar flex max-w-full min-w-0 items-center overflow-hidden">
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-          {footerMeta.length > 0 ? (
-            footerMeta.map((item, index) => (
+          {footerItems.length > 0 ? (
+            footerItems.map((item, index) => (
               <DetailValueTooltip
                 key={`${props.file?.id ?? "empty"}-footer-${index}`}
-                label={footerTooltipLabels[index] ?? props.text.completed.info}
+                label={item.label}
+                value={item.value}
               >
                 <span
                   className={cn(
@@ -270,7 +282,7 @@ export function CompletedFileInfoSegmentGroup(props: {
                     index > 0 && "border-l border-border/70",
                   )}
                 >
-                  <span className="truncate">{item}</span>
+                  <span className="truncate">{item.value}</span>
                 </span>
               </DetailValueTooltip>
             ))
@@ -284,6 +296,33 @@ export function CompletedFileInfoSegmentGroup(props: {
             </DetailValueTooltip>
           )}
         </div>
+
+        {(previewKind === "video" || previewKind === "audio") &&
+        props.onTranscodeFile ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="app-completed-detail-meta-action !h-[var(--app-control-height-compact)] !w-[var(--app-control-height-compact)] shrink-0 rounded-none border-l border-border/70 p-0"
+                aria-label={props.text.actions.transcode}
+                title={props.text.actions.transcode}
+                disabled={!canTranscode}
+                onClick={() => {
+                  if (props.file && canTranscode) {
+                    props.onTranscodeFile?.(props.file);
+                  }
+                }}
+              >
+                <FileCog className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {props.text.actions.transcode}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -794,6 +833,7 @@ export function CompletedTaskDetailContent(props: {
   task: CompletedTaskEntry;
   selectedPreviewFileId: string;
   onSelectedPreviewFileIdChange: (fileId: string) => void;
+  onTranscodeFile?: (file: CompletedFileEntry) => void;
   pet: Pet | null;
   petImageURL: string;
 }) {
@@ -928,6 +968,7 @@ export function CompletedTaskDetailContent(props: {
           <CompletedFileInfoSegmentGroup
             file={selectedFile}
             text={props.text}
+            onTranscodeFile={props.onTranscodeFile}
           />
         </div>
       </div>
@@ -939,6 +980,7 @@ export function CompletedFileDetailContent(props: {
   text: ReturnType<typeof getXiaText>;
   appName: string;
   file: CompletedFileEntry;
+  onTranscodeFile?: (file: CompletedFileEntry) => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -951,7 +993,11 @@ export function CompletedFileDetailContent(props: {
       </div>
 
       <div className="app-completed-detail-footer shrink-0 border-t border-border/60 px-4 pt-2.5 pb-3">
-        <CompletedFileInfoSegmentGroup file={props.file} text={props.text} />
+        <CompletedFileInfoSegmentGroup
+          file={props.file}
+          text={props.text}
+          onTranscodeFile={props.onTranscodeFile}
+        />
       </div>
     </div>
   );

@@ -751,77 +751,73 @@ export function resolveCompletedFileDetailInfo(
   }
 }
 
-export function resolveCompletedFileDetailFooterMeta(
+export function resolveCompletedFileDetailFooterItems(
   file: CompletedFileEntry,
   text: ReturnType<typeof getXiaText>,
 ) {
   const previewKind = resolveCompletedPreviewKind(file);
+  const compactItems = (items: Array<{ label: string; value: string }>) =>
+    items.filter((item) => item.value.trim().length > 0);
+  const fileFormat = resolveCompletedFileFormatLabel(file, text);
+  const codecSummary =
+    resolveCompletedCodecSummary(file.media) || text.common.unknown;
+  const fileSize = file.sizeBytes > 0 ? formatBytes(file.sizeBytes) : "";
 
   switch (previewKind) {
     case "video":
-      return [
-        file.media?.videoCodec ? formatCodecLabel(file.media.videoCodec) : "",
-        formatCompletedBitrate(
-          file.media?.videoBitrateKbps ?? file.media?.bitrateKbps,
-        ),
-        formatCompletedBitrate(file.media?.audioBitrateKbps),
-        file.sizeBytes > 0 ? formatBytes(file.sizeBytes) : "",
-      ].filter(Boolean);
+      return compactItems([
+        { label: text.completed.fileFormat, value: fileFormat },
+        { label: text.completed.codec, value: codecSummary },
+        {
+          label: text.completed.videoBitrate,
+          value: formatCompletedBitrate(
+            file.media?.videoBitrateKbps ?? file.media?.bitrateKbps,
+          ),
+        },
+        {
+          label: text.completed.audioBitrate,
+          value: formatCompletedBitrate(file.media?.audioBitrateKbps),
+        },
+        { label: text.completed.fileSize, value: fileSize },
+      ]);
     case "audio":
-      return [
-        formatCompletedBitrate(
-          file.media?.audioBitrateKbps ?? file.media?.bitrateKbps,
-        ),
-        file.sizeBytes > 0 ? formatBytes(file.sizeBytes) : "",
-      ].filter(Boolean);
+      return compactItems([
+        { label: text.completed.fileFormat, value: fileFormat },
+        { label: text.completed.codec, value: codecSummary },
+        {
+          label: text.completed.bitrate,
+          value: formatCompletedBitrate(
+            file.media?.audioBitrateKbps ?? file.media?.bitrateKbps,
+          ),
+        },
+        { label: text.completed.fileSize, value: fileSize },
+      ]);
     case "image":
-      return [
-        formatCompletedResolution(file.media?.width, file.media?.height),
-        formatCompletedDpi(file.media?.dpi),
-        file.sizeBytes > 0 ? formatBytes(file.sizeBytes) : "",
-      ].filter(Boolean);
+      return compactItems([
+        {
+          label: text.completed.resolution,
+          value: formatCompletedResolution(file.media?.width, file.media?.height),
+        },
+        { label: text.completed.dpi, value: formatCompletedDpi(file.media?.dpi) },
+        { label: text.completed.fileSize, value: fileSize },
+      ]);
     case "subtitle":
-      return [
-        resolveCompletedSubtitleOriginalFormat(file, text),
-        formatCompletedCueCount(file.media?.cueCount, text),
-        file.sizeBytes > 0 ? formatBytes(file.sizeBytes) : "",
-      ].filter(Boolean);
+      return compactItems([
+        {
+          label: text.completed.originalFormat,
+          value: resolveCompletedSubtitleOriginalFormat(file, text),
+        },
+        {
+          label: text.completed.lineCount,
+          value: formatCompletedCueCount(file.media?.cueCount, text),
+        },
+        { label: text.completed.fileSize, value: fileSize },
+      ]);
     default:
-      return [
-        resolveCompletedCodecSummary(file.media),
-        file.sizeBytes > 0 ? formatBytes(file.sizeBytes) : "",
-      ].filter(Boolean);
-  }
-}
-
-export function resolveCompletedFileFooterTooltipLabels(
-  previewKind: CompletedFileType,
-  text: ReturnType<typeof getXiaText>,
-) {
-  switch (previewKind) {
-    case "video":
-      return [
-        text.completed.codec,
-        text.completed.videoBitrate,
-        text.completed.audioBitrate,
-        text.completed.fileSize,
-      ];
-    case "audio":
-      return [text.completed.bitrate, text.completed.fileSize];
-    case "image":
-      return [
-        text.completed.resolution,
-        text.completed.dpi,
-        text.completed.fileSize,
-      ];
-    case "subtitle":
-      return [
-        text.completed.originalFormat,
-        text.completed.lineCount,
-        text.completed.fileSize,
-      ];
-    default:
-      return [text.completed.info, text.completed.fileSize];
+      return compactItems([
+        { label: text.completed.info, value: resolveCompletedCodecSummary(file.media) },
+        { label: text.completed.fileSize, value: fileSize },
+      ]);
   }
 }
 
