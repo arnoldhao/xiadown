@@ -232,7 +232,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	}
 
 	connectorsRepo := connectorsrepo.NewSQLiteConnectorRepository(database.Bun)
-	connectorsService := connectorsservice.NewConnectorsService(connectorsRepo)
+	connectorsService := connectorsservice.NewConnectorsService(connectorsRepo, connectorsservice.WithSettingsReader(settingsService))
 	if err := connectorsService.EnsureDefaults(ctx); err != nil {
 		return nil, err
 	}
@@ -312,6 +312,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		"embedded/pets",
 		filepath.Join("images", "pets"),
 		petsservice.WithMetadataRepository(petRepo),
+		petsservice.WithSettingsReader(settingsService),
 	)
 	if err := petsService.EnsureBuiltinPets(ctx); err != nil {
 		return nil, err

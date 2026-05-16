@@ -39,7 +39,7 @@ type XiaAccentMode,
 type XiaAppearanceSettings,
 } from "@/shared/styles/xiadown-theme";
 import { cn } from "@/lib/utils";
-import type { ProxySettings } from "@/shared/contracts/settings";
+import type { BrowserCandidate, ProxySettings } from "@/shared/contracts/settings";
 import { DialogMarkdown } from "@/shared/markdown/dialog-markdown";
 import {
 useDependencies,
@@ -47,7 +47,9 @@ useDependencyUpdates
 } from "@/shared/query/dependencies";
 import { useOpenLibraryPath } from "@/shared/query/library";
 import {
+useBrowserCandidates,
 useOpenLogDirectory,
+useRefreshBrowserCandidates,
 useSelectDownloadDirectory,
 useSettings,
 useSystemProxyInfo,
@@ -125,9 +127,28 @@ function DreamAppIcon(props: {
   );
 }
 
+function sortBrowserCandidates(candidates: BrowserCandidate[]) {
+  return [...candidates]
+    .filter((candidate) => candidate.available && candidate.id.trim() && candidate.label.trim())
+    .sort((left, right) => {
+      const labelCompare = left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
+      if (labelCompare !== 0) {
+        return labelCompare;
+      }
+      return left.id.localeCompare(right.id);
+    });
+}
+
+function resolveDefaultBrowserID(candidates: BrowserCandidate[]) {
+  const chrome = candidates.find((candidate) => candidate.id === "chrome");
+  return chrome?.id ?? candidates[0]?.id ?? "";
+}
+
 export function SettingsApp() {
   const settings = useSettingsStore((state) => state.settings);
   const { data: liveSettings } = useSettings();
+  const browserCandidatesQuery = useBrowserCandidates();
+  const refreshBrowserCandidates = useRefreshBrowserCandidates();
   const { data: fontFamilies = [], isLoading: isFontFamiliesLoading } = useFontFamilies();
   const updateSettings = useUpdateSettings();
   const selectDownloadDirectory = useSelectDownloadDirectory();
@@ -254,6 +275,17 @@ export function SettingsApp() {
     () => new Map((dependencyUpdatesQuery.data ?? []).map((item) => [item.name, item])),
     [dependencyUpdatesQuery.data],
   );
+  const browserOptions = React.useMemo(
+    () => sortBrowserCandidates(browserCandidatesQuery.data ?? []),
+    [browserCandidatesQuery.data],
+  );
+  const selectedDefaultBrowser = React.useMemo(() => {
+    const saved = (currentSettings?.defaultBrowser ?? "").trim();
+    if (saved && browserOptions.some((candidate) => candidate.id === saved)) {
+      return saved;
+    }
+    return resolveDefaultBrowserID(browserOptions);
+  }, [browserOptions, currentSettings?.defaultBrowser]);
 
   const isCheckingUpdate = updateInfo.status === "checking" || checkForUpdate.isPending;
   const isUpdateError = updateInfo.status === "error";
@@ -304,6 +336,14 @@ export function SettingsApp() {
 
   async function saveSettingsPatch(patch: Parameters<typeof updateSettings.mutateAsync>[0]) {
     await updateSettings.mutateAsync(patch);
+  }
+
+  async function handleRefreshBrowserCandidates() {
+    try {
+      await refreshBrowserCandidates.mutateAsync();
+    } catch (error) {
+      console.warn(error);
+    }
   }
 
   function renderLyricsTranscriptionSwitch(props: {
@@ -918,6 +958,46 @@ export function SettingsApp() {
                     <option value="zh-CN">{text.common.languages.zhCN}</option>
                     <option value="zh-TW">{text.common.languages.zhTW}</option>
                   </Select>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.defaultBrowser}>
+                  <div className="flex items-center gap-2">
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            onClick={() => void handleRefreshBrowserCandidates()}
+                            disabled={refreshBrowserCandidates.isPending}
+                            aria-label={text.settings.refreshBrowsers}
+                          >
+                            {refreshBrowserCandidates.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.refreshBrowsers}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <Select
+                      value={selectedDefaultBrowser}
+                      onChange={(event) => void saveSettingsPatch({ defaultBrowser: event.target.value })}
+                      className="w-48"
+                      disabled={browserOptions.length === 0}
+                    >
+                      {browserOptions.length === 0 ? (
+                        <option value="">{browserCandidatesQuery.isLoading ? text.settings.checking : text.settings.unavailable}</option>
+                      ) : (
+                        browserOptions.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.label}
+                          </option>
+                        ))
+                      )}
+                    </Select>
+                  </div>
                 </SettingsCompactRow>
               </SettingsCompactListCard>
 

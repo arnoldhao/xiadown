@@ -7,6 +7,7 @@ import (
 	"time"
 
 	appcookies "xiadown/internal/application/cookies"
+	settingsdto "xiadown/internal/application/settings/dto"
 	"xiadown/internal/domain/connectors"
 )
 
@@ -117,4 +118,27 @@ func TestFinalizeUsesCachedCookiesWhenCDPUnavailable(t *testing.T) {
 	if stored := decodeCookies(saved.CookiesJSON); len(stored) != 2 {
 		t.Fatalf("expected 2 stored cookies, got %d", len(stored))
 	}
+}
+
+func TestPreferredBrowserReadsSettings(t *testing.T) {
+	service := NewConnectorsService(
+		newMemoryConnectorRepo(),
+		WithSettingsReader(connectorSettingsReaderStub{settings: settingsdto.Settings{DefaultBrowser: "edge"}}),
+	)
+
+	if got := service.preferredBrowser(context.Background()); got != "edge" {
+		t.Fatalf("expected preferred browser from settings, got %q", got)
+	}
+}
+
+type connectorSettingsReaderStub struct {
+	settings settingsdto.Settings
+	err      error
+}
+
+func (stub connectorSettingsReaderStub) GetSettings(context.Context) (settingsdto.Settings, error) {
+	if stub.err != nil {
+		return settingsdto.Settings{}, stub.err
+	}
+	return stub.settings, nil
 }

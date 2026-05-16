@@ -31,6 +31,7 @@ type Settings struct {
 	colorScheme           ColorScheme
 	fontSize              int
 	language              Language
+	defaultBrowser        string
 	downloadDirectory     string
 	mainBounds            WindowBounds
 	settingsBounds        WindowBounds
@@ -57,6 +58,7 @@ type SettingsParams struct {
 	ColorScheme           string
 	FontSize              int
 	Language              string
+	DefaultBrowser        string
 	DownloadDirectory     string
 	MainBounds            WindowBounds
 	SettingsBounds        WindowBounds
@@ -318,6 +320,7 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		colorScheme:           colorScheme,
 		fontSize:              fontSize,
 		language:              parsedLanguage,
+		defaultBrowser:        normalizeDefaultBrowser(params.DefaultBrowser),
 		downloadDirectory:     downloadDirectory,
 		mainBounds:            params.MainBounds,
 		settingsBounds:        params.SettingsBounds,
@@ -348,6 +351,7 @@ func DefaultSettingsWithLanguage(language string) Settings {
 		colorScheme:           DefaultColorScheme,
 		fontSize:              DefaultFontSize,
 		language:              parsedLanguage,
+		defaultBrowser:        "",
 		downloadDirectory:     DefaultDownloadDirectory(),
 		mainBounds:            mainBounds,
 		settingsBounds:        settingsBounds,
@@ -557,6 +561,7 @@ func (settings Settings) FontSize() int                        { return settings
 func (settings Settings) ThemeColor() string                   { return settings.themeColor }
 func (settings Settings) ColorScheme() ColorScheme             { return settings.colorScheme }
 func (settings Settings) Language() Language                   { return settings.language }
+func (settings Settings) DefaultBrowser() string               { return settings.defaultBrowser }
 func (settings Settings) DownloadDirectory() string            { return settings.downloadDirectory }
 func (settings Settings) MainBounds() WindowBounds             { return settings.mainBounds }
 func (settings Settings) SettingsBounds() WindowBounds         { return settings.settingsBounds }
@@ -604,6 +609,10 @@ func positiveOrDefault(value int, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func normalizeDefaultBrowser(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func cloneAnyMap(source map[string]any) map[string]any {

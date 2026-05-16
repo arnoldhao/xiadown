@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"xiadown/internal/application/browsercdp"
 	"xiadown/internal/application/settings/dto"
 	"xiadown/internal/application/settings/service"
 	"xiadown/internal/domain/settings"
@@ -43,6 +44,14 @@ func (handler *SettingsHandler) ServiceName() string {
 
 func (handler *SettingsHandler) GetSettings(ctx context.Context) (dto.Settings, error) {
 	return handler.service.GetSettings(ctx)
+}
+
+func (handler *SettingsHandler) GetBrowserCandidates(_ context.Context) ([]browsercdp.Candidate, error) {
+	return browsercdp.DetectCandidates(), nil
+}
+
+func (handler *SettingsHandler) RefreshBrowserCandidates(_ context.Context) ([]browsercdp.Candidate, error) {
+	return browsercdp.RefreshCandidates(), nil
 }
 
 func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.UpdateSettingsRequest) (dto.Settings, error) {
@@ -316,6 +325,7 @@ func (handler *SettingsHandler) rollbackSettings(ctx context.Context, previous d
 		ThemeColor:            &previous.ThemeColor,
 		ColorScheme:           &previous.ColorScheme,
 		Language:              &previous.Language,
+		DefaultBrowser:        &previous.DefaultBrowser,
 		DownloadDirectory:     &previous.DownloadDirectory,
 		MainBounds:            &previous.MainBounds,
 		SettingsBounds:        &previous.SettingsBounds,

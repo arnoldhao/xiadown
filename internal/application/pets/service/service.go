@@ -20,6 +20,7 @@ import (
 	"github.com/HugoSmits86/nativewebp"
 	"github.com/google/uuid"
 	"xiadown/internal/application/pets/dto"
+	settingsdto "xiadown/internal/application/settings/dto"
 )
 
 const (
@@ -89,8 +90,13 @@ type Service struct {
 	devBuiltinDir  string
 	metadataRepo   MetadataRepository
 	importSessions map[string]*onlinePetImportSession
+	settingsReader SettingsReader
 	builtinReady   bool
 	now            func() time.Time
+}
+
+type SettingsReader interface {
+	GetSettings(ctx context.Context) (settingsdto.Settings, error)
 }
 
 func NewService(baseDir string, builtinFS fs.FS, builtinRoot string, devBuiltinDir string, options ...Option) *Service {
@@ -113,6 +119,12 @@ func NewService(baseDir string, builtinFS fs.FS, builtinRoot string, devBuiltinD
 func WithMetadataRepository(repo MetadataRepository) Option {
 	return func(service *Service) {
 		service.metadataRepo = repo
+	}
+}
+
+func WithSettingsReader(reader SettingsReader) Option {
+	return func(service *Service) {
+		service.settingsReader = reader
 	}
 }
 

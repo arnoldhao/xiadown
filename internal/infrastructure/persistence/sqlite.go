@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	color_scheme TEXT,
 	font_size INTEGER,
 	language TEXT,
+	default_browser TEXT,
 	download_directory TEXT,
 	log_level TEXT,
 	log_max_size_mb INTEGER,
@@ -994,6 +995,11 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			table:     "settings",
 			column:    "pinyin_lyrics",
 			statement: "ALTER TABLE settings ADD COLUMN pinyin_lyrics BOOLEAN DEFAULT 1",
+		},
+		{
+			table:     "settings",
+			column:    "default_browser",
+			statement: "ALTER TABLE settings ADD COLUMN default_browser TEXT",
 		},
 		{
 			table:     "telemetry_state",

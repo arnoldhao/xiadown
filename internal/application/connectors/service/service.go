@@ -13,6 +13,7 @@ import (
 	"xiadown/internal/application/browsercdp"
 	"xiadown/internal/application/connectors/dto"
 	appcookies "xiadown/internal/application/cookies"
+	settingsdto "xiadown/internal/application/settings/dto"
 	"xiadown/internal/application/sitepolicy"
 	"xiadown/internal/domain/connectors"
 )
@@ -28,6 +29,7 @@ type ConnectorsService struct {
 	readCookies         func(ctx context.Context) ([]appcookies.Record, error)
 	removeAll           func(path string) error
 	newSessionID        func() string
+	settingsReader      SettingsReader
 }
 
 const (
@@ -65,8 +67,14 @@ type connectorSession struct {
 	finalizeDone      chan struct{}
 }
 
-func NewConnectorsService(repo connectors.Repository) *ConnectorsService {
-	return &ConnectorsService{
+type SettingsReader interface {
+	GetSettings(ctx context.Context) (settingsdto.Settings, error)
+}
+
+type Option func(*ConnectorsService)
+
+func NewConnectorsService(repo connectors.Repository, options ...Option) *ConnectorsService {
+	service := &ConnectorsService{
 		repo:                repo,
 		now:                 time.Now,
 		sessions:            make(map[string]*connectorSession),
@@ -76,11 +84,29 @@ func NewConnectorsService(repo connectors.Repository) *ConnectorsService {
 		removeAll:           os.RemoveAll,
 		newSessionID:        uuid.NewString,
 	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
+}
+
+func WithSettingsReader(reader SettingsReader) Option {
+	return func(service *ConnectorsService) {
+		service.settingsReader = reader
+	}
 }
 
 func (service *ConnectorsService) preferredBrowser(ctx context.Context) string {
-	_ = ctx
-	return ""
+	if service == nil || service.settingsReader == nil {
+		return ""
+	}
+	current, err := service.settingsReader.GetSettings(ctx)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(current.DefaultBrowser)
 }
 
 func (service *ConnectorsService) EnsureDefaults(ctx context.Context) error {

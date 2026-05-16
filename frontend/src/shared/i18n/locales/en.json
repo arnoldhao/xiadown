@@ -459,6 +459,8 @@
       "pinyinLyrics": "Pinyin Lyrics",
       "macOSOnly": "Only available on macOS 10.14 or later",
       "downloadDirectory": "Download Directory",
+      "defaultBrowser": "Default Browser",
+      "refreshBrowsers": "Refresh Browser List",
       "language": "Language",
       "logLevel": "Log Level",
       "themePack": "Theme",

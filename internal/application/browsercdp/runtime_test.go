@@ -16,6 +16,17 @@ func TestBuildLaunchArgs_HeadfulAllowsStartupPage(t *testing.T) {
 	}
 }
 
+func TestBuildLaunchArgsBindsRemoteDebuggingToLoopback(t *testing.T) {
+	t.Parallel()
+
+	args := buildLaunchArgs(9222, "/tmp/xiadown-profile", LaunchOptions{})
+	joined := " " + strings.Join(args, " ") + " "
+
+	if !strings.Contains(joined, " --remote-debugging-address=127.0.0.1 ") {
+		t.Fatalf("expected cdp to bind loopback, args=%v", args)
+	}
+}
+
 func TestAppendStartupPageArg_HeadfulAddsPageAfterExtraArgs(t *testing.T) {
 	t.Parallel()
 

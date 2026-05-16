@@ -83,6 +83,7 @@ func (repo *SQLiteSettingsRepository) Get(ctx context.Context) (settings.Setting
 		ThemeColor:        stringOrEmpty(row.ThemeColor),
 		ColorScheme:       stringOrEmpty(row.ColorScheme),
 		Language:          stringOrEmpty(row.Language),
+		DefaultBrowser:    stringOrEmpty(row.DefaultBrowser),
 		DownloadDirectory: stringOrEmpty(row.DownloadDirectory),
 		MainBounds:        mainBounds,
 		SettingsBounds:    settingsBounds,
@@ -125,6 +126,7 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		ThemeColor:            nullString(current.ThemeColor()),
 		ColorScheme:           nullString(current.ColorScheme().String()),
 		Language:              nullString(current.Language().String()),
+		DefaultBrowser:        nullString(current.DefaultBrowser()),
 		DownloadDirectory:     nullString(current.DownloadDirectory()),
 		LogLevel:              nullString(current.LogLevel().String()),
 		LogMaxSize:            nullInt64(current.LogMaxSizeMB()),
@@ -168,6 +170,7 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		Set("theme_color = EXCLUDED.theme_color").
 		Set("color_scheme = EXCLUDED.color_scheme").
 		Set("language = EXCLUDED.language").
+		Set("default_browser = EXCLUDED.default_browser").
 		Set("download_directory = EXCLUDED.download_directory").
 		Set("log_level = EXCLUDED.log_level").
 		Set("log_max_size_mb = EXCLUDED.log_max_size_mb").
