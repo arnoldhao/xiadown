@@ -243,27 +243,46 @@ func (service *PlayerService) playRequestLocked(track Track, options PlayOptions
 }
 
 func (service *PlayerService) executeActions(ctx context.Context, actions ...transportAction) error {
-	if service.transport == nil {
-		return nil
-	}
 	for _, action := range actions {
 		var err error
 		switch action.kind {
 		case "":
 			continue
 		case "load":
+			service.requestTrackMetadataEnrichment(action.request.Track)
+			if service.transport == nil {
+				continue
+			}
 			err = service.transport.LoadVideo(ctx, action.request, action.strategy)
 		case "play":
+			if service.transport == nil {
+				continue
+			}
 			err = service.transport.Play(ctx)
 		case "pause":
+			if service.transport == nil {
+				continue
+			}
 			err = service.transport.Pause(ctx)
 		case "seek":
+			if service.transport == nil {
+				continue
+			}
 			err = service.transport.Seek(ctx, action.seconds)
 		case "volume":
+			if service.transport == nil {
+				continue
+			}
 			err = service.transport.SetVolume(ctx, action.volume, action.muted)
 		case "next":
+			if service.transport == nil {
+				continue
+			}
 			err = service.transport.Next(ctx)
 		case "previous":
+			if service.transport == nil {
+				continue
+			}
 			err = service.transport.Previous(ctx)
 		}
 		if err != nil {

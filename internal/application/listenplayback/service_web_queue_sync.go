@@ -64,12 +64,17 @@ func (service *PlayerService) UpdateTrackMetadata(ctx context.Context, observed 
 	observed.ThumbnailURL = stringsTrim(observed.ThumbnailURL)
 	observed.LikeStatus = stringsTrim(observed.LikeStatus)
 
+	var trackForEnrichment Track
 	service.mu.Lock()
 	before := service.metadataPublishStateLocked()
 	actions := service.updateTrackMetadataLocked(ctx, observed)
 	shouldPublish := service.metadataPublishStateChangedLocked(before)
+	if service.hasCurrentTrack {
+		trackForEnrichment = service.currentTrack
+	}
 	service.mu.Unlock()
 	err := service.executeActions(ctx, actions...)
+	service.requestTrackMetadataEnrichment(trackForEnrichment)
 	if shouldPublish || len(actions) > 0 {
 		service.PublishSnapshot(ctx)
 		service.saveCurrentSession(ctx)

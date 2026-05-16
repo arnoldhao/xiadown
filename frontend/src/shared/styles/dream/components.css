@@ -1293,15 +1293,15 @@
     gap: 6px;
   }
 
-  .listen-video-title-line h1,
-  .listen-video-title-line span {
+  .listen-video-title-line > h1,
+  .listen-video-title-line > span {
     overflow: hidden;
     margin: 0;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .listen-video-title-line h1 {
+  .listen-video-title-line > h1 {
     max-width: 68%;
     min-width: 0;
     color: hsl(var(--foreground) / 0.88);
@@ -1311,7 +1311,7 @@
     line-height: 18px;
   }
 
-  .listen-video-title-line span {
+  .listen-video-title-line > span {
     max-width: 30%;
     color: hsl(var(--foreground) / 0.52);
     -webkit-text-fill-color: hsl(var(--foreground) / 0.52);
@@ -1320,7 +1320,7 @@
     line-height: 14px;
   }
 
-  .listen-video-title-line span::before {
+  .listen-video-title-line > span::before {
     content: "·";
     margin-right: 6px;
     color: hsl(var(--foreground) / 0.32);

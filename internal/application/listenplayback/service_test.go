@@ -3,6 +3,7 @@ package listenplayback
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 type fakeTransport struct {
@@ -145,6 +146,51 @@ func newTestService(transport *fakeTransport) *PlayerService {
 	}))
 	service.ConfirmPlaybackStarted()
 	return service
+}
+
+func waitForTrackArtist(t *testing.T, service *PlayerService, videoID string, artist string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := service.Snapshot(context.Background())
+		if snapshot.CurrentTrack != nil &&
+			snapshot.CurrentTrack.VideoID == videoID &&
+			snapshot.CurrentTrack.Artist == artist {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot := service.Snapshot(context.Background())
+	t.Fatalf("timed out waiting for %q artist %q, snapshot: %#v", videoID, artist, snapshot.CurrentTrack)
+}
+
+func TestPlayTrackEnrichesMissingArtistFromLibraryMetadata(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			metadata: map[string]Track{
+				"video-one": {
+					ID:             "video-one",
+					VideoID:        "video-one",
+					Title:          "One",
+					Artist:         "Metadata Artist",
+					ArtistBrowseID: "UCmetadata",
+					DurationLabel:  "5:20",
+					ThumbnailURL:   "https://example.test/art.jpg",
+					MusicVideoType: "MUSIC_VIDEO_TYPE_ATV",
+				},
+			},
+		}),
+	)
+	service.ConfirmPlaybackStarted()
+
+	if err := service.PlayTrack(ctx, Track{ID: "video-one", VideoID: "video-one", Title: "One"}, PlayOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForTrackArtist(t, service, "video-one", "Metadata Artist")
 }
 
 func TestPlayWithMixShufflesFetchedQueueBeforePlayback(t *testing.T) {

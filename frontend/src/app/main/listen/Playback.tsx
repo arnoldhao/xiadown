@@ -3047,17 +3047,15 @@ function ListenPlayerChrome(props: {
                     <div className="mb-4 flex shrink-0 items-center gap-3 text-left">
                       {props.headerCover}
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[15px] font-semibold leading-6 text-sidebar-foreground">
-                          {props.title}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={!props.onSubtitleClick}
-                          className="mt-0.5 max-w-full truncate text-left text-[12px] font-medium leading-5 text-sidebar-foreground/55 transition-colors hover:text-sidebar-foreground disabled:pointer-events-none"
-                          onClick={props.onSubtitleClick}
-                        >
-                          {props.subtitle || props.text.listen.nowPlaying}
-                        </button>
+                        <ListenScrollingText
+                          text={props.title}
+                          className="text-[15px] font-semibold leading-6 text-sidebar-foreground"
+                        />
+                        <ListenScrollingText
+                          text={props.subtitle || props.text.listen.nowPlaying}
+                          className="mt-0.5 text-[12px] font-medium leading-5 text-sidebar-foreground/55"
+                          onClick={props.subtitle ? props.onSubtitleClick : undefined}
+                        />
                       </div>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -3767,8 +3765,18 @@ function ListenLiveVideoShell(props: {
           />
           <div className="listen-video-info">
             <div className="listen-video-title-line">
-              <h1>{props.title || props.text.listen.selectStation}</h1>
-              <span>{props.subtitle || props.text.listen.liveStations}</span>
+              <h1>
+                <ListenScrollingText
+                  text={props.title || props.text.listen.selectStation}
+                  as="span"
+                />
+              </h1>
+              <span>
+                <ListenScrollingText
+                  text={props.subtitle || props.text.listen.liveStations}
+                  as="span"
+                />
+              </span>
             </div>
             <div className="listen-video-status-cluster">
               {visualLiveVideoVisible && props.onFitLiveVideoWindow ? (
@@ -4026,7 +4034,7 @@ function ListenTrackInfoRow(props: {
 }) {
   return (
     <div className="mt-5 flex min-h-14 items-center justify-between gap-4">
-      <div className="min-w-0 flex-1 text-left">
+      <div className="min-w-0 flex-1 overflow-hidden text-left">
         <ListenScrollingText
           text={props.title}
           className="text-lg font-semibold leading-6 text-sidebar-foreground"
@@ -4038,7 +4046,7 @@ function ListenTrackInfoRow(props: {
         />
       </div>
       {props.actions ? (
-        <div className="flex shrink-0 items-center gap-1.5">{props.actions}</div>
+        <div className="relative z-10 flex shrink-0 items-center gap-1.5">{props.actions}</div>
       ) : null}
     </div>
   );
@@ -4048,6 +4056,7 @@ function ListenScrollingText(props: {
   text: string;
   className?: string;
   onClick?: () => void;
+  as?: "div" | "span";
 }) {
   const containerRef = React.useRef<HTMLElement | null>(null);
   const contentRef = React.useRef<HTMLSpanElement | null>(null);
@@ -4064,7 +4073,7 @@ function ListenScrollingText(props: {
       } as React.CSSProperties)
     : undefined;
   const className = cn(
-    "group/listen-marquee relative block min-w-0 overflow-hidden whitespace-nowrap text-left",
+    "group/listen-marquee relative block w-full max-w-full min-w-0 overflow-hidden whitespace-nowrap text-left",
     props.onClick &&
       "rounded-md underline-offset-4 transition hover:text-sidebar-foreground hover:underline focus-visible:outline-none",
     props.className,
@@ -4114,6 +4123,18 @@ function ListenScrollingText(props: {
       >
         {content}
       </button>
+    );
+  }
+
+  if (props.as === "span") {
+    return (
+      <span
+        ref={containerRef as React.RefObject<HTMLSpanElement>}
+        className={className}
+        title={normalizedText}
+      >
+        {content}
+      </span>
     );
   }
 
