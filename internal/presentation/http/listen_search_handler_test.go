@@ -212,8 +212,87 @@ func TestListenSearchHandlerPrefersYouTubeMusic(t *testing.T) {
 	if !strings.Contains(body, `"musicVideoType":"MUSIC_VIDEO_TYPE_ATV"`) {
 		t.Fatalf("unexpected body: %s", body)
 	}
+	if strings.Contains(body, `"hasVideo"`) {
+		t.Fatalf("expected false hasVideo to be omitted, got %s", body)
+	}
+	if !strings.Contains(body, `"videoAvailabilityKnown":true`) {
+		t.Fatalf("audio endpoint type should be serialized as confirmed no-video availability: %s", body)
+	}
+}
+
+func TestListenSearchHandlerDoesNotConfirmUGCAvailability(t *testing.T) {
+	handler := NewListenSearchHandler(fakeListenMusicClient{searchTracks: []youtubemusic.Track{{
+		VideoID:        "TESTVID007G",
+		Title:          "Fan Upload",
+		Channel:        "Uploader",
+		MusicVideoType: "MUSIC_VIDEO_TYPE_UGC",
+	}}})
+	request := httptest.NewRequest("GET", "/api/listen/search?q=fan", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Result().StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", recorder.Result().StatusCode)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"musicVideoType":"MUSIC_VIDEO_TYPE_UGC"`) {
+		t.Fatalf("expected response body to contain UGC musicVideoType, got %s", body)
+	}
 	if strings.Contains(body, `"hasVideo"`) || strings.Contains(body, `"videoAvailabilityKnown"`) {
-		t.Fatalf("audio endpoint type should not be serialized as confirmed video availability: %s", body)
+		t.Fatalf("UGC endpoint type should not be serialized as confirmed video availability: %s", body)
+	}
+}
+
+func TestListenSearchHandlerConfirmsNoVideoFromNonVideoThumbnail(t *testing.T) {
+	handler := NewListenSearchHandler(fakeListenMusicClient{searchTracks: []youtubemusic.Track{{
+		VideoID:        "TESTVID007G",
+		Title:          "Audio Artwork",
+		Channel:        "Uploader",
+		MusicVideoType: "MUSIC_VIDEO_TYPE_UGC",
+		ThumbnailURL:   "https://lh3.googleusercontent.com/art=w544-h544",
+	}}})
+	request := httptest.NewRequest("GET", "/api/listen/search?q=audio", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Result().StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", recorder.Result().StatusCode)
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, `"hasVideo"`) {
+		t.Fatalf("expected false hasVideo to be omitted, got %s", body)
+	}
+	if !strings.Contains(body, `"videoAvailabilityKnown":true`) {
+		t.Fatalf("non-video thumbnail should serialize confirmed no-video availability: %s", body)
+	}
+}
+
+func TestListenSearchHandlerInfersVideoFromYouTubeThumbnail(t *testing.T) {
+	handler := NewListenSearchHandler(fakeListenMusicClient{searchTracks: []youtubemusic.Track{{
+		VideoID:        "TESTVID007G",
+		Title:          "Video Upload",
+		Channel:        "Uploader",
+		MusicVideoType: "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+		ThumbnailURL:   "https://i.ytimg.com/vi/TESTVID007G/hq720.jpg",
+	}}})
+	request := httptest.NewRequest("GET", "/api/listen/search?q=video", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Result().StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", recorder.Result().StatusCode)
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		`"hasVideo":true`,
+		`"videoAvailabilityKnown":true`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected response body to contain %s, got %s", expected, body)
+		}
 	}
 }
 
@@ -303,10 +382,10 @@ func TestListenArtistHandlerServesArtistBrowse(t *testing.T) {
 			Title: "Top songs",
 			Kind:  youtubemusic.ShelfTracks,
 			Tracks: []youtubemusic.Track{{
-				VideoID:       "TESTVID007G",
-				Title:         "Lofi Mix",
-				Channel:       "Super Lofi World",
-				DurationLabel: "3:21",
+				VideoID:      "TESTVID007G",
+				Title:        "Lofi Mix",
+				Channel:      "Super Lofi World",
+				ThumbnailURL: "https://i.ytimg.com/vi/TESTVID007G/hq720.jpg",
 			}},
 		}},
 	}})
@@ -319,7 +398,7 @@ func TestListenArtistHandlerServesArtistBrowse(t *testing.T) {
 		t.Fatalf("expected 200, got %d", recorder.Result().StatusCode)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, `"title":"Super Lofi World"`) || !strings.Contains(body, `"subtitle":"1.2M monthly listeners"`) || !strings.Contains(body, `"channelId":"UCsuperlofi"`) || !strings.Contains(body, `"isSubscribed":true`) || !strings.Contains(body, `"mixPlaylistId":"RDARTISTsuperlofi"`) || !strings.Contains(body, `"id":"ytmusic-artist-TESTVID007G"`) || !strings.Contains(body, `"shelves"`) || !strings.Contains(body, `"Top songs"`) {
+	if !strings.Contains(body, `"title":"Super Lofi World"`) || !strings.Contains(body, `"subtitle":"1.2M monthly listeners"`) || !strings.Contains(body, `"channelId":"UCsuperlofi"`) || !strings.Contains(body, `"isSubscribed":true`) || !strings.Contains(body, `"mixPlaylistId":"RDARTISTsuperlofi"`) || !strings.Contains(body, `"id":"ytmusic-artist-TESTVID007G"`) || !strings.Contains(body, `"shelves"`) || !strings.Contains(body, `"Top songs"`) || !strings.Contains(body, `"hasVideo":true`) {
 		t.Fatalf("unexpected body: %s", body)
 	}
 }
@@ -341,10 +420,10 @@ func TestListenArtistHandlerServesShelfBrowse(t *testing.T) {
 					Title: "Top songs",
 					Kind:  youtubemusic.ShelfTracks,
 					Tracks: []youtubemusic.Track{{
-						VideoID:       "TESTVID008H",
-						Title:         "More Lofi",
-						Channel:       "Super Lofi World",
-						DurationLabel: "2:58",
+						VideoID:      "TESTVID008H",
+						Title:        "More Lofi",
+						Channel:      "Super Lofi World",
+						ThumbnailURL: "https://i.ytimg.com/vi/TESTVID008H/hq720.jpg",
 					}},
 				}},
 			}, nil
@@ -361,7 +440,7 @@ func TestListenArtistHandlerServesShelfBrowse(t *testing.T) {
 	if gotBrowseID != "MPLAUCsuperlofi" || gotParams != "wAEB" {
 		t.Fatalf("unexpected browse request: %q %q", gotBrowseID, gotParams)
 	}
-	if body := recorder.Body.String(); !strings.Contains(body, `"title":"Top songs"`) || !strings.Contains(body, `"videoId":"TESTVID008H"`) {
+	if body := recorder.Body.String(); !strings.Contains(body, `"title":"Top songs"`) || !strings.Contains(body, `"videoId":"TESTVID008H"`) || !strings.Contains(body, `"hasVideo":true`) {
 		t.Fatalf("unexpected body: %s", body)
 	}
 }

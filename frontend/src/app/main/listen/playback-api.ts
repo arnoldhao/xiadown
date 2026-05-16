@@ -263,8 +263,6 @@ export async function callListenPlaybackObserveNativeEvent(
     artist: event.artist ?? "",
     thumbnailUrl: event.thumbnailUrl ?? "",
     likeStatus: event.likeStatus ?? "",
-    videoAvailable: event.videoAvailable === true,
-    videoAvailabilityKnown: event.videoAvailabilityKnown === true,
     trackChanged: event.trackChanged === true,
     state: event.state ?? "idle",
     progress: Math.max(0, Number(event.currentTime || 0)),

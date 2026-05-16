@@ -69,6 +69,9 @@ type PlayerService struct {
 	mixContinuationToken string
 	fetchingMoreMixSongs bool
 
+	metadataEnrichmentInFlight  map[string]struct{}
+	metadataEnrichmentAttempted map[string]struct{}
+
 	snapshotVersion                 uint64
 	lastPublishedPlaybackState      PlaybackState
 	lastPublishedPlaybackProgress   float64

@@ -29,17 +29,15 @@ type ListenPlaybackTrackMetadataRequest struct {
 }
 
 type ListenPlaybackObservationRequest struct {
-	ObservedVideoID        string                       `json:"observedVideoId,omitempty"`
-	Title                  string                       `json:"title,omitempty"`
-	Artist                 string                       `json:"artist,omitempty"`
-	ThumbnailURL           string                       `json:"thumbnailUrl,omitempty"`
-	LikeStatus             string                       `json:"likeStatus,omitempty"`
-	VideoAvailable         bool                         `json:"videoAvailable,omitempty"`
-	VideoAvailabilityKnown bool                         `json:"videoAvailabilityKnown,omitempty"`
-	TrackChanged           bool                         `json:"trackChanged,omitempty"`
-	State                  listenplayback.PlaybackState `json:"state,omitempty"`
-	Progress               float64                      `json:"progress,omitempty"`
-	Duration               float64                      `json:"duration,omitempty"`
+	ObservedVideoID string                       `json:"observedVideoId,omitempty"`
+	Title           string                       `json:"title,omitempty"`
+	Artist          string                       `json:"artist,omitempty"`
+	ThumbnailURL    string                       `json:"thumbnailUrl,omitempty"`
+	LikeStatus      string                       `json:"likeStatus,omitempty"`
+	TrackChanged    bool                         `json:"trackChanged,omitempty"`
+	State           listenplayback.PlaybackState `json:"state,omitempty"`
+	Progress        float64                      `json:"progress,omitempty"`
+	Duration        float64                      `json:"duration,omitempty"`
 }
 
 type ListenPlaybackSeekRequest struct {
@@ -119,18 +117,15 @@ func (handler *ListenPlayerHandler) ObservePlayback(ctx context.Context, request
 		strings.TrimSpace(request.Title) != "" ||
 		strings.TrimSpace(request.Artist) != "" ||
 		strings.TrimSpace(request.ThumbnailURL) != "" ||
-		strings.TrimSpace(request.LikeStatus) != "" ||
-		request.VideoAvailabilityKnown {
+		strings.TrimSpace(request.LikeStatus) != "" {
 		err = handler.service.UpdateTrackMetadata(ctx, listenplayback.ObservedTrack{
-			ObservedVideoID:        request.ObservedVideoID,
-			Title:                  request.Title,
-			Artist:                 request.Artist,
-			ThumbnailURL:           request.ThumbnailURL,
-			LikeStatus:             request.LikeStatus,
-			VideoAvailable:         request.VideoAvailable,
-			VideoAvailabilityKnown: request.VideoAvailabilityKnown,
-			TrackChanged:           request.TrackChanged,
-			MetadataSource:         "frontend-observation",
+			ObservedVideoID: request.ObservedVideoID,
+			Title:           request.Title,
+			Artist:          request.Artist,
+			ThumbnailURL:    request.ThumbnailURL,
+			LikeStatus:      request.LikeStatus,
+			TrackChanged:    request.TrackChanged,
+			MetadataSource:  "frontend-observation",
 		})
 	}
 	return handler.service.Snapshot(ctx), err

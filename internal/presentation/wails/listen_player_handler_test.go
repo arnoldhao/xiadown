@@ -56,11 +56,11 @@ func TestListenBridgePreservesPauseIntent(t *testing.T) {
 	if !strings.Contains(script, `otherVideoPlaying(video)`) {
 		t.Fatalf("bridge script should not suppress the current video's ended event only because the API is lagging")
 	}
-	if !strings.Contains(script, `videoAvailabilitySnapshot`) ||
-		!strings.Contains(script, `videoAvailable: videoAvailability.available`) ||
-		!strings.Contains(script, `videoAvailabilityKnown: videoAvailability.known`) ||
-		!strings.Contains(script, `ytmusic-av-switcher #video-button`) {
-		t.Fatalf("bridge script should report YouTube Music video availability from the DOM")
+	if strings.Contains(script, `videoAvailabilitySnapshot`) ||
+		strings.Contains(script, `videoAvailable: videoAvailability.available`) ||
+		strings.Contains(script, `videoAvailabilityKnown: videoAvailability.known`) ||
+		strings.Contains(script, `return { known: true, available: false };`) {
+		t.Fatalf("bridge script should not report YouTube Music video availability from the DOM")
 	}
 	if !strings.Contains(script, "pauseVideo") {
 		t.Fatalf("bridge pause path should use the YouTube player API when available")
@@ -95,8 +95,6 @@ func TestListenPlayerStatusPrefersObservedMetadata(t *testing.T) {
 		observedTitle:  "Observed title",
 		observedArtist: "Observed artist",
 		observedThumb:  "https://example.test/thumb.jpg",
-		videoAvailable: true,
-		videoKnown:     true,
 		currentTime:    12.5,
 		duration:       180,
 		bufferedTime:   48,
@@ -110,8 +108,6 @@ func TestListenPlayerStatusPrefersObservedMetadata(t *testing.T) {
 		t.Fatalf("status should include requested and observed ids, got %+v", status)
 	}
 	if status.ThumbnailURL != "https://example.test/thumb.jpg" ||
-		!status.VideoAvailable ||
-		!status.VideoKnown ||
 		status.CurrentTime != 12.5 ||
 		status.Duration != 180 ||
 		status.BufferedTime != 48 {
@@ -301,8 +297,6 @@ func TestListenRawMusicTrackEndedSyncsPlaybackServiceDirectly(t *testing.T) {
 		"",
 		"",
 		false,
-		false,
-		false,
 		map[string]any{"currentTime": 180, "duration": 180},
 	)
 
@@ -342,8 +336,6 @@ func TestListenRawMusicSyncReconcilesVideoDriftWithoutTrackChanged(t *testing.T)
 		"",
 		"",
 		false,
-		false,
-		false,
 		map[string]any{"currentTime": 4, "duration": 180},
 	)
 
@@ -380,8 +372,6 @@ func TestListenRawMusicRemoteNextSyncsPlaybackServiceDirectly(t *testing.T) {
 		"",
 		"",
 		"",
-		false,
-		false,
 		false,
 		map[string]any{},
 	)

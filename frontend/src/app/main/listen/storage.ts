@@ -3,6 +3,7 @@ import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import { LISTEN_STORAGE_KEY } from "@/app/main/listen/catalog";
 import { clampVolume } from "@/app/main/listen/local-library";
 import type { ListenLibraryShelf,ListenLibraryShelfKind,ListenLivePlaybackKind,ListenMode,ListenOnlineGroup,ListenOnlineItem,ListenOnlineQueueKind,ListenOnlineQueueState,ListenPlayMode,ListenPlaylistItem,ListenStorageState } from "@/app/main/listen/types";
+import { doesListenThumbnailSuggestVideoContent,hasListenMusicVideoContent,isListenMusicVideoKnownNoVideo } from "@/app/main/listen/video-types";
 
 const LISTEN_IMAGE_CACHE_AVATAR_SIZE = 96;
 const LISTEN_IMAGE_CACHE_ARTWORK_SIZE = 320;
@@ -270,30 +271,27 @@ export function sanitizeListenOnlineItems(value: unknown): ListenOnlineItem[] {
         const playbackKind = String(playbackRecord?.kind ?? "").trim();
         const musicVideoType =
           String(record.musicVideoType ?? "").trim() || undefined;
-        const storedVideoKnown = record.videoAvailabilityKnown === true;
-        const storedHasVideo =
-          record.hasVideo === true
+        const musicVideoKnownNoVideo =
+          isListenMusicVideoKnownNoVideo(musicVideoType);
+        const thumbnailUrl =
+          normalizeListenImageSourceURL(String(record.thumbnailUrl ?? "")) ||
+          undefined;
+        const thumbnailSuggestsVideo =
+          doesListenThumbnailSuggestVideoContent(videoId, thumbnailUrl);
+        const thumbnailKnownNoVideo =
+          Boolean(thumbnailUrl) && !thumbnailSuggestsVideo;
+        const hasVideo =
+          hasListenMusicVideoContent(musicVideoType)
             ? true
-            : record.hasVideo === false && storedVideoKnown
+            : musicVideoKnownNoVideo
+              ? false
+            : thumbnailSuggestsVideo
+              ? true
+            : thumbnailKnownNoVideo
               ? false
               : undefined;
-        const staleAudioEndpointUnavailable =
-          storedVideoKnown &&
-          storedHasVideo === false &&
-          Boolean(musicVideoType) &&
-          musicVideoType !== "MUSIC_VIDEO_TYPE_OMV";
-        const hasVideo =
-          musicVideoType === "MUSIC_VIDEO_TYPE_OMV"
-            ? true
-            : staleAudioEndpointUnavailable
-              ? undefined
-              : storedHasVideo;
         const videoAvailabilityKnown =
-          staleAudioEndpointUnavailable || hasVideo === undefined
-            ? undefined
-            : hasVideo === true || storedVideoKnown
-              ? true
-              : undefined;
+          hasVideo === true || hasVideo === false ? true : undefined;
         return {
           id,
           group,
@@ -307,9 +305,7 @@ export function sanitizeListenOnlineItems(value: unknown): ListenOnlineItem[] {
           durationLabel: String(record.durationLabel ?? "").trim(),
           playCountLabel:
             String(record.playCountLabel ?? "").trim() || undefined,
-          thumbnailUrl:
-            normalizeListenImageSourceURL(String(record.thumbnailUrl ?? "")) ||
-            undefined,
+          thumbnailUrl,
           musicVideoType,
           hasVideo,
           videoAvailabilityKnown,

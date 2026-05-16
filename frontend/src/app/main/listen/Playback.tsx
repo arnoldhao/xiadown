@@ -81,7 +81,7 @@ import { fetchListenTrackInfo } from "@/app/main/listen/api";
 import { clampVolume,formatProgressSeconds,resolveAudioSource } from "@/app/main/listen/local-library";
 import { buildListenPosterCandidates,buildYouTubeWatchURL } from "@/app/main/listen/storage";
 import type { ListenLocalItem,ListenLyricsData,ListenLyricsKind,ListenMode,ListenNativePlayerEvent,ListenOnlineItem,ListenPlayMode,ListenPlayerCommand,ListenRemotePlaybackState } from "@/app/main/listen/types";
-import { ListenArtworkShell,ListenOnlineArtwork,ListenSourceBadge } from "@/app/main/listen/ui";
+import { ListenArtworkShell,ListenOnlineArtwork,ListenSourceBadge,useListenStableImageSource } from "@/app/main/listen/ui";
 
 type ListenMediaMode = "cover" | "lyrics";
 type ListenAirPlayAnchor = {
@@ -1363,6 +1363,7 @@ export function ListenYouTubePlayback(props: {
     isLive,
     props.track.hasVideo,
     props.track.musicVideoType,
+    props.track.thumbnailUrl,
     props.track.videoAvailabilityKnown,
     props.track.videoId,
   ]);
@@ -1934,7 +1935,9 @@ export function ListenYouTubePlayback(props: {
           return;
         }
         const resolved = resolveListenTrackVideoAvailability(item, false);
-        setVideoAvailability(resolved === "checking" ? "unavailable" : resolved);
+        if (resolved !== "checking") {
+          setVideoAvailability(resolved);
+        }
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
@@ -1944,7 +1947,6 @@ export function ListenYouTubePlayback(props: {
           videoId,
           error,
         });
-        setVideoAvailability("unavailable");
       });
     return () => controller.abort();
   }, [
@@ -2337,14 +2339,16 @@ export function ListenYouTubePlayback(props: {
         if (isLive || !eventBelongsToCurrentTrack) {
           return;
         }
-        if (data.videoAvailabilityKnown === true) {
-          setVideoAvailability(
-            data.videoAvailable === true ? "available" : "unavailable",
-          );
+        const resolved = resolveListenTrackVideoAvailability(
+          {
+            ...props.track,
+            thumbnailUrl: data.thumbnailUrl || props.track.thumbnailUrl,
+          },
+          false,
+        );
+        if (resolved !== "checking") {
+          setVideoAvailability(resolved);
           return;
-        }
-        if (data.videoAvailable === true) {
-          setVideoAvailability("available");
         }
       };
 
@@ -3047,17 +3051,15 @@ function ListenPlayerChrome(props: {
                     <div className="mb-4 flex shrink-0 items-center gap-3 text-left">
                       {props.headerCover}
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-[15px] font-semibold leading-6 text-sidebar-foreground">
-                          {props.title}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={!props.onSubtitleClick}
-                          className="mt-0.5 max-w-full truncate text-left text-[12px] font-medium leading-5 text-sidebar-foreground/55 transition-colors hover:text-sidebar-foreground disabled:pointer-events-none"
-                          onClick={props.onSubtitleClick}
-                        >
-                          {props.subtitle || props.text.listen.nowPlaying}
-                        </button>
+                        <ListenScrollingText
+                          text={props.title}
+                          className="text-[15px] font-semibold leading-6 text-sidebar-foreground"
+                        />
+                        <ListenScrollingText
+                          text={props.subtitle || props.text.listen.nowPlaying}
+                          className="mt-0.5 text-[12px] font-medium leading-5 text-sidebar-foreground/55"
+                          onClick={props.subtitle ? props.onSubtitleClick : undefined}
+                        />
                       </div>
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -3767,8 +3769,18 @@ function ListenLiveVideoShell(props: {
           />
           <div className="listen-video-info">
             <div className="listen-video-title-line">
-              <h1>{props.title || props.text.listen.selectStation}</h1>
-              <span>{props.subtitle || props.text.listen.liveStations}</span>
+              <h1>
+                <ListenScrollingText
+                  text={props.title || props.text.listen.selectStation}
+                  as="span"
+                />
+              </h1>
+              <span>
+                <ListenScrollingText
+                  text={props.subtitle || props.text.listen.liveStations}
+                  as="span"
+                />
+              </span>
             </div>
             <div className="listen-video-status-cluster">
               {visualLiveVideoVisible && props.onFitLiveVideoWindow ? (
@@ -4026,7 +4038,7 @@ function ListenTrackInfoRow(props: {
 }) {
   return (
     <div className="mt-5 flex min-h-14 items-center justify-between gap-4">
-      <div className="min-w-0 flex-1 text-left">
+      <div className="min-w-0 flex-1 overflow-hidden text-left">
         <ListenScrollingText
           text={props.title}
           className="text-lg font-semibold leading-6 text-sidebar-foreground"
@@ -4038,7 +4050,7 @@ function ListenTrackInfoRow(props: {
         />
       </div>
       {props.actions ? (
-        <div className="flex shrink-0 items-center gap-1.5">{props.actions}</div>
+        <div className="relative z-10 flex shrink-0 items-center gap-1.5">{props.actions}</div>
       ) : null}
     </div>
   );
@@ -4048,6 +4060,7 @@ function ListenScrollingText(props: {
   text: string;
   className?: string;
   onClick?: () => void;
+  as?: "div" | "span";
 }) {
   const containerRef = React.useRef<HTMLElement | null>(null);
   const contentRef = React.useRef<HTMLSpanElement | null>(null);
@@ -4064,7 +4077,7 @@ function ListenScrollingText(props: {
       } as React.CSSProperties)
     : undefined;
   const className = cn(
-    "group/listen-marquee relative block min-w-0 overflow-hidden whitespace-nowrap text-left",
+    "group/listen-marquee relative block w-full max-w-full min-w-0 overflow-hidden whitespace-nowrap text-left",
     props.onClick &&
       "rounded-md underline-offset-4 transition hover:text-sidebar-foreground hover:underline focus-visible:outline-none",
     props.className,
@@ -4114,6 +4127,18 @@ function ListenScrollingText(props: {
       >
         {content}
       </button>
+    );
+  }
+
+  if (props.as === "span") {
+    return (
+      <span
+        ref={containerRef as React.RefObject<HTMLSpanElement>}
+        className={className}
+        title={normalizedText}
+      >
+        {content}
+      </span>
     );
   }
 
@@ -4788,43 +4813,20 @@ function ListenCompactCoverSurface(props: {
   srcCandidates: string[];
   title: string;
 }) {
-  const candidateKey = props.srcCandidates.join("\n");
-  const candidates = React.useMemo(() => {
-    const normalized = props.srcCandidates
-      .map((url) => url.trim())
-      .filter(Boolean);
-    return Array.from(new Set([...normalized, DEFAULT_COVER_IMAGE_URL]));
-  }, [candidateKey]);
-  const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const activeSrc =
-    candidates[Math.min(candidateIndex, Math.max(candidates.length - 1, 0))] ||
-    DEFAULT_COVER_IMAGE_URL;
-  const [loadedSrc, setLoadedSrc] = React.useState("");
-  const imageReady = loadedSrc === activeSrc;
-
-  React.useEffect(() => {
-    setCandidateIndex(0);
-    setLoadedSrc("");
-  }, [candidateKey]);
+  const {
+    activeSrc,
+    visibleSrc,
+    imageReady,
+  } = useListenStableImageSource(props.srcCandidates);
 
   return (
     <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[1.15rem] bg-white shadow-[0_10px_28px_-18px_rgba(15,23,42,0.48)]">
       <img
-        key={activeSrc}
-        src={activeSrc}
+        key={visibleSrc}
+        src={visibleSrc}
         alt={props.title}
-        className={cn(
-          "block h-full w-full object-cover transition-opacity duration-300",
-          imageReady ? "opacity-100" : "opacity-0",
-        )}
+        className="block h-full w-full object-cover"
         loading="eager"
-        onLoad={() => setLoadedSrc(activeSrc)}
-        onError={() => {
-          setLoadedSrc("");
-          setCandidateIndex((current) =>
-            current + 1 < candidates.length ? current + 1 : current,
-          );
-        }}
       />
       {imageReady ? (
         <span

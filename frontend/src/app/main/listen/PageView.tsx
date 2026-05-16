@@ -250,6 +250,46 @@ function listenRemToPixels(value: number) {
   return value * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
 }
 
+function useMeasuredElementWidth<T extends HTMLElement>() {
+  const [element, setElement] = React.useState<T | null>(null);
+  const [width, setWidth] = React.useState<number | null>(null);
+  const ref = React.useCallback((nextElement: T | null) => {
+    setElement(nextElement);
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (!element) {
+      setWidth(null);
+      return;
+    }
+
+    const updateWidth = () => {
+      const nextWidth = element.getBoundingClientRect().width;
+      setWidth((current) =>
+        current === null || Math.abs(current - nextWidth) > 0.5
+          ? nextWidth
+          : current,
+      );
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      if (typeof window === "undefined") {
+        return;
+      }
+      window.addEventListener("resize", updateWidth);
+      return () => window.removeEventListener("resize", updateWidth);
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+
+  return [ref, width] as const;
+}
+
 function resolveListenHeaderActionWidthRem(mode: ListenMode) {
   if (mode === "hush") {
     return LISTEN_HEADER_HUSH_ACTIONS_REM;
@@ -832,8 +872,7 @@ export function ListenPageView(view: ListenPageViewProps) {
   const showContentListToggle = !hushFullscreen;
   const libraryErrorPrompt = resolveListenLibraryErrorPrompt(libraryErrorCode, props.text);
   const [searchFocused, setSearchFocused] = React.useState(false);
-  const [headerWidth, setHeaderWidth] = React.useState(0);
-  const headerRef = React.useRef<HTMLDivElement | null>(null);
+  const [headerRef, headerWidth] = useMeasuredElementWidth<HTMLDivElement>();
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
   const imagePrefetchRef = React.useRef<HTMLImageElement[]>([]);
   const searchHasText = query.length > 0;
@@ -959,15 +998,16 @@ export function ListenPageView(view: ListenPageViewProps) {
     LISTEN_HEADER_SEARCH_EXPANDED_REM +
     headerActionWidthRem +
     LISTEN_HEADER_GAP_REM * (headerActionGroupVisible ? 2 : 1);
+  const headerMeasured = headerWidth !== null;
   const tabsCompact =
     searchInputActive &&
-    (headerWidth <= 0 ||
-      headerWidth < listenRemToPixels(minimumExpandedSearchHeaderWidth));
+    headerMeasured &&
+    headerWidth < listenRemToPixels(minimumExpandedSearchHeaderWidth);
   const hideHeaderActionsForSearch =
     searchInputActive &&
     headerActionGroupVisible &&
-    (headerWidth <= 0 ||
-      headerWidth < listenRemToPixels(minimumCompactSearchHeaderWidth));
+    headerMeasured &&
+    headerWidth < listenRemToPixels(minimumCompactSearchHeaderWidth);
   const searchToolbarState = searchInputActive
     ? "active"
     : searchControlMounted
@@ -1020,23 +1060,6 @@ export function ListenPageView(view: ListenPageViewProps) {
     },
     [changeOnlineBrowseSource, clearSearch, setSidebarView],
   );
-
-  React.useLayoutEffect(() => {
-    const element = headerRef.current;
-    if (!element) {
-      return;
-    }
-    const updateHeaderWidth = () => {
-      const nextWidth = element.getBoundingClientRect().width;
-      setHeaderWidth((current) =>
-        Math.abs(current - nextWidth) > 0.5 ? nextWidth : current,
-      );
-    };
-    updateHeaderWidth();
-    const observer = new ResizeObserver(updateHeaderWidth);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
 
   const headerActionGroup =
     mode === "hush" ? (

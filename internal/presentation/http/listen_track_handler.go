@@ -78,6 +78,8 @@ func mapYouTubeMusicTrackMetadataToListenItem(metadata youtubemusic.TrackMetadat
 		channel = "YouTube Music"
 	}
 	musicVideoType := strings.TrimSpace(metadata.MusicVideoType)
+	thumbnailURL := strings.TrimSpace(metadata.ThumbnailURL)
+	hasVideo, videoAvailabilityKnown := listenTrackVideoAvailability(musicVideoType, videoID, thumbnailURL)
 	return ListenSearchItem{
 		ID:                     "ytmusic-track-" + videoID,
 		Group:                  "playlist",
@@ -87,10 +89,10 @@ func mapYouTubeMusicTrackMetadataToListenItem(metadata youtubemusic.TrackMetadat
 		ArtistBrowseID:         strings.TrimSpace(metadata.ArtistBrowseID),
 		Description:            "",
 		DurationLabel:          strings.TrimSpace(metadata.DurationLabel),
-		ThumbnailURL:           strings.TrimSpace(metadata.ThumbnailURL),
+		ThumbnailURL:           thumbnailURL,
 		MusicVideoType:         musicVideoType,
-		HasVideo:               listenMusicVideoTypeHasVideo(musicVideoType),
-		VideoAvailabilityKnown: musicVideoType != "",
+		HasVideo:               hasVideo,
+		VideoAvailabilityKnown: videoAvailabilityKnown,
 	}
 }
 

@@ -64,12 +64,17 @@ func (service *PlayerService) UpdateTrackMetadata(ctx context.Context, observed 
 	observed.ThumbnailURL = stringsTrim(observed.ThumbnailURL)
 	observed.LikeStatus = stringsTrim(observed.LikeStatus)
 
+	var trackForEnrichment Track
 	service.mu.Lock()
 	before := service.metadataPublishStateLocked()
 	actions := service.updateTrackMetadataLocked(ctx, observed)
 	shouldPublish := service.metadataPublishStateChangedLocked(before)
+	if service.hasCurrentTrack {
+		trackForEnrichment = service.currentTrack
+	}
 	service.mu.Unlock()
 	err := service.executeActions(ctx, actions...)
+	service.requestTrackMetadataEnrichment(trackForEnrichment)
 	if shouldPublish || len(actions) > 0 {
 		service.PublishSnapshot(ctx)
 		service.saveCurrentSession(ctx)
@@ -455,15 +460,11 @@ func (service *PlayerService) mergeObservedQueueTrackLocked(track Track, observe
 	if track.DurationSeconds <= 0 && service.duration > 0 {
 		track.DurationSeconds = service.duration
 	}
-	if track.ThumbnailURL == "" && observed.ThumbnailURL != "" {
+	if track.ThumbnailURL == "" || shouldUseObservedThumbnailForVideoAvailability(track, observed.ThumbnailURL) {
 		track.ThumbnailURL = observed.ThumbnailURL
 	}
 	if observed.LikeStatus != "" {
 		track.LikeStatus = observed.LikeStatus
-	}
-	if observed.VideoAvailabilityKnown {
-		track.VideoAvailabilityKnown = true
-		track.HasVideo = observed.VideoAvailable
 	}
 	return normalizeTrack(track)
 }
@@ -491,15 +492,11 @@ func (service *PlayerService) observedTrackLocked(resolvedVideoID string, observ
 	if observed.Artist != "" {
 		track.Artist = observed.Artist
 	}
-	if track.ThumbnailURL == "" && observed.ThumbnailURL != "" {
+	if track.ThumbnailURL == "" || shouldUseObservedThumbnailForVideoAvailability(track, observed.ThumbnailURL) {
 		track.ThumbnailURL = observed.ThumbnailURL
 	}
 	if observed.LikeStatus != "" {
 		track.LikeStatus = observed.LikeStatus
-	}
-	if observed.VideoAvailabilityKnown {
-		track.VideoAvailabilityKnown = true
-		track.HasVideo = observed.VideoAvailable
 	}
 	if service.duration > 0 {
 		track.DurationSeconds = service.duration

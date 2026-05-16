@@ -107,15 +107,13 @@ type PlayRequest struct {
 }
 
 type ObservedTrack struct {
-	ObservedVideoID        string
-	Title                  string
-	Artist                 string
-	ThumbnailURL           string
-	LikeStatus             string
-	VideoAvailable         bool
-	VideoAvailabilityKnown bool
-	TrackChanged           bool
-	MetadataSource         string
+	ObservedVideoID string
+	Title           string
+	Artist          string
+	ThumbnailURL    string
+	LikeStatus      string
+	TrackChanged    bool
+	MetadataSource  string
 }
 
 type RestoredPlaybackSession struct {
