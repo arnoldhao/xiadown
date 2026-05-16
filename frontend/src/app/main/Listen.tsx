@@ -1,5 +1,6 @@
 import { Call,System } from "@wailsio/runtime";
 import * as React from "react";
+import "./listen/listen.css";
 
 import { useOpenLibraryPath } from "@/shared/query/library";
 import { REALTIME_TOPICS,registerTopic } from "@/shared/realtime";

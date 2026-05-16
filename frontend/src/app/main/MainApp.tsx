@@ -610,6 +610,7 @@ export function MainApp() {
   return (
     <div
       data-shell-theme={shellTheme}
+      data-sidebar-style={appearance.sidebarStyle}
       className={cn(
         "app-main-shell relative flex h-screen overflow-hidden bg-background text-foreground",
         "app-dream-frame app-dream-window",
@@ -618,7 +619,7 @@ export function MainApp() {
       <aside
         className={cn(
           "app-main-sidebar relative z-40 flex w-[var(--app-main-sidebar-width)] shrink-0 flex-col items-center justify-between border-sidebar-border/70 px-3 pb-4 pt-3 text-sidebar-foreground",
-          resolveSidebarSurface(theme.id, shellTheme),
+          resolveSidebarSurface(theme.id, appearance.sidebarStyle, shellTheme),
         )}
       >
         <div className="app-main-sidebar-nav flex flex-col items-center gap-5">

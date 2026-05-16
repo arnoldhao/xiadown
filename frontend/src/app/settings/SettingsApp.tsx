@@ -37,6 +37,7 @@ readXiaAppearance,
 resolveThemePack,
 type XiaAccentMode,
 type XiaAppearanceSettings,
+type XiaSidebarStyle,
 } from "@/shared/styles/xiadown-theme";
 import { cn } from "@/lib/utils";
 import type { BrowserCandidate, ProxySettings } from "@/shared/contracts/settings";
@@ -1155,6 +1156,30 @@ export function SettingsApp() {
                       >
                         <span className="shrink-0">{item.icon}</span>
                         <span className="min-w-0 truncate">{item.label}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.sidebarStyle}>
+                  <div className="grid min-w-0 max-w-full grid-cols-3 gap-2">
+                    {([
+                      { value: "glass", label: text.settings.sidebarStyleOptions.glass },
+                      { value: "contrast", label: text.settings.sidebarStyleOptions.contrast },
+                      { value: "pixel", label: text.settings.sidebarStyleOptions.pixel },
+                    ] as const satisfies Array<{ value: XiaSidebarStyle; label: string }>).map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        variant="outline"
+                        size="compact"
+                        className={cn("min-w-0 px-2 text-[11px]", appearanceDraft.sidebarStyle === option.value ? "border-transparent" : "")}
+                        onClick={() => void saveAppearancePatch({ sidebarStyle: option.value })}
+                        style={appearanceDraft.sidebarStyle === option.value ? activeSegmentStyle : undefined}
+                      >
+                        <span className="min-w-0 truncate">{option.label}</span>
                       </Button>
                     ))}
                   </div>

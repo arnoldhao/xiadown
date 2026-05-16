@@ -12,6 +12,7 @@ import {
   Waves,
 } from "lucide-react";
 import * as React from "react";
+import "./welcome.css";
 
 import { CORE_DEPENDENCIES } from "@/app/main/main-constants";
 import {

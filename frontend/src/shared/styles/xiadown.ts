@@ -1,5 +1,8 @@
 import type { Pet } from "@/shared/contracts/pets";
-import type { XiaThemePackId } from "@/shared/styles/xiadown-theme";
+import type {
+  XiaSidebarStyle,
+  XiaThemePackId,
+} from "@/shared/styles/xiadown-theme";
 import type * as React from "react";
 
 export interface PetCardLighting {
@@ -100,13 +103,18 @@ export const RUNNING_PET_GLOW_STYLE: React.CSSProperties = {
 
 export function resolveXiaMainSidebarSurface(
   themeId: XiaThemePackId,
+  sidebarStyle?: XiaSidebarStyle,
   shellTheme = "default",
 ) {
+  const resolvedStyle = sidebarStyle ?? (themeId === "pixel" ? "pixel" : "glass");
+  if (resolvedStyle === "pixel") {
+    return "rounded-none border-r-2 border-sidebar-border bg-sidebar-background shadow-none backdrop-blur-none";
+  }
+  if (resolvedStyle === "contrast") {
+    return "border-r bg-sidebar-background text-sidebar-foreground shadow-[inset_-1px_0_0_hsl(var(--sidebar-border))]";
+  }
   if (shellTheme === "dream") {
     return "border-r bg-sidebar-background/70 backdrop-blur-2xl";
-  }
-  if (themeId === "pixel") {
-    return "rounded-none border-r-2 bg-sidebar-background";
   }
   return "border-r bg-sidebar-background/82 backdrop-blur-2xl";
 }

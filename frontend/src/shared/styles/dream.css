@@ -445,6 +445,14 @@
     --app-main-sidebar-dream-overlay-opacity: 1;
   }
 
+  .app-main-shell[data-shell-theme="dream"][data-sidebar-style="contrast"] {
+    --app-main-sidebar-dream-overlay-opacity: 0.45;
+  }
+
+  .app-main-shell[data-shell-theme="dream"][data-sidebar-style="pixel"] {
+    --app-main-sidebar-dream-overlay-opacity: 0;
+  }
+
   .app-main-sidebar {
     transition:
       background-color var(--app-motion-duration-slow) var(--app-motion-ease-standard),
@@ -478,6 +486,25 @@
     box-shadow:
       inset -1px 0 0 hsl(var(--dream-shell-top) / 0.28),
       18px 0 72px -62px hsl(var(--primary) / 0.40);
+  }
+
+  .app-main-shell[data-shell-theme="dream"][data-sidebar-style="contrast"] .app-main-sidebar {
+    background: hsl(var(--sidebar-background) / 0.96);
+    box-shadow:
+      inset -1px 0 0 hsl(var(--sidebar-border)),
+      12px 0 48px -48px hsl(var(--foreground) / 0.46);
+  }
+
+  .app-main-shell[data-shell-theme="dream"][data-sidebar-style="pixel"] .app-main-sidebar {
+    background: hsl(var(--sidebar-background));
+    box-shadow: inset -2px 0 0 hsl(var(--sidebar-border));
+    image-rendering: pixelated;
+  }
+
+  .app-main-shell[data-shell-theme="dream"][data-sidebar-style="pixel"] .app-main-sidebar-action,
+  .app-main-shell[data-shell-theme="dream"][data-sidebar-style="pixel"] .app-main-user-button,
+  .app-main-shell[data-shell-theme="dream"][data-sidebar-style="pixel"] .listen-mini-artwork-button {
+    border-radius: var(--app-radius-md);
   }
 
   .listen-list-surface {
