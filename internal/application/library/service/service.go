@@ -51,6 +51,7 @@ type LibraryService struct {
 	files           library.FileRepository
 	localTracks     library.ListenLocalTrackRepository
 	operations      library.OperationRepository
+	processes       library.ExternalProcessRepository
 	operationChunks library.OperationChunkRepository
 	histories       library.HistoryRepository
 	workspace       library.WorkspaceStateRepository
@@ -78,6 +79,7 @@ func NewLibraryService(
 	files library.FileRepository,
 	localTracks library.ListenLocalTrackRepository,
 	operations library.OperationRepository,
+	processes library.ExternalProcessRepository,
 	operationChunks library.OperationChunkRepository,
 	histories library.HistoryRepository,
 	workspace library.WorkspaceStateRepository,
@@ -98,6 +100,7 @@ func NewLibraryService(
 		files:           files,
 		localTracks:     localTracks,
 		operations:      operations,
+		processes:       processes,
 		operationChunks: operationChunks,
 		histories:       histories,
 		workspace:       workspace,
@@ -249,6 +252,11 @@ func (service *LibraryService) RecoverPendingJobs(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	operationsByID := make(map[string]library.LibraryOperation, len(items))
+	for _, item := range items {
+		operationsByID[item.ID] = item
+	}
+	service.cleanupStaleExternalProcesses(ctx, operationsByID)
 	for _, item := range items {
 		switch item.Status {
 		case library.OperationStatusQueued:

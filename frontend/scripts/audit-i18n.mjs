@@ -245,11 +245,14 @@ const zhGlossaryReplacements = [
 const zhAllowedEnglishKeyPatterns = [
   /^settings\.language\.option\.en$/,
   /^xiadown\.running\.units\.bytesPerSecond$/,
+  /^xiadown\.running\.units\.framesPerSecond$/,
   /^settings\.connectors\.item\./,
   /^xiadown\.welcome\.readyHint$/,
   /^xiadown\.settings\.pets\./,
   /^xiadown\.petGallery\./,
 ];
+const runningFramesPerSecondUnitKey = "xiadown.running.units.framesPerSecond";
+const runningFramesPerSecondUnitValue = "{value} FPS";
 const zhAllowedEnglishTokens = new Set([
   "PNG",
   "ZIP",
@@ -827,6 +830,17 @@ function collectLocalePlaceholderViolations(localeFlats, baseLocale, baseValues)
   return violations;
 }
 
+function collectRunningFPSUnitViolations(localeFlats) {
+  return Object.entries(localeFlats)
+    .map(([locale, values]) => ({
+      locale,
+      key: runningFramesPerSecondUnitKey,
+      value: values[runningFramesPerSecondUnitKey] ?? "",
+      expected: runningFramesPerSecondUnitValue,
+    }))
+    .filter((item) => item.value !== item.expected);
+}
+
 function filterLocaleTree(input, usedSet, prefix = "") {
   const output = {};
   for (const [key, value] of Object.entries(input)) {
@@ -1084,6 +1098,7 @@ const localeLeafTypeViolations = Object.entries(localeSources).flatMap(([locale,
 );
 const localeParityViolations = collectLocaleParityViolations(localeFlats, baseLocale, en);
 const localePlaceholderViolations = collectLocalePlaceholderViolations(localeFlats, baseLocale, en);
+const runningFPSUnitViolations = collectRunningFPSUnitViolations(localeFlats);
 
 const missingInZh = [...enKeys].filter((key) => !zhKeys.has(key));
 const extraInZh = [...zhKeys].filter((key) => !enKeys.has(key));
@@ -1148,6 +1163,7 @@ const summary = {
     localeMissingKeyCount: localeParityViolations.filter((item) => item.type === "missing").length,
     localeExtraKeyCount: localeParityViolations.filter((item) => item.type === "extra").length,
     localePlaceholderViolationCount: localePlaceholderViolations.length,
+    runningFPSUnitViolationCount: runningFPSUnitViolations.length,
     localeLeafTypeViolationCount: localeLeafTypeViolations.length,
     missingInZhCount: missingInZh.length,
     extraInZhCount: extraInZh.length,
@@ -1171,6 +1187,7 @@ const summary = {
   samples: {
     localeParityViolations: localeParityViolations.slice(0, 80),
     localePlaceholderViolations: localePlaceholderViolations.slice(0, 40),
+    runningFPSUnitViolations: runningFPSUnitViolations.slice(0, 40),
     localeLeafTypeViolations: localeLeafTypeViolations.slice(0, 40),
     concreteMissingDefinitions: concreteMissingDefs.slice(0, 40),
     dynamicMissingDefinitions: dynamicMissingDefs.slice(0, 20),
@@ -1198,6 +1215,7 @@ if (jsonOnly) {
   console.log(`- base locale: ${baseLocale}`);
   console.log(`- locale parity violations: ${summary.locale.localeParityViolationCount} (missing=${summary.locale.localeMissingKeyCount}, extra=${summary.locale.localeExtraKeyCount})`);
   console.log(`- locale placeholder violations: ${summary.locale.localePlaceholderViolationCount}`);
+  console.log(`- running FPS unit violations: ${summary.locale.runningFPSUnitViolationCount}`);
   console.log(`- locale leaf type violations: ${summary.locale.localeLeafTypeViolationCount}`);
   console.log(`- used keys in source: ${summary.locale.usedKeyCount}`);
   console.log(`- missing definitions: ${summary.locale.missingDefinitionCount} (concrete=${summary.locale.concreteMissingDefinitionCount}, dynamic=${summary.locale.dynamicMissingDefinitionCount})`);
@@ -1235,6 +1253,13 @@ if (jsonOnly) {
     console.log("\nlocale placeholder samples:");
     for (const item of localePlaceholderViolations.slice(0, 20)) {
       console.log(`- ${item.locale}:${item.key}: expected {${item.expected.join(", ")}} got {${item.actual.join(", ")}}`);
+    }
+  }
+
+  if (runningFPSUnitViolations.length > 0) {
+    console.log("\nrunning FPS unit samples:");
+    for (const item of runningFPSUnitViolations.slice(0, 20)) {
+      console.log(`- ${item.locale}:${item.key}: ${item.value} -> ${item.expected}`);
     }
   }
 
@@ -1348,6 +1373,7 @@ if (strict) {
   const hasBlockingIssues =
     localeParityViolations.length > 0 ||
     localePlaceholderViolations.length > 0 ||
+    runningFPSUnitViolations.length > 0 ||
     localeLeafTypeViolations.length > 0 ||
     concreteMissingDefs.length > 0 ||
     dynamicMissingDefs.length > 0 ||

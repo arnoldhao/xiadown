@@ -16,13 +16,16 @@ func TestParseProgressSpeedMetric(t *testing.T) {
 		}
 	})
 
-	t.Run("transcode fps", func(t *testing.T) {
-		metric := parseProgressSpeedMetric("transcode", "92 fps")
+	t.Run("transcode FPS", func(t *testing.T) {
+		metric := parseProgressSpeedMetric("transcode", "92 FPS")
 		if metric == nil {
 			t.Fatalf("expected metric")
 		}
 		if metric.Kind != speedMetricKindFramesPerSecond {
 			t.Fatalf("unexpected kind: %s", metric.Kind)
+		}
+		if metric.Label != "92 FPS" {
+			t.Fatalf("unexpected label: %q", metric.Label)
 		}
 		if metric.FramesPerSecond == nil || *metric.FramesPerSecond != 92 {
 			t.Fatalf("unexpected fps: %#v", metric.FramesPerSecond)

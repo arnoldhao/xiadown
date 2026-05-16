@@ -200,7 +200,8 @@ func (service *LibraryService) runEmbeddedTranscodeStage(
 	if err := ensureManagedOutputParentDir(outputPath); err != nil {
 		return result, err
 	}
-	ffmpegArgs, err := buildFFmpegTranscodeArgs(plan, sourceFile.Storage.LocalPath, outputPath)
+	tempOutputPath := resolveTranscodeTemporaryOutputPath(outputPath, operation.ID)
+	ffmpegArgs, err := buildFFmpegTranscodeArgs(plan, sourceFile.Storage.LocalPath, tempOutputPath)
 	if err != nil {
 		return result, err
 	}
@@ -213,6 +214,7 @@ func (service *LibraryService) runEmbeddedTranscodeStage(
 		1,
 		progressText("library.progressDetail.ffmpegRenderingOutput"),
 	)
+	operation.OutputJSON = buildTranscodeOperationOutput(request, "running", outputPath, tempOutputPath)
 	if err := service.saveAndPublishOperation(ctx, *operation); err != nil {
 		return result, err
 	}
@@ -232,8 +234,11 @@ func (service *LibraryService) runEmbeddedTranscodeStage(
 		}
 		return result, fmt.Errorf("ffmpeg transcode failed: %s", message)
 	}
-	if !pathExists(outputPath) {
+	if !pathExists(tempOutputPath) {
 		return result, fmt.Errorf("ffmpeg produced no output file")
+	}
+	if err := promoteTranscodeTemporaryOutput(tempOutputPath, outputPath); err != nil {
+		return result, err
 	}
 
 	finishedAt := service.now()
@@ -349,11 +354,12 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		service.failTranscodeOperation(ctx, operation, request, err)
 		return
 	}
+	tempOutputPath := resolveTranscodeTemporaryOutputPath(outputPath, operation.ID)
 
 	ffmpegArgs, err := buildFFmpegTranscodeArgs(
 		plan,
 		sourceFile.Storage.LocalPath,
-		outputPath,
+		tempOutputPath,
 	)
 	if err != nil {
 		service.failTranscodeOperation(ctx, operation, request, err)
@@ -368,7 +374,7 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		1,
 		progressText("library.progressDetail.ffmpegRenderingOutput"),
 	)
-	operation.OutputJSON = buildTranscodeOperationOutput(request, "running", outputPath)
+	operation.OutputJSON = buildTranscodeOperationOutput(request, "running", outputPath, tempOutputPath)
 	if err := service.saveAndPublishOperation(ctx, operation); err != nil {
 		return
 	}
@@ -389,8 +395,12 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		service.failTranscodeOperation(ctx, operation, request, fmt.Errorf("ffmpeg transcode failed: %s", message))
 		return
 	}
-	if !pathExists(outputPath) {
+	if !pathExists(tempOutputPath) {
 		service.failTranscodeOperation(ctx, operation, request, fmt.Errorf("ffmpeg produced no output file"))
+		return
+	}
+	if err := promoteTranscodeTemporaryOutput(tempOutputPath, outputPath); err != nil {
+		service.failTranscodeOperation(ctx, operation, request, err)
 		return
 	}
 
@@ -529,6 +539,7 @@ func (service *LibraryService) failTranscodeOperation(ctx context.Context, opera
 		request,
 		strings.TrimSpace(string(currentOperation.Status)),
 		extractTranscodeOutputPath(currentOperation.OutputJSON),
+		extractTranscodeTemporaryPaths(currentOperation.OutputJSON)...,
 	)
 	if err := service.operations.Save(ctx, currentOperation); err != nil {
 		return
@@ -727,6 +738,14 @@ func (service *LibraryService) runFFmpegCommandWithProgress(
 	if err := command.Start(); err != nil {
 		return "", err
 	}
+	stopKiller := startProcessGroupKiller(ctx, command, externalProcessKillDelay)
+	operationID := ""
+	operationKind := "transcode"
+	if operation != nil {
+		operationID = operation.ID
+		operationKind = operation.Kind
+	}
+	stopProcessTracking := service.trackExternalProcess(operationID, operationKind, "ffmpeg", command)
 
 	reporter := newFFmpegProgressReporter(service, operation, durationMs)
 	var stderrBuilder strings.Builder
@@ -745,6 +764,8 @@ func (service *LibraryService) runFFmpegCommandWithProgress(
 
 	wg.Wait()
 	waitErr := command.Wait()
+	stopKiller()
+	stopProcessTracking()
 
 	if stdoutErr != nil {
 		return strings.TrimSpace(stderrBuilder.String()), stdoutErr
@@ -761,6 +782,38 @@ func ensureManagedOutputParentDir(outputPath string) error {
 		return nil
 	}
 	return os.MkdirAll(parentDir, 0o755)
+}
+
+func resolveTranscodeTemporaryOutputPath(outputPath string, operationID string) string {
+	trimmedOutputPath := strings.TrimSpace(outputPath)
+	if trimmedOutputPath == "" {
+		return ""
+	}
+	parentDir := filepath.Dir(trimmedOutputPath)
+	extension := filepath.Ext(trimmedOutputPath)
+	baseName := strings.TrimSuffix(filepath.Base(trimmedOutputPath), extension)
+	safeOperationID := sanitizeFileName(operationID)
+	if safeOperationID == "" {
+		safeOperationID = uuid.NewString()
+	}
+	if extension == "" {
+		return filepath.Join(parentDir, fmt.Sprintf("%s.%s.tmp", baseName, safeOperationID))
+	}
+	return filepath.Join(parentDir, fmt.Sprintf("%s.%s.tmp%s", baseName, safeOperationID, extension))
+}
+
+func promoteTranscodeTemporaryOutput(tempOutputPath string, outputPath string) error {
+	trimmedTempPath := strings.TrimSpace(tempOutputPath)
+	trimmedOutputPath := strings.TrimSpace(outputPath)
+	if trimmedTempPath == "" || trimmedOutputPath == "" {
+		return fmt.Errorf("transcode output path is required")
+	}
+	if !sameCleanPath(trimmedTempPath, trimmedOutputPath) && pathExists(trimmedOutputPath) {
+		if err := os.Remove(trimmedOutputPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return os.Rename(trimmedTempPath, trimmedOutputPath)
 }
 
 func withFFmpegProgressArgs(args []string) []string {
@@ -875,9 +928,9 @@ func normalizeFFmpegProgressFPS(value string) string {
 		return ""
 	}
 	if parsed >= 100 {
-		return strconv.FormatFloat(parsed, 'f', 0, 64) + " fps"
+		return strconv.FormatFloat(parsed, 'f', 0, 64) + " FPS"
 	}
-	return strconv.FormatFloat(parsed, 'f', 1, 64) + " fps"
+	return strconv.FormatFloat(parsed, 'f', 1, 64) + " FPS"
 }
 
 func (reporter *ffmpegProgressReporter) resolveSpeedLabel() string {
@@ -1254,11 +1307,17 @@ func ffmpegAudioCodecSupportsBitrate(codec string) bool {
 	}
 }
 
-func buildTranscodeOperationOutput(request dto.CreateTranscodeJobRequest, status string, outputPath string) string {
+func buildTranscodeOperationOutput(request dto.CreateTranscodeJobRequest, status string, outputPath string, temporaryPaths ...string) string {
 	payload := map[string]any{
 		"status":                         strings.TrimSpace(status),
 		"deleteSourceFileAfterTranscode": request.DeleteSourceFileAfterTranscode,
 		"outputPath":                     strings.TrimSpace(outputPath),
+	}
+	if thumbnailPath := normalizeExistingTranscodeCoverPath(request.CoverPath); thumbnailPath != "" {
+		payload[operationThumbnailPreviewPathKey] = thumbnailPath
+	}
+	if paths := dedupePaths(temporaryPaths); len(paths) > 0 {
+		payload[operationTemporaryPathsKey] = paths
 	}
 	return marshalJSON(payload)
 }
@@ -1272,6 +1331,24 @@ func extractTranscodeOutputPath(outputJSON string) string {
 		return strings.TrimSpace(value)
 	}
 	return ""
+}
+
+func extractTranscodeTemporaryPaths(outputJSON string) []string {
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(outputJSON)), &payload); err != nil {
+		return nil
+	}
+	values, ok := payload[operationTemporaryPathsKey].([]any)
+	if !ok {
+		return nil
+	}
+	paths := make([]string, 0, len(values))
+	for _, value := range values {
+		if path, ok := value.(string); ok && strings.TrimSpace(path) != "" {
+			paths = append(paths, path)
+		}
+	}
+	return dedupePaths(paths)
 }
 
 func extractLibraryFileIDs(files []library.LibraryFile) []string {

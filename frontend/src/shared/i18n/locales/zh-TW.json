@@ -265,7 +265,7 @@
       "summarySeparator": " / ",
       "units": {
         "bytesPerSecond": "{value}/s",
-        "framesPerSecond": "{value} 影格/秒",
+        "framesPerSecond": "{value} FPS",
         "speedFactor": "{value}x"
       },
       "progressFallback": "等待進度更新",

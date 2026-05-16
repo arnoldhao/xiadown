@@ -43,6 +43,12 @@ type OperationRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
+type ExternalProcessRepository interface {
+	List(ctx context.Context) ([]ExternalProcess, error)
+	Save(ctx context.Context, item ExternalProcess) error
+	Delete(ctx context.Context, id string) error
+}
+
 type OperationChunkRepository interface {
 	ListByOperationID(ctx context.Context, operationID string) ([]OperationChunk, error)
 	Save(ctx context.Context, item OperationChunk) error

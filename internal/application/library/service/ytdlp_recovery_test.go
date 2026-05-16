@@ -63,8 +63,18 @@ func TestRecoverPendingJobsMarksRunningDownloadInterrupted(t *testing.T) {
 
 	operations := &retryOperationRepo{items: map[string]library.LibraryOperation{operation.ID: operation}}
 	histories := &retryHistoryRepo{items: map[string]library.HistoryRecord{history.ID: history}}
+	processes := &recoveryExternalProcessRepo{items: map[string]library.ExternalProcess{
+		"process-1": {
+			ID:          "process-1",
+			OperationID: operation.ID,
+			Kind:        operation.Kind,
+			Tool:        "yt-dlp",
+			PID:         0,
+		},
+	}}
 	service := &LibraryService{
 		operations: operations,
+		processes:  processes,
 		histories:  histories,
 		nowFunc:    func() time.Time { return now.Add(time.Minute) },
 	}
@@ -95,4 +105,32 @@ func TestRecoverPendingJobsMarksRunningDownloadInterrupted(t *testing.T) {
 	if storedHistory.OperationMeta == nil || storedHistory.OperationMeta.ErrorCode != operationErrorCodeAppInterrupted {
 		t.Fatalf("expected history interrupted meta, got %#v", storedHistory.OperationMeta)
 	}
+	if len(processes.items) != 0 {
+		t.Fatalf("expected stale external process records to be cleared, got %#v", processes.items)
+	}
+}
+
+type recoveryExternalProcessRepo struct {
+	items map[string]library.ExternalProcess
+}
+
+func (repo *recoveryExternalProcessRepo) List(_ context.Context) ([]library.ExternalProcess, error) {
+	result := make([]library.ExternalProcess, 0, len(repo.items))
+	for _, item := range repo.items {
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func (repo *recoveryExternalProcessRepo) Save(_ context.Context, item library.ExternalProcess) error {
+	if repo.items == nil {
+		repo.items = map[string]library.ExternalProcess{}
+	}
+	repo.items[item.ID] = item
+	return nil
+}
+
+func (repo *recoveryExternalProcessRepo) Delete(_ context.Context, id string) error {
+	delete(repo.items, id)
+	return nil
 }

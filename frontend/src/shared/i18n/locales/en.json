@@ -265,7 +265,7 @@
       "summarySeparator": " / ",
       "units": {
         "bytesPerSecond": "{value}/s",
-        "framesPerSecond": "{value} frames per second",
+        "framesPerSecond": "{value} FPS",
         "speedFactor": "{value}x"
       },
       "progressFallback": "Waiting for progress updates",
