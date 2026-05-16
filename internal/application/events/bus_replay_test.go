@@ -61,3 +61,23 @@ func TestInMemoryBusReplayGap(t *testing.T) {
 		t.Fatalf("replay tail should be newer than cursor: got %d", events[0].Seq)
 	}
 }
+
+func TestInMemoryBusSubscriberPanicDoesNotStopPublish(t *testing.T) {
+	t.Parallel()
+
+	bus := NewInMemoryBus()
+	called := false
+	bus.Subscribe("update.status", func(Event) {
+		panic("subscriber failed")
+	})
+	bus.Subscribe("update.status", func(Event) {
+		called = true
+	})
+
+	if err := bus.Publish(context.Background(), Event{Topic: "update.status", Type: "status"}); err != nil {
+		t.Fatalf("publish failed: %v", err)
+	}
+	if !called {
+		t.Fatal("expected later subscriber to be invoked after panic")
+	}
+}

@@ -39,6 +39,7 @@ type WindowManager struct {
 	initialized         bool
 	updateState         update.Info
 	quitting            atomic.Bool
+	applicationStarted  atomic.Bool
 
 	systemTray *SystemTrayController
 }
@@ -132,6 +133,17 @@ func NewWindowManager(app *application.App, settingsService *service.SettingsSer
 	return manager, nil
 }
 
+func (manager *WindowManager) MarkApplicationStarted() {
+	if manager == nil {
+		return
+	}
+	manager.applicationStarted.Store(true)
+}
+
+func (manager *WindowManager) canInvokeSync() bool {
+	return manager != nil && manager.initialized && manager.applicationStarted.Load()
+}
+
 func (manager *WindowManager) ShowMainWindow() {
 	manager.mainVisibal = true
 	manager.restoreCachedBounds(windowTypeMain)
@@ -188,7 +200,7 @@ func (manager *WindowManager) HandleSecondInstanceLaunch() {
 		manager.ShowMainWindow()
 	}
 
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(reveal)
 		return
 	}
@@ -307,7 +319,7 @@ func (manager *WindowManager) ApplySettings(current dto.Settings) {
 		manager.dispatchWindowEvent("theme:changed", current.EffectiveAppearance)
 	}
 
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(apply)
 		return
 	}
@@ -343,7 +355,7 @@ func (manager *WindowManager) EmitDependenciesUpdated() {
 	emit := func() {
 		manager.app.Event.Emit("dependencies:updated")
 	}
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(emit)
 		return
 	}
@@ -1031,7 +1043,7 @@ func (manager *WindowManager) rebuildMenu(current dto.Settings) {
 		manager.SetMenu(menu)
 	}
 
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(buildMenu)
 	} else {
 		buildMenu()
@@ -1058,17 +1070,31 @@ func (manager *WindowManager) SetUpdateAvailable(available bool) {
 		zap.L().Warn("failed to refresh system tray after update flag change", zap.Error(err))
 		return
 	}
-	manager.systemTray.SetUpdateAvailable(available, current)
+	updateTray := func() {
+		manager.systemTray.SetUpdateAvailable(available, current)
+	}
+	if manager.canInvokeSync() {
+		application.InvokeSync(updateTray)
+		return
+	}
+	updateTray()
 }
 
 // NotifyUpdateState implements update.Notifier to drive menu/tray.
 func (manager *WindowManager) NotifyUpdateState(info update.Info) {
-	manager.updateState = info
 	current, err := manager.settingsService.GetSettings(context.Background())
 	if err != nil {
 		return
 	}
-	manager.systemTray.SetUpdateState(info, current)
+	updateTray := func() {
+		manager.updateState = info
+		manager.systemTray.SetUpdateState(info, current)
+	}
+	if manager.canInvokeSync() {
+		application.InvokeSync(updateTray)
+	} else {
+		updateTray()
+	}
 	// rebuildMenu requires windows to be ready; guard nil.
 	if manager.mainWindow != nil && manager.settingsWindow != nil {
 		manager.rebuildMenu(current)

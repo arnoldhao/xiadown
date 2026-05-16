@@ -3,6 +3,7 @@ package update
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -155,6 +156,24 @@ func TestHTTPDownloaderRestartsWhenServerIgnoresRangeRequest(t *testing.T) {
 	expectedRange := fmt.Sprintf("bytes=%d-", half)
 	if len(rangeHeaders) < 2 || rangeHeaders[1] != expectedRange {
 		t.Fatalf("expected second request to attempt ranged resume %q, got %#v", expectedRange, rangeHeaders)
+	}
+}
+
+func TestHTTPDownloaderReturnsErrorOnAttemptTimeout(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	downloader := NewHTTPDownloader(server.Client())
+	downloader.maxAttempts = 1
+	downloader.attemptTimeout = 10 * time.Millisecond
+
+	_, err := downloader.Download(context.Background(), server.URL+"/xiadown.zip", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
 	}
 }
 

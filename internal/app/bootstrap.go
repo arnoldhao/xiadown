@@ -391,6 +391,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	app.RegisterService(application.NewService(wails.NewUpdateHandler(updateService, telemetryService, app)))
 
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
+		windowManager.MarkApplicationStarted()
 		go func() {
 			time.Sleep(500 * time.Millisecond)
 			libraryService.RecoverPendingJobs(context.Background())

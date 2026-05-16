@@ -449,6 +449,8 @@ func (service *Service) ScheduleAutoCheck(ctx context.Context, initialDelay time
 	service.cancelSchedule = cancel
 
 	go func() {
+		defer service.recoverBackgroundPanic("auto-check")
+
 		select {
 		case <-time.After(initialDelay):
 			service.safeCheck(runCtx, currentVersion)
@@ -501,6 +503,7 @@ func (service *Service) scheduleAutoPrepare() {
 	service.mu.Unlock()
 
 	go func() {
+		defer service.recoverBackgroundPanic("auto-prepare")
 		defer service.finishAutoPrepare()
 		if _, err := service.DownloadUpdate(context.Background()); err != nil {
 			zap.L().Warn("update: auto-prepare failed", zap.String("latestVersion", latestVersion), zap.Error(err))
@@ -606,15 +609,24 @@ func (service *Service) publishState() {
 
 func (service *Service) publishSnapshot(state update.Info) {
 	if service.bus != nil {
-		_ = service.bus.Publish(context.Background(), events.Event{
-			Topic:   "update.status",
-			Type:    "status",
-			Payload: state,
-		})
+		service.publishUpdateEvent(state)
 	}
 	if service.notifier != nil {
-		service.notifier.NotifyUpdateState(state)
+		service.notifyUpdateState(state)
 	}
+}
+
+func (service *Service) publishUpdateEvent(state update.Info) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Error("update: event publish panic", zap.Any("error", r), zap.Stack("stack"))
+		}
+	}()
+	_ = service.bus.Publish(context.Background(), events.Event{
+		Topic:   "update.status",
+		Type:    "status",
+		Payload: state,
+	})
 }
 
 func (service *Service) publishListenLiveCatalogUpdate(previous softwareupdate.Snapshot, next softwareupdate.Snapshot) {
@@ -657,7 +669,32 @@ func (service *Service) notifyAvailability(available bool) {
 	if service.notifier == nil {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Error("update: availability notifier panic", zap.Any("error", r), zap.Stack("stack"))
+		}
+	}()
 	service.notifier.SetUpdateAvailable(available)
+}
+
+func (service *Service) notifyUpdateState(state update.Info) {
+	defer func() {
+		if r := recover(); r != nil {
+			zap.L().Error("update: state notifier panic", zap.Any("error", r), zap.Stack("stack"))
+		}
+	}()
+	service.notifier.NotifyUpdateState(state)
+}
+
+func (service *Service) recoverBackgroundPanic(task string) {
+	if r := recover(); r != nil {
+		zap.L().Error("update: background task panic",
+			zap.String("task", task),
+			zap.Any("error", r),
+			zap.Stack("stack"),
+		)
+		_, _ = service.publishError(fmt.Errorf("unexpected update failure"))
+	}
 }
 
 func (service *Service) resolveDownloadURLsLocked() []string {

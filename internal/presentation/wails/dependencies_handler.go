@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"go.uber.org/zap"
+
 	"xiadown/internal/application/dependencies/dto"
 	"xiadown/internal/application/dependencies/service"
 	"xiadown/internal/domain/dependencies"
@@ -60,6 +62,11 @@ func (handler *DependenciesHandler) InstallDependency(ctx context.Context, reque
 		}
 	}
 	go func(request dto.InstallDependencyRequest) {
+		defer func() {
+			if r := recover(); r != nil {
+				zap.L().Error("dependencies: install task panic", zap.Any("error", r), zap.Stack("stack"))
+			}
+		}()
 		result, err := handler.service.InstallDependency(context.Background(), request)
 		if handler.events != nil {
 			handler.events.EmitDependenciesUpdated()
