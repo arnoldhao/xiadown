@@ -462,7 +462,7 @@ static int listenHideEmbeddedWebView(void *playerNativeWindow) {
 	}
 }
 
-static void listenConfigureYouTubeMusicWebView(void *nativeWindow, const char *userAgent) {
+static void listenConfigureYouTubeMusicWebView(void *nativeWindow, const char *userAgent, const char *adBlockScript) {
 	@autoreleasepool {
 		WKWebView *webView = listenWebViewForWindow(nativeWindow);
 		if (webView == nil || userAgent == NULL) {
@@ -496,6 +496,24 @@ static void listenConfigureYouTubeMusicWebView(void *nativeWindow, const char *u
 			configuration.preferences.elementFullscreenEnabled = YES;
 		}
 #endif
+
+		if (adBlockScript != NULL && configuration.userContentController != nil) {
+			NSString *source = [NSString stringWithUTF8String:adBlockScript];
+			if (source.length > 0) {
+				BOOL installed = NO;
+				for (WKUserScript *script in configuration.userContentController.userScripts) {
+					if ([script.source rangeOfString:@"__xiadownYouTubeAdBlockerInstalled"].location != NSNotFound) {
+						installed = YES;
+						break;
+					}
+				}
+				if (!installed) {
+					WKUserScript *script = [[WKUserScript alloc] initWithSource:source injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:NO];
+					[configuration.userContentController addUserScript:script];
+					[script release];
+				}
+			}
+		}
 	}
 }
 
@@ -795,9 +813,11 @@ func configureListenYouTubeMusicNativeWindow(nativeWindow unsafe.Pointer, userAg
 
 	cUserAgent := C.CString(userAgent)
 	defer C.free(unsafe.Pointer(cUserAgent))
+	cAdBlockScript := C.CString(listenYouTubeAdBlockScript())
+	defer C.free(unsafe.Pointer(cAdBlockScript))
 
 	application.InvokeSync(func() {
-		C.listenConfigureYouTubeMusicWebView(nativeWindow, cUserAgent)
+		C.listenConfigureYouTubeMusicWebView(nativeWindow, cUserAgent, cAdBlockScript)
 	})
 }
 

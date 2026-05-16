@@ -72,8 +72,6 @@ export type ListenNativePlayerEvent = {
   advertising?: boolean;
   ad?: boolean;
   adLabel?: string;
-  adSkippable?: boolean;
-  adSkipLabel?: string;
   errorCode?: string;
   errorMessage?: string;
   readyState?: number;

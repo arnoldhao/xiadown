@@ -273,8 +273,6 @@ function nativeStatusToPlayerEvent(
     bufferedTime: secondsFromNativeStatus(record.bufferedTime),
     advertising: record.advertising === true,
     adLabel: stringFromNativeStatus(record.adLabel),
-    adSkippable: record.adSkippable === true,
-    adSkipLabel: stringFromNativeStatus(record.adSkipLabel),
     errorCode: stringFromNativeStatus(record.errorCode),
     errorMessage: stringFromNativeStatus(record.errorMessage),
   };

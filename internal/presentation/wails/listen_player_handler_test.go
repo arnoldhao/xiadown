@@ -408,48 +408,61 @@ func TestListenSameVideoResumeDoesNotSubmitStoredRequest(t *testing.T) {
 	}
 }
 
-func TestListenSkipAdScriptsUseCurrentYouTubeControls(t *testing.T) {
-	musicBridge := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID001A"})
-	liveBridge := listenYouTubeLiveBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID002B"})
-	fallbacks := []string{
-		listenYouTubeMusicSkipAdScript(),
-		listenYouTubeLiveSkipAdScript(),
-	}
-	for _, script := range []string{musicBridge, liveBridge} {
-		for _, expected := range []string{
-			"typeof api.skipAd",
-			".ytp-ad-skip-button-modern",
-			".ytp-skip-ad-button",
-			"button[aria-label*='跳过']",
+func TestListenBridgeDoesNotExposeSkipAdControls(t *testing.T) {
+	for _, script := range []string{
+		listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID001A"}),
+		listenYouTubeLiveBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID002B"}),
+	} {
+		for _, removed := range []string{
+			"skipAd",
+			"invokeSkipAd",
+			"adSkippable",
+			"adSkipLabel",
 			"PointerEvent",
-			"pointerdown",
-			"const retryButton = skipButton();",
-			"skip-ad-confirm",
 		} {
-			if !strings.Contains(script, expected) {
-				t.Fatalf("bridge skip script should contain %q", expected)
+			if strings.Contains(script, removed) {
+				t.Fatalf("bridge script should not expose removed skip-ad logic %q", removed)
 			}
 		}
-		if strings.Contains(script, "api.skipAd();\n        sendState(reason || \"skip-ad\", true)") {
-			t.Fatalf("bridge skip script should not return before trying the visible skip button")
-		}
-	}
-	for _, script := range fallbacks {
 		for _, expected := range []string{
-			".ytp-ad-skip-button-modern",
-			".ytp-skip-ad-button",
-			"button[aria-label*='跳过']",
-			"PointerEvent",
-			"pointerdown",
-			"clickVisibleSkipButton",
-			"window.setTimeout(clickVisibleSkipButton, 180)",
+			"advertising",
+			"adSnapshot",
+			"visibleAdElements",
+			"adLabel",
 		} {
 			if !strings.Contains(script, expected) {
-				t.Fatalf("fallback skip script should contain %q", expected)
+				t.Fatalf("bridge script should keep ad status signal %q", expected)
 			}
 		}
-		if strings.Contains(script, "api.skipAd();\n    return;") {
-			t.Fatalf("fallback skip script should not return before trying the visible skip button")
+	}
+}
+
+func TestListenYouTubeAdBlockScriptPrunesPlayerAdFields(t *testing.T) {
+	script := listenYouTubeAdBlockScript()
+	for _, expected := range []string{
+		"music.youtube.com",
+		"www.youtube.com",
+		"__xiadownYouTubeAdBlockerInstalled",
+		"ytInitialPlayerResponse",
+		"JSON.parse",
+		"Response.prototype.json",
+		"XMLHttpRequest.prototype.send",
+		"adPlacements",
+		"adSlots",
+		"playerAds",
+		"reelWatchSequenceResponse",
+		"isAdReelEntry",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("adblock script should contain %q", expected)
+		}
+	}
+	for _, removed := range []string{
+		"clickVisibleSkipButton",
+		"skipAd",
+	} {
+		if strings.Contains(script, removed) {
+			t.Fatalf("adblock script should not contain skip-click logic %q", removed)
 		}
 	}
 }
@@ -491,8 +504,6 @@ func TestListenLiveBridgeReportsRequestedVideoIdentity(t *testing.T) {
 		"adSnapshot",
 		"visibleAdElements",
 		"adLabel",
-		"adSkippable",
-		"skipAd",
 		"Object.assign({}, INITIAL_REQUEST, stored, { videoId: initialVideoId })",
 		"navigator.mediaSession.setActionHandler",
 		"scheduleMediaSessionOverrideLoop",
