@@ -179,6 +179,11 @@ function applyThemePack(themePackId: string | undefined, effectiveAppearance: st
   document.documentElement.dataset.xiadownThemePack = pack.id;
 }
 
+function applyAppearanceAttributes(appearance: ReturnType<typeof readXiaAppearance>) {
+  document.documentElement.dataset.xiadownSidebarStyle = appearance.sidebarStyle;
+  document.documentElement.dataset.xiadownAccentMode = appearance.accentMode;
+}
+
 function detectPlatform() {
   try {
     if (isWailsRuntimeReady()) {
@@ -217,6 +222,7 @@ export function applyXiaTheme(settings: Settings) {
   const appearance = readXiaAppearance(settings);
   applyTheme(settings.effectiveAppearance);
   applyThemePack(appearance.themePackId, settings.effectiveAppearance);
+  applyAppearanceAttributes(appearance);
   applyPrimaryColor(
     resolveThemePack(appearance.themePackId).preview.accent,
     undefined,
@@ -243,6 +249,7 @@ export function applyXiaAppearanceChange(
   }
   const appearance = readXiaAppearance(settings);
   applyThemePack(appearance.themePackId, effectiveAppearance);
+  applyAppearanceAttributes(appearance);
   applyPrimaryColor(
     resolveThemePack(appearance.themePackId).preview.accent,
     undefined,

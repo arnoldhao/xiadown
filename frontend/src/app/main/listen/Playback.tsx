@@ -71,6 +71,10 @@ import { LISTEN_LIVE_PLAYER_EVENT,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYE
 import { resolveListenLyricsIcon } from "@/app/main/listen/lyrics-icons";
 import { callListenTrackLyrics } from "@/app/main/listen/lyrics-api";
 import { ListenLyricsSurface } from "@/app/main/listen/lyrics";
+import {
+readListenNativeVideoRadius,
+useListenNativeVideoUnderlay,
+} from "@/app/main/listen/native-video-underlay";
 import { copyListenTextToClipboard,fetchListenLyricsCached,forgetListenLyricsCache,getListenErrorCode,getListenErrorMessage,isListenLyricsDataAvailable,listenLyricsSummary,LISTEN_EMPTY_PROGRESS,LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,logListenLyrics,normalizeListenInlineVideoAspectRatio,normalizeListenLiveNativeState,readListenLyricsCache,readListenNativeEventURLVideoId,resolveListenNativeEventVideoAspectRatio,resolveListenPlaybackStatusLabel,resolveListenQueuePopupAnchor,resolveListenTrackVideoAvailability,type ListenLyricsTrackRequest,type ListenVideoAvailability } from "@/app/main/listen/playback-helpers";
 import { ListenLocalPlaybackQueuePopup,ListenPlaybackQueuePopup,type ListenQueuePopupAnchor } from "@/app/main/listen/queue-popups";
 import { fetchListenTrackInfo } from "@/app/main/listen/api";
@@ -3222,6 +3226,10 @@ function ListenInlineVideoSurface(props: {
   const [frameSize, setFrameSize] = React.useState({ width: 0, height: 0 });
   const [visualVisible, setVisualVisible] = React.useState(false);
   const rectRevealRequestRef = React.useRef(0);
+  const {
+    resetHole: resetNativeVideoHole,
+    setHole: setNativeVideoHole,
+  } = useListenNativeVideoUnderlay(props.active);
   const frameReady = frameSize.width > 1 && frameSize.height > 1;
   const geometrySignature = [
     props.variant,
@@ -3267,21 +3275,6 @@ function ListenInlineVideoSurface(props: {
   }, []);
 
   React.useLayoutEffect(() => {
-    const documentElement = document.documentElement;
-    documentElement.dataset.listenNativeVideoUnderlay = "true";
-    return () => {
-      if (documentElement.dataset.listenNativeVideoUnderlay === "true") {
-        delete documentElement.dataset.listenNativeVideoUnderlay;
-      }
-      documentElement.style.removeProperty("--listen-native-video-hole-x");
-      documentElement.style.removeProperty("--listen-native-video-hole-y");
-      documentElement.style.removeProperty("--listen-native-video-hole-w");
-      documentElement.style.removeProperty("--listen-native-video-hole-h");
-      documentElement.style.removeProperty("--listen-native-video-hole-r");
-    };
-  }, []);
-
-  React.useLayoutEffect(() => {
     const onRectChange = props.onRectChange;
     if (!props.active || !onRectChange || !frameReady) {
       return;
@@ -3295,49 +3288,7 @@ function ListenInlineVideoSurface(props: {
     let lastRectSignature = "";
     let revealRetryCount = 0;
     const timers: number[] = [];
-    const documentElement = document.documentElement;
-    const setNativeVideoHole = (rect: DOMRect, radius: number) => {
-      documentElement.dataset.listenNativeVideoUnderlay = "true";
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-x",
-        `${Math.max(0, rect.left)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-y",
-        `${Math.max(0, rect.top)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-w",
-        `${Math.max(1, rect.width)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-h",
-        `${Math.max(1, rect.height)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-r",
-        `${Math.max(0, radius)}px`,
-      );
-    };
-    const resetNativeVideoHole = () => {
-      documentElement.style.removeProperty("--listen-native-video-hole-x");
-      documentElement.style.removeProperty("--listen-native-video-hole-y");
-      documentElement.style.removeProperty("--listen-native-video-hole-w");
-      documentElement.style.removeProperty("--listen-native-video-hole-h");
-      documentElement.style.removeProperty("--listen-native-video-hole-r");
-    };
-    const readRadius = () => {
-      const style = window.getComputedStyle(element);
-      const values = [
-        style.borderTopLeftRadius,
-        style.borderTopRightRadius,
-        style.borderBottomRightRadius,
-        style.borderBottomLeftRadius,
-      ]
-        .map((value) => Number.parseFloat(value))
-        .filter((value) => Number.isFinite(value) && value > 0);
-      return values.length > 0 ? Math.max(...values) : 0;
-    };
+    const readRadius = () => readListenNativeVideoRadius(element);
     const pushRect = (force = false) => {
       const rect = element.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) {
@@ -3467,6 +3418,8 @@ function ListenInlineVideoSurface(props: {
     props.active,
     props.onRectChange,
     props.variant,
+    resetNativeVideoHole,
+    setNativeVideoHole,
   ]);
 
   const stageStyle = React.useMemo<React.CSSProperties | undefined>(() => {
@@ -3559,6 +3512,10 @@ function ListenLiveVideoShell(props: {
   const visualLiveVideoVisibleRef = React.useRef(visualLiveVideoVisible);
   const [liveVideoRevealActive, setLiveVideoRevealActive] =
     React.useState(false);
+  const {
+    resetHole: resetNativeVideoHole,
+    setHole: setNativeVideoHole,
+  } = useListenNativeVideoUnderlay(props.liveVideoModeActive);
   const playbackState =
     props.playbackState ??
     (props.loading ? "loading" : props.playing ? "playing" : "idle");
@@ -3573,23 +3530,6 @@ function ListenLiveVideoShell(props: {
   const listLabel = props.listOpen
     ? props.text.listen.collapseList
     : props.text.listen.openList;
-  React.useLayoutEffect(() => {
-    const documentElement = document.documentElement;
-    documentElement.dataset.listenNativeVideoUnderlay = "true";
-    return () => {
-      if (
-        documentElement.dataset.listenNativeVideoUnderlay === "true"
-      ) {
-        delete documentElement.dataset.listenNativeVideoUnderlay;
-      }
-      documentElement.style.removeProperty("--listen-native-video-hole-x");
-      documentElement.style.removeProperty("--listen-native-video-hole-y");
-      documentElement.style.removeProperty("--listen-native-video-hole-w");
-      documentElement.style.removeProperty("--listen-native-video-hole-h");
-      documentElement.style.removeProperty("--listen-native-video-hole-r");
-    };
-  }, []);
-
   React.useEffect(() => {
     visualLiveVideoVisibleRef.current = visualLiveVideoVisible;
   }, [visualLiveVideoVisible]);
@@ -3618,49 +3558,18 @@ function ListenLiveVideoShell(props: {
       return;
     }
     let frame = 0;
-    const documentElement = document.documentElement;
     const revealCurrentRect = () => {
       const rect = element.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) {
         return;
       }
-      const style = window.getComputedStyle(element);
-      const radii = [
-        style.borderTopLeftRadius,
-        style.borderTopRightRadius,
-        style.borderBottomRightRadius,
-        style.borderBottomLeftRadius,
-      ]
-        .map((value) => Number.parseFloat(value))
-        .filter((value) => Number.isFinite(value) && value > 0);
-      const radius = radii.length > 0 ? Math.max(...radii) : 0;
-      documentElement.dataset.listenNativeVideoUnderlay = "true";
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-x",
-        `${Math.max(0, rect.left)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-y",
-        `${Math.max(0, rect.top)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-w",
-        `${Math.max(1, rect.width)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-h",
-        `${Math.max(1, rect.height)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-r",
-        `${Math.max(0, radius)}px`,
-      );
+      setNativeVideoHole(rect, readListenNativeVideoRadius(element));
       visualLiveVideoVisibleRef.current = true;
       setVisualLiveVideoVisible(true);
     };
     frame = window.requestAnimationFrame(revealCurrentRect);
     return () => window.cancelAnimationFrame(frame);
-  }, [props.liveVideoModeActive, props.liveVideoVisible, props.videoId]);
+  }, [props.liveVideoModeActive, props.liveVideoVisible, props.videoId, setNativeVideoHole]);
 
   React.useLayoutEffect(() => {
     const onLiveVideoRectChange = props.onLiveVideoRectChange;
@@ -3675,52 +3584,7 @@ function ListenLiveVideoShell(props: {
     let commitFrame = 0;
     let lastRectSignature = "";
     const timers: number[] = [];
-    const documentElement = document.documentElement;
-    const setNativeVideoHole = (
-      rect: DOMRect,
-      radius: number,
-    ) => {
-      documentElement.dataset.listenNativeVideoUnderlay = "true";
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-x",
-        `${Math.max(0, rect.left)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-y",
-        `${Math.max(0, rect.top)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-w",
-        `${Math.max(1, rect.width)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-h",
-        `${Math.max(1, rect.height)}px`,
-      );
-      documentElement.style.setProperty(
-        "--listen-native-video-hole-r",
-        `${Math.max(0, radius)}px`,
-      );
-    };
-    const resetNativeVideoHole = () => {
-      documentElement.style.removeProperty("--listen-native-video-hole-x");
-      documentElement.style.removeProperty("--listen-native-video-hole-y");
-      documentElement.style.removeProperty("--listen-native-video-hole-w");
-      documentElement.style.removeProperty("--listen-native-video-hole-h");
-      documentElement.style.removeProperty("--listen-native-video-hole-r");
-    };
-    const readRadius = () => {
-      const style = window.getComputedStyle(element);
-      const values = [
-        style.borderTopLeftRadius,
-        style.borderTopRightRadius,
-        style.borderBottomRightRadius,
-        style.borderBottomLeftRadius,
-      ]
-        .map((value) => Number.parseFloat(value))
-        .filter((value) => Number.isFinite(value) && value > 0);
-      return values.length > 0 ? Math.max(...values) : 0;
-    };
+    const readRadius = () => readListenNativeVideoRadius(element);
     const pushRect = (force = false) => {
       const rect = element.getBoundingClientRect();
       if (rect.width < 1 || rect.height < 1) {
@@ -3865,6 +3729,8 @@ function ListenLiveVideoShell(props: {
     props.liveVideoModeActive,
     props.onLiveVideoRectChange,
     props.videoId,
+    resetNativeVideoHole,
+    setNativeVideoHole,
   ]);
   return (
     <div
@@ -4844,7 +4710,7 @@ function ListenPlayerMoreMenu(props: {
         sideOffset={8}
         className={LISTEN_DROPDOWN_CONTENT_CLASS}
       >
-        <div className="p-1">
+        <div className="grid">
           <DropdownMenuItem
             className={LISTEN_DROPDOWN_ITEM_CLASS}
             disabled={props.disabled}

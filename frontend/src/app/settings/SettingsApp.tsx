@@ -37,6 +37,7 @@ readXiaAppearance,
 resolveThemePack,
 type XiaAccentMode,
 type XiaAppearanceSettings,
+type XiaSidebarStyle,
 } from "@/shared/styles/xiadown-theme";
 import { cn } from "@/lib/utils";
 import type { BrowserCandidate, ProxySettings } from "@/shared/contracts/settings";
@@ -73,13 +74,14 @@ useUpdateStore,
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
-Dialog,
-DialogClose,
-DialogContent,
-DialogDescription,
-DialogFooter,
-DialogHeader,
-DialogTitle,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogScrollArea,
+  DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
@@ -780,7 +782,7 @@ export function SettingsApp() {
             {text.settings.proxyDialogHint}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto pr-1">
+        <DialogScrollArea className="min-h-0">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{text.settings.scheme}</span>
@@ -856,7 +858,7 @@ export function SettingsApp() {
               </Button>
             </div>
           </div>
-        </div>
+        </DialogScrollArea>
       </DialogContent>
     </Dialog>
   ) : null;
@@ -1154,6 +1156,30 @@ export function SettingsApp() {
                       >
                         <span className="shrink-0">{item.icon}</span>
                         <span className="min-w-0 truncate">{item.label}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.sidebarStyle}>
+                  <div className="grid min-w-0 max-w-full grid-cols-3 gap-2">
+                    {([
+                      { value: "glass", label: text.settings.sidebarStyleOptions.glass },
+                      { value: "contrast", label: text.settings.sidebarStyleOptions.contrast },
+                      { value: "pixel", label: text.settings.sidebarStyleOptions.pixel },
+                    ] as const satisfies Array<{ value: XiaSidebarStyle; label: string }>).map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        variant="outline"
+                        size="compact"
+                        className={cn("min-w-0 px-2 text-[11px]", appearanceDraft.sidebarStyle === option.value ? "border-transparent" : "")}
+                        onClick={() => void saveAppearancePatch({ sidebarStyle: option.value })}
+                        style={appearanceDraft.sidebarStyle === option.value ? activeSegmentStyle : undefined}
+                      >
+                        <span className="min-w-0 truncate">{option.label}</span>
                       </Button>
                     ))}
                   </div>
@@ -1597,9 +1623,9 @@ export function SettingsApp() {
               {text.about.viewChangelog}
             </DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 overflow-y-auto pr-1">
+          <DialogScrollArea className="min-h-0">
             <DialogMarkdown content={releaseNotes} className="max-h-none overflow-visible" />
-          </div>
+          </DialogScrollArea>
           <DialogFooter className="shrink-0 items-end sm:items-center">
             <Button type="button" variant="ghost" size="compact" onClick={() => setReleaseNotesOpen(false)}>
               {text.about.releaseNotesClose}

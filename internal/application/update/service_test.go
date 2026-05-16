@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"xiadown/internal/application/softwareupdate"
 	domainupdate "xiadown/internal/domain/update"
 )
+
+const emptyFileSHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 type catalogProviderStub struct {
 	fetchCount int
@@ -115,6 +118,7 @@ func buildCatalog(version string, downloadURL string) softwareupdate.Catalog {
 		App: &softwareupdate.AppRelease{
 			Version: version,
 			Asset: softwareupdate.Asset{
+				SHA256: emptyFileSHA256,
 				Sources: []softwareupdate.DownloadSource{
 					{
 						Name:     "test",
@@ -126,6 +130,18 @@ func buildCatalog(version string, downloadURL string) softwareupdate.Catalog {
 			},
 		},
 	}
+}
+
+func createEmptyUpdateFile(t *testing.T) string {
+	t.Helper()
+	file, err := os.CreateTemp(t.TempDir(), "update-*.zip")
+	if err != nil {
+		t.Fatalf("create temp file failed: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close temp file failed: %v", err)
+	}
+	return file.Name()
 }
 
 func TestSafeCheckAlwaysRunsWhenUpdateAlreadyAvailableToday(t *testing.T) {
@@ -340,8 +356,9 @@ func TestDownloadUpdatePublishesErrorWhenInstallerUnavailable(t *testing.T) {
 	t.Parallel()
 
 	installerErr := errors.New("installer not implemented")
+	artifactPath := createEmptyUpdateFile(t)
 	service := NewService(ServiceParams{
-		Downloader: &downloaderStub{path: "/tmp/xiadown-update.exe"},
+		Downloader: &downloaderStub{path: artifactPath},
 		Installer:  &installerStub{installErr: installerErr},
 	})
 	service.state = domainupdate.Info{
@@ -349,6 +366,7 @@ func TestDownloadUpdatePublishesErrorWhenInstallerUnavailable(t *testing.T) {
 		Status:      domainupdate.StatusAvailable,
 		DownloadURL: "https://example.com/xiadown-update.exe",
 	}
+	service.downloadSHA256 = emptyFileSHA256
 
 	info, err := service.DownloadUpdate(context.Background())
 	if !errors.Is(err, installerErr) {
@@ -385,7 +403,7 @@ func TestDownloadUpdatePublishesErrorWhenChecksumMismatches(t *testing.T) {
 		Status:      domainupdate.StatusAvailable,
 		DownloadURL: "https://example.com/xiadown-update.zip",
 	}
-	service.downloadSHA256 = "sha256:deadbeef"
+	service.downloadSHA256 = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 	info, err := service.DownloadUpdate(context.Background())
 	if err == nil {
@@ -396,6 +414,28 @@ func TestDownloadUpdatePublishesErrorWhenChecksumMismatches(t *testing.T) {
 	}
 	if info.Message != "download checksum mismatch" {
 		t.Fatalf("unexpected error message: %q", info.Message)
+	}
+}
+
+func TestDownloadUpdateRequiresChecksum(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(ServiceParams{
+		Downloader: &downloaderStub{path: createEmptyUpdateFile(t)},
+		Installer:  &installerStub{},
+	})
+	service.state = domainupdate.Info{
+		Kind:        domainupdate.KindApp,
+		Status:      domainupdate.StatusAvailable,
+		DownloadURL: "https://example.com/xiadown-update.zip",
+	}
+
+	info, err := service.DownloadUpdate(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "checksum is required") {
+		t.Fatalf("expected checksum requirement error, got %v", err)
+	}
+	if info.Status != domainupdate.StatusError {
+		t.Fatalf("expected error status, got %q", info.Status)
 	}
 }
 
@@ -587,8 +627,9 @@ func TestDownloadUpdateRestoresPreviousPreparedVersionWhenNewerPrepareFails(t *t
 	t.Parallel()
 
 	installerErr := errors.New("prepare latest failed")
+	artifactPath := createEmptyUpdateFile(t)
 	service := NewService(ServiceParams{
-		Downloader: &downloaderStub{path: "/tmp/xiadown-update.zip"},
+		Downloader: &downloaderStub{path: artifactPath},
 		Installer:  &installerStub{installErr: installerErr},
 	})
 	service.state = domainupdate.Info{
@@ -600,6 +641,7 @@ func TestDownloadUpdateRestoresPreviousPreparedVersionWhenNewerPrepareFails(t *t
 		DownloadURL:       "https://example.com/xiadown-update.zip",
 		Status:            domainupdate.StatusAvailable,
 	}
+	service.downloadSHA256 = emptyFileSHA256
 
 	info, err := service.DownloadUpdate(context.Background())
 	if !errors.Is(err, installerErr) {

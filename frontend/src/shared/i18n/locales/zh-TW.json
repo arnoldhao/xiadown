@@ -265,7 +265,7 @@
       "summarySeparator": " / ",
       "units": {
         "bytesPerSecond": "{value}/s",
-        "framesPerSecond": "{value} 影格/秒",
+        "framesPerSecond": "{value} FPS",
         "speedFactor": "{value}x"
       },
       "progressFallback": "等待進度更新",
@@ -355,6 +355,7 @@
       "fileType": "檔案類型",
       "fileFormat": "檔案格式",
       "fileInfo": "檔案資訊",
+      "transcodedFrom": "轉碼自",
       "selectFiles": "選擇",
       "verifyFiles": "檢查檔案是否存在",
       "clearMissingFiles": "清除遺失檔案",
@@ -579,6 +580,9 @@
       "modifyFile": "修改檔案",
       "path": "檔案路徑",
       "fileAddress": "檔案位址",
+      "inspectingFile": "檢查檔案中",
+      "fileInspectFailed": "檔案檢查失敗",
+      "noCompatibleTranscodePreset": "沒有可用的轉碼格式",
       "nameHint": "任務名稱"
     },
     "listen": {

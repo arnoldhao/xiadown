@@ -1,5 +1,4 @@
 @import "./shared/styles/dream.css";
-@import "./app/main/welcome.css";
 @import "@vidstack/react/player/styles/base.css";
 @import "@vidstack/react/player/styles/default/theme.css";
 @import "tw-shimmer";
@@ -7,39 +6,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@layer components {
-  .app-dream-segment-switch.listen-online-source-switch {
-    width: 12.5rem;
-    height: 2.25rem;
-  }
-
-  .app-dream-segment-switch.listen-online-source-switch .app-dream-segment-switch-tab {
-    height: 100%;
-    padding-inline: 0;
-  }
-
-  .app-dream-segment-switch.listen-online-source-switch:not([data-index="0"]):not([data-index="5"]) .app-dream-segment-switch-indicator {
-    border-radius: 0;
-  }
-
-  .app-dream-segment-switch.listen-online-source-switch[data-index="5"] .app-dream-segment-switch-indicator {
-    border-radius: 0 var(--app-radius-lg) var(--app-radius-lg) 0;
-  }
-
-  .listen-source-watermark {
-    color: hsl(var(--sidebar-foreground) / 0.18);
-    opacity: 1;
-  }
-
-  .listen-source-watermark svg {
-    opacity: 0.78;
-  }
-
-  .dark .listen-source-watermark {
-    color: hsl(var(--sidebar-foreground) / 0.20);
-  }
-}
 
 @layer base {
   :root {
@@ -183,8 +149,6 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
-    user-select: none;
-    -webkit-user-select: none;
   }
 
   /*
@@ -219,79 +183,6 @@
   #root {
     min-height: 100%;
     background-color: hsl(var(--background));
-  }
-
-  :root[data-listen-native-video-underlay="true"] body {
-    background: transparent !important;
-  }
-
-  :root[data-listen-native-video-underlay="true"] {
-    --listen-native-video-hole-x: 0px;
-    --listen-native-video-hole-y: 0px;
-    --listen-native-video-hole-w: 0px;
-    --listen-native-video-hole-h: 0px;
-    --listen-native-video-hole-r: 0px;
-    --listen-native-video-surface:
-      linear-gradient(
-        var(--app-main-shell-surface-gradient-direction),
-        hsl(var(--dream-shell-top)),
-        hsl(var(--dream-shell-mid) / 0.54) 62%,
-        hsl(var(--dream-shell-bottom) / 0.10)
-      ),
-      linear-gradient(
-        hsl(var(--dream-shell-mid) / 0.54),
-        hsl(var(--dream-shell-mid) / 0.54)
-      ),
-      hsl(var(--background));
-  }
-
-  :root[data-listen-native-video-underlay="true"] #root {
-    position: relative;
-    isolation: isolate;
-    background: transparent !important;
-  }
-
-  :root[data-listen-native-video-underlay="true"] :is(
-    .app-dream-window,
-    .app-main-shell,
-    .app-main-content,
-    .app-main-view-viewport,
-    .listen-page-view,
-    .listen-content-surface
-  ) {
-    background: transparent !important;
-  }
-
-  :root[data-listen-native-video-underlay="true"] #root::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background: var(--listen-native-video-surface);
-    -webkit-mask:
-      linear-gradient(#000 0 0) 0 0 / 100% var(--listen-native-video-hole-y) no-repeat,
-      linear-gradient(#000 0 0) 0 calc(var(--listen-native-video-hole-y) + var(--listen-native-video-hole-h)) / 100% calc(100% - var(--listen-native-video-hole-y) - var(--listen-native-video-hole-h)) no-repeat,
-      linear-gradient(#000 0 0) 0 var(--listen-native-video-hole-y) / var(--listen-native-video-hole-x) var(--listen-native-video-hole-h) no-repeat,
-      linear-gradient(#000 0 0) calc(var(--listen-native-video-hole-x) + var(--listen-native-video-hole-w)) var(--listen-native-video-hole-y) / calc(100% - var(--listen-native-video-hole-x) - var(--listen-native-video-hole-w)) var(--listen-native-video-hole-h) no-repeat,
-      radial-gradient(circle at 100% 100%, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) var(--listen-native-video-hole-x) var(--listen-native-video-hole-y) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat,
-      radial-gradient(circle at 0 100%, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) calc(var(--listen-native-video-hole-x) + var(--listen-native-video-hole-w) - var(--listen-native-video-hole-r)) var(--listen-native-video-hole-y) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat,
-      radial-gradient(circle at 0 0, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) calc(var(--listen-native-video-hole-x) + var(--listen-native-video-hole-w) - var(--listen-native-video-hole-r)) calc(var(--listen-native-video-hole-y) + var(--listen-native-video-hole-h) - var(--listen-native-video-hole-r)) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat,
-      radial-gradient(circle at 100% 0, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) var(--listen-native-video-hole-x) calc(var(--listen-native-video-hole-y) + var(--listen-native-video-hole-h) - var(--listen-native-video-hole-r)) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat;
-    mask:
-      linear-gradient(#000 0 0) 0 0 / 100% var(--listen-native-video-hole-y) no-repeat,
-      linear-gradient(#000 0 0) 0 calc(var(--listen-native-video-hole-y) + var(--listen-native-video-hole-h)) / 100% calc(100% - var(--listen-native-video-hole-y) - var(--listen-native-video-hole-h)) no-repeat,
-      linear-gradient(#000 0 0) 0 var(--listen-native-video-hole-y) / var(--listen-native-video-hole-x) var(--listen-native-video-hole-h) no-repeat,
-      linear-gradient(#000 0 0) calc(var(--listen-native-video-hole-x) + var(--listen-native-video-hole-w)) var(--listen-native-video-hole-y) / calc(100% - var(--listen-native-video-hole-x) - var(--listen-native-video-hole-w)) var(--listen-native-video-hole-h) no-repeat,
-      radial-gradient(circle at 100% 100%, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) var(--listen-native-video-hole-x) var(--listen-native-video-hole-y) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat,
-      radial-gradient(circle at 0 100%, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) calc(var(--listen-native-video-hole-x) + var(--listen-native-video-hole-w) - var(--listen-native-video-hole-r)) var(--listen-native-video-hole-y) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat,
-      radial-gradient(circle at 0 0, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) calc(var(--listen-native-video-hole-x) + var(--listen-native-video-hole-w) - var(--listen-native-video-hole-r)) calc(var(--listen-native-video-hole-y) + var(--listen-native-video-hole-h) - var(--listen-native-video-hole-r)) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat,
-      radial-gradient(circle at 100% 0, transparent calc(var(--listen-native-video-hole-r) - 0.5px), #000 var(--listen-native-video-hole-r)) var(--listen-native-video-hole-x) calc(var(--listen-native-video-hole-y) + var(--listen-native-video-hole-h) - var(--listen-native-video-hole-r)) / var(--listen-native-video-hole-r) var(--listen-native-video-hole-r) no-repeat;
-  }
-
-  :root[data-listen-native-video-underlay="true"] #root > * {
-    position: relative;
-    z-index: 1;
   }
 
   :root[data-window="tray-miniplayer"],

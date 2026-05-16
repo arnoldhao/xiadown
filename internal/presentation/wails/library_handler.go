@@ -143,6 +143,10 @@ func (handler *LibraryHandler) CreateTranscodeJob(ctx context.Context, request d
 	return handler.service.CreateTranscodeJob(ctx, request)
 }
 
+func (handler *LibraryHandler) ProbeTranscodeInput(ctx context.Context, request dto.ProbeTranscodeInputRequest) (dto.ProbeTranscodeInputResponse, error) {
+	return handler.service.ProbeTranscodeInput(ctx, request)
+}
+
 func (handler *LibraryHandler) ListTranscodePresets(ctx context.Context) ([]dto.TranscodePreset, error) {
 	return handler.service.ListTranscodePresets(ctx)
 }

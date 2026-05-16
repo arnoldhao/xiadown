@@ -493,6 +493,37 @@ func isWithinDir(path string, root string) bool {
 	return !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
+func safeArchivePath(destDir string, archiveName string) (string, error) {
+	root := filepath.Clean(strings.TrimSpace(destDir))
+	name := strings.TrimSpace(archiveName)
+	if root == "" || name == "" {
+		return "", fmt.Errorf("archive path is empty")
+	}
+	name = filepath.Clean(filepath.FromSlash(name))
+	if filepath.IsAbs(name) || name == "." || name == ".." || strings.HasPrefix(name, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("unsafe archive path %q", archiveName)
+	}
+	target := filepath.Join(root, name)
+	if !isWithinDir(target, root) {
+		return "", fmt.Errorf("unsafe archive path %q", archiveName)
+	}
+	return target, nil
+}
+
+func validateZipArchivePaths(archivePath string, destDir string) error {
+	reader, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	for _, file := range reader.File {
+		if _, err := safeArchivePath(destDir, file.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func findFirstAppBundle(root string) (string, error) {
 	var match string
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -521,6 +552,9 @@ func extractMacArchive(ctx context.Context, archivePath string, destDir string) 
 	if !strings.HasSuffix(strings.ToLower(archivePath), ".zip") {
 		return fmt.Errorf("unsupported mac update artifact %q", archivePath)
 	}
+	if err := validateZipArchivePaths(archivePath, destDir); err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, "ditto", "-x", "-k", archivePath, destDir)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		message := strings.TrimSpace(string(output))
@@ -546,7 +580,13 @@ func extractZipExecutable(archivePath, destDir, execName string) (string, error)
 
 	var candidate string
 	for _, file := range reader.File {
-		path := filepath.Join(destDir, file.Name)
+		path, err := safeArchivePath(destDir, file.Name)
+		if err != nil {
+			return "", err
+		}
+		if file.FileInfo().Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("archive symlink is not allowed: %s", file.Name)
+		}
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(path, 0o755); err != nil {
 				return "", err

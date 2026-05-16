@@ -20,11 +20,18 @@ func ConfigureProcessGroup(cmd *exec.Cmd) {
 	}
 }
 
-func terminateProcessGroup(cmd *exec.Cmd) error {
+func processGroupID(cmd *exec.Cmd) int {
 	if cmd == nil || cmd.Process == nil {
+		return 0
+	}
+	return cmd.Process.Pid
+}
+
+func terminateProcessGroup(rootPID int, _ int) error {
+	if rootPID <= 0 {
 		return nil
 	}
-	pid := strconv.Itoa(cmd.Process.Pid)
+	pid := strconv.Itoa(rootPID)
 	killCmd := exec.Command("taskkill", "/T", "/F", "/PID", pid)
 	processutil.ConfigureCLI(killCmd)
 	return killCmd.Run()

@@ -15,6 +15,10 @@ export type CompletedFileEntry = {
   libraryName: string;
   operationId: string;
   latestOperationId: string;
+  originOperationId: string;
+  rootFileId: string;
+  sourceFileId: string;
+  sourceFileName: string;
   name: string;
   title: string;
   author: string;
@@ -37,6 +41,8 @@ export type CompletedTaskEntry = {
   library: LibraryDTO | null;
   coverURL: string;
   files: CompletedFileEntry[];
+  sourceFileId: string;
+  sourceFileName: string;
   counts: {
     media: number;
     subtitle: number;
@@ -50,6 +56,12 @@ export type SetupState = {
 };
 
 export type NewTaskDialogMode = "download" | "transcode";
+export type NewTaskDialogTranscodeSource = {
+  fileId?: string;
+  inputPath: string;
+  title?: string;
+  author?: string;
+};
 export type DownloadDialogStep = "input" | "config";
 export type DownloadDialogTab = "quick" | "custom";
 export type DownloadQuality = "best" | "audio";

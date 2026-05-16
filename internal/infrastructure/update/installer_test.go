@@ -1,9 +1,11 @@
 package update
 
 import (
+	"archive/zip"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +26,35 @@ func TestResolveMacTargetBundleMovesNonApplicationsInstall(t *testing.T) {
 	targetBundle := resolveMacTargetBundle(currentBundle)
 	if targetBundle != "/Applications/xiadown.app" {
 		t.Fatalf("expected non-applications bundle to move to /Applications, got %q", targetBundle)
+	}
+}
+
+func TestExtractZipExecutableRejectsTraversal(t *testing.T) {
+	t.Parallel()
+
+	archivePath := filepath.Join(t.TempDir(), "xiadown.zip")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create zip: %v", err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("../xiadown.exe")
+	if err != nil {
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := entry.Write([]byte("payload")); err != nil {
+		t.Fatalf("write zip entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+
+	_, err = extractZipExecutable(archivePath, t.TempDir(), "xiadown.exe")
+	if err == nil || !strings.Contains(err.Error(), "unsafe archive path") {
+		t.Fatalf("expected unsafe archive path error, got %v", err)
 	}
 }
 

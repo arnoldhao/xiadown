@@ -2,6 +2,8 @@ package ws
 
 import (
 	"context"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +112,41 @@ func TestWebSocketServerReplayGapEmitsResyncRequired(t *testing.T) {
 	}
 	if event.Topic != "library.operation" {
 		t.Fatalf("unexpected event topic: %s", event.Topic)
+	}
+}
+
+func TestServerRequiresAccessTokenPath(t *testing.T) {
+	t.Parallel()
+
+	bus := events.NewInMemoryBus()
+	server := NewServer("127.0.0.1:0", bus)
+	server.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := server.Start(ctx); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer server.Shutdown(context.Background())
+
+	response, err := http.Get(server.HTTPURL() + "/health")
+	if err != nil {
+		t.Fatalf("authenticated request failed: %v", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected authenticated request to succeed, got %d", response.StatusCode)
+	}
+
+	unauthenticatedURL := strings.Replace(server.HTTPURL()+"/health", "/_xiadown/"+server.AccessToken(), "", 1)
+	response, err = http.Get(unauthenticatedURL)
+	if err != nil {
+		t.Fatalf("unauthenticated request failed: %v", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected unauthenticated request to be forbidden, got %d", response.StatusCode)
 	}
 }
 

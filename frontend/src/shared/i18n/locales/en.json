@@ -265,7 +265,7 @@
       "summarySeparator": " / ",
       "units": {
         "bytesPerSecond": "{value}/s",
-        "framesPerSecond": "{value} frames per second",
+        "framesPerSecond": "{value} FPS",
         "speedFactor": "{value}x"
       },
       "progressFallback": "Waiting for progress updates",
@@ -355,6 +355,7 @@
       "fileType": "File Type",
       "fileFormat": "File Format",
       "fileInfo": "File Info",
+      "transcodedFrom": "Transcoded from",
       "selectFiles": "Select",
       "verifyFiles": "Verify Files Exist",
       "clearMissingFiles": "Clear Missing Files",
@@ -579,6 +580,9 @@
       "modifyFile": "Change File",
       "path": "File Path",
       "fileAddress": "File Address",
+      "inspectingFile": "Inspecting File",
+      "fileInspectFailed": "File Inspect Failed",
+      "noCompatibleTranscodePreset": "No Compatible Transcode Format",
       "nameHint": "Task name"
     },
     "listen": {

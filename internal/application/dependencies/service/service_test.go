@@ -1,7 +1,10 @@
 package service
 
 import (
+	"archive/zip"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +65,76 @@ func TestEnsureDefaultsIncludesCoreDependencies(t *testing.T) {
 		if _, err := repo.Get(context.Background(), string(name)); err != nil {
 			t.Fatalf("expected default dependency %s: %v", name, err)
 		}
+	}
+}
+
+func TestDownloadFromSourcesRejectsChecksumMismatch(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not the expected payload"))
+	}))
+	defer server.Close()
+
+	destPath := filepath.Join(t.TempDir(), executableName(dependencies.DependencyBun))
+	err := downloadFromSourcesWithProgress(
+		context.Background(),
+		[]string{server.URL + "/bun"},
+		strings.Repeat("0", 64),
+		destPath,
+		nil,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("expected checksum mismatch, got %v", err)
+	}
+	if _, statErr := os.Stat(destPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected failed download to be removed, stat error = %v", statErr)
+	}
+}
+
+func TestDownloadFromSourcesRequiresChecksum(t *testing.T) {
+	t.Parallel()
+
+	err := downloadFromSourcesWithProgress(
+		context.Background(),
+		[]string{"https://example.com/tool"},
+		"",
+		filepath.Join(t.TempDir(), executableName(dependencies.DependencyBun)),
+		nil,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "checksum is required") {
+		t.Fatalf("expected checksum requirement error, got %v", err)
+	}
+}
+
+func TestExtractZipExecutablesRejectsTraversal(t *testing.T) {
+	t.Parallel()
+
+	archivePath := filepath.Join(t.TempDir(), "tool.zip")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create zip: %v", err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("../" + executableName(dependencies.DependencyBun))
+	if err != nil {
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := entry.Write([]byte("payload")); err != nil {
+		t.Fatalf("write zip entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+
+	_, err = extractZipExecutables(archivePath, t.TempDir(), []string{executableName(dependencies.DependencyBun)}, nil)
+	if err == nil || !strings.Contains(err.Error(), "unsafe archive path") {
+		t.Fatalf("expected unsafe archive path error, got %v", err)
 	}
 }
 

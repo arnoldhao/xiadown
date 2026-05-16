@@ -265,7 +265,7 @@
       "summarySeparator": " / ",
       "units": {
         "bytesPerSecond": "{value}/s",
-        "framesPerSecond": "{value} 帧/秒",
+        "framesPerSecond": "{value} FPS",
         "speedFactor": "{value}x"
       },
       "progressFallback": "等待进度更新",
@@ -355,6 +355,7 @@
       "fileType": "文件类型",
       "fileFormat": "文件格式",
       "fileInfo": "文件信息",
+      "transcodedFrom": "转码自",
       "selectFiles": "选择",
       "verifyFiles": "检测文件是否存在",
       "clearMissingFiles": "清除失效文件",
@@ -579,6 +580,9 @@
       "modifyFile": "修改文件",
       "path": "文件路径",
       "fileAddress": "文件地址",
+      "inspectingFile": "检查文件中",
+      "fileInspectFailed": "文件检查失败",
+      "noCompatibleTranscodePreset": "没有可用的转码格式",
       "nameHint": "任务名"
     },
     "listen": {

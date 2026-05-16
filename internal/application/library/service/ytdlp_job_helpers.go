@@ -556,7 +556,12 @@ func (service *LibraryService) executeYTDLPCommand(
 		PrintFilePath:  command.PrintFilePath,
 		ProgressPrefix: ytdlpProgressPrefix,
 		OnStarted: func(cmd *exec.Cmd) func() {
-			return appytdlp.StartProcessGroupKiller(command.Ctx, cmd, 2*time.Second)
+			stopKiller := startProcessGroupKiller(command.Ctx, cmd, externalProcessKillDelay)
+			stopProcessTracking := service.trackExternalProcess(operation.ID, operation.Kind, "yt-dlp", cmd)
+			return func() {
+				stopKiller()
+				stopProcessTracking()
+			}
 		},
 	})
 }

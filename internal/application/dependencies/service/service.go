@@ -3,7 +3,9 @@ package service
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -555,6 +557,10 @@ func (service *DependenciesService) installCatalogBinaryRelease(ctx context.Cont
 	if err != nil {
 		return dto.Dependency{}, err
 	}
+	expectedSHA256, err := requiredAssetSHA256(release)
+	if err != nil {
+		return dto.Dependency{}, err
+	}
 	version := release.TargetVersion()
 	dependencyDir := filepath.Join(baseDir, string(release.Name), version)
 	execName := strings.TrimSpace(release.Asset.PrimaryExecutableName())
@@ -562,7 +568,7 @@ func (service *DependenciesService) installCatalogBinaryRelease(ctx context.Cont
 		execName = executableName(release.Name)
 	}
 	execPath := filepath.Join(dependencyDir, execName)
-	if err := downloadFromSourcesWithProgress(ctx, release.Asset.DownloadURLs(), execPath, func(progress int) {
+	if err := downloadFromSourcesWithProgress(ctx, release.Asset.DownloadURLs(), expectedSHA256, execPath, func(progress int) {
 		mapped := mapProgress(progress, downloadProgressStart, downloadProgressEnd)
 		service.setInstallState(release.Name, installStageDownloading, mapped, "")
 	}, service.httpClient); err != nil {
@@ -587,6 +593,10 @@ func (service *DependenciesService) installCatalogArchiveRelease(ctx context.Con
 	if err != nil {
 		return dto.Dependency{}, err
 	}
+	expectedSHA256, err := requiredAssetSHA256(release)
+	if err != nil {
+		return dto.Dependency{}, err
+	}
 	version := release.TargetVersion()
 	dependencyDir := filepath.Join(baseDir, string(release.Name), version)
 	if err := os.MkdirAll(dependencyDir, 0o755); err != nil {
@@ -595,7 +605,7 @@ func (service *DependenciesService) installCatalogArchiveRelease(ctx context.Con
 	archivePath := filepath.Join(dependencyDir, fmt.Sprintf("download-%d%s", time.Now().UnixNano(), archiveSuffixForAsset(release.Asset)))
 	defer os.Remove(archivePath)
 
-	if err := downloadFromSourcesWithProgress(ctx, release.Asset.DownloadURLs(), archivePath, func(progress int) {
+	if err := downloadFromSourcesWithProgress(ctx, release.Asset.DownloadURLs(), expectedSHA256, archivePath, func(progress int) {
 		mapped := mapProgress(progress, downloadProgressStart, downloadProgressEnd)
 		service.setInstallState(release.Name, installStageDownloading, mapped, "")
 	}, service.httpClient); err != nil {
@@ -836,9 +846,55 @@ func normalizeBunVersion(version string) string {
 	return strings.TrimSpace(trimmed)
 }
 
-func downloadFromSourcesWithProgress(ctx context.Context, urls []string, destPath string, progress func(int), clientProvider dependencyHTTPClientProvider) error {
+func requiredAssetSHA256(release softwareupdate.DependencyRelease) (string, error) {
+	normalized := normalizeDownloadSHA256(release.Asset.SHA256)
+	if normalized == "" {
+		return "", fmt.Errorf("missing checksum for %s release", release.Name)
+	}
+	return normalized, nil
+}
+
+func normalizeDownloadSHA256(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.TrimPrefix(normalized, "sha256:")
+	if len(normalized) != sha256.Size*2 {
+		return ""
+	}
+	if _, err := hex.DecodeString(normalized); err != nil {
+		return ""
+	}
+	return normalized
+}
+
+func verifyFileSHA256(path string, expectedSHA256 string) error {
+	expectedSHA256 = normalizeDownloadSHA256(expectedSHA256)
+	if expectedSHA256 == "" {
+		return errors.New("download checksum is required")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(hasher.Sum(nil))
+	if actual != expectedSHA256 {
+		return fmt.Errorf("download checksum mismatch")
+	}
+	return nil
+}
+
+func downloadFromSourcesWithProgress(ctx context.Context, urls []string, expectedSHA256 string, destPath string, progress func(int), clientProvider dependencyHTTPClientProvider) error {
 	if len(urls) == 0 {
 		return errors.New("download url is empty")
+	}
+	expectedSHA256 = normalizeDownloadSHA256(expectedSHA256)
+	if expectedSHA256 == "" {
+		return errors.New("download checksum is required")
 	}
 	var lastErr error
 	for _, rawURL := range urls {
@@ -851,7 +907,12 @@ func downloadFromSourcesWithProgress(ctx context.Context, urls []string, destPat
 		}
 		lastErr = downloadFileWithProgressInternal(ctx, url, destPath, progress, clientProvider)
 		if lastErr == nil {
-			return nil
+			if verifyErr := verifyFileSHA256(destPath, expectedSHA256); verifyErr == nil {
+				return nil
+			} else {
+				_ = os.Remove(destPath)
+				lastErr = verifyErr
+			}
 		}
 	}
 	if lastErr == nil {
@@ -1043,6 +1104,27 @@ func looksLikeMachO(header []byte) bool {
 	return false
 }
 
+func safeArchivePath(destDir string, archiveName string) (string, error) {
+	root := filepath.Clean(strings.TrimSpace(destDir))
+	name := strings.TrimSpace(archiveName)
+	if root == "" || name == "" {
+		return "", fmt.Errorf("archive path is empty")
+	}
+	name = filepath.Clean(filepath.FromSlash(name))
+	if filepath.IsAbs(name) || name == "." || name == ".." || strings.HasPrefix(name, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("unsafe archive path %q", archiveName)
+	}
+	target := filepath.Join(root, name)
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("unsafe archive path %q", archiveName)
+	}
+	return target, nil
+}
+
 func extractZipExecutables(archivePath, destDir string, execNames []string, progress func(int)) (map[string]string, error) {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
@@ -1062,7 +1144,13 @@ func extractZipExecutables(archivePath, destDir string, execNames []string, prog
 	total := len(reader.File)
 
 	for i, file := range reader.File {
-		path := filepath.Join(destDir, file.Name)
+		path, err := safeArchivePath(destDir, file.Name)
+		if err != nil {
+			return nil, err
+		}
+		if file.FileInfo().Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("archive symlink is not allowed: %s", file.Name)
+		}
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(path, 0o755); err != nil {
 				return nil, err
@@ -1118,14 +1206,11 @@ func extractTarXZExecutables(archivePath, destDir string, execNames []string, pr
 		return nil, err
 	}
 
-	command := exec.Command(tarPath, "-xJf", archivePath, "-C", destDir)
-	configureCommand(command)
-	output, err := command.CombinedOutput()
+	listCommand := exec.Command(tarPath, "-tJf", archivePath)
+	configureCommand(listCommand)
+	listOutput, err := listCommand.Output()
 	if err != nil {
-		return nil, fmt.Errorf("extract tar.xz archive: %w %s", err, strings.TrimSpace(string(output)))
-	}
-	if progress != nil {
-		progress(100)
+		return nil, fmt.Errorf("list tar.xz archive: %w", err)
 	}
 
 	targets := make(map[string]string, len(execNames))
@@ -1136,30 +1221,56 @@ func extractTarXZExecutables(archivePath, destDir string, execNames []string, pr
 		}
 		targets[strings.ToLower(trimmed)] = trimmed
 	}
-	found := make(map[string]string, len(targets))
-	walkErr := filepath.WalkDir(destDir, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	selected := make(map[string]string, len(targets))
+	selectedArchiveNames := make([]string, 0, len(targets))
+	for _, rawName := range strings.Split(string(listOutput), "\n") {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			continue
 		}
-		if entry.IsDir() {
-			return nil
+		path, err := safeArchivePath(destDir, name)
+		if err != nil {
+			return nil, err
 		}
-		if originalName, ok := targets[strings.ToLower(entry.Name())]; ok && found[originalName] == "" {
-			found[originalName] = path
+		if originalName, ok := targets[strings.ToLower(filepath.Base(path))]; ok && selected[originalName] == "" {
+			selected[originalName] = path
+			selectedArchiveNames = append(selectedArchiveNames, name)
 		}
-		return nil
-	})
-	if walkErr != nil {
-		return nil, walkErr
 	}
 	for _, execName := range execNames {
 		trimmed := strings.TrimSpace(execName)
 		if trimmed == "" {
 			continue
 		}
-		if found[trimmed] == "" {
+		if selected[trimmed] == "" {
 			return nil, fmt.Errorf("executable %s not found in archive", trimmed)
 		}
+	}
+
+	args := append([]string{"-xJf", archivePath, "-C", destDir, "--"}, selectedArchiveNames...)
+	command := exec.Command(tarPath, args...)
+	configureCommand(command)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("extract tar.xz archive: %w %s", err, strings.TrimSpace(string(output)))
+	}
+	if progress != nil {
+		progress(100)
+	}
+
+	found := make(map[string]string, len(selected))
+	for execName, path := range selected {
+		info, err := os.Lstat(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("archive symlink is not allowed: %s", path)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("archive entry is not a regular file: %s", path)
+		}
+		found[execName] = path
 	}
 	return found, nil
 }

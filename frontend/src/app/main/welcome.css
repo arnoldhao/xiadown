@@ -1,5 +1,4 @@
-@layer components {
-  .welcome-screen {
+.welcome-screen {
     --sky-top: #101734;
     --sky-mid: #28345f;
     --sky-horizon: #566076;
@@ -18,6 +17,8 @@
     overflow: hidden;
     color: hsl(var(--panel-ink));
     image-rendering: pixelated;
+    user-select: none;
+    -webkit-user-select: none;
     background:
       linear-gradient(
         180deg,
@@ -2936,4 +2937,3 @@
       transition-duration: 1ms !important;
     }
   }
-}

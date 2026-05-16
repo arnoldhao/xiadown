@@ -1468,6 +1468,21 @@ CREATE TABLE IF NOT EXISTS library_operations (
   FOREIGN KEY (library_id) REFERENCES library_libraries(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS library_external_processes (
+  id TEXT PRIMARY KEY,
+  operation_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  pid INTEGER NOT NULL,
+  process_group_id INTEGER,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  FOREIGN KEY (operation_id) REFERENCES library_operations(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS library_external_processes_operation_idx
+  ON library_external_processes(operation_id);
+
 CREATE TABLE IF NOT EXISTS library_operation_outputs (
   id TEXT PRIMARY KEY,
   operation_id TEXT NOT NULL,

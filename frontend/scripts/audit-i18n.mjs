@@ -171,7 +171,7 @@ const englishTitleStyleExplicitPatterns = [
   /^xiadown\.welcome\.(?:title|language|proxy|dependencies|dependencyStatus|latestVersion|bgmOff|bgmOn|enterApp|installAll|installing|proxyNone|proxySystem|readyTitle|stage|systemProxyTitle|theme)/,
   /^xiadown\.settings\.(?:title|tabs\.|startup|tray|menuBar|syncedLyrics|romanizedLyrics|pinyinLyrics|downloadDirectory|defaultBrowser|refreshBrowsers|language|logLevel|themePack|accent|accentColor|fontFamily|fontSize|colorScheme|appearanceMode|sidebarStyle|systemProxy|manualProxy|noProxy|proxy|host|port|username|password|timeout|scheme|noProxyList|status|checking|notConfigured|unavailable|systemSource|vpnSource|editProxy|proxyDialogTitle|otherSoftware|menuBarOptions\.|colorSchemeOptions\.|sidebarStyleOptions\.|accentOptions\.|pets\.builtinTitle)/,
   /^xiadown\.dependencies\.(?:title|installed|missing|invalid|idle|latestVersion|currentVersion|execPath|noRemoteVersionInfo|reinstall|downloading|extracting|verifying|installing|missingDependency)/,
-  /^xiadown\.dialogs\.(?:downloadTitle|transcodeTitle|dependenciesRequiredTitle|requestDownload|quickMode|customMode|preset|format|quality|qualityBest|qualityAudio|selectFormat|size|container|codec|scaleOriginal|scaleCustom|subtitles|noSubtitle|noTranscode|keepOnlyTranscodedFile|parse|parseAgain|useConnector|connectorAvailable|connectorUnavailable|modifyLink|modifyFile|path|fileAddress)$/,
+  /^xiadown\.dialogs\.(?:downloadTitle|transcodeTitle|dependenciesRequiredTitle|requestDownload|quickMode|customMode|preset|format|quality|qualityBest|qualityAudio|selectFormat|size|container|codec|scaleOriginal|scaleCustom|subtitles|noSubtitle|noTranscode|keepOnlyTranscodedFile|parse|parseAgain|useConnector|connectorAvailable|connectorUnavailable|modifyLink|modifyFile|path|fileAddress|inspectingFile|fileInspectFailed|noCompatibleTranscodePreset)$/,
   /^xiadown\.dialogs\.formatGroup(?:Video|Audio)$/,
   /^xiadown\.listen\.(?:hush|muse|linger|localEmptyAction|localLoading|localRefresh|localClearMissing|localModified|randomStation|searchLive|searchOnline|searchLocal|searchSongs|searchArtists|searchPlaylists|source|group|liveStations|liveLoading|addChannel|editChannel|removeChannel|manageColumns|channelURL|channelTitle|channelName|channelColumn|noColumn|channelDescription|channelThumbnail|addColumn|editColumn|saveColumn|removeColumn|builtInColumns|customColumns|readonlyColumn|noColumns|retry|libraryArtists|likedMusic|playlistType|groupRecommendations|groupRadio|shelf|liveBadge|liveStatus|adBadge|skipAd|browse|upNext|play|pause|stop|loading|idleStatus|nowPlaying|playingStatus|pausedStatus|loadingStatus|errorStatus|errorCodeLabel|previous|next|playbackMode|playMode|mute|unmute|volume|seek|favorite$|collapseList|openList|onlineLoading|openConnections|refresh|contentEmpty|searchLoading|loadMore|seeAll|playAll|playNext|addToQueue|addToLibrary|shuffleAll|clearQueue|undoQueue|redoQueue|editQueue|doneQueue|removeFromQueue|moveQueueItemUp|moveQueueItemDown|airPlay|video|fitWindow|fitVideo|lockVideo|unlockVideo|noVideo|lyrics|lyricsEmpty|more|openPage|copyLink|artistShuffle|artistMix|artistSubscribe|artistUnsubscribe|artistLoading|playlistLoading|savePlaylist|removePlaylist)/,
   /^xiadown\.whatsNew\.title$/,
@@ -245,11 +245,14 @@ const zhGlossaryReplacements = [
 const zhAllowedEnglishKeyPatterns = [
   /^settings\.language\.option\.en$/,
   /^xiadown\.running\.units\.bytesPerSecond$/,
+  /^xiadown\.running\.units\.framesPerSecond$/,
   /^settings\.connectors\.item\./,
   /^xiadown\.welcome\.readyHint$/,
   /^xiadown\.settings\.pets\./,
   /^xiadown\.petGallery\./,
 ];
+const runningFramesPerSecondUnitKey = "xiadown.running.units.framesPerSecond";
+const runningFramesPerSecondUnitValue = "{value} FPS";
 const zhAllowedEnglishTokens = new Set([
   "PNG",
   "ZIP",
@@ -827,6 +830,17 @@ function collectLocalePlaceholderViolations(localeFlats, baseLocale, baseValues)
   return violations;
 }
 
+function collectRunningFPSUnitViolations(localeFlats) {
+  return Object.entries(localeFlats)
+    .map(([locale, values]) => ({
+      locale,
+      key: runningFramesPerSecondUnitKey,
+      value: values[runningFramesPerSecondUnitKey] ?? "",
+      expected: runningFramesPerSecondUnitValue,
+    }))
+    .filter((item) => item.value !== item.expected);
+}
+
 function filterLocaleTree(input, usedSet, prefix = "") {
   const output = {};
   for (const [key, value] of Object.entries(input)) {
@@ -1084,6 +1098,7 @@ const localeLeafTypeViolations = Object.entries(localeSources).flatMap(([locale,
 );
 const localeParityViolations = collectLocaleParityViolations(localeFlats, baseLocale, en);
 const localePlaceholderViolations = collectLocalePlaceholderViolations(localeFlats, baseLocale, en);
+const runningFPSUnitViolations = collectRunningFPSUnitViolations(localeFlats);
 
 const missingInZh = [...enKeys].filter((key) => !zhKeys.has(key));
 const extraInZh = [...zhKeys].filter((key) => !enKeys.has(key));
@@ -1148,6 +1163,7 @@ const summary = {
     localeMissingKeyCount: localeParityViolations.filter((item) => item.type === "missing").length,
     localeExtraKeyCount: localeParityViolations.filter((item) => item.type === "extra").length,
     localePlaceholderViolationCount: localePlaceholderViolations.length,
+    runningFPSUnitViolationCount: runningFPSUnitViolations.length,
     localeLeafTypeViolationCount: localeLeafTypeViolations.length,
     missingInZhCount: missingInZh.length,
     extraInZhCount: extraInZh.length,
@@ -1171,6 +1187,7 @@ const summary = {
   samples: {
     localeParityViolations: localeParityViolations.slice(0, 80),
     localePlaceholderViolations: localePlaceholderViolations.slice(0, 40),
+    runningFPSUnitViolations: runningFPSUnitViolations.slice(0, 40),
     localeLeafTypeViolations: localeLeafTypeViolations.slice(0, 40),
     concreteMissingDefinitions: concreteMissingDefs.slice(0, 40),
     dynamicMissingDefinitions: dynamicMissingDefs.slice(0, 20),
@@ -1198,6 +1215,7 @@ if (jsonOnly) {
   console.log(`- base locale: ${baseLocale}`);
   console.log(`- locale parity violations: ${summary.locale.localeParityViolationCount} (missing=${summary.locale.localeMissingKeyCount}, extra=${summary.locale.localeExtraKeyCount})`);
   console.log(`- locale placeholder violations: ${summary.locale.localePlaceholderViolationCount}`);
+  console.log(`- running FPS unit violations: ${summary.locale.runningFPSUnitViolationCount}`);
   console.log(`- locale leaf type violations: ${summary.locale.localeLeafTypeViolationCount}`);
   console.log(`- used keys in source: ${summary.locale.usedKeyCount}`);
   console.log(`- missing definitions: ${summary.locale.missingDefinitionCount} (concrete=${summary.locale.concreteMissingDefinitionCount}, dynamic=${summary.locale.dynamicMissingDefinitionCount})`);
@@ -1235,6 +1253,13 @@ if (jsonOnly) {
     console.log("\nlocale placeholder samples:");
     for (const item of localePlaceholderViolations.slice(0, 20)) {
       console.log(`- ${item.locale}:${item.key}: expected {${item.expected.join(", ")}} got {${item.actual.join(", ")}}`);
+    }
+  }
+
+  if (runningFPSUnitViolations.length > 0) {
+    console.log("\nrunning FPS unit samples:");
+    for (const item of runningFPSUnitViolations.slice(0, 20)) {
+      console.log(`- ${item.locale}:${item.key}: ${item.value} -> ${item.expected}`);
     }
   }
 
@@ -1348,6 +1373,7 @@ if (strict) {
   const hasBlockingIssues =
     localeParityViolations.length > 0 ||
     localePlaceholderViolations.length > 0 ||
+    runningFPSUnitViolations.length > 0 ||
     localeLeafTypeViolations.length > 0 ||
     concreteMissingDefs.length > 0 ||
     dynamicMissingDefs.length > 0 ||

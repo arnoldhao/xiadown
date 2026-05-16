@@ -132,7 +132,9 @@ type OperationRequestPreviewDTO struct {
 	Extractor                      string `json:"extractor,omitempty"`
 	Author                         string `json:"author,omitempty"`
 	ThumbnailURL                   string `json:"thumbnailUrl,omitempty"`
+	FileID                         string `json:"fileId,omitempty"`
 	InputPath                      string `json:"inputPath,omitempty"`
+	RootFileID                     string `json:"rootFileId,omitempty"`
 	PresetID                       string `json:"presetId,omitempty"`
 	Format                         string `json:"format,omitempty"`
 	VideoCodec                     string `json:"videoCodec,omitempty"`
@@ -191,6 +193,7 @@ type OperationListItemDTO struct {
 	Name                 string                      `json:"name"`
 	Kind                 string                      `json:"kind"`
 	Status               string                      `json:"status"`
+	Correlation          OperationCorrelationDTO     `json:"correlation"`
 	Domain               string                      `json:"domain,omitempty"`
 	SourceIcon           string                      `json:"sourceIcon,omitempty"`
 	Platform             string                      `json:"platform,omitempty"`
@@ -669,6 +672,26 @@ type CreateTranscodeJobRequest struct {
 	Width                          int      `json:"width,omitempty"`
 	Height                         int      `json:"height,omitempty"`
 	DeleteSourceFileAfterTranscode bool     `json:"deleteSourceFileAfterTranscode,omitempty"`
+}
+
+type ProbeTranscodeInputRequest struct {
+	FileID    string `json:"fileId,omitempty"`
+	InputPath string `json:"inputPath,omitempty"`
+	Source    string `json:"source,omitempty"`
+}
+
+type TranscodePresetCompatibilityDTO struct {
+	PresetID   string `json:"presetId"`
+	Compatible bool   `json:"compatible"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type ProbeTranscodeInputResponse struct {
+	Media               LibraryMediaInfoDTO               `json:"media"`
+	MediaType           string                            `json:"mediaType"`
+	CompatiblePresetIDs []string                          `json:"compatiblePresetIds"`
+	PresetCompatibility []TranscodePresetCompatibilityDTO `json:"presetCompatibility"`
+	RecommendedPresetID string                            `json:"recommendedPresetId,omitempty"`
 }
 
 type ListTranscodePresetsForDownloadRequest struct {

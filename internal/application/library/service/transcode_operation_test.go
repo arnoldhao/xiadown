@@ -292,11 +292,18 @@ func TestBuildFFmpegTranscodeArgsExpandedAudioContainersUseExpectedCodec(t *test
 }
 
 func TestBuildTranscodeOperationOutputIncludesCoreFields(t *testing.T) {
+	tempDir := t.TempDir()
+	coverPath := filepath.Join(tempDir, "cover.jpg")
+	if err := os.WriteFile(coverPath, []byte("cover"), 0o644); err != nil {
+		t.Fatalf("write cover: %v", err)
+	}
 	request := dto.CreateTranscodeJobRequest{
 		DeleteSourceFileAfterTranscode: true,
+		CoverPath:                      coverPath,
 	}
 
-	outputJSON := buildTranscodeOperationOutput(request, "completed", "/tmp/output.mp4")
+	tempPath := filepath.Join(tempDir, "output.operation.tmp.mp4")
+	outputJSON := buildTranscodeOperationOutput(request, "completed", "/tmp/output.mp4", tempPath)
 
 	payload := map[string]any{}
 	if err := json.Unmarshal([]byte(outputJSON), &payload); err != nil {
@@ -311,6 +318,77 @@ func TestBuildTranscodeOperationOutputIncludesCoreFields(t *testing.T) {
 	if got := payload["deleteSourceFileAfterTranscode"]; got != true {
 		t.Fatalf("unexpected deleteSourceFileAfterTranscode: %#v", got)
 	}
+	if got := payload[operationThumbnailPreviewPathKey]; got != coverPath {
+		t.Fatalf("unexpected thumbnailPreviewPath: %#v", got)
+	}
+	if got := extractOperationThumbnailPreviewPath(outputJSON); got != coverPath {
+		t.Fatalf("expected extractOperationThumbnailPreviewPath to return %q, got %q", coverPath, got)
+	}
+	temporaryPaths := extractTranscodeTemporaryPaths(outputJSON)
+	if len(temporaryPaths) != 1 || temporaryPaths[0] != tempPath {
+		t.Fatalf("unexpected temporary paths: %#v", temporaryPaths)
+	}
+}
+
+func TestResolveAutomaticTranscodeCoverPathUsesSourceTaskThumbnail(t *testing.T) {
+	tempDir := t.TempDir()
+	sourcePath := filepath.Join(tempDir, "episode.mp4")
+	thumbnailPath := filepath.Join(tempDir, "episode.jpg")
+	if err := os.WriteFile(thumbnailPath, []byte("cover"), 0o644); err != nil {
+		t.Fatalf("write thumbnail: %v", err)
+	}
+
+	sourceFile := mustNewTranscodeTestFile(t, library.LibraryFileParams{
+		ID:        "source-file",
+		LibraryID: "library-1",
+		Kind:      string(library.FileKindVideo),
+		Name:      "episode.mp4",
+		Storage: library.FileStorage{
+			Mode:      "local_path",
+			LocalPath: sourcePath,
+		},
+		Origin: library.FileOrigin{
+			Kind:        "download",
+			OperationID: "download-op",
+		},
+		Lineage: library.FileLineage{RootFileID: "source-file"},
+	})
+	thumbnailFile := mustNewTranscodeTestFile(t, library.LibraryFileParams{
+		ID:        "thumbnail-file",
+		LibraryID: "library-1",
+		Kind:      string(library.FileKindThumbnail),
+		Name:      "episode.jpg",
+		Storage: library.FileStorage{
+			Mode:      "local_path",
+			LocalPath: thumbnailPath,
+		},
+		Origin: library.FileOrigin{
+			Kind:        "download",
+			OperationID: "download-op",
+		},
+		Lineage: library.FileLineage{RootFileID: "source-file"},
+	})
+	fileRepo := &deleteRuleFileRepo{
+		items: map[string]library.LibraryFile{
+			sourceFile.ID:    sourceFile,
+			thumbnailFile.ID: thumbnailFile,
+		},
+	}
+	service := &LibraryService{files: fileRepo}
+
+	got := service.resolveAutomaticTranscodeCoverPath(context.Background(), dto.CreateTranscodeJobRequest{}, sourceFile)
+	if got != thumbnailPath {
+		t.Fatalf("expected source task thumbnail %q, got %q", thumbnailPath, got)
+	}
+}
+
+func mustNewTranscodeTestFile(t *testing.T, params library.LibraryFileParams) library.LibraryFile {
+	t.Helper()
+	item, err := library.NewLibraryFile(params)
+	if err != nil {
+		t.Fatalf("NewLibraryFile: %v", err)
+	}
+	return item
 }
 
 func TestEnsureManagedOutputParentDirCreatesDirectory(t *testing.T) {
@@ -326,6 +404,39 @@ func TestEnsureManagedOutputParentDirCreatesDirectory(t *testing.T) {
 	}
 	if !info.IsDir() {
 		t.Fatalf("expected parent path to be a directory")
+	}
+}
+
+func TestPromoteTranscodeTemporaryOutputMovesTempToFinalPath(t *testing.T) {
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "video.mp4")
+	tempPath := resolveTranscodeTemporaryOutputPath(outputPath, "operation:1")
+	if tempPath == outputPath {
+		t.Fatalf("temporary path should differ from output path")
+	}
+	if filepath.Ext(tempPath) != ".mp4" {
+		t.Fatalf("temporary path should preserve media extension, got %q", tempPath)
+	}
+	if err := os.WriteFile(tempPath, []byte("new"), 0o644); err != nil {
+		t.Fatalf("write temp output: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write existing output: %v", err)
+	}
+
+	if err := promoteTranscodeTemporaryOutput(tempPath, outputPath); err != nil {
+		t.Fatalf("promoteTranscodeTemporaryOutput returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read promoted output: %v", err)
+	}
+	if string(content) != "new" {
+		t.Fatalf("unexpected promoted output content: %q", content)
+	}
+	if pathExists(tempPath) {
+		t.Fatalf("expected temporary output to be moved")
 	}
 }
 
@@ -482,6 +593,20 @@ func TestParseFFmpegProgressMillisSupportsTimestampAndMicroseconds(t *testing.T)
 	}
 	if got, ok := parseFFmpegProgressMillis("out_time_us", "7200000"); !ok || got != 7200 {
 		t.Fatalf("expected microsecond progress 7200ms, got %d, %v", got, ok)
+	}
+}
+
+func TestNormalizeFFmpegProgressFPSUsesUppercaseUnit(t *testing.T) {
+	cases := map[string]string{
+		"92":    "92.0 FPS",
+		"92.34": "92.3 FPS",
+		"120.6": "121 FPS",
+		"N/A":   "",
+	}
+	for input, expected := range cases {
+		if got := normalizeFFmpegProgressFPS(input); got != expected {
+			t.Fatalf("normalizeFFmpegProgressFPS(%q) = %q, want %q", input, got, expected)
+		}
 	}
 }
 

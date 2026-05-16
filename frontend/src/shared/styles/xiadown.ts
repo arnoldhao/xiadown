@@ -1,5 +1,8 @@
 import type { Pet } from "@/shared/contracts/pets";
-import type { XiaThemePackId } from "@/shared/styles/xiadown-theme";
+import type {
+  XiaSidebarStyle,
+  XiaThemePackId,
+} from "@/shared/styles/xiadown-theme";
 import type * as React from "react";
 
 export interface PetCardLighting {
@@ -19,9 +22,9 @@ export const MAIN_SIDEBAR_ICON_CLASS =
 export const SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME =
   "w-max min-w-fit max-w-[calc(100vw-2rem)]";
 export const SIDEBAR_DROPDOWN_ITEM_CLASS_NAME =
-  "w-full gap-2 whitespace-nowrap py-2 pr-3 pl-3 text-sm outline-none";
+  "w-full whitespace-nowrap outline-none";
 export const SIDEBAR_DROPDOWN_CHECKBOX_ITEM_CLASS_NAME =
-  "w-full gap-2 whitespace-nowrap py-2 pr-3 pl-8 text-sm outline-none";
+  "w-full whitespace-nowrap outline-none";
 export const SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME =
   "flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground";
 
@@ -57,7 +60,7 @@ export const PET_GALLERY_CARD_SIZE_CLASS =
 export const PET_GALLERY_CONTEXT_MENU_CONTENT_CLASS_NAME =
   "w-max min-w-fit max-w-[calc(100vw-2rem)]";
 export const PET_GALLERY_CONTEXT_MENU_ITEM_CLASS_NAME =
-  "w-full gap-2 whitespace-nowrap py-2 pr-3 pl-3 text-sm outline-none";
+  "w-full whitespace-nowrap outline-none";
 export const PET_GALLERY_CONTEXT_MENU_ICON_SLOT_CLASS_NAME =
   "flex h-4 w-4 shrink-0 items-center justify-center";
 export const PET_METADATA_TEXTAREA_CLASS =
@@ -100,13 +103,18 @@ export const RUNNING_PET_GLOW_STYLE: React.CSSProperties = {
 
 export function resolveXiaMainSidebarSurface(
   themeId: XiaThemePackId,
+  sidebarStyle?: XiaSidebarStyle,
   shellTheme = "default",
 ) {
+  const resolvedStyle = sidebarStyle ?? (themeId === "pixel" ? "pixel" : "glass");
+  if (resolvedStyle === "pixel") {
+    return "rounded-none border-r-2 border-sidebar-border bg-sidebar-background shadow-none backdrop-blur-none";
+  }
+  if (resolvedStyle === "contrast") {
+    return "border-r bg-sidebar-background text-sidebar-foreground shadow-[inset_-1px_0_0_hsl(var(--sidebar-border))]";
+  }
   if (shellTheme === "dream") {
     return "border-r bg-sidebar-background/70 backdrop-blur-2xl";
-  }
-  if (themeId === "pixel") {
-    return "rounded-none border-r-2 bg-sidebar-background";
   }
   return "border-r bg-sidebar-background/82 backdrop-blur-2xl";
 }

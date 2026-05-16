@@ -324,6 +324,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	localTrackRepo := libraryrepo.NewSQLiteListenLocalTrackRepository(database.Bun)
 	listenLiveChannelRepo := libraryrepo.NewSQLiteListenLiveChannelRepository(database.Bun)
 	operationRepo := libraryrepo.NewSQLiteOperationRepository(database.Bun)
+	externalProcessRepo := libraryrepo.NewSQLiteExternalProcessRepository(database.Bun)
 	operationChunkRepo := libraryrepo.NewSQLiteOperationChunkRepository(database.Bun)
 	presetRepo := libraryrepo.NewSQLiteTranscodePresetRepository(database.Bun)
 	historyRepo := libraryrepo.NewSQLiteHistoryRepository(database.Bun)
@@ -337,6 +338,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		fileRepo,
 		localTrackRepo,
 		operationRepo,
+		externalProcessRepo,
 		operationChunkRepo,
 		historyRepo,
 		workspaceStateRepo,

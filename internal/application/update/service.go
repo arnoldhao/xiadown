@@ -359,6 +359,9 @@ func (service *Service) DownloadUpdate(ctx context.Context) (update.Info, error)
 	if len(downloadURLs) == 0 {
 		return service.publishPrepareError(fmt.Errorf("missing download url"), fallback)
 	}
+	if normalizeSHA256(expectedSHA256) == "" {
+		return service.publishPrepareError(fmt.Errorf("download checksum is required"), fallback)
+	}
 	if service.downloader == nil {
 		return service.publishPrepareError(fmt.Errorf("downloader not configured"), fallback)
 	}
@@ -377,6 +380,7 @@ func (service *Service) DownloadUpdate(ctx context.Context) (update.Info, error)
 			if verifyErr := verifyDownloadedAsset(path, expectedSHA256); verifyErr == nil {
 				break
 			} else {
+				_ = os.Remove(path)
 				err = verifyErr
 			}
 		}
@@ -725,13 +729,19 @@ func isReleaseVersion(version string) bool {
 func normalizeSHA256(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	value = strings.TrimPrefix(value, "sha256:")
+	if len(value) != sha256.Size*2 {
+		return ""
+	}
+	if _, err := hex.DecodeString(value); err != nil {
+		return ""
+	}
 	return value
 }
 
 func verifyDownloadedAsset(path string, expectedSHA256 string) error {
 	expected := normalizeSHA256(expectedSHA256)
 	if expected == "" {
-		return nil
+		return fmt.Errorf("download checksum is required")
 	}
 
 	file, err := os.Open(path)

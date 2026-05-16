@@ -17,10 +17,10 @@ import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
 import { formatBytes } from "@/shared/utils/formatBytes";
 import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripPathExtension } from "@/shared/utils/resourceHelpers";
 
-import { CompletedFileDetailContent,CompletedFileDetailHeaderMeta,CompletedTaskDetailContent,CompletedTaskDetailHeaderMeta,SelectionCheckbox } from "@/app/main/completed/detail-components";
+import { CompletedFileDetailContent,CompletedFileDetailHeader,CompletedTaskDetailContent,CompletedTaskDetailHeader,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
-import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
 import type { CompletedContextMenuTarget,CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedTaskEntry,CompletedViewMode } from "@/app/main/types";
 
@@ -30,6 +30,76 @@ const COMPLETED_FILTER_MENU_CHECKBOX_CLASS =
   "app-completed-filter-menu-checkbox";
 const COMPLETED_FILTER_MENU_ICON_CLASS =
   "app-completed-filter-menu-icon flex h-4 w-4 shrink-0 items-center justify-center";
+
+function resolveCompletedLibrarySourceFileLabel(
+  file: LibraryDTO["files"][number],
+) {
+  const localPath = file.storage.localPath?.trim() ?? "";
+  return (
+    file.displayName?.trim() ||
+    file.displayLabel?.trim() ||
+    file.fileName?.trim() ||
+    file.name?.trim() ||
+    getPathBaseName(localPath) ||
+    file.id
+  );
+}
+
+function resolveCompletedTranscodeSourceFile(
+  file: LibraryDTO["files"][number],
+  filesById: Map<string, LibraryDTO["files"][number]>,
+) {
+  const kind = (file.kind ?? "").trim().toLowerCase();
+  const originKind = (file.origin.kind ?? "").trim().toLowerCase();
+  if (kind !== "transcode" && originKind !== "transcode") {
+    return null;
+  }
+  const rootFileId = file.lineage.rootFileId?.trim() ?? "";
+  if (!rootFileId || rootFileId === file.id) {
+    return null;
+  }
+  return filesById.get(rootFileId) ?? null;
+}
+
+function resolveCompletedTaskTranscodeSource(
+  operation: OperationListItemDTO,
+  library: LibraryDTO | null,
+  files: CompletedFileEntry[],
+) {
+  if ((operation.kind ?? "").trim().toLowerCase() !== "transcode") {
+    return { id: "", name: "" };
+  }
+  const libraryFilesById = new Map(
+    (library?.files ?? []).map((file) => [file.id, file]),
+  );
+  const sourceIds = [
+    operation.request?.fileId,
+    operation.request?.rootFileId,
+  ]
+    .map((value) => value?.trim() ?? "")
+    .filter(Boolean);
+  for (const sourceId of sourceIds) {
+    const sourceFile = libraryFilesById.get(sourceId);
+    if (sourceFile) {
+      return {
+        id: sourceFile.id,
+        name: resolveCompletedLibrarySourceFileLabel(sourceFile),
+      };
+    }
+  }
+  const outputSource = files.find((file) => file.sourceFileName.trim());
+  if (outputSource) {
+    return {
+      id: outputSource.sourceFileId,
+      name: outputSource.sourceFileName,
+    };
+  }
+  const inputPath = operation.request?.inputPath?.trim() ?? "";
+  if (inputPath) {
+    return { id: "", name: getPathBaseName(inputPath) || inputPath };
+  }
+  return { id: "", name: "" };
+}
 
 function isCompletedFloatingLayerTarget(target: EventTarget | null) {
   if (!(target instanceof Node)) {
@@ -98,6 +168,12 @@ function buildCompletedTaskFileSummaryItems(
       key: "subtitle",
       label: text.completed.subtitleCount,
     },
+    {
+      count: entry.counts.image,
+      icon: ImageIcon,
+      key: "image",
+      label: text.completed.imageCount,
+    },
   ].filter(Boolean);
 }
 
@@ -108,6 +184,7 @@ export function CompletedPage(props: {
   httpBaseURL: string;
   pet: Pet | null;
   petImageURL: string;
+  onTranscodeFile?: (file: CompletedFileEntry) => void;
 }) {
   const isWindows = System.IsWindows();
   const deleteOperations = useDeleteOperations();
@@ -166,31 +243,42 @@ export function CompletedPage(props: {
           props.httpBaseURL,
           library,
         );
+        const libraryFilesById = new Map(
+          library.files.map((file) => [file.id, file]),
+        );
         return library.files
           .filter((file) => !file.state.deleted)
           .map((file) => {
             const localPath = file.storage.localPath?.trim() ?? "";
-            const label =
-              file.displayName?.trim() ||
-              file.displayLabel?.trim() ||
-              file.fileName?.trim() ||
-              file.name ||
-              getPathBaseName(localPath) ||
-              file.id;
+            const label = resolveCompletedLibrarySourceFileLabel(file);
             const title =
               firstCompletedText(
                 file.metadata.title,
                 stripPathExtension(label),
               ) || label;
+            const latestOperationId = file.latestOperationId?.trim() ?? "";
+            const originOperationId = file.origin.operationId?.trim() ?? "";
+            const rootFileId = file.lineage.rootFileId?.trim() ?? "";
+            const sourceFile = resolveCompletedTranscodeSourceFile(
+              file,
+              libraryFilesById,
+            );
+            const sourceFileName = sourceFile
+              ? resolveCompletedLibrarySourceFileLabel(sourceFile)
+              : "";
             const operationUpdatedAt =
-              operationUpdatedAtById.get(file.latestOperationId || "") ||
-              operationUpdatedAtById.get(file.origin.operationId || "");
+              operationUpdatedAtById.get(latestOperationId) ||
+              operationUpdatedAtById.get(originOperationId);
             return {
               id: file.id,
               libraryId: library.id,
               libraryName: library.name || library.id,
-              operationId: file.latestOperationId || "",
-              latestOperationId: file.latestOperationId || "",
+              operationId: originOperationId || latestOperationId,
+              latestOperationId,
+              originOperationId,
+              rootFileId,
+              sourceFileId: sourceFile?.id ?? "",
+              sourceFileName,
               name: label,
               title,
               author: firstCompletedText(file.metadata.author),
@@ -256,6 +344,10 @@ export function CompletedPage(props: {
             operation.libraryName || library?.name || operation.libraryId,
           operationId: operation.operationId,
           latestOperationId: operation.operationId,
+          originOperationId: operation.operationId,
+          rootFileId: "",
+          sourceFileId: "",
+          sourceFileName: "",
           name: label,
           title: firstCompletedText(
             stripPathExtension(label),
@@ -292,12 +384,12 @@ export function CompletedPage(props: {
   const realFilesByOperationId = React.useMemo(() => {
     const map = new Map<string, CompletedFileEntry[]>();
     realFiles.forEach((file) => {
-      if (!file.latestOperationId) {
+      if (!file.originOperationId) {
         return;
       }
-      const current = map.get(file.latestOperationId) ?? [];
+      const current = map.get(file.originOperationId) ?? [];
       current.push(file);
-      map.set(file.latestOperationId, current);
+      map.set(file.originOperationId, current);
     });
     return map;
   }, [realFiles]);
@@ -337,6 +429,10 @@ export function CompletedPage(props: {
                 operation.libraryName || library?.name || operation.libraryId,
               operationId: operation.operationId,
               latestOperationId: operation.operationId,
+              originOperationId: operation.operationId,
+              rootFileId: "",
+              sourceFileId: "",
+              sourceFileName: "",
               name: label,
               title: firstCompletedText(
                 stripPathExtension(label),
@@ -361,6 +457,11 @@ export function CompletedPage(props: {
           });
 
           const files = [...filesMap.values()];
+          const transcodeSource = resolveCompletedTaskTranscodeSource(
+            operation,
+            library,
+            files,
+          );
           const counts = files.reduce(
             (summary, file) => {
               const previewGroupKind = resolveCompletedPreviewGroupKind(file);
@@ -384,6 +485,8 @@ export function CompletedPage(props: {
             library,
             coverURL: operationCoverURL,
             files,
+            sourceFileId: transcodeSource.id,
+            sourceFileName: transcodeSource.name,
             counts,
             updatedAt: resolveOperationUpdatedAt(operation),
           };
@@ -473,6 +576,7 @@ export function CompletedPage(props: {
         return [
           entry.operation.name,
           entry.operation.libraryName || entry.library?.name || "",
+          entry.sourceFileName,
           entry.operation.domain || "",
           resolveCompletedStatusLabel(props.text, entry.operation.status),
         ]
@@ -493,7 +597,7 @@ export function CompletedPage(props: {
         if (!trimmedQuery) {
           return true;
         }
-        return [file.name, file.libraryName, file.kind, file.format, file.path]
+        return [file.name, file.sourceFileName, file.libraryName, file.kind, file.format, file.path]
           .join(" ")
           .toLowerCase()
           .includes(trimmedQuery);
@@ -904,7 +1008,7 @@ export function CompletedPage(props: {
           sideOffset={2}
           className={SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME}
         >
-          <div className="p-1">
+          <div className="grid">
             <DropdownMenuItem
               className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
               disabled={viewDisabled}
@@ -948,7 +1052,7 @@ export function CompletedPage(props: {
         }
       }}
     >
-      <DialogContent className="grid h-[min(14rem,calc(100vh-2rem))] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
+      <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
         <DialogHeader className="min-w-0">
           <DialogTitle
             className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
@@ -1268,7 +1372,7 @@ export function CompletedPage(props: {
           appName={props.text.appName}
           task={selectedTask}
           selectedPreviewFileId={selectedPreviewFileId}
-          onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
+          onTranscodeFile={props.onTranscodeFile}
           pet={props.pet}
           petImageURL={props.petImageURL}
         />
@@ -1277,6 +1381,7 @@ export function CompletedPage(props: {
           text={props.text}
           appName={props.text.appName}
           file={selectedFile}
+          onTranscodeFile={props.onTranscodeFile}
         />
       ) : null;
 
@@ -1292,74 +1397,30 @@ export function CompletedPage(props: {
             ? resolveCompletedImagePreviewURL(selectedFile)
             : selectedFile.coverURL
           : "";
-    const DetailStatusIcon =
-      viewMode === "tasks" && selectedTask
-        ? resolveCompletedTaskStatusIcon(selectedTask.operation.status)
-        : null;
-
     return (
       <aside
         ref={detailPaneRef}
         className="app-main-detail-pane app-completed-inline-detail my-3 flex w-[25rem] shrink-0 flex-col overflow-hidden xl:w-[27rem]"
       >
-        <div
-          className={cn(
-            "app-completed-inline-detail-header flex shrink-0 gap-2 border-b border-border/60 px-4",
-            (viewMode === "tasks" && selectedTask) ||
-              (viewMode === "files" && selectedFile)
-              ? "items-start py-3"
-              : "min-h-12 items-center py-2.5",
-          )}
-        >
-          <span className="app-completed-detail-cover relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden">
-            {detailCoverURL ? (
-              <img
-                src={detailCoverURL}
-                alt=""
-                aria-hidden="true"
-                className="h-full w-full object-cover"
-                loading="lazy"
-                decoding="async"
-                draggable={false}
-              />
-            ) : (
-              <ContentHeaderIcon className="h-5 w-5" />
-            )}
-            {DetailStatusIcon ? (
-              <span
-                className={cn(
-                  "app-completed-detail-cover-status absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center",
-                  resolveCompletedTaskStatusIconTone(
-                    selectedTask?.operation.status,
-                  ),
-                )}
-              >
-                <DetailStatusIcon className="h-3 w-3" aria-hidden="true" />
-              </span>
-            ) : null}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div
-              className="overflow-hidden break-words text-sm font-semibold leading-5 text-foreground/82 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
-              title={contentTitle}
-            >
-              {contentTitle}
-            </div>
-            {viewMode === "tasks" && selectedTask ? (
-              <CompletedTaskDetailHeaderMeta
-                text={props.text}
-                task={selectedTask}
-                className="mt-2"
-              />
-            ) : viewMode === "files" && selectedFile ? (
-              <CompletedFileDetailHeaderMeta
-                text={props.text}
-                file={selectedFile}
-                className="mt-2"
-              />
-            ) : null}
-          </div>
-        </div>
+        {viewMode === "tasks" && selectedTask ? (
+          <CompletedTaskDetailHeader
+            text={props.text}
+            task={selectedTask}
+            coverURL={detailCoverURL}
+            title={contentTitle}
+            fallbackIcon={<ContentHeaderIcon className="h-5 w-5" />}
+            selectedPreviewFileId={selectedPreviewFileId}
+            onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
+          />
+        ) : viewMode === "files" && selectedFile ? (
+          <CompletedFileDetailHeader
+            text={props.text}
+            file={selectedFile}
+            coverURL={detailCoverURL}
+            title={contentTitle}
+            fallbackIcon={<ContentHeaderIcon className="h-5 w-5" />}
+          />
+        ) : null}
         <div className="min-h-0 flex-1 overflow-hidden">{detailContent}</div>
       </aside>
     );
@@ -1503,6 +1564,12 @@ export function CompletedPage(props: {
                   const StatusIcon = resolveCompletedTaskStatusIcon(
                     entry.operation.status,
                   );
+                  const updatedAtLabel = entry.updatedAt
+                    ? formatRelativeTime(entry.updatedAt)
+                    : "";
+                  const statusTimeLabel = updatedAtLabel
+                    ? `${statusLabel} · ${updatedAtLabel}`
+                    : statusLabel;
                   const fileSummaryItems = buildCompletedTaskFileSummaryItems(
                     entry,
                     props.text,
@@ -1555,22 +1622,25 @@ export function CompletedPage(props: {
                           />
                         ) : null}
                         <span
-                          className={cn(
-                            "app-completed-task-card-status-icon absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center",
-                            resolveCompletedTaskStatusIconTone(
-                              entry.operation.status,
-                            ),
-                          )}
-                          title={statusLabel}
-                          aria-label={statusLabel}
+                          className="app-completed-task-card-status-time absolute bottom-1.5 left-1.5 inline-flex max-w-[calc(100%-0.75rem)] items-center gap-1 truncate px-2 py-1 text-2xs font-medium"
+                          title={statusTimeLabel}
+                          aria-label={statusTimeLabel}
                         >
-                          <StatusIcon className="h-4 w-4" aria-hidden="true" />
+                          <StatusIcon
+                            className={cn(
+                              "h-3 w-3 shrink-0",
+                              resolveCompletedTaskStatusIconTone(
+                                entry.operation.status,
+                              ),
+                            )}
+                            aria-hidden="true"
+                          />
+                          {updatedAtLabel ? (
+                            <span className="min-w-0 truncate">
+                              {updatedAtLabel}
+                            </span>
+                          ) : null}
                         </span>
-                        {entry.updatedAt ? (
-                          <span className="app-completed-task-card-time absolute bottom-1.5 left-1.5 inline-flex max-w-[calc(100%-0.75rem)] items-center truncate px-2 py-1 text-2xs font-medium">
-                            {formatRelativeTime(entry.updatedAt)}
-                          </span>
-                        ) : null}
                       </div>
                       <div className="app-completed-task-card-body relative grid gap-1 px-0.5 pt-1.5">
                         <div
@@ -1579,9 +1649,9 @@ export function CompletedPage(props: {
                         >
                           {entry.operation.name}
                         </div>
-                        <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1 overflow-hidden text-2xs font-medium leading-4">
-                          {fileSummaryItems.length > 0 ? (
-                            fileSummaryItems.map((item) => {
+                        {fileSummaryItems.length > 0 ? (
+                          <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1 overflow-hidden text-2xs font-medium leading-4">
+                            {fileSummaryItems.map((item) => {
                               const Icon = item.icon;
                               return (
                                 <span
@@ -1596,13 +1666,14 @@ export function CompletedPage(props: {
                                   </span>
                                 </span>
                               );
-                            })
-                          ) : (
-                            <span className="truncate">
-                              {props.text.completed.taskNoFiles}
-                            </span>
-                          )}
-                        </div>
+                            })}
+                          </div>
+                        ) : (
+                          <div
+                            className="app-completed-task-card-meta flex min-w-0 items-center overflow-hidden text-2xs font-medium leading-4"
+                            aria-hidden="true"
+                          />
+                        )}
                       </div>
                     </button>
                   );
@@ -1641,6 +1712,11 @@ export function CompletedPage(props: {
                         : (file.kind ?? "").trim().toLowerCase() === "subtitle"
                           ? Languages
                           : Link2;
+                const transcodeSourceLabel =
+                  formatCompletedTranscodedFromLabel(
+                    props.text,
+                    file.sourceFileName,
+                  );
 
                 return (
                   <button
@@ -1695,7 +1771,7 @@ export function CompletedPage(props: {
                         {file.name}
                       </div>
                       <div className="app-completed-file-subtitle mt-0.5 truncate text-xs leading-4">
-                        {file.libraryName}
+                        {transcodeSourceLabel || file.libraryName}
                       </div>
                     </div>
                     <div className="app-completed-file-meta flex shrink-0 items-center gap-2 text-xs">

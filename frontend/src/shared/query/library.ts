@@ -20,6 +20,8 @@ import type {
   ParseYTDLPDownloadResponse,
   PrepareYTDLPDownloadRequest,
   PrepareYTDLPDownloadResponse,
+  ProbeTranscodeInputRequest,
+  ProbeTranscodeInputResponse,
   ResumeOperationRequest,
   TranscodePreset,
 } from "@/shared/contracts/library";
@@ -33,6 +35,7 @@ export const LIBRARY_WORKSPACE_QUERY_KEY = ["library", "workspace"] as const;
 export const LIBRARY_WORKSPACE_PROJECT_QUERY_KEY = ["library", "workspace-project"] as const;
 export const LIBRARY_TRANSCODE_PRESETS_QUERY_KEY = ["library", "transcode-presets"] as const;
 export const LIBRARY_TRANSCODE_PRESETS_FOR_DOWNLOAD_QUERY_KEY = ["library", "transcode-presets-download"] as const;
+export const LIBRARY_TRANSCODE_PROBE_QUERY_KEY = ["library", "transcode-probe"] as const;
 
 export function invalidateLibraryQueries(queryClient: ReturnType<typeof useQueryClient>, libraryId?: string) {
   queryClient.invalidateQueries({ queryKey: LIBRARY_LIST_QUERY_KEY });
@@ -197,6 +200,24 @@ export function useTranscodePresets() {
     queryKey: LIBRARY_TRANSCODE_PRESETS_QUERY_KEY,
     queryFn: async (): Promise<TranscodePreset[]> => {
       return ((await LibraryHandler.ListTranscodePresets()) ?? []) as TranscodePreset[];
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useProbeTranscodeInput(request: ProbeTranscodeInputRequest | null) {
+  return useQuery({
+    queryKey: [...LIBRARY_TRANSCODE_PROBE_QUERY_KEY, request],
+    enabled:
+      request !== null &&
+      (Boolean(request.fileId?.trim()) || Boolean(request.inputPath?.trim())),
+    queryFn: async (): Promise<ProbeTranscodeInputResponse> => {
+      if (!request) {
+        throw new Error("probe request is required");
+      }
+      return (await LibraryHandler.ProbeTranscodeInput(
+        LibraryBindings.ProbeTranscodeInputRequest.createFrom(request),
+      )) as ProbeTranscodeInputResponse;
     },
     staleTime: 30_000,
   });

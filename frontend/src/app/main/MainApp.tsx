@@ -96,7 +96,7 @@ import { formatVersionBadge,normalizeDependencyVersion,resolveCompletedStatusLab
 import { CORE_DEPENDENCIES,MAIN_SIDEBAR_ACTION_CLASS,MAIN_SIDEBAR_ICON_CLASS,SETUP_STORAGE_KEY,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME,useSetupState } from "@/app/main/main-constants";
 import { NewTaskDialog } from "@/app/main/NewTaskDialog";
 import { ListenNowPlayingMiniPlayer,resolveSidebarSurface,SidebarIconButton } from "@/app/main/sidebar";
-import type { MainViewId,NewTaskDialogMode } from "@/app/main/types";
+import type { CompletedFileEntry,MainViewId,NewTaskDialogMode,NewTaskDialogTranscodeSource } from "@/app/main/types";
 import {
 WELCOME_DEBUG_EVENT,
 WelcomeScreen,
@@ -204,6 +204,8 @@ export function MainApp() {
   const [newTaskDialogMode, setNewTaskDialogMode] =
     React.useState<NewTaskDialogMode>("download");
   const [prefilledDownloadURL, setPrefilledDownloadURL] = React.useState("");
+  const [prefilledTranscodeSource, setPrefilledTranscodeSource] =
+    React.useState<NewTaskDialogTranscodeSource | null>(null);
   const [listenNowPlaying, setListenNowPlaying] =
     React.useState<ListenNowPlayingStatus | null>(null);
   const [listenControlCommand, setListenControlCommand] =
@@ -463,12 +465,29 @@ export function MainApp() {
   const openNewTaskDialog = React.useCallback((mode: NewTaskDialogMode, url = "") => {
     setNewTaskDialogMode(mode);
     setPrefilledDownloadURL(mode === "download" ? url : "");
+    setPrefilledTranscodeSource(null);
     setNewTaskDialogOpen(true);
   }, []);
 
   const openDownloadDialog = React.useCallback((url = "") => {
     openNewTaskDialog("download", url);
   }, [openNewTaskDialog]);
+
+  const openTranscodeDialog = React.useCallback((file: CompletedFileEntry) => {
+    const inputPath = file.path.trim();
+    if (!inputPath) {
+      return;
+    }
+    setNewTaskDialogMode("transcode");
+    setPrefilledDownloadURL("");
+    setPrefilledTranscodeSource({
+      fileId: file.canDelete ? file.id : undefined,
+      inputPath,
+      title: file.title || file.name,
+      author: file.author || undefined,
+    });
+    setNewTaskDialogOpen(true);
+  }, []);
 
   const sendListenCommand = React.useCallback(
     (command: ListenExternalCommand["command"]) => {
@@ -610,6 +629,7 @@ export function MainApp() {
   return (
     <div
       data-shell-theme={shellTheme}
+      data-sidebar-style={appearance.sidebarStyle}
       className={cn(
         "app-main-shell relative flex h-screen overflow-hidden bg-background text-foreground",
         "app-dream-frame app-dream-window",
@@ -618,7 +638,7 @@ export function MainApp() {
       <aside
         className={cn(
           "app-main-sidebar relative z-40 flex w-[var(--app-main-sidebar-width)] shrink-0 flex-col items-center justify-between border-sidebar-border/70 px-3 pb-4 pt-3 text-sidebar-foreground",
-          resolveSidebarSurface(theme.id, shellTheme),
+          resolveSidebarSurface(theme.id, appearance.sidebarStyle, shellTheme),
         )}
       >
         <div className="app-main-sidebar-nav flex flex-col items-center gap-5">
@@ -712,7 +732,7 @@ export function MainApp() {
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <div className="p-1">
+              <div className="grid">
                 <DropdownMenuItem
                   className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
                   onSelect={() => openPetsGallery({ action: "gallery" })}
@@ -832,6 +852,7 @@ export function MainApp() {
               httpBaseURL={httpBaseURL}
               pet={activePet}
               petImageURL={activePetImageURL}
+              onTranscodeFile={openTranscodeDialog}
             />
           ) : activeView === "connections" ? (
             <ConnectorsSection />
@@ -876,6 +897,7 @@ export function MainApp() {
         onOpenChange={setNewTaskDialogOpen}
         initialMode={newTaskDialogMode}
         initialUrl={prefilledDownloadURL}
+        initialTranscodeSource={prefilledTranscodeSource}
         settings={settings}
       />
     </div>

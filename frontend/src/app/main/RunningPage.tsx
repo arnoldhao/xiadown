@@ -1015,13 +1015,14 @@ export function RunningPage(props: RunningPageProps) {
                     {kindSegments.map((segment) => (
                       <div
                         key={segment.key}
-                        className="app-running-speed-segment grid h-8 w-40 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-visible px-2.5 text-xs"
+                        className="app-running-speed-segment grid h-8 min-w-40 w-fit max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-visible px-2.5 text-xs"
+                        aria-label={`${segment.label} ${segment.value}`}
                         data-speed-kind={segment.key}
                       >
-                        <span className="min-w-0 truncate font-semibold text-foreground/82">
+                        <span className="min-w-0 justify-self-start truncate font-semibold text-foreground/82">
                           {segment.label}
                         </span>
-                        <span className="shrink-0 font-semibold tabular-nums text-foreground/82">
+                        <span className="shrink-0 justify-self-end whitespace-nowrap font-semibold tabular-nums text-foreground/82">
                           {segment.value}
                         </span>
                       </div>

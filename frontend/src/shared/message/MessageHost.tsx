@@ -302,9 +302,9 @@ function DialogHost({ message }: { message: DialogMessage }) {
             "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
           )}
         >
-          <div className="min-h-0 min-w-0 overflow-hidden px-6 pt-6 pb-4 text-center sm:text-left">
+          <div className="min-h-0 min-w-0 overflow-hidden px-4 pb-3 pt-4 text-center sm:text-left">
             {title ? (
-              <Dialog.Title className="overflow-hidden break-words pr-6 text-lg font-semibold leading-[1.35] tracking-tight [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+              <Dialog.Title className="overflow-hidden break-words pr-6 text-base font-semibold leading-[1.35] tracking-normal [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
                 {title}
               </Dialog.Title>
             ) : null}
@@ -315,7 +315,7 @@ function DialogHost({ message }: { message: DialogMessage }) {
             ) : null}
           </div>
 
-          <div className="app-dialog-footer flex shrink-0 flex-col-reverse gap-2 px-6 py-4 sm:flex-row sm:justify-end">
+          <div className="app-dialog-footer flex shrink-0 flex-row flex-wrap items-center justify-end gap-2 px-4 pb-4 pt-0">
             <Button variant="outline" onClick={handleClose}>
               {cancelLabel}
             </Button>

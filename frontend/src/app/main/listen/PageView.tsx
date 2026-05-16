@@ -31,8 +31,9 @@ type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 const LISTEN_HOME_IMAGE_PREFETCH_LIMIT = 48;
 const LISTEN_HOME_IMAGE_PREFETCH_CONCURRENCY = 4;
 const LISTEN_HEADER_GAP_REM = 0.5;
-const LISTEN_HEADER_SEARCH_MIN_REM = 10;
+const LISTEN_HEADER_SEARCH_EXPANDED_REM = 12;
 const LISTEN_HEADER_FULL_TABS_REM = 14.625;
+const LISTEN_HEADER_COMPACT_TABS_REM = 6.75;
 const LISTEN_HEADER_HUSH_ACTIONS_REM = 6.25;
 const LISTEN_HEADER_MUSE_ACTIONS_REM = 12.5;
 const LISTEN_HEADER_LINGER_ACTIONS_REM = 4.25;
@@ -536,12 +537,12 @@ function ListenLocalTrackGroupList(props: {
     [props.text, props.tracks],
   );
   return (
-    <div className="space-y-5">
+    <div className="listen-local-file-list space-y-5">
       {groups.map((group) => (
         <section key={group.id} className="min-w-0 space-y-2">
-          <div className="wails-drag flex items-center justify-between gap-3 px-2 text-xs font-semibold text-sidebar-foreground/58">
+          <div className="listen-local-file-group-header wails-drag flex items-center justify-between gap-3 px-2 text-xs font-semibold">
             <span className="min-w-0 truncate">{group.title}</span>
-            <span className="shrink-0 tabular-nums text-sidebar-foreground/42">
+            <span className="listen-local-file-group-count shrink-0 tabular-nums">
               {group.items.length}
             </span>
           </div>
@@ -553,44 +554,32 @@ function ListenLocalTrackGroupList(props: {
                   <button
                     type="button"
                     data-active={selected ? "true" : "false"}
-                    className={cn(
-                      "grid min-h-14 w-full grid-cols-[2rem_minmax(0,1fr)_3.25rem] items-center gap-2 rounded-2xl border border-transparent px-2 py-2 text-left transition-[transform,background-color,border-color] duration-200 ease-out active:scale-[0.99] focus-visible:outline-none",
-                      selected
-                        ? "border-sidebar-primary/18 bg-sidebar-primary/10"
-                        : "hover:-translate-y-0.5 hover:bg-sidebar-background/54",
-                    )}
+                    className="listen-local-file-card grid min-h-14 w-full grid-cols-[2rem_minmax(0,1fr)_3.25rem] items-center gap-2 px-2 py-2 text-left focus-visible:outline-none"
                     onClick={() => {
                       props.onSelect(track);
                     }}
                   >
-                    <span
-                      className={cn(
-                        "flex h-7 w-7 shrink-0 items-center justify-center text-[11px] font-semibold tabular-nums",
-                        selected
-                          ? "text-sidebar-primary"
-                          : "text-sidebar-foreground/38",
-                      )}
-                    >
+                    <span className="listen-local-file-index flex h-7 w-7 shrink-0 items-center justify-center text-[11px] font-semibold tabular-nums">
                       {index}
                     </span>
                     <div className="flex min-w-0 items-center gap-2">
                       <ListenLocalArtwork
                         track={track}
                         className={cn(
-                          "rounded-xl bg-muted ring-border/70",
+                          "listen-local-file-artwork rounded-xl bg-muted ring-border/70",
                           selected && "ring-primary/30",
                         )}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-sidebar-foreground">
+                        <div className="listen-local-file-title truncate text-sm font-medium">
                           {track.title}
                         </div>
-                        <div className="truncate text-xs text-sidebar-foreground/58">
+                        <div className="listen-local-file-subtitle truncate text-xs">
                           {track.author || props.text.listen.linger}
                         </div>
                       </div>
                     </div>
-                    <span className="justify-self-end text-right text-[11px] font-medium tabular-nums text-sidebar-foreground/42">
+                    <span className="listen-local-file-duration justify-self-end text-right text-[11px] font-medium tabular-nums">
                       {track.durationLabel}
                     </span>
                   </button>
@@ -849,6 +838,8 @@ export function ListenPageView(view: ListenPageViewProps) {
   const imagePrefetchRef = React.useRef<HTMLImageElement[]>([]);
   const searchHasText = query.length > 0;
   const searchInputActive = searchFocused || searchHasText;
+  const [searchControlMounted, setSearchControlMounted] =
+    React.useState(searchInputActive);
   const headerActionWidthRem = resolveListenHeaderActionWidthRem(mode);
   const headerActionGroupVisible = headerActionWidthRem > 0;
   const playlistActionDisabled = playlistLoading || playlistTracks.length === 0;
@@ -960,14 +951,29 @@ export function ListenPageView(view: ListenPageViewProps) {
   );
   const minimumExpandedSearchHeaderWidth =
     LISTEN_HEADER_FULL_TABS_REM +
-    LISTEN_HEADER_SEARCH_MIN_REM +
+    LISTEN_HEADER_SEARCH_EXPANDED_REM +
+    headerActionWidthRem +
+    LISTEN_HEADER_GAP_REM * (headerActionGroupVisible ? 2 : 1);
+  const minimumCompactSearchHeaderWidth =
+    LISTEN_HEADER_COMPACT_TABS_REM +
+    LISTEN_HEADER_SEARCH_EXPANDED_REM +
     headerActionWidthRem +
     LISTEN_HEADER_GAP_REM * (headerActionGroupVisible ? 2 : 1);
   const tabsCompact =
     searchInputActive &&
     (headerWidth <= 0 ||
       headerWidth < listenRemToPixels(minimumExpandedSearchHeaderWidth));
-  const suppressHeaderActionsForSearch = searchInputActive && tabsCompact;
+  const hideHeaderActionsForSearch =
+    searchInputActive &&
+    headerActionGroupVisible &&
+    (headerWidth <= 0 ||
+      headerWidth < listenRemToPixels(minimumCompactSearchHeaderWidth));
+  const searchToolbarState = searchInputActive
+    ? "active"
+    : searchControlMounted
+      ? "closing"
+      : "idle";
+  const searchFieldMounted = searchInputActive || searchControlMounted;
   const activateSearchInput = React.useCallback(() => {
     setSearchFocused(true);
     window.requestAnimationFrame(() => {
@@ -994,6 +1000,17 @@ export function ListenPageView(view: ListenPageViewProps) {
     setQuery("");
     setSearchFocused(false);
   }, [setQuery]);
+
+  React.useEffect(() => {
+    if (searchInputActive) {
+      setSearchControlMounted(true);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setSearchControlMounted(false);
+    }, 220);
+    return () => window.clearTimeout(timeout);
+  }, [searchInputActive]);
 
   const handleOnlineSourceTabChange = React.useCallback(
     (source: ListenOnlineBrowseSource) => {
@@ -1253,79 +1270,91 @@ export function ListenPageView(view: ListenPageViewProps) {
               />
             ) : null}
             <div className="pointer-events-none absolute inset-x-0 top-0 z-30 px-4 pb-10 pt-3">
-              <div ref={headerRef} className="wails-drag pointer-events-auto relative flex w-full min-w-0 items-center justify-start gap-2 overflow-hidden">
-                <TooltipProvider delayDuration={0}>
-                  <ListenModeTabs mode={mode} compact={tabsCompact} text={props.text} onChange={setMode} />
-                </TooltipProvider>
-                {suppressHeaderActionsForSearch ? null : headerActionGroup}
-                <div
-                  className={cn(
-                    "app-dream-search-control app-dream-control-shell app-completed-search-control wails-no-drag h-9 transition-[width,box-shadow,border-color] duration-200 ease-out",
-                    searchInputActive
-                      ? "min-w-0 max-w-[18rem] flex-1 px-3"
-                      : "w-9 min-w-9 shrink-0 grow-0 cursor-text justify-center px-0",
-                  )}
-                  onMouseDown={(event) => {
-                    if (searchInputActive) {
-                      return;
-                    }
-                    event.preventDefault();
-                    activateSearchInput();
-                  }}
-                  onKeyDown={(event) => {
-                    if (searchInputActive) {
-                      return;
-                    }
-                    if (event.key === "Enter" || event.key === " ") {
+              <div
+                ref={headerRef}
+                data-search-state={searchToolbarState}
+                className="listen-list-toolbar wails-drag pointer-events-auto relative w-full min-w-0"
+              >
+                <div className="listen-list-toolbar-primary flex min-w-0 items-center justify-start gap-2 overflow-hidden">
+                  <TooltipProvider delayDuration={0}>
+                    <ListenModeTabs mode={mode} compact={tabsCompact} text={props.text} onChange={setMode} />
+                  </TooltipProvider>
+                  {headerActionGroup && !hideHeaderActionsForSearch ? (
+                    <div className="listen-list-toolbar-actions min-w-0 shrink-0">
+                      {headerActionGroup}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="listen-list-toolbar-search-layer wails-no-drag absolute inset-y-0 right-0 z-10 flex min-w-0 justify-end">
+                  <div
+                    className={cn(
+                      "listen-list-search-control app-dream-search-control app-dream-control-shell app-completed-search-control h-9",
+                      searchInputActive ? "px-3" : "cursor-text justify-center px-0",
+                    )}
+                    onMouseDown={(event) => {
+                      if (searchInputActive) {
+                        return;
+                      }
                       event.preventDefault();
                       activateSearchInput();
-                    }
-                  }}
-                  role={searchInputActive ? undefined : "button"}
-                  tabIndex={searchInputActive ? undefined : 0}
-                >
-                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  {searchInputActive ? (
-                    <>
-                      <Input
-                        ref={searchInputRef}
-                        value={query}
-                        onChange={handleSearchChange}
-                        onFocus={() => setSearchFocused(true)}
-                        onBlur={handleSearchBlur}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            selectFirstResult();
-                          }
-                        }}
-                        placeholder={searchPlaceholder}
-                        size="compact"
-                        className="app-control-input-compact h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none"
-                      />
-                      <span
-                        className={cn(
-                          "block shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
-                          searchHasText
-                            ? "w-5 translate-x-0 opacity-100"
-                            : "w-0 -translate-x-1 opacity-0",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          aria-label={props.text.actions.clear}
-                          title={props.text.actions.clear}
-                          disabled={!searchHasText}
-                          tabIndex={searchHasText ? 0 : -1}
-                          className="app-completed-search-clear flex h-5 w-5 items-center justify-center transition focus-visible:outline-none disabled:pointer-events-none"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={clearSearch}
+                    }}
+                    onKeyDown={(event) => {
+                      if (searchInputActive) {
+                        return;
+                      }
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        activateSearchInput();
+                      }
+                    }}
+                    role={searchInputActive ? undefined : "button"}
+                    tabIndex={searchInputActive ? undefined : 0}
+                  >
+                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {searchFieldMounted ? (
+                      <div className="listen-list-search-field flex min-w-0 flex-1 items-center gap-2">
+                        <Input
+                          ref={searchInputRef}
+                          value={query}
+                          onChange={handleSearchChange}
+                          onFocus={() => setSearchFocused(true)}
+                          onBlur={handleSearchBlur}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              selectFirstResult();
+                            }
+                          }}
+                          placeholder={searchPlaceholder}
+                          size="compact"
+                          tabIndex={searchInputActive ? 0 : -1}
+                          aria-hidden={!searchInputActive}
+                          className="app-control-input-compact h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none"
+                        />
+                        <span
+                          className={cn(
+                            "block shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
+                            searchHasText
+                              ? "w-5 translate-x-0 opacity-100"
+                              : "w-0 -translate-x-1 opacity-0",
+                          )}
                         >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
-                    </>
-                  ) : null}
+                          <button
+                            type="button"
+                            aria-label={props.text.actions.clear}
+                            title={props.text.actions.clear}
+                            disabled={!searchHasText}
+                            tabIndex={searchHasText ? 0 : -1}
+                            className="app-completed-search-clear flex h-5 w-5 items-center justify-center transition focus-visible:outline-none disabled:pointer-events-none"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={clearSearch}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
