@@ -86,7 +86,7 @@ func NewHistoryRecord(params HistoryRecordParams) (HistoryRecord, error) {
 		}
 	case "import":
 		switch action {
-		case "import_video":
+		case "import_video", "import_media":
 		default:
 			return HistoryRecord{}, ErrInvalidHistoryRecord
 		}

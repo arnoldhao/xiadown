@@ -1,66 +1,105 @@
 import {
-ArrowRight,
-Download,
-FileCog,
-FolderOpen,
-Loader2,
-Pencil,
-SlidersHorizontal,
-Zap
+  ArrowRight,
+  AudioLines,
+  Download,
+  FileCog,
+  FolderOpen,
+  Loader2,
+  Pencil,
+  SlidersHorizontal,
+  Video,
+  Zap,
 } from "lucide-react";
 import * as React from "react";
 
-import {
-ConnectorBrandIcon
-} from "@/features/settings/connectors";
-import {
-getXiaText
-} from "@/features/xiadown/shared";
+import { ConnectorBrandIcon } from "@/features/settings/connectors";
+import { getXiaText } from "@/features/xiadown/shared";
 import type {
-ParseYTDLPDownloadResponse,
-PrepareYTDLPDownloadResponse
+  LibraryMediaInfoDTO,
+  ParseYTDLPDownloadResponse,
+  PrepareYTDLPDownloadResponse,
+  ProbeTranscodeInputRequest,
 } from "@/shared/contracts/library";
 import type { Settings } from "@/shared/contracts/settings";
 import {
-useDependencies,
-useDependencyInstallState,
-useDependencyUpdates,
-useInstallDependency,
+  useDependencies,
+  useDependencyInstallState,
+  useDependencyUpdates,
+  useInstallDependency,
 } from "@/shared/query/dependencies";
 import {
-useCreateTranscodeJob,
-useCreateYTDLPJob,
-useParseYTDLPDownload,
-usePrepareYTDLPDownload,
-useTranscodePresets,
-useTranscodePresetsForDownload
+  useCreateTranscodeJob,
+  useCreateYTDLPJob,
+  useParseYTDLPDownload,
+  usePrepareYTDLPDownload,
+  useProbeTranscodeInput,
+  useTranscodePresets,
+  useTranscodePresetsForDownload,
 } from "@/shared/query/library";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
-Dialog,
-DialogContent,
-DialogDescription,
-DialogFooter,
-DialogHeader,
-DialogListCard,
-DialogListCardContent,
-DialogRow,
-DialogScrollArea,
-DialogTitle
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogListCard,
+  DialogListCardContent,
+  DialogRow,
+  DialogScrollArea,
+  DialogTitle,
 } from "@/shared/ui/dialog";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
-import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { openFileDialog } from "@/shared/utils/dialogHelpers";
-import { resolveDialogPath } from "@/shared/utils/resourceHelpers";
+import {
+  extractExtensionFromPath,
+  resolveDialogPath,
+} from "@/shared/utils/resourceHelpers";
 
-import { clampProgress,DependencyRepairCard } from "@/app/main/dependency-repair-card";
-import { resolveUnknownErrorMessage } from "@/app/main/helpers";
+import {
+  clampProgress,
+  DependencyRepairCard,
+} from "@/app/main/dependency-repair-card";
+import {
+  AUDIO_FILE_EXTENSIONS,
+  VIDEO_FILE_EXTENSIONS,
+  formatCodecLabel,
+  formatCompletedBitrate,
+  formatCompletedDuration,
+  formatCompletedFrameRate,
+  formatCompletedResolution,
+  resolveUnknownErrorMessage,
+} from "@/app/main/helpers";
 import { TASK_DIALOG_DEPENDENCIES } from "@/app/main/main-constants";
-import { applyTranscodePresetSelection,buildTranscodeCodecKey,filterTranscodePresetsForMediaType,formatSubtitleLabel,inferMediaTypeFromPath,pickDefaultFormat,pickDefaultTranscodePreset,resolveFileFormatLabel,resolveFormatMediaType,resolveOpenFileName,resolvePreparedConnectorType,resolveTranscodeCodecLabel,resolveTranscodeScaleLabel,resolveTranscodeScaleValue,selectAudioFormatId,splitFileNameForDisplay,uniqueOptions } from "@/app/main/new-task-dialog-helpers";
-import type { DownloadDialogStep,DownloadDialogTab,DownloadQuality,NewTaskDialogMode,NewTaskDialogTranscodeSource,SourceMediaType } from "@/app/main/types";
+import {
+  applyTranscodePresetSelection,
+  buildTranscodeCodecKey,
+  filterTranscodePresetsForMediaType,
+  formatSubtitleLabel,
+  inferMediaTypeFromPath,
+  pickDefaultFormat,
+  resolveFormatMediaType,
+  resolveOpenFileName,
+  resolvePreparedConnectorType,
+  resolveTranscodeCodecLabel,
+  resolveTranscodeScaleLabel,
+  resolveTranscodeScaleValue,
+  selectAudioFormatId,
+  splitFileNameForDisplay,
+  uniqueOptions,
+} from "@/app/main/new-task-dialog-helpers";
+import type {
+  DownloadDialogStep,
+  DownloadDialogTab,
+  DownloadQuality,
+  NewTaskDialogMode,
+  NewTaskDialogTranscodeSource,
+  SourceMediaType,
+} from "@/app/main/types";
 
 export function InlineSwitch(props: {
   checked: boolean;
@@ -124,6 +163,50 @@ function formatParseErrorDetail(message: string) {
     return JSON.stringify(parsed, null, 2);
   }
   return message.trim();
+}
+
+const TRANSCODE_VIDEO_EXTENSIONS = [...VIDEO_FILE_EXTENSIONS].sort();
+const TRANSCODE_AUDIO_EXTENSIONS = [...AUDIO_FILE_EXTENSIONS].sort();
+const TRANSCODE_INPUT_EXTENSIONS = new Set([
+  ...TRANSCODE_VIDEO_EXTENSIONS,
+  ...TRANSCODE_AUDIO_EXTENSIONS,
+]);
+
+function buildDialogPattern(extensions: string[]) {
+  return extensions.map((extension) => `*.${extension}`).join(";");
+}
+
+function isSupportedTranscodeInputPath(path: string) {
+  const extension = extractExtensionFromPath(path);
+  return Boolean(extension && TRANSCODE_INPUT_EXTENSIONS.has(extension));
+}
+
+function normalizeProbeMediaType(value?: string): SourceMediaType | null {
+  const normalized = (value ?? "").trim().toLowerCase();
+  return normalized === "video" || normalized === "audio" ? normalized : null;
+}
+
+function resolveTranscodeProbeSummary(media?: LibraryMediaInfoDTO | null) {
+  if (!media) {
+    return "";
+  }
+  const codecSummary = [
+    media.videoCodec ? formatCodecLabel(media.videoCodec) : "",
+    media.audioCodec ? formatCodecLabel(media.audioCodec) : "",
+  ]
+    .filter(Boolean)
+    .join(" / ");
+  const parts = [
+    media.format?.trim().toUpperCase() ?? "",
+    codecSummary || (media.codec ? formatCodecLabel(media.codec) : ""),
+    formatCompletedResolution(media.width, media.height),
+    formatCompletedFrameRate(media.frameRate),
+    formatCompletedBitrate(
+      media.bitrateKbps ?? media.videoBitrateKbps ?? media.audioBitrateKbps,
+    ),
+    formatCompletedDuration(media.durationMs),
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 export function NewTaskDialog(props: {
@@ -267,14 +350,86 @@ export function NewTaskDialog(props: {
     () => inferMediaTypeFromPath(transcodeInputPath),
     [transcodeInputPath],
   );
-  const transcodePresets = React.useMemo(
-    () =>
-      filterTranscodePresetsForMediaType(
-        presetsQuery.data ?? [],
-        transcodeMediaType,
-      ),
-    [presetsQuery.data, transcodeMediaType],
+  const transcodeProbeRequest =
+    React.useMemo<ProbeTranscodeInputRequest | null>(() => {
+      const inputPath = transcodeInputPath.trim();
+      if (activeMode !== "transcode" || !inputPath || !ffmpegInstalled) {
+        return null;
+      }
+      return {
+        fileId: transcodeSourceFileId || undefined,
+        inputPath: transcodeSourceFileId ? undefined : inputPath,
+        source: "xiadown.transcode.dialog",
+      };
+    }, [activeMode, ffmpegInstalled, transcodeInputPath, transcodeSourceFileId]);
+  const transcodeProbeQuery = useProbeTranscodeInput(transcodeProbeRequest);
+  const transcodeProbe = transcodeProbeQuery.data ?? null;
+  const probedTranscodeMediaType = normalizeProbeMediaType(
+    transcodeProbe?.mediaType,
   );
+  const effectiveTranscodeMediaType =
+    probedTranscodeMediaType ?? transcodeMediaType;
+  const compatibleTranscodePresetIds = React.useMemo(
+    () => new Set(transcodeProbe?.compatiblePresetIds ?? []),
+    [transcodeProbe?.compatiblePresetIds],
+  );
+  const transcodeProbeReady =
+    Boolean(transcodeProbe) && !transcodeProbeQuery.isError;
+  const transcodePresets = React.useMemo(
+    () => {
+      if (transcodeInputPath.trim() && !transcodeProbeReady) {
+        return [];
+      }
+      const presets = filterTranscodePresetsForMediaType(
+        presetsQuery.data ?? [],
+        effectiveTranscodeMediaType,
+      );
+      if (!transcodeProbe) {
+        return presets;
+      }
+      return presets.filter((preset) =>
+        compatibleTranscodePresetIds.has(preset.id),
+      );
+    },
+    [
+      compatibleTranscodePresetIds,
+      effectiveTranscodeMediaType,
+      presetsQuery.data,
+      transcodeInputPath,
+      transcodeProbe,
+      transcodeProbeReady,
+    ],
+  );
+  const transcodeProbeSummary = resolveTranscodeProbeSummary(
+    transcodeProbe?.media,
+  );
+  const transcodeProbeError = transcodeProbeQuery.isError
+    ? resolveUnknownErrorMessage(transcodeProbeQuery.error, text.common.unknown)
+    : "";
+  const transcodeProbeChecking =
+    Boolean(transcodeProbeRequest) &&
+    transcodeProbeQuery.isFetching &&
+    !transcodeProbe;
+  const transcodePresetCatalogReady =
+    presetsQuery.isFetched || Boolean(presetsQuery.data);
+  const showTranscodeOptions =
+    activeMode === "transcode" &&
+    Boolean(transcodeInputPath) &&
+    transcodeProbeReady &&
+    transcodePresets.length > 0;
+  const transcodeNoCompatiblePreset =
+    activeMode === "transcode" &&
+    Boolean(transcodeInputPath) &&
+    transcodeProbeReady &&
+    transcodePresetCatalogReady &&
+    transcodePresets.length === 0;
+  const transcodeProbeStatusLabel = transcodeProbeChecking
+    ? text.dialogs.inspectingFile
+    : transcodeProbeError
+      ? text.dialogs.fileInspectFailed
+      : transcodeNoCompatiblePreset
+        ? text.dialogs.noCompatibleTranscodePreset
+        : "";
   const transcodeSizeOptions = React.useMemo(
     () =>
       uniqueOptions(
@@ -329,7 +484,6 @@ export function NewTaskDialog(props: {
     [transcodeCodec, transcodeContainer, transcodePresets, transcodeScale],
   );
   const transcodeFileName = splitFileNameForDisplay(transcodeInputPath);
-  const transcodeFileFormat = resolveFileFormatLabel(transcodeInputPath);
   const downloadDomainLabel = (
     downloadPrepared?.domain ||
     downloadPrepared?.url ||
@@ -349,17 +503,12 @@ export function NewTaskDialog(props: {
     path: string,
     source?: NewTaskDialogTranscodeSource | null,
   ) => {
-    const mediaType = inferMediaTypeFromPath(path);
-    const defaultPreset = pickDefaultTranscodePreset(
-      presetsQuery.data ?? [],
-      mediaType,
-    );
     setTranscodeInputPath(path);
     setTranscodeSourceFileId(source?.fileId?.trim() ?? "");
     setTranscodeSourceTitle(source?.title?.trim() ?? "");
     setTranscodeSourceAuthor(source?.author?.trim() ?? "");
-    setTranscodePresetId(defaultPreset?.id ?? "");
-    applyTranscodePresetSelection(defaultPreset, {
+    setTranscodePresetId("");
+    applyTranscodePresetSelection(null, {
       setScale: setTranscodeScale,
       setContainer: setTranscodeContainer,
       setCodec: setTranscodeCodec,
@@ -441,6 +590,32 @@ export function NewTaskDialog(props: {
       setCustomPresetId("");
     }
   }, [customPresetId, customPresetsQuery.data]);
+
+  React.useEffect(() => {
+    if (
+      !transcodeInputPath ||
+      !transcodeProbeReady ||
+      transcodePresets.length === 0 ||
+      selectedTranscodePreset
+    ) {
+      return;
+    }
+    const recommendedPreset =
+      transcodePresets.find(
+        (preset) => preset.id === transcodeProbe?.recommendedPresetId,
+      ) ?? transcodePresets[0];
+    applyTranscodePresetSelection(recommendedPreset, {
+      setScale: setTranscodeScale,
+      setContainer: setTranscodeContainer,
+      setCodec: setTranscodeCodec,
+    });
+  }, [
+    selectedTranscodePreset,
+    transcodeInputPath,
+    transcodePresets,
+    transcodeProbe?.recommendedPresetId,
+    transcodeProbeReady,
+  ]);
 
   React.useEffect(() => {
     if (!transcodeInputPath) {
@@ -656,12 +831,33 @@ export function NewTaskDialog(props: {
   const handleChooseFile = async () => {
     const selection = await openFileDialog({
       Title: text.dialogs.transcodeTitle,
-      AllowsOtherFiletypes: true,
+      AllowsOtherFiletypes: false,
       CanChooseFiles: true,
       CanChooseDirectories: false,
+      Filters: [
+        {
+          DisplayName: `${text.dialogs.formatGroupVideo} / ${text.dialogs.formatGroupAudio}`,
+          Pattern: buildDialogPattern([
+            ...TRANSCODE_VIDEO_EXTENSIONS,
+            ...TRANSCODE_AUDIO_EXTENSIONS,
+          ]),
+        },
+        {
+          DisplayName: text.dialogs.formatGroupVideo,
+          Pattern: buildDialogPattern(TRANSCODE_VIDEO_EXTENSIONS),
+        },
+        {
+          DisplayName: text.dialogs.formatGroupAudio,
+          Pattern: buildDialogPattern(TRANSCODE_AUDIO_EXTENSIONS),
+        },
+      ],
     });
     const path = resolveDialogPath(selection);
     if (!path) {
+      return;
+    }
+    if (!isSupportedTranscodeInputPath(path)) {
+      setTranscodeSubmitError(text.dialogs.noCompatibleTranscodePreset);
       return;
     }
     applyTranscodeInputPath(path, null);
@@ -1129,9 +1325,6 @@ export function NewTaskDialog(props: {
                 <DialogListCard className="app-new-task-panel">
                   <DialogListCardContent className="space-y-2 p-4">
                     <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <span className="app-new-task-file-format flex h-5 min-w-10 shrink-0 items-center justify-center px-1.5 text-[9px] font-semibold leading-none">
-                        {transcodeFileFormat}
-                      </span>
                       <span className="flex min-w-0 flex-1 items-baseline">
                         <span className="min-w-0 truncate text-foreground">
                           {transcodeFileName.stem}
@@ -1169,70 +1362,111 @@ export function NewTaskDialog(props: {
                   </DialogListCardContent>
                 </DialogListCard>
 
-                <DialogListCard className="app-new-task-panel app-new-task-list-panel">
-                  <DialogListCardContent>
-                    <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                      <span className="text-muted-foreground">
-                        {text.dialogs.size}
-                      </span>
-                      <Select
-                        className="w-40 max-w-[58vw]"
-                        value={transcodeScale}
-                        onChange={(event) =>
-                          setTranscodeScale(event.target.value)
-                        }
-                      >
-                        {transcodeSizeOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </DialogRow>
-                    <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                      <span className="text-muted-foreground">
-                        {text.dialogs.container}
-                      </span>
-                      <Select
-                        className="w-40 max-w-[58vw]"
-                        value={transcodeContainer}
-                        onChange={(event) =>
-                          setTranscodeContainer(event.target.value)
-                        }
-                      >
-                        {transcodeContainerOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </DialogRow>
-                    <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                      <span className="text-muted-foreground">
-                        {text.dialogs.codec}
-                      </span>
-                      <Select
-                        className="w-40 max-w-[58vw]"
-                        value={transcodeCodec}
-                        onChange={(event) =>
-                          setTranscodeCodec(event.target.value)
-                        }
-                      >
-                        {transcodeCodecOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </DialogRow>
-                  </DialogListCardContent>
-                </DialogListCard>
+                {ffmpegInstalled ? (
+                  <DialogListCard className="app-new-task-panel">
+                    <DialogListCardContent className="flex min-h-12 items-center gap-3 p-3 text-xs">
+                      {transcodeProbeChecking ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                      ) : probedTranscodeMediaType === "audio" ? (
+                        <AudioLines className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : probedTranscodeMediaType === "video" ? (
+                        <Video className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <FileCog className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {transcodeProbeSummary ? (
+                            <span className="min-w-0 truncate font-medium text-foreground">
+                              {transcodeProbeSummary}
+                            </span>
+                          ) : transcodeProbeStatusLabel ? (
+                            <span className="min-w-0 truncate font-medium text-foreground">
+                              {transcodeProbeStatusLabel}
+                            </span>
+                          ) : null}
+                        </div>
+                        {transcodeProbeError ? (
+                          <div className="mt-1 truncate text-muted-foreground">
+                            {transcodeProbeError}
+                          </div>
+                        ) : null}
+                      </div>
+                    </DialogListCardContent>
+                  </DialogListCard>
+                ) : null}
+
+                {showTranscodeOptions ? (
+                  <DialogListCard className="app-new-task-panel app-new-task-list-panel">
+                    <DialogListCardContent>
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                        <span className="text-muted-foreground">
+                          {text.dialogs.size}
+                        </span>
+                        <Select
+                          className="w-40 max-w-[58vw]"
+                          value={transcodeScale}
+                          onChange={(event) =>
+                            setTranscodeScale(event.target.value)
+                          }
+                        >
+                          {transcodeSizeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </DialogRow>
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                        <span className="text-muted-foreground">
+                          {text.dialogs.container}
+                        </span>
+                        <Select
+                          className="w-40 max-w-[58vw]"
+                          value={transcodeContainer}
+                          onChange={(event) =>
+                            setTranscodeContainer(event.target.value)
+                          }
+                        >
+                          {transcodeContainerOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </DialogRow>
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                        <span className="text-muted-foreground">
+                          {text.dialogs.codec}
+                        </span>
+                        <Select
+                          className="w-40 max-w-[58vw]"
+                          value={transcodeCodec}
+                          onChange={(event) =>
+                            setTranscodeCodec(event.target.value)
+                          }
+                        >
+                          {transcodeCodecOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </DialogRow>
+                    </DialogListCardContent>
+                  </DialogListCard>
+                ) : null}
                 {!ffmpegInstalled ? (
                   <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="warning">
                     {text.dependencies.missingDependency.replace(
                       "{name}",
                       "ffmpeg",
                     )}
+                  </div>
+                ) : null}
+                {transcodeNoCompatiblePreset ? (
+                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="warning">
+                    {text.dialogs.noCompatibleTranscodePreset}
                   </div>
                 ) : null}
                 {transcodeSubmitError ? (
@@ -1294,6 +1528,10 @@ export function NewTaskDialog(props: {
               disabled={
                 !transcodeInputPath ||
                 !ffmpegInstalled ||
+                !transcodeProbeReady ||
+                transcodeProbeChecking ||
+                transcodeProbeQuery.isError ||
+                transcodeNoCompatiblePreset ||
                 createTranscode.isPending ||
                 !selectedTranscodePreset
               }

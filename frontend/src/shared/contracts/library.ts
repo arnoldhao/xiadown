@@ -113,7 +113,9 @@ export interface OperationRequestPreviewDTO {
   extractor?: string
   author?: string
   thumbnailUrl?: string
+  fileId?: string
   inputPath?: string
+  rootFileId?: string
   presetId?: string
   format?: string
   videoCodec?: string
@@ -165,7 +167,7 @@ export interface LibraryOperationDTO {
   kind: string
   status: string
   displayName: string
-  correlation: OperationCorrelationDTO
+  correlation?: OperationCorrelationDTO
   inputJson: string
   outputJson: string
   sourceDomain?: string
@@ -190,6 +192,7 @@ export interface OperationListItemDTO {
   name: string
   kind: string
   status: string
+  correlation: OperationCorrelationDTO
   domain?: string
   sourceIcon?: string
   platform?: string
@@ -616,6 +619,26 @@ export interface CreateTranscodeJobRequest {
   width?: number
   height?: number
   deleteSourceFileAfterTranscode?: boolean
+}
+
+export interface ProbeTranscodeInputRequest {
+  fileId?: string
+  inputPath?: string
+  source?: string
+}
+
+export interface TranscodePresetCompatibilityDTO {
+  presetId: string
+  compatible: boolean
+  reason?: string
+}
+
+export interface ProbeTranscodeInputResponse {
+  media: LibraryMediaInfoDTO
+  mediaType: string
+  compatiblePresetIds: string[]
+  presetCompatibility: TranscodePresetCompatibilityDTO[]
+  recommendedPresetId?: string
 }
 
 export interface ListTranscodePresetsForDownloadRequest {

@@ -466,6 +466,7 @@ function buildText(language: SupportedLanguage) {
       fileType: t("xiadown.completed.fileType", language),
       fileFormat: t("xiadown.completed.fileFormat", language),
       fileInfo: t("xiadown.completed.fileInfo", language),
+      transcodedFrom: t("xiadown.completed.transcodedFrom", language),
       selectFiles: t("xiadown.completed.selectFiles", language),
       verifyFiles: t("xiadown.completed.verifyFiles", language),
       clearMissingFiles: t("xiadown.completed.clearMissingFiles", language),
@@ -726,6 +727,12 @@ function buildText(language: SupportedLanguage) {
       modifyFile: t("xiadown.dialogs.modifyFile", language),
       path: t("xiadown.dialogs.path", language),
       fileAddress: t("xiadown.dialogs.fileAddress", language),
+      inspectingFile: t("xiadown.dialogs.inspectingFile", language),
+      fileInspectFailed: t("xiadown.dialogs.fileInspectFailed", language),
+      noCompatibleTranscodePreset: t(
+        "xiadown.dialogs.noCompatibleTranscodePreset",
+        language,
+      ),
       nameHint: t("xiadown.dialogs.nameHint", language),
     },
     listen: {

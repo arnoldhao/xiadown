@@ -26,6 +26,12 @@ var transcodeSubtitleExtensions = map[string]struct{}{
 }
 
 func (service *LibraryService) enrichTranscodeRequestForSource(ctx context.Context, request dto.CreateTranscodeJobRequest, sourceFile library.LibraryFile) dto.CreateTranscodeJobRequest {
+	if strings.TrimSpace(request.FileID) == "" {
+		request.FileID = strings.TrimSpace(sourceFile.ID)
+	}
+	if strings.TrimSpace(request.RootFileID) == "" {
+		request.RootFileID = rootFileID(sourceFile)
+	}
 	if strings.TrimSpace(request.Title) == "" {
 		request.Title = resolveLibraryFileTitle(sourceFile, sourceFile.DisplayName)
 	}

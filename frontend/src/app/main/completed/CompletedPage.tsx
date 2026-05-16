@@ -1,5 +1,5 @@
 import { System } from "@wailsio/runtime";
-import { CheckCircle2, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, FileCog, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 import * as React from "react";
 
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -20,7 +20,7 @@ import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripP
 import { CompletedFileDetailContent,CompletedFileDetailHeaderMeta,CompletedTaskDetailContent,CompletedTaskDetailHeaderMeta,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
-import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
 import type { CompletedContextMenuTarget,CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedTaskEntry,CompletedViewMode } from "@/app/main/types";
 
@@ -30,6 +30,76 @@ const COMPLETED_FILTER_MENU_CHECKBOX_CLASS =
   "app-completed-filter-menu-checkbox";
 const COMPLETED_FILTER_MENU_ICON_CLASS =
   "app-completed-filter-menu-icon flex h-4 w-4 shrink-0 items-center justify-center";
+
+function resolveCompletedLibrarySourceFileLabel(
+  file: LibraryDTO["files"][number],
+) {
+  const localPath = file.storage.localPath?.trim() ?? "";
+  return (
+    file.displayName?.trim() ||
+    file.displayLabel?.trim() ||
+    file.fileName?.trim() ||
+    file.name?.trim() ||
+    getPathBaseName(localPath) ||
+    file.id
+  );
+}
+
+function resolveCompletedTranscodeSourceFile(
+  file: LibraryDTO["files"][number],
+  filesById: Map<string, LibraryDTO["files"][number]>,
+) {
+  const kind = (file.kind ?? "").trim().toLowerCase();
+  const originKind = (file.origin.kind ?? "").trim().toLowerCase();
+  if (kind !== "transcode" && originKind !== "transcode") {
+    return null;
+  }
+  const rootFileId = file.lineage.rootFileId?.trim() ?? "";
+  if (!rootFileId || rootFileId === file.id) {
+    return null;
+  }
+  return filesById.get(rootFileId) ?? null;
+}
+
+function resolveCompletedTaskTranscodeSource(
+  operation: OperationListItemDTO,
+  library: LibraryDTO | null,
+  files: CompletedFileEntry[],
+) {
+  if ((operation.kind ?? "").trim().toLowerCase() !== "transcode") {
+    return { id: "", name: "" };
+  }
+  const libraryFilesById = new Map(
+    (library?.files ?? []).map((file) => [file.id, file]),
+  );
+  const sourceIds = [
+    operation.request?.fileId,
+    operation.request?.rootFileId,
+  ]
+    .map((value) => value?.trim() ?? "")
+    .filter(Boolean);
+  for (const sourceId of sourceIds) {
+    const sourceFile = libraryFilesById.get(sourceId);
+    if (sourceFile) {
+      return {
+        id: sourceFile.id,
+        name: resolveCompletedLibrarySourceFileLabel(sourceFile),
+      };
+    }
+  }
+  const outputSource = files.find((file) => file.sourceFileName.trim());
+  if (outputSource) {
+    return {
+      id: outputSource.sourceFileId,
+      name: outputSource.sourceFileName,
+    };
+  }
+  const inputPath = operation.request?.inputPath?.trim() ?? "";
+  if (inputPath) {
+    return { id: "", name: getPathBaseName(inputPath) || inputPath };
+  }
+  return { id: "", name: "" };
+}
 
 function isCompletedFloatingLayerTarget(target: EventTarget | null) {
   if (!(target instanceof Node)) {
@@ -167,31 +237,42 @@ export function CompletedPage(props: {
           props.httpBaseURL,
           library,
         );
+        const libraryFilesById = new Map(
+          library.files.map((file) => [file.id, file]),
+        );
         return library.files
           .filter((file) => !file.state.deleted)
           .map((file) => {
             const localPath = file.storage.localPath?.trim() ?? "";
-            const label =
-              file.displayName?.trim() ||
-              file.displayLabel?.trim() ||
-              file.fileName?.trim() ||
-              file.name ||
-              getPathBaseName(localPath) ||
-              file.id;
+            const label = resolveCompletedLibrarySourceFileLabel(file);
             const title =
               firstCompletedText(
                 file.metadata.title,
                 stripPathExtension(label),
               ) || label;
+            const latestOperationId = file.latestOperationId?.trim() ?? "";
+            const originOperationId = file.origin.operationId?.trim() ?? "";
+            const rootFileId = file.lineage.rootFileId?.trim() ?? "";
+            const sourceFile = resolveCompletedTranscodeSourceFile(
+              file,
+              libraryFilesById,
+            );
+            const sourceFileName = sourceFile
+              ? resolveCompletedLibrarySourceFileLabel(sourceFile)
+              : "";
             const operationUpdatedAt =
-              operationUpdatedAtById.get(file.latestOperationId || "") ||
-              operationUpdatedAtById.get(file.origin.operationId || "");
+              operationUpdatedAtById.get(latestOperationId) ||
+              operationUpdatedAtById.get(originOperationId);
             return {
               id: file.id,
               libraryId: library.id,
               libraryName: library.name || library.id,
-              operationId: file.latestOperationId || "",
-              latestOperationId: file.latestOperationId || "",
+              operationId: originOperationId || latestOperationId,
+              latestOperationId,
+              originOperationId,
+              rootFileId,
+              sourceFileId: sourceFile?.id ?? "",
+              sourceFileName,
               name: label,
               title,
               author: firstCompletedText(file.metadata.author),
@@ -257,6 +338,10 @@ export function CompletedPage(props: {
             operation.libraryName || library?.name || operation.libraryId,
           operationId: operation.operationId,
           latestOperationId: operation.operationId,
+          originOperationId: operation.operationId,
+          rootFileId: "",
+          sourceFileId: "",
+          sourceFileName: "",
           name: label,
           title: firstCompletedText(
             stripPathExtension(label),
@@ -293,12 +378,12 @@ export function CompletedPage(props: {
   const realFilesByOperationId = React.useMemo(() => {
     const map = new Map<string, CompletedFileEntry[]>();
     realFiles.forEach((file) => {
-      if (!file.latestOperationId) {
+      if (!file.originOperationId) {
         return;
       }
-      const current = map.get(file.latestOperationId) ?? [];
+      const current = map.get(file.originOperationId) ?? [];
       current.push(file);
-      map.set(file.latestOperationId, current);
+      map.set(file.originOperationId, current);
     });
     return map;
   }, [realFiles]);
@@ -338,6 +423,10 @@ export function CompletedPage(props: {
                 operation.libraryName || library?.name || operation.libraryId,
               operationId: operation.operationId,
               latestOperationId: operation.operationId,
+              originOperationId: operation.operationId,
+              rootFileId: "",
+              sourceFileId: "",
+              sourceFileName: "",
               name: label,
               title: firstCompletedText(
                 stripPathExtension(label),
@@ -362,6 +451,11 @@ export function CompletedPage(props: {
           });
 
           const files = [...filesMap.values()];
+          const transcodeSource = resolveCompletedTaskTranscodeSource(
+            operation,
+            library,
+            files,
+          );
           const counts = files.reduce(
             (summary, file) => {
               const previewGroupKind = resolveCompletedPreviewGroupKind(file);
@@ -385,6 +479,8 @@ export function CompletedPage(props: {
             library,
             coverURL: operationCoverURL,
             files,
+            sourceFileId: transcodeSource.id,
+            sourceFileName: transcodeSource.name,
             counts,
             updatedAt: resolveOperationUpdatedAt(operation),
           };
@@ -474,6 +570,7 @@ export function CompletedPage(props: {
         return [
           entry.operation.name,
           entry.operation.libraryName || entry.library?.name || "",
+          entry.sourceFileName,
           entry.operation.domain || "",
           resolveCompletedStatusLabel(props.text, entry.operation.status),
         ]
@@ -494,7 +591,7 @@ export function CompletedPage(props: {
         if (!trimmedQuery) {
           return true;
         }
-        return [file.name, file.libraryName, file.kind, file.format, file.path]
+        return [file.name, file.sourceFileName, file.libraryName, file.kind, file.format, file.path]
           .join(" ")
           .toLowerCase()
           .includes(trimmedQuery);
@@ -1499,6 +1596,11 @@ export function CompletedPage(props: {
                     entry,
                     props.text,
                   ).filter((item) => item.count > 0);
+                  const transcodeSourceLabel =
+                    formatCompletedTranscodedFromLabel(
+                      props.text,
+                      entry.sourceFileName,
+                    );
 
                   return (
                     <button
@@ -1575,7 +1677,18 @@ export function CompletedPage(props: {
                           {entry.operation.name}
                         </div>
                         <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1 overflow-hidden text-2xs font-medium leading-4">
-                          {fileSummaryItems.length > 0 ? (
+                          {transcodeSourceLabel ? (
+                            <span
+                              className="inline-flex min-w-0 items-center gap-1"
+                              title={transcodeSourceLabel}
+                              aria-label={transcodeSourceLabel}
+                            >
+                              <FileCog className="h-3 w-3 shrink-0" />
+                              <span className="min-w-0 truncate">
+                                {transcodeSourceLabel}
+                              </span>
+                            </span>
+                          ) : fileSummaryItems.length > 0 ? (
                             fileSummaryItems.map((item) => {
                               const Icon = item.icon;
                               return (
@@ -1636,6 +1749,11 @@ export function CompletedPage(props: {
                         : (file.kind ?? "").trim().toLowerCase() === "subtitle"
                           ? Languages
                           : Link2;
+                const transcodeSourceLabel =
+                  formatCompletedTranscodedFromLabel(
+                    props.text,
+                    file.sourceFileName,
+                  );
 
                 return (
                   <button
@@ -1690,7 +1808,7 @@ export function CompletedPage(props: {
                         {file.name}
                       </div>
                       <div className="app-completed-file-subtitle mt-0.5 truncate text-xs leading-4">
-                        {file.libraryName}
+                        {transcodeSourceLabel || file.libraryName}
                       </div>
                     </div>
                     <div className="app-completed-file-meta flex shrink-0 items-center gap-2 text-xs">

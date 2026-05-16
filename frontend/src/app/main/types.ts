@@ -15,6 +15,10 @@ export type CompletedFileEntry = {
   libraryName: string;
   operationId: string;
   latestOperationId: string;
+  originOperationId: string;
+  rootFileId: string;
+  sourceFileId: string;
+  sourceFileName: string;
   name: string;
   title: string;
   author: string;
@@ -37,6 +41,8 @@ export type CompletedTaskEntry = {
   library: LibraryDTO | null;
   coverURL: string;
   files: CompletedFileEntry[];
+  sourceFileId: string;
+  sourceFileName: string;
   counts: {
     media: number;
     subtitle: number;

@@ -86,41 +86,9 @@ func (service *LibraryService) resolveTranscodePlan(ctx context.Context, request
 	return transcodePlan{request: resolved, preset: &preset, outputType: preset.OutputType, sourceProbe: probe}, nil
 }
 
-func (service *LibraryService) resolveTranscodePlanWithoutProbe(ctx context.Context, request dto.CreateTranscodeJobRequest, sourcePath string) (transcodePlan, error) {
-	presetID := strings.TrimSpace(request.PresetID)
-	if presetID != "" {
-		preset, err := service.getTranscodePreset(ctx, presetID)
-		if err != nil {
-			return transcodePlan{}, err
-		}
-		resolved := applyPresetToRequest(request, preset)
-		return transcodePlan{request: resolved, preset: &preset, outputType: preset.OutputType}, nil
-	}
-
-	if hasManualTranscodeConfig(request) {
-		preset, err := presetFromRequest(request)
-		if err != nil {
-			return transcodePlan{}, err
-		}
-		return transcodePlan{request: request, preset: &preset, outputType: preset.OutputType}, nil
-	}
-
-	defaultID := "builtin-video-h264-mp4-original"
-	format := normalizeTranscodeFormat(request.Format)
-	if isAudioContainer(format) || isAudioContainer(normalizeFileExtension(sourcePath)) {
-		defaultID = "builtin-audio-mp3-320k"
-	}
-	preset, err := service.lookupDefaultPreset(ctx, defaultID)
-	if err != nil {
-		return transcodePlan{}, err
-	}
-	resolved := applyPresetToRequest(request, preset)
-	return transcodePlan{request: resolved, preset: &preset, outputType: preset.OutputType}, nil
-}
-
 func (service *LibraryService) selectDefaultPreset(ctx context.Context, probe mediaProbe) (library.TranscodePreset, error) {
-	hasVideo := probe.Width > 0 || probe.Height > 0 || strings.TrimSpace(probe.VideoCodec) != ""
-	hasAudio := strings.TrimSpace(probe.AudioCodec) != "" || probe.Channels > 0
+	hasVideo := mediaProbeHasVideo(probe)
+	hasAudio := mediaProbeHasAudio(probe)
 	if !hasVideo && !hasAudio {
 		return library.TranscodePreset{}, fmt.Errorf("no media streams detected")
 	}
@@ -272,8 +240,8 @@ func inferOutputType(request dto.CreateTranscodeJobRequest) library.TranscodeOut
 }
 
 func validatePresetForProbe(preset library.TranscodePreset, probe mediaProbe) error {
-	hasVideo := probe.Width > 0 || probe.Height > 0 || strings.TrimSpace(probe.VideoCodec) != ""
-	hasAudio := strings.TrimSpace(probe.AudioCodec) != "" || probe.Channels > 0
+	hasVideo := mediaProbeHasVideo(probe)
+	hasAudio := mediaProbeHasAudio(probe)
 	if preset.OutputType == library.TranscodeOutputVideo && !hasVideo {
 		return fmt.Errorf("input has no video stream")
 	}
@@ -493,4 +461,12 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func mediaProbeHasVideo(probe mediaProbe) bool {
+	return probe.HasVideo || probe.Width > 0 || probe.Height > 0 || strings.TrimSpace(probe.VideoCodec) != ""
+}
+
+func mediaProbeHasAudio(probe mediaProbe) bool {
+	return probe.HasAudio || strings.TrimSpace(probe.AudioCodec) != "" || probe.Channels > 0
 }

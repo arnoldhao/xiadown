@@ -615,6 +615,14 @@ export function resolveCompletedTaskSourceLabel(
   return (operation.domain?.trim() || fallback).toUpperCase();
 }
 
+export function formatCompletedTranscodedFromLabel(
+  text: ReturnType<typeof getXiaText>,
+  sourceName?: string,
+) {
+  const name = sourceName?.trim() ?? "";
+  return name ? `${text.completed.transcodedFrom} ${name}` : "";
+}
+
 export function formatCompletedDuration(durationMs?: number) {
   if (!durationMs || durationMs <= 0) {
     return "";

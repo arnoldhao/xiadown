@@ -18,7 +18,7 @@ import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
-import { canPreviewCompletedFile,formatRelativeTime,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveStatusTone,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveStatusTone,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import type { CompletedFileEntry,CompletedPreviewGroupKind,CompletedTaskEntry } from "@/app/main/types";
 
 const TASK_DETAIL_GROUP_ORDER: CompletedPreviewGroupKind[] = [
@@ -545,6 +545,14 @@ export function CompletedTaskDetailHeaderMeta(props: {
     : props.text.common.unknown;
   const taskStatus = (props.task.operation.status ?? "").trim().toLowerCase();
   const taskKind = (props.task.operation.kind ?? "").trim().toLowerCase();
+  const transcodeSourceLabel = formatCompletedTranscodedFromLabel(
+    props.text,
+    props.task.sourceFileName,
+  );
+  const primarySourceLabel =
+    taskKind === "transcode" && transcodeSourceLabel
+      ? transcodeSourceLabel
+      : sourceLabel;
   const canResumeTask =
     (taskStatus === "failed" || taskStatus === "canceled") &&
     (taskKind === "download" || taskKind === "transcode");
@@ -617,7 +625,9 @@ export function CompletedTaskDetailHeaderMeta(props: {
             aria-label={props.text.completed.openTaskDto}
             onClick={openTaskInfoDialog}
           >
-            {sourceConnectorType ? (
+            {taskKind === "transcode" && transcodeSourceLabel ? (
+              <FileCog className="h-3.5 w-3.5 shrink-0" />
+            ) : sourceConnectorType ? (
               <ConnectorBrandIcon
                 connectorType={sourceConnectorType}
                 fallback="none"
@@ -625,7 +635,7 @@ export function CompletedTaskDetailHeaderMeta(props: {
               />
             ) : null}
             <span className="truncate">
-              {sourceLabel || props.text.common.unknown}
+              {primarySourceLabel || props.text.common.unknown}
             </span>
           </button>
         </DetailValueTooltip>
@@ -793,6 +803,14 @@ export function CompletedFileDetailHeaderMeta(props: {
   const infoLabel = resolveCompletedFileDetailInfo(props.file, props.text).join(
     " / ",
   );
+  const transcodeSourceLabel = formatCompletedTranscodedFromLabel(
+    props.text,
+    props.file.sourceFileName,
+  );
+  const primaryInfoLabel = transcodeSourceLabel || infoLabel;
+  const primaryInfoTooltipLabel = transcodeSourceLabel
+    ? props.text.completed.transcodedFrom
+    : props.text.completed.fileInfo;
   const updatedLabel = props.file.updatedAt
     ? formatRelativeTime(props.file.updatedAt)
     : props.text.common.unknown;
@@ -804,10 +822,10 @@ export function CompletedFileDetailHeaderMeta(props: {
         props.className,
       )}
     >
-      <DetailValueTooltip label={props.text.completed.fileInfo}>
+      <DetailValueTooltip label={primaryInfoTooltipLabel}>
         <div className="app-completed-detail-meta-cell flex min-w-0 items-center px-2.5">
           <span className="truncate">
-            {infoLabel || props.text.common.unknown}
+            {primaryInfoLabel || props.text.common.unknown}
           </span>
         </div>
       </DetailValueTooltip>

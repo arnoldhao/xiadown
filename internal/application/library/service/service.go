@@ -1022,7 +1022,11 @@ func (service *LibraryService) CreateTranscodeJob(ctx context.Context, request d
 		return dto.LibraryOperationDTO{}, fmt.Errorf("source file is not attached to a library")
 	}
 	request = service.enrichTranscodeRequestForSource(ctx, request, sourceFile)
-	plan, err := service.resolveTranscodePlanWithoutProbe(ctx, request, sourceFile.Storage.LocalPath)
+	probe, err := service.probeRequiredMedia(ctx, sourceFile.Storage.LocalPath)
+	if err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+	plan, err := service.resolveTranscodePlan(ctx, request, probe)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
@@ -1039,9 +1043,12 @@ func (service *LibraryService) CreateTranscodeJob(ctx context.Context, request d
 		Kind:        "transcode",
 		Status:      string(library.OperationStatusQueued),
 		DisplayName: displayName,
-		Correlation: library.OperationCorrelation{RunID: strings.TrimSpace(request.RunID)},
-		InputJSON:   string(inputJSON),
-		OutputJSON:  buildTranscodeOperationOutput(request, "queued", ""),
+		Correlation: library.OperationCorrelation{
+			RunID:             strings.TrimSpace(request.RunID),
+			ParentOperationID: resolveTranscodeParentOperationID(sourceFile),
+		},
+		InputJSON:  string(inputJSON),
+		OutputJSON: buildTranscodeOperationOutput(request, "queued", ""),
 		Progress: buildOperationProgress(
 			now,
 			progressText("library.status.queued"),
@@ -1158,11 +1165,15 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 		return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
 	}
 	mediaInfo := media.toMediaInfo()
+	kind := strings.TrimSpace(params.Kind)
+	if kind == "" {
+		kind = inferImportFileKindFromProbe(media)
+	}
 	fileID := uuid.NewString()
 	fileItem, err := library.NewLibraryFile(library.LibraryFileParams{
 		ID:          fileID,
 		LibraryID:   params.LibraryID,
-		Kind:        params.Kind,
+		Kind:        kind,
 		Name:        resolveStoredFileName(params.Path, params.Name),
 		DisplayName: strings.TrimSpace(params.Name),
 		Metadata: library.FileMetadata{
@@ -1256,17 +1267,51 @@ func (service *LibraryService) resolveSourceFileForTranscode(ctx context.Context
 	if path == "" {
 		return library.LibraryFile{}, fmt.Errorf("fileId or inputPath is required")
 	}
+	resolvedPath, err := service.resolveInputPath(ctx, path, request.Source, false)
+	if err != nil {
+		return library.LibraryFile{}, err
+	}
+	name := strings.TrimSpace(request.Title)
+	if name == "" {
+		name = strings.TrimSuffix(filepath.Base(resolvedPath), filepath.Ext(resolvedPath))
+	}
+	libraryItem, err := service.ensureLibrary(ctx, ensureLibraryParams{
+		LibraryID:       request.LibraryID,
+		FallbackName:    deriveLibraryName(name, resolvedPath),
+		CreatedBySource: "transcode_import",
+	})
+	if err != nil {
+		return library.LibraryFile{}, err
+	}
 	imported, _, _, err := service.createImportFile(ctx, importFileParams{
-		LibraryID:      strings.TrimSpace(request.LibraryID),
-		Path:           path,
-		Name:           strings.TrimSpace(request.Title),
-		Kind:           string(library.FileKindVideo),
+		LibraryID:      libraryItem.ID,
+		Path:           resolvedPath,
+		Name:           name,
 		Source:         request.Source,
 		SessionRunID:   request.RunID,
 		KeepSourceFile: true,
-		Action:         "import_video",
+		Action:         "import_media",
 	})
 	return imported, err
+}
+
+func inferImportFileKindFromProbe(probe mediaProbe) string {
+	if mediaProbeHasVideo(probe) {
+		return string(library.FileKindVideo)
+	}
+	if mediaProbeHasAudio(probe) {
+		return string(library.FileKindAudio)
+	}
+	return string(library.FileKindVideo)
+}
+
+func resolveTranscodeParentOperationID(sourceFile library.LibraryFile) string {
+	switch strings.TrimSpace(sourceFile.Origin.Kind) {
+	case "download", "transcode":
+		return strings.TrimSpace(sourceFile.Origin.OperationID)
+	default:
+		return ""
+	}
 }
 
 func (service *LibraryService) buildLibraryDTO(ctx context.Context, item library.Library) (dto.LibraryDTO, error) {
@@ -1387,22 +1432,8 @@ func toLibraryFileDTO(item library.LibraryFile) dto.LibraryFileDTO {
 		result.Origin = dto.LibraryFileOriginDTO{Kind: item.Origin.Kind, OperationID: item.Origin.OperationID}
 	}
 	if item.Media != nil {
-		result.Media = &dto.LibraryMediaInfoDTO{
-			Format:           item.Media.Format,
-			Codec:            item.Media.Codec,
-			VideoCodec:       item.Media.VideoCodec,
-			AudioCodec:       item.Media.AudioCodec,
-			DurationMs:       item.Media.DurationMs,
-			Width:            item.Media.Width,
-			Height:           item.Media.Height,
-			FrameRate:        item.Media.FrameRate,
-			BitrateKbps:      item.Media.BitrateKbps,
-			VideoBitrateKbps: item.Media.VideoBitrateKbps,
-			AudioBitrateKbps: item.Media.AudioBitrateKbps,
-			Channels:         item.Media.Channels,
-			SizeBytes:        item.Media.SizeBytes,
-			DPI:              item.Media.DPI,
-		}
+		media := toLibraryMediaInfoDTO(*item.Media)
+		result.Media = &media
 	}
 	if format := strings.TrimSpace(mediaFormatFromFile(item)); format != "" {
 		if result.Media == nil {
@@ -1466,6 +1497,7 @@ func toOperationListItemDTO(item library.LibraryOperation, libraryName string) d
 		Name:                 item.DisplayName,
 		Kind:                 item.Kind,
 		Status:               string(item.Status),
+		Correlation:          dto.OperationCorrelationDTO{RequestID: item.Correlation.RequestID, RunID: item.Correlation.RunID, ParentOperationID: item.Correlation.ParentOperationID},
 		Domain:               item.SourceDomain,
 		SourceIcon:           item.SourceIcon,
 		Platform:             item.Meta.Platform,
@@ -1508,7 +1540,9 @@ func toOperationRequestPreviewDTO(item library.LibraryOperation) *dto.OperationR
 			return nil
 		}
 		preview := dto.OperationRequestPreviewDTO{
+			FileID:                         strings.TrimSpace(request.FileID),
 			InputPath:                      strings.TrimSpace(request.InputPath),
+			RootFileID:                     strings.TrimSpace(request.RootFileID),
 			PresetID:                       strings.TrimSpace(request.PresetID),
 			Format:                         strings.TrimSpace(request.Format),
 			VideoCodec:                     strings.TrimSpace(request.VideoCodec),
