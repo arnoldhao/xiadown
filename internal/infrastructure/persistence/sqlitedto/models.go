@@ -64,6 +64,7 @@ type PetRow struct {
 	Origin            string         `bun:"origin"`
 	Scope             string         `bun:"scope"`
 	Status            string         `bun:"status"`
+	ValidationCode    sql.NullString `bun:"validation_code"`
 	ValidationMessage sql.NullString `bun:"validation_message"`
 	ImageWidth        int            `bun:"image_width"`
 	ImageHeight       int            `bun:"image_height"`
@@ -90,6 +91,9 @@ type SettingsRow struct {
 	MenuBarVisibility     sql.NullString `bun:"menu_bar_visibility"`
 	AutoStart             sql.NullBool   `bun:"auto_start"`
 	MinimizeToTrayOnStart sql.NullBool   `bun:"minimize_to_tray_on_start"`
+	SyncedLyricsEnabled   sql.NullBool   `bun:"synced_lyrics_enabled"`
+	RomanizedLyrics       sql.NullBool   `bun:"romanized_lyrics"`
+	PinyinLyrics          sql.NullBool   `bun:"pinyin_lyrics"`
 	AppearanceConfigJSON  sql.NullString `bun:"appearance_config_json"`
 	MainX                 sql.NullInt64  `bun:"main_x"`
 	MainY                 sql.NullInt64  `bun:"main_y"`

@@ -192,7 +192,7 @@ func (ref RemoteContentRef) Fingerprint() string {
 	return strings.Join(parts, "|")
 }
 
-type DreamFMConfig struct {
+type ListenConfig struct {
 	LiveChannel RemoteContentRef
 }
 
@@ -203,7 +203,7 @@ type Catalog struct {
 	UpdatedAt       time.Time
 	App             *AppRelease
 	Dependencies    map[dependencies.DependencyName]DependencyRelease
-	DreamFM         DreamFMConfig
+	Listen         ListenConfig
 }
 
 func (catalog Catalog) Dependency(name dependencies.DependencyName) (DependencyRelease, bool) {

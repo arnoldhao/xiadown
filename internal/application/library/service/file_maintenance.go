@@ -45,7 +45,7 @@ func (service *LibraryService) VerifyLibraryFiles(ctx context.Context) (dto.Veri
 		if err := service.files.Save(ctx, item); err != nil {
 			return response, err
 		}
-		service.syncDreamFMLocalTrackFromFile(ctx, item, nil)
+		service.syncListenLocalTrackFromFile(ctx, item, nil)
 		service.publishFileUpdate(service.mustBuildFileDTO(ctx, item))
 	}
 	return response, nil

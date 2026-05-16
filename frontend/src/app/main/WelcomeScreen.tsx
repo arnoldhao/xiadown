@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Settings } from "@/shared/contracts/settings";
 import {
+  normalizeLanguage,
   setLanguage as setI18nLanguage,
   t,
   type SupportedLanguage,
@@ -123,7 +124,7 @@ const DEPENDENCY_META: Record<
   bun: { Icon: Package, displayName: "BUN" },
 };
 
-function buildWelcomeText(language: "en" | "zh-CN"): WelcomeText {
+function buildWelcomeText(language: SupportedLanguage): WelcomeText {
   return {
     bgmOff: t("xiadown.welcome.bgmOff", language),
     bgmOn: t("xiadown.welcome.bgmOn", language),
@@ -389,7 +390,7 @@ function isThemePackId(value: string): value is XiaThemePackId {
 }
 
 function normalizeWelcomeLanguage(language: string | undefined): SupportedLanguage {
-  return language?.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+  return normalizeLanguage(language ?? "");
 }
 
 function normalizeDependencyInstallStage(stage?: string) {
@@ -1129,6 +1130,7 @@ export function WelcomeScreen(props: {
   const languageOptions: Array<WelcomeDropdownOption<SupportedLanguage>> = [
     { value: "en", label: text.common.languages.en },
     { value: "zh-CN", label: text.common.languages.zhCN },
+    { value: "zh-TW", label: text.common.languages.zhTW },
   ];
   const themeOptions: Array<WelcomeDropdownOption<XiaThemePackId>> =
     XIA_THEME_PACKS.map((pack) => ({

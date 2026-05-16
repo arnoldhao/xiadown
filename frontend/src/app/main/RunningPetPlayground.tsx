@@ -5,7 +5,7 @@ import type { PetAnimation } from "@/shared/pets/animation";
 import { RUNNING_PET_GLOW_STYLE } from "@/shared/styles/xiadown";
 import { PetDisplay } from "@/shared/ui/pet-player";
 
-type PlaygroundToy = "none" | "ball" | "pad";
+type PlaygroundToy = "none" | "ball";
 
 interface RunningPetPlaygroundState {
   xRatio: number;
@@ -45,6 +45,7 @@ const WALK_SPEED_PX_PER_SECOND = 190;
 const SPRINT_MULTIPLIER = 2.05;
 const JUMP_ANIMATION_MS = 760;
 const WAVE_ANIMATION_MS = 980;
+const FAILED_ANIMATION_MS = 1_480;
 const ROTATION_DEGREES_PER_PIXEL = 0.42;
 
 const MOVEMENT_BY_CODE: Record<string, readonly [number, number]> = {
@@ -71,6 +72,29 @@ const CONTROL_CODES = new Set([
   "KeyR",
 ]);
 
+const KEY_CODE_FALLBACKS: Record<string, string> = {
+  " ": "Space",
+  arrowdown: "ArrowDown",
+  arrowleft: "ArrowLeft",
+  arrowright: "ArrowRight",
+  arrowup: "ArrowUp",
+  down: "ArrowDown",
+  left: "ArrowLeft",
+  q: "KeyQ",
+  r: "KeyR",
+  right: "ArrowRight",
+  shift: "Shift",
+  spacebar: "Space",
+  t: "KeyT",
+  up: "ArrowUp",
+  w: "KeyW",
+  a: "KeyA",
+  s: "KeyS",
+  d: "KeyD",
+  e: "KeyE",
+  b: "KeyB",
+};
+
 export function RunningPetPlayground(props: {
   pet: Pet | null;
   imageUrl: string;
@@ -95,7 +119,7 @@ export function RunningPetPlayground(props: {
     React.useState<PetAnimation | null>(null);
   const [actionAnimation, setActionAnimation] =
     React.useState<PetAnimation | null>(null);
-  const [sitting, setSitting] = React.useState(false);
+  const [idleOverride, setIdleOverride] = React.useState(false);
 
   const updateMovementAnimation = React.useCallback(
     (nextAnimation: PetAnimation | null) => {
@@ -120,7 +144,7 @@ export function RunningPetPlayground(props: {
   const triggerTransientAnimation = React.useCallback(
     (animation: PetAnimation, durationMs: number) => {
       clearTransientAnimation();
-      setSitting(false);
+      setIdleOverride(false);
       setTransientAnimation(animation);
       setActionAnimation(animation);
       transientTimeoutRef.current = window.setTimeout(() => {
@@ -143,7 +167,7 @@ export function RunningPetPlayground(props: {
     pressedKeysRef.current.clear();
     clearTransientAnimation();
     updateMovementAnimation(null);
-    setSitting(false);
+    setIdleOverride(false);
     setState(DEFAULT_STATE);
   }, [clearTransientAnimation, updateMovementAnimation]);
 
@@ -196,7 +220,7 @@ export function RunningPetPlayground(props: {
         return;
       }
 
-      setSitting(false);
+      setIdleOverride(false);
       clearTransientAnimation();
 
       const length = Math.hypot(dx, dy) || 1;
@@ -263,7 +287,7 @@ export function RunningPetPlayground(props: {
         return;
       }
 
-      setSitting(false);
+      setIdleOverride(false);
       const dx = event.clientX - dragState.startClientX;
       const dy = event.clientY - dragState.startClientY;
       updateMovementAnimation(
@@ -337,13 +361,13 @@ export function RunningPetPlayground(props: {
           break;
         case "KeyQ":
           clearTransientAnimation();
-          setSitting((current) => !current);
+          setIdleOverride((current) => !current);
           break;
         case "KeyB":
           toggleToy("ball");
           break;
         case "KeyT":
-          toggleToy("pad");
+          triggerTransientAnimation("failed", FAILED_ANIMATION_MS);
           break;
         case "KeyR":
           resetPlayground();
@@ -440,7 +464,7 @@ export function RunningPetPlayground(props: {
   );
 
   const resolvedAnimation =
-    transientAnimation ?? movingAnimation ?? (sitting ? "waiting" : props.animation);
+    transientAnimation ?? movingAnimation ?? (idleOverride ? "idle" : props.animation);
 
   const petStyle: React.CSSProperties = {
     left: `${state.xRatio * 100}%`,
@@ -477,15 +501,11 @@ export function RunningPetPlayground(props: {
       <div
         className="app-running-playground-pet absolute z-30"
         data-dragging={dragging ? "true" : undefined}
-        data-sitting={sitting ? "true" : undefined}
         data-toy={state.toy !== "none" ? state.toy : undefined}
         style={petStyle}
         onPointerDown={handlePetPointerDown}
         onContextMenu={(event) => event.preventDefault()}
       >
-        {state.toy === "pad" ? (
-          <span className="app-running-playground-pad" aria-hidden="true" />
-        ) : null}
         <span className="app-running-playground-shadow" aria-hidden="true" />
         {state.toy === "ball" ? (
           <span className="app-running-playground-ball" aria-hidden="true" />
@@ -566,7 +586,7 @@ function clampState(
 }
 
 function normalizeToy(value: unknown): PlaygroundToy {
-  return value === "ball" || value === "pad" ? value : "none";
+  return value === "ball" ? value : "none";
 }
 
 function hasLeftDefaultState(state: RunningPetPlaygroundState) {
@@ -608,13 +628,18 @@ function clamp(value: number, minimum: number, maximum: number) {
 }
 
 function normalizeKeyboardCode(event: KeyboardEvent) {
-  if (event.code === "Space" || event.key === " ") {
+  const code = event.code?.trim() ?? "";
+  if (code === "Space" || event.key === " ") {
     return "Space";
   }
   if (event.key === "Shift") {
-    return event.code || "Shift";
+    return code || "Shift";
   }
-  return event.code || event.key;
+  if (code && CONTROL_CODES.has(code)) {
+    return code;
+  }
+  const key = event.key?.trim().toLowerCase() ?? "";
+  return KEY_CODE_FALLBACKS[key] ?? (code || event.key);
 }
 
 function isEditableTarget(target: EventTarget | null) {

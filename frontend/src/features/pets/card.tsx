@@ -54,6 +54,7 @@ export function LocalPetGalleryCard(props: LocalPetGalleryCardProps) {
         lighting.cardClassName,
         className,
       )}
+      data-default={isDefault ? "true" : undefined}
       {...buttonProps}
     >
       <div
@@ -89,6 +90,7 @@ export function LocalPetGalleryCard(props: LocalPetGalleryCardProps) {
           alt={pet.displayName}
           animation="running"
           animate={inView}
+          load={inView}
           glowClassName={lighting.petGlowClassName}
           glowStyle={lighting.petGlowStyle}
         />

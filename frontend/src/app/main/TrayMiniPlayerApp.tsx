@@ -2,21 +2,21 @@ import { Events } from "@wailsio/runtime";
 import * as React from "react";
 
 import {
-  DREAM_FM_NOW_PLAYING_EVENT,
-  DREAM_FM_NOW_PLAYING_STORAGE_KEY,
-  DREAM_FM_TRAY_COMMAND_EVENT,
-} from "@/app/main/dreamfm/catalog";
+  LISTEN_NOW_PLAYING_EVENT,
+  LISTEN_NOW_PLAYING_STORAGE_KEY,
+  LISTEN_TRAY_COMMAND_EVENT,
+} from "@/app/main/listen/catalog";
 import type {
-  DreamFMMode,
-  DreamFMNowPlayingState,
-  DreamFMNowPlayingStatus,
-} from "@/app/main/dreamfm/types";
-import { DreamFMNowPlayingHoverPanel } from "@/app/main/sidebar";
+  ListenMode,
+  ListenNowPlayingState,
+  ListenNowPlayingStatus,
+} from "@/app/main/listen/types";
+import { ListenNowPlayingHoverPanel } from "@/app/main/sidebar";
 import { getXiaText } from "@/features/xiadown/shared";
-import { createDreamFMTrayControlStyle } from "@/shared/styles/theme-runtime";
+import { createListenTrayControlStyle } from "@/shared/styles/theme-runtime";
 import { useSettingsStore } from "@/shared/store/settings";
 
-const DREAM_FM_STATES: DreamFMNowPlayingState[] = [
+const LISTEN_STATES: ListenNowPlayingState[] = [
   "idle",
   "loading",
   "playing",
@@ -24,7 +24,7 @@ const DREAM_FM_STATES: DreamFMNowPlayingState[] = [
   "error",
 ];
 
-const DREAM_FM_MODES: DreamFMMode[] = ["local", "online", "live"];
+const LISTEN_MODES: ListenMode[] = ["linger", "muse", "hush"];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object"
@@ -40,18 +40,18 @@ function finiteNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function normalizeNowPlayingStatus(value: unknown): DreamFMNowPlayingStatus | null {
+function normalizeNowPlayingStatus(value: unknown): ListenNowPlayingStatus | null {
   const record = asRecord(value);
   if (!record) {
     return null;
   }
 
-  const state = stringValue(record.state) as DreamFMNowPlayingState;
-  if (!DREAM_FM_STATES.includes(state)) {
+  const state = stringValue(record.state) as ListenNowPlayingState;
+  if (!LISTEN_STATES.includes(state)) {
     return null;
   }
 
-  const mode = stringValue(record.mode) as DreamFMMode;
+  const mode = stringValue(record.mode) as ListenMode;
   const progress = asRecord(record.progress);
 
   return {
@@ -59,7 +59,7 @@ function normalizeNowPlayingStatus(value: unknown): DreamFMNowPlayingStatus | nu
     title: stringValue(record.title),
     subtitle: stringValue(record.subtitle),
     artworkURL: stringValue(record.artworkURL),
-    mode: DREAM_FM_MODES.includes(mode) ? mode : "local",
+    mode: LISTEN_MODES.includes(mode) ? mode : "linger",
     canControl: record.canControl === true,
     progress: {
       currentTime: finiteNumber(progress?.currentTime),
@@ -72,7 +72,7 @@ function normalizeNowPlayingStatus(value: unknown): DreamFMNowPlayingStatus | nu
 function readStoredNowPlayingStatus() {
   try {
     return normalizeNowPlayingStatus(
-      JSON.parse(localStorage.getItem(DREAM_FM_NOW_PLAYING_STORAGE_KEY) || "null"),
+      JSON.parse(localStorage.getItem(LISTEN_NOW_PLAYING_STORAGE_KEY) || "null"),
     );
   } catch {
     return null;
@@ -81,17 +81,17 @@ function readStoredNowPlayingStatus() {
 
 export function TrayMiniPlayerApp() {
   const settings = useSettingsStore((state) => state.settings);
-  const [status, setStatus] = React.useState<DreamFMNowPlayingStatus | null>(
+  const [status, setStatus] = React.useState<ListenNowPlayingStatus | null>(
     () => readStoredNowPlayingStatus(),
   );
   const text = getXiaText(settings?.language);
   const controlStyle = React.useMemo(
-    () => createDreamFMTrayControlStyle(settings),
+    () => createListenTrayControlStyle(settings),
     [settings],
   );
 
   React.useEffect(() => {
-    const offNowPlaying = Events.On(DREAM_FM_NOW_PLAYING_EVENT, (event: any) => {
+    const offNowPlaying = Events.On(LISTEN_NOW_PLAYING_EVENT, (event: any) => {
       const payload = event?.data ?? event;
       setStatus(normalizeNowPlayingStatus(payload));
     });
@@ -102,7 +102,7 @@ export function TrayMiniPlayerApp() {
 
   const sendTrayCommand = React.useCallback(
     (command: "previous" | "toggle" | "next") => {
-      void Events.Emit(DREAM_FM_TRAY_COMMAND_EVENT, { command });
+      void Events.Emit(LISTEN_TRAY_COMMAND_EVENT, { command });
     },
     [],
   );
@@ -112,9 +112,10 @@ export function TrayMiniPlayerApp() {
       className="flex h-screen w-screen items-center justify-center overflow-hidden bg-transparent text-foreground"
       style={controlStyle}
     >
-      <DreamFMNowPlayingHoverPanel
+      <ListenNowPlayingHoverPanel
         status={status}
         text={text}
+        surface="tray"
         onControlCommand={sendTrayCommand}
       />
     </div>

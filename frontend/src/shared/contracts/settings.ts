@@ -53,6 +53,9 @@ export interface Settings {
   menuBarVisibility: MenuBarVisibility;
   autoStart: boolean;
   minimizeToTrayOnStart: boolean;
+  syncedLyricsEnabled: boolean;
+  romanizedLyrics: boolean;
+  pinyinLyrics: boolean;
   mainBounds: WindowBounds;
   settingsBounds: WindowBounds;
   proxy: Proxy;
@@ -76,6 +79,9 @@ export interface UpdateSettingsRequest {
   menuBarVisibility?: MenuBarVisibility;
   autoStart?: boolean;
   minimizeToTrayOnStart?: boolean;
+  syncedLyricsEnabled?: boolean;
+  romanizedLyrics?: boolean;
+  pinyinLyrics?: boolean;
   mainBounds?: WindowBounds;
   settingsBounds?: WindowBounds;
   proxy?: Proxy;

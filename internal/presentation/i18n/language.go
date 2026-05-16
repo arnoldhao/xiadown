@@ -12,6 +12,7 @@ import (
 var SupportedLanguages = []settings.Language{
 	settings.LanguageEnglish,
 	settings.LanguageChineseSimplified,
+	settings.LanguageChineseTraditional,
 }
 
 // DetectSystemLanguage tries to derive the OS language from common environment variables.
@@ -38,11 +39,20 @@ func DetectSystemLanguage() settings.Language {
 }
 
 func normalizeLanguage(tag string) (settings.Language, bool) {
-	switch strings.ToLower(tag) {
-	case "en", "en-us", "en-gb":
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(tag), "_", "-"))
+	switch {
+	case normalized == "en" || strings.HasPrefix(normalized, "en-"):
 		return settings.LanguageEnglish, true
-	case "zh", "zh-cn", "zh-hans", "zh_sg":
+	case normalized == "zh" ||
+		strings.HasPrefix(normalized, "zh-cn") ||
+		strings.HasPrefix(normalized, "zh-hans") ||
+		strings.HasPrefix(normalized, "zh-sg"):
 		return settings.LanguageChineseSimplified, true
+	case strings.HasPrefix(normalized, "zh-tw") ||
+		strings.HasPrefix(normalized, "zh-hant") ||
+		strings.HasPrefix(normalized, "zh-hk") ||
+		strings.HasPrefix(normalized, "zh-mo"):
+		return settings.LanguageChineseTraditional, true
 	default:
 		return "", false
 	}
@@ -62,6 +72,11 @@ func parseLanguageTag(value string) string {
 		if err != nil {
 			return ""
 		}
+	}
+
+	normalized := strings.ToLower(parsed.String())
+	if strings.HasPrefix(normalized, "zh-hant") || strings.HasPrefix(normalized, "zh-hans") {
+		return normalized
 	}
 
 	base, _ := parsed.Base()

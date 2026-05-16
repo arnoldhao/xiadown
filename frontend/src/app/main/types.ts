@@ -1,6 +1,6 @@
 import type { LibraryDTO,LibraryMediaInfoDTO,OperationListItemDTO } from "@/shared/contracts/library";
 
-export type MainViewId = "running" | "completed" | "dreamfm" | "connections" | "petsGallery";
+export type MainViewId = "running" | "completed" | "listen" | "connections" | "petsGallery";
 export type CompletedViewMode = "tasks" | "files";
 export type CompletedContextMenuTarget =
   | { kind: "task"; id: string; x: number; y: number }

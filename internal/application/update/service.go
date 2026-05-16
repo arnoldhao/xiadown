@@ -38,11 +38,11 @@ type preparedUpdateInspector interface {
 }
 
 const (
-	dreamFMLiveCatalogTopic       = "dreamfm.live.catalog"
-	dreamFMLiveCatalogUpdatedType = "catalog-updated"
+	listenLiveCatalogTopic       = "listen.live.catalog"
+	listenLiveCatalogUpdatedType = "catalog-updated"
 )
 
-type dreamFMLiveCatalogUpdatePayload struct {
+type listenLiveCatalogUpdatePayload struct {
 	SchemaVersion int    `json:"schemaVersion,omitempty"`
 	URL           string `json:"url"`
 	Version       string `json:"version,omitempty"`
@@ -265,7 +265,7 @@ func (service *Service) CheckForUpdate(ctx context.Context, currentVersion strin
 	previousSnapshot := service.catalog.Snapshot()
 	snapshot, refreshErr := service.catalog.RefreshCatalog(ctx, softwareupdate.Request{AppVersion: state.CurrentVersion})
 	if refreshErr == nil {
-		service.publishDreamFMLiveCatalogUpdate(previousSnapshot, snapshot)
+		service.publishListenLiveCatalogUpdate(previousSnapshot, snapshot)
 	}
 	release, err := service.catalog.ResolveAppRelease(ctx, softwareupdate.AppRequest{
 		CurrentVersion: state.CurrentVersion,
@@ -613,12 +613,12 @@ func (service *Service) publishSnapshot(state update.Info) {
 	}
 }
 
-func (service *Service) publishDreamFMLiveCatalogUpdate(previous softwareupdate.Snapshot, next softwareupdate.Snapshot) {
+func (service *Service) publishListenLiveCatalogUpdate(previous softwareupdate.Snapshot, next softwareupdate.Snapshot) {
 	if service.bus == nil || previous.CheckedAt.IsZero() {
 		return
 	}
-	previousRef := previous.Catalog.DreamFM.LiveChannel
-	nextRef := next.Catalog.DreamFM.LiveChannel
+	previousRef := previous.Catalog.Listen.LiveChannel
+	nextRef := next.Catalog.Listen.LiveChannel
 	if !nextRef.Configured() {
 		return
 	}
@@ -632,9 +632,9 @@ func (service *Service) publishDreamFMLiveCatalogUpdate(previous softwareupdate.
 		updatedAt = nextRef.UpdatedAt.UTC().Format(time.RFC3339)
 	}
 	_ = service.bus.Publish(context.Background(), events.Event{
-		Topic: dreamFMLiveCatalogTopic,
-		Type:  dreamFMLiveCatalogUpdatedType,
-		Payload: dreamFMLiveCatalogUpdatePayload{
+		Topic: listenLiveCatalogTopic,
+		Type:  listenLiveCatalogUpdatedType,
+		Payload: listenLiveCatalogUpdatePayload{
 			SchemaVersion: nextRef.SchemaVersion,
 			URL:           strings.TrimSpace(nextRef.URL),
 			Version:       strings.TrimSpace(nextRef.Version),

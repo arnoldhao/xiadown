@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bep/debounce"
@@ -32,6 +33,7 @@ type WindowManager struct {
 	settingsVisible bool
 	initialized     bool
 	updateState     update.Info
+	quitting        atomic.Bool
 
 	systemTray *SystemTrayController
 }
@@ -70,6 +72,9 @@ func (actions windowTrayActions) ApplyMenuBarVisibility(value string) {
 }
 
 func (actions windowTrayActions) Quit() {
+	if actions.manager != nil {
+		actions.manager.PrepareQuit()
+	}
 	if actions.app == nil {
 		return
 	}
@@ -155,6 +160,13 @@ func (manager *WindowManager) SetMainWindowChromeHidden(hidden bool) {
 	manager.mainWindow.SetMinimiseButtonState(state)
 	manager.mainWindow.SetMaximiseButtonState(state)
 	manager.mainWindow.SetCloseButtonState(state)
+}
+
+func (manager *WindowManager) PrepareQuit() {
+	if manager == nil {
+		return
+	}
+	manager.quitting.Store(true)
 }
 
 func (manager *WindowManager) HandleSecondInstanceLaunch() {
@@ -331,7 +343,7 @@ func (manager *WindowManager) registerMainWindowEvents() {
 
 	manager.mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
 		manager.ensureWindowVisible(windowTypeMain)
-		configureDreamFMYouTubeMusicNativeWindow(manager.mainWindow.NativeWindow(), dreamFMYouTubeMusicUserAgent())
+		configureListenYouTubeMusicNativeWindow(manager.mainWindow.NativeWindow(), listenYouTubeMusicUserAgent())
 	})
 
 	manager.mainWindow.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) {
@@ -349,6 +361,9 @@ func (manager *WindowManager) registerMainWindowEvents() {
 
 	// Use hook to cancel default destroy flow and just hide.
 	manager.mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if manager.quitting.Load() {
+			return
+		}
 		event.Cancel()
 		manager.HideMainWindow()
 	})
@@ -377,6 +392,9 @@ func (manager *WindowManager) registerSettingsWindowEvents() {
 
 	// Use hook to cancel default destroy flow and just hide.
 	manager.settingsWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if manager.quitting.Load() {
+			return
+		}
 		event.Cancel()
 		manager.HideSettingsWindow()
 	})

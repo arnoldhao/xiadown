@@ -185,6 +185,7 @@ export function resolveDependencyTone(status?: string) {
 
 export function InlineSwitch(props: {
   checked: boolean;
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
   ariaLabel: string;
 }) {
@@ -194,15 +195,21 @@ export function InlineSwitch(props: {
       role="switch"
       aria-checked={props.checked}
       aria-label={props.ariaLabel}
-      onClick={() => props.onChange(!props.checked)}
+      disabled={props.disabled === true}
+      onClick={() => {
+        if (props.disabled === true) {
+          return;
+        }
+        props.onChange(!props.checked);
+      }}
       className={cn(
-        "flex h-7 w-[46px] items-center rounded-full border-0 px-0.5 transition-colors",
-        props.checked
-          ? "justify-end bg-primary"
-          : "justify-start bg-foreground/[0.13]",
+        "app-dream-inline-switch",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        props.checked ? "justify-end" : "justify-start",
       )}
+      data-state={props.checked ? "checked" : "unchecked"}
     >
-      <span className="h-6 w-6 rounded-full bg-card shadow-[0_2px_7px_rgb(0_0_0/0.18)] transition-transform" />
+      <span className="app-dream-inline-switch-knob" />
     </button>
   );
 }
@@ -220,13 +227,14 @@ export function TabButton(props: {
       title={props.label}
       onClick={() => props.onClick(props.id)}
       className={cn(
-        "grid h-[52px] w-[76px] min-w-[76px] max-w-[76px] place-items-center gap-0 rounded-2xl border-0 px-1.5 py-1 text-center transition-colors",
+        "app-settings-tab-button grid h-[52px] w-[76px] min-w-[76px] max-w-[76px] place-items-center gap-0 rounded-2xl border-0 px-1.5 py-1 text-center transition-colors",
         props.active
           ? "bg-primary/[0.13] text-primary shadow-[inset_0_1px_0_hsl(var(--background)/0.18)]"
           : "bg-transparent text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground",
       )}
+      data-active={props.active ? "true" : undefined}
     >
-      <span className="flex h-9 w-9 items-center justify-center">{props.icon}</span>
+      <span className="app-settings-tab-icon flex h-9 w-9 items-center justify-center">{props.icon}</span>
       <span className="w-full truncate text-[10px] font-medium leading-3">{props.label}</span>
     </button>
   );

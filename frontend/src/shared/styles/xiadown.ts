@@ -37,7 +37,7 @@ export const SETTINGS_ROW_LABEL_TRUNCATE_CLASS =
 export const SETTINGS_ROW_DESCRIPTION_CLASS = "text-xs text-muted-foreground";
 export const SETTINGS_ROW_CONTENT_BASE_CLASS =
   "ml-auto flex min-w-0 justify-end gap-2 text-[13px] font-medium text-foreground";
-export const SETTINGS_SEPARATOR_CLASS = "app-divider-soft my-1.5";
+export const SETTINGS_SEPARATOR_CLASS = "app-divider-soft";
 export const SETTINGS_CONTROL_WIDTH_CLASS =
   "w-[var(--app-settings-control-width)] min-w-0";
 export const SETTINGS_WIDE_CONTROL_WIDTH_CLASS =
@@ -50,7 +50,7 @@ export const SETTINGS_COMPACT_ROW_LABEL_CLASS =
 export const SETTINGS_COMPACT_ROW_DESCRIPTION_CLASS =
   "text-xs text-muted-foreground";
 export const SETTINGS_COMPACT_ROW_CONTENT_CLASS = "text-[13px]";
-export const SETTINGS_COMPACT_SEPARATOR_CLASS = "app-divider-inset my-0";
+export const SETTINGS_COMPACT_SEPARATOR_CLASS = "app-divider-inset";
 
 export const PET_GALLERY_CARD_SIZE_CLASS =
   "h-[8.75rem] w-[6.125rem] min-w-[6.125rem] max-w-[6.125rem]";

@@ -51,6 +51,34 @@ type WindowTitleStrings struct {
 
 func Menu(lang settings.Language) MenuStrings {
 	switch lang {
+	case settings.LanguageChineseTraditional:
+		return MenuStrings{
+			AppTitle:          "下蛋",
+			About:             "關於下蛋",
+			Settings:          "偏好設定…",
+			CheckingForUpdate: "正在檢查更新…",
+			InstallUpdate:     "安裝更新",
+			Hide:              "隱藏下蛋",
+			HideOthers:        "隱藏其他",
+			ShowAll:           "顯示全部",
+			Quit:              "結束下蛋",
+			File:              "檔案",
+			Edit:              "編輯",
+			Undo:              "復原",
+			Redo:              "重做",
+			Cut:               "剪下",
+			Copy:              "複製",
+			Paste:             "貼上",
+			Delete:            "刪除",
+			Close:             "關閉視窗",
+			SelectAll:         "全選",
+			Window:            "視窗",
+			Minimize:          "最小化",
+			Zoom:              "縮放",
+			FullScreen:        "全螢幕",
+			BringAllToFront:   "全部移到最前",
+			Help:              "說明",
+		}
 	case settings.LanguageChineseSimplified:
 		return MenuStrings{
 			AppTitle:          "下蛋",
@@ -112,6 +140,20 @@ func Menu(lang settings.Language) MenuStrings {
 
 func TrayMenu(lang settings.Language) TrayMenuStrings {
 	switch lang {
+	case settings.LanguageChineseTraditional:
+		return TrayMenuStrings{
+			NewDownload:       "新增下載",
+			OpenApp:           "開啟下蛋",
+			Settings:          "偏好設定…",
+			InstallUpdate:     "安裝更新",
+			CheckingForUpdate: "正在檢查更新…",
+			ShowInMenuBar:     "選單列顯示",
+			ShowTrayIcon:      "系統匣圖示顯示",
+			ShowAlways:        "一律顯示",
+			ShowWhenRunning:   "執行時顯示",
+			ShowNever:         "不顯示",
+			Quit:              "結束",
+		}
 	case settings.LanguageChineseSimplified:
 		return TrayMenuStrings{
 			NewDownload:       "新建下载",
@@ -145,6 +187,11 @@ func TrayMenu(lang settings.Language) TrayMenuStrings {
 
 func WindowTitles(lang settings.Language) WindowTitleStrings {
 	switch lang {
+	case settings.LanguageChineseTraditional:
+		return WindowTitleStrings{
+			Main:     "下蛋",
+			Settings: "設定",
+		}
 	case settings.LanguageChineseSimplified:
 		return WindowTitleStrings{
 			Main:     "下蛋",

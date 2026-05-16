@@ -14,6 +14,8 @@ import (
 	appevents "xiadown/internal/application/events"
 	fontsservice "xiadown/internal/application/fonts/service"
 	libraryservice "xiadown/internal/application/library/service"
+	"xiadown/internal/application/listenlyrics"
+	"xiadown/internal/application/listenplayback"
 	petsservice "xiadown/internal/application/pets/service"
 	"xiadown/internal/application/settings/service"
 	softwareupdate "xiadown/internal/application/softwareupdate"
@@ -26,6 +28,7 @@ import (
 	"xiadown/internal/infrastructure/dependenciesrepo"
 	"xiadown/internal/infrastructure/libraryicons"
 	"xiadown/internal/infrastructure/libraryrepo"
+	"xiadown/internal/infrastructure/listenplaybackstore"
 	"xiadown/internal/infrastructure/logging"
 	"xiadown/internal/infrastructure/persistence"
 	"xiadown/internal/infrastructure/petsrepo"
@@ -57,9 +60,10 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	appIcon := loadAppIcon(assets)
 	trayIcon := loadTrayIcon(assets)
 	var windowManager *wails.WindowManager
-	var dreamFMPlayer *wails.DreamFMYouTubeMusicPlayer
-	var dreamFMLivePlayer *wails.DreamFMYouTubeLivePlayer
+	var listenPlayer *wails.ListenYouTubeMusicPlayer
+	var listenLivePlayer *wails.ListenYouTubeLivePlayer
 	var telemetryShutdown func()
+	var listenPlaybackSnapshotUnsubscribe func()
 
 	app := application.New(application.Options{
 		Name:        AppName,
@@ -83,11 +87,17 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 				}
 			},
 		},
+		ShouldQuit: func() bool {
+			if windowManager != nil {
+				windowManager.PrepareQuit()
+			}
+			return true
+		},
 		RawMessageHandler: func(window application.Window, message string, originInfo *application.OriginInfo) {
-			if dreamFMPlayer != nil && dreamFMPlayer.HandleRawMessage(window, message, originInfo) {
+			if listenPlayer != nil && listenPlayer.HandleRawMessage(window, message, originInfo) {
 				return
 			}
-			if dreamFMLivePlayer != nil && dreamFMLivePlayer.HandleRawMessage(window, message, originInfo) {
+			if listenLivePlayer != nil && listenLivePlayer.HandleRawMessage(window, message, originInfo) {
 				return
 			}
 		},
@@ -118,6 +128,9 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		}
 		if telemetryShutdown != nil {
 			telemetryShutdown()
+		}
+		if listenPlaybackSnapshotUnsubscribe != nil {
+			listenPlaybackSnapshotUnsubscribe()
 		}
 		_ = database.Close()
 	})
@@ -223,8 +236,8 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	if err := connectorsService.EnsureDefaults(ctx); err != nil {
 		return nil, err
 	}
-	dreamFMPlayer = wails.NewDreamFMYouTubeMusicPlayer(app, windowManager, connectorsService)
-	dreamFMLivePlayer = wails.NewDreamFMYouTubeLivePlayer(app, windowManager, connectorsService)
+	listenPlayer = wails.NewListenYouTubeMusicPlayer(app, windowManager, connectorsService)
+	listenLivePlayer = wails.NewListenYouTubeLivePlayer(app, windowManager, connectorsService)
 
 	dependenciesRepo := dependenciesrepo.NewSQLiteDependencyRepository(database.Bun)
 	dependenciesService := dependenciesservice.NewDependenciesService(
@@ -237,46 +250,56 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		return nil, err
 	}
 	ytMusicClient := youtubemusic.NewClientWithHTTPClientProvider(connectorsService, proxyManager)
-	dreamFMImageCache, err := youtubemusic.NewImageCache(proxyManager, youtubemusic.ImageCacheConfig{})
+	listenPlaybackStore, err := listenplaybackstore.DefaultJSONSessionStore()
 	if err != nil {
 		return nil, err
 	}
-	dreamFMImageHandler := presentationhttp.NewDreamFMImageHandler(dreamFMImageCache)
-	realtimeServer.Handle("/api/dreamfm/image", dreamFMImageHandler)
-	realtimeServer.Handle("/api/dreamfm/image/", dreamFMImageHandler)
-	dreamFMLiveCatalogHandler := presentationhttp.NewDreamFMLiveCatalogHandler(proxyManager)
-	realtimeServer.Handle("/api/dreamfm/live/catalog", dreamFMLiveCatalogHandler)
-	realtimeServer.Handle("/api/dreamfm/live/catalog/", dreamFMLiveCatalogHandler)
-	dreamFMLiveStatusHandler := presentationhttp.NewDreamFMLiveStatusHandler(proxyManager)
-	realtimeServer.Handle("/api/dreamfm/live/status", dreamFMLiveStatusHandler)
-	realtimeServer.Handle("/api/dreamfm/live/status/", dreamFMLiveStatusHandler)
-	dreamFMSearchHandler := presentationhttp.NewDreamFMSearchHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/search", dreamFMSearchHandler)
-	realtimeServer.Handle("/api/dreamfm/search/", dreamFMSearchHandler)
-	dreamFMLibraryHandler := presentationhttp.NewDreamFMLibraryHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/library", dreamFMLibraryHandler)
-	realtimeServer.Handle("/api/dreamfm/library/", dreamFMLibraryHandler)
-	dreamFMArtistHandler := presentationhttp.NewDreamFMArtistHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/artist", dreamFMArtistHandler)
-	realtimeServer.Handle("/api/dreamfm/artist/", dreamFMArtistHandler)
-	dreamFMPlaylistLibraryHandler := presentationhttp.NewDreamFMPlaylistLibraryHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/library/playlist", dreamFMPlaylistLibraryHandler)
-	realtimeServer.Handle("/api/dreamfm/library/playlist/", dreamFMPlaylistLibraryHandler)
-	dreamFMLyricsHandler := presentationhttp.NewDreamFMLyricsHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/track/lyrics", dreamFMLyricsHandler)
-	realtimeServer.Handle("/api/dreamfm/track/lyrics/", dreamFMLyricsHandler)
-	dreamFMTrackHandler := presentationhttp.NewDreamFMTrackHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/track", dreamFMTrackHandler)
-	realtimeServer.Handle("/api/dreamfm/track/", dreamFMTrackHandler)
-	dreamFMTrackFavoriteHandler := presentationhttp.NewDreamFMTrackFavoriteHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/track/favorite", dreamFMTrackFavoriteHandler)
-	realtimeServer.Handle("/api/dreamfm/track/favorite/", dreamFMTrackFavoriteHandler)
-	dreamFMRadioHandler := presentationhttp.NewDreamFMRadioHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/radio", dreamFMRadioHandler)
-	realtimeServer.Handle("/api/dreamfm/radio/", dreamFMRadioHandler)
-	dreamFMPlaylistHandler := presentationhttp.NewDreamFMPlaylistHandler(ytMusicClient)
-	realtimeServer.Handle("/api/dreamfm/playlist", dreamFMPlaylistHandler)
-	realtimeServer.Handle("/api/dreamfm/playlist/", dreamFMPlaylistHandler)
+	listenPlaybackService := listenplayback.NewPlayerService(
+		wails.NewListenPlaybackTransport(listenPlayer),
+		listenplayback.WithLibraryClient(wails.NewListenPlaybackLibraryClient(ytMusicClient)),
+		listenplayback.WithSessionStore(listenPlaybackStore),
+		listenplayback.WithUserInteractionUnlocked(),
+	)
+	listenLyricsService := listenlyrics.NewService(wails.NewListenLyricsClient(ytMusicClient))
+	listenPlayer.SetPlaybackService(listenPlaybackService)
+	_, _ = listenPlaybackService.RestorePlaybackSession(ctx)
+	listenPlaybackSnapshotUnsubscribe = wails.NewListenPlaybackSnapshotEmitter(app, listenPlaybackService)
+	listenLiveCatalogHandler := presentationhttp.NewListenLiveCatalogHandler(proxyManager)
+	realtimeServer.Handle("/api/listen/live/catalog", listenLiveCatalogHandler)
+	realtimeServer.Handle("/api/listen/live/catalog/", listenLiveCatalogHandler)
+	listenLiveStatusHandler := presentationhttp.NewListenLiveStatusHandler(proxyManager)
+	realtimeServer.Handle("/api/listen/live/status", listenLiveStatusHandler)
+	realtimeServer.Handle("/api/listen/live/status/", listenLiveStatusHandler)
+	listenLivePreviewHandler := presentationhttp.NewListenLivePreviewHandler(proxyManager)
+	realtimeServer.Handle("/api/listen/live/preview", listenLivePreviewHandler)
+	realtimeServer.Handle("/api/listen/live/preview/", listenLivePreviewHandler)
+	listenSearchHandler := presentationhttp.NewListenSearchHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/search", listenSearchHandler)
+	realtimeServer.Handle("/api/listen/search/", listenSearchHandler)
+	listenLibraryHandler := presentationhttp.NewListenLibraryHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/library", listenLibraryHandler)
+	realtimeServer.Handle("/api/listen/library/", listenLibraryHandler)
+	listenArtistHandler := presentationhttp.NewListenArtistHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/artist", listenArtistHandler)
+	realtimeServer.Handle("/api/listen/artist/", listenArtistHandler)
+	listenPlaylistLibraryHandler := presentationhttp.NewListenPlaylistLibraryHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/library/playlist", listenPlaylistLibraryHandler)
+	realtimeServer.Handle("/api/listen/library/playlist/", listenPlaylistLibraryHandler)
+	listenLyricsHandler := presentationhttp.NewListenLyricsHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/track/lyrics", listenLyricsHandler)
+	realtimeServer.Handle("/api/listen/track/lyrics/", listenLyricsHandler)
+	listenTrackHandler := presentationhttp.NewListenTrackHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/track", listenTrackHandler)
+	realtimeServer.Handle("/api/listen/track/", listenTrackHandler)
+	listenTrackFavoriteHandler := presentationhttp.NewListenTrackFavoriteHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/track/favorite", listenTrackFavoriteHandler)
+	realtimeServer.Handle("/api/listen/track/favorite/", listenTrackFavoriteHandler)
+	listenRadioHandler := presentationhttp.NewListenRadioHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/radio", listenRadioHandler)
+	realtimeServer.Handle("/api/listen/radio/", listenRadioHandler)
+	listenPlaylistHandler := presentationhttp.NewListenPlaylistHandler(ytMusicClient)
+	realtimeServer.Handle("/api/listen/playlist", listenPlaylistHandler)
+	realtimeServer.Handle("/api/listen/playlist/", listenPlaylistHandler)
 
 	petsBaseDir, err := petsservice.DefaultPetsBaseDir()
 	if err != nil {
@@ -297,7 +320,8 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	libraryRepo := libraryrepo.NewSQLiteLibraryRepository(database.Bun)
 	moduleConfigRepo := libraryrepo.NewSQLiteModuleConfigRepository(database.Bun)
 	fileRepo := libraryrepo.NewSQLiteFileRepository(database.Bun)
-	localTrackRepo := libraryrepo.NewSQLiteDreamFMLocalTrackRepository(database.Bun)
+	localTrackRepo := libraryrepo.NewSQLiteListenLocalTrackRepository(database.Bun)
+	listenLiveChannelRepo := libraryrepo.NewSQLiteListenLiveChannelRepository(database.Bun)
 	operationRepo := libraryrepo.NewSQLiteOperationRepository(database.Bun)
 	operationChunkRepo := libraryrepo.NewSQLiteOperationChunkRepository(database.Bun)
 	presetRepo := libraryrepo.NewSQLiteTranscodePresetRepository(database.Bun)
@@ -331,21 +355,25 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	}
 	libraryFileMaintenanceHandler := presentationhttp.NewLibraryFileMaintenanceHandler(libraryService)
 	realtimeServer.Handle("/api/library/files/", libraryFileMaintenanceHandler)
-	dreamFMLocalHandler := presentationhttp.NewDreamFMLocalHandler(libraryService)
-	realtimeServer.Handle("/api/dreamfm/local", dreamFMLocalHandler)
-	realtimeServer.Handle("/api/dreamfm/local/", dreamFMLocalHandler)
+	listenLocalHandler := presentationhttp.NewListenLocalHandler(libraryService)
+	realtimeServer.Handle("/api/listen/local", listenLocalHandler)
+	realtimeServer.Handle("/api/listen/local/", listenLocalHandler)
+	listenLiveUserCatalogHandler := presentationhttp.NewListenLiveUserCatalogHandler(listenLiveChannelRepo)
+	realtimeServer.Handle("/api/listen/live/user-catalog", listenLiveUserCatalogHandler)
+	realtimeServer.Handle("/api/listen/live/user-catalog/", listenLiveUserCatalogHandler)
 
 	osNotifications := notifications.New()
-	app.RegisterService(application.NewService(wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, dreamFMPlayer, dreamFMLivePlayer)))
-	app.RegisterService(application.NewService(wails.NewConnectorsHandler(connectorsService, telemetryService, dreamFMPlayer, dreamFMLivePlayer)))
+	app.RegisterService(application.NewService(wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, listenPlayer, listenLivePlayer)))
+	app.RegisterService(application.NewService(wails.NewConnectorsHandler(connectorsService, telemetryService, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewDependenciesHandler(dependenciesService, windowManager, telemetryService)))
 	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService)))
 	app.RegisterService(application.NewService(wails.NewSystemHandler(fontService)))
 	app.RegisterService(application.NewService(wails.NewOSNotificationHandlerWithHTTPClientProvider(osNotifications, app, proxyManager)))
 	app.RegisterService(application.NewService(wails.NewRealtimeHandler(realtimeServer)))
 	app.RegisterService(application.NewService(wails.NewPetsHandler(petsService)))
-	app.RegisterService(application.NewService(wails.NewDreamFMPlayerHandler(dreamFMPlayer)))
-	app.RegisterService(application.NewService(wails.NewDreamFMLivePlayerHandler(dreamFMLivePlayer)))
+	app.RegisterService(application.NewService(wails.NewListenPlayerHandler(listenPlayer, listenPlaybackService)))
+	app.RegisterService(application.NewService(wails.NewListenLyricsHandler(listenLyricsService)))
+	app.RegisterService(application.NewService(wails.NewListenLivePlayerHandler(listenLivePlayer)))
 	telemetryHandler := wails.NewTelemetryHandler(telemetryService, apptelemetry.AppLaunchContext{
 		LaunchedByAutoStart: startup.launchedByAutoStart,
 	}, proxyManager)

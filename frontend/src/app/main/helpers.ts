@@ -576,7 +576,7 @@ export function resolveCompletedTotalLabel(
   viewMode: CompletedViewMode,
   text: ReturnType<typeof getXiaText>,
 ) {
-  const isChinese = getLanguage() === "zh-CN";
+  const isChinese = getLanguage().startsWith("zh");
   const unit =
     viewMode === "tasks"
       ? text.completed.taskCountLabel
@@ -590,7 +590,7 @@ export function resolveCompletedPerPageLabel(
   pageSize: number,
   text: ReturnType<typeof getXiaText>,
 ) {
-  const isChinese = getLanguage() === "zh-CN";
+  const isChinese = getLanguage().startsWith("zh");
   return isChinese
     ? `${text.completed.perPage}${pageSize}${text.completed.itemUnit}`
     : `${text.completed.perPage} ${pageSize} ${text.completed.itemUnit}`;
@@ -601,7 +601,7 @@ export function resolveCompletedPageLabel(
   pageCount: number,
   text: ReturnType<typeof getXiaText>,
 ) {
-  const isChinese = getLanguage() === "zh-CN";
+  const isChinese = getLanguage().startsWith("zh");
   return isChinese
     ? `${text.completed.page}${page}/${pageCount}${text.completed.pageSuffix}`
     : `${text.completed.page} ${page}/${pageCount}`;
@@ -705,23 +705,16 @@ export function resolveCompletedFileFormatLabel(
   file: CompletedFileEntry,
   text: ReturnType<typeof getXiaText>,
 ) {
-  return (file.format || file.media?.format || text.common.unknown)
-    .trim()
-    .toUpperCase();
+  const format = (file.format || file.media?.format || "").trim();
+  return format ? format.toUpperCase() : text.common.unknown;
 }
 
 export function resolveCompletedSubtitleOriginalFormat(
   file: CompletedFileEntry,
   text: ReturnType<typeof getXiaText>,
 ) {
-  return (
-    file.media?.codec ||
-    file.media?.format ||
-    file.format ||
-    text.common.unknown
-  )
-    .trim()
-    .toUpperCase();
+  const format = (file.media?.codec || file.media?.format || file.format || "").trim();
+  return format ? format.toUpperCase() : text.common.unknown;
 }
 
 export function resolveCompletedFileDetailInfo(

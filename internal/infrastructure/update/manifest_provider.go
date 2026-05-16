@@ -50,14 +50,14 @@ type manifestDocument struct {
 	ManifestVersion string                     `json:"manifestVersion"`
 	DefaultChannel  string                     `json:"defaultChannel"`
 	UpdatedAt       string                     `json:"updatedAt"`
-	DreamFM         manifestDreamFM            `json:"dreamFm"`
+	Listen         manifestListen            `json:"listen"`
 	Channels        map[string]manifestChannel `json:"channels"`
 }
 
 type manifestChannel struct {
 	App          *manifestApp                     `json:"app"`
 	Dependencies map[string]manifestDependencyRef `json:"tools"`
-	DreamFM      manifestDreamFM                  `json:"dreamFm"`
+	Listen      manifestListen                  `json:"listen"`
 }
 
 type manifestSourceRef struct {
@@ -116,7 +116,7 @@ type manifestDependencyRef struct {
 	Platforms          map[string]manifestPlatformAsset `json:"platforms"`
 }
 
-type manifestDreamFM struct {
+type manifestListen struct {
 	LiveChannel manifestRemoteContentRef `json:"liveChannel"`
 }
 
@@ -177,10 +177,10 @@ func (provider *ManifestCatalogProvider) FetchCatalog(ctx context.Context, reque
 		UpdatedAt:       parseManifestTime(document.UpdatedAt),
 		Dependencies:    make(map[dependencies.DependencyName]softwareupdate.DependencyRelease),
 	}
-	if strings.TrimSpace(channel.DreamFM.LiveChannel.URL) != "" {
-		catalog.DreamFM = toDreamFMConfig(channel.DreamFM)
+	if strings.TrimSpace(channel.Listen.LiveChannel.URL) != "" {
+		catalog.Listen = toListenConfig(channel.Listen)
 	} else {
-		catalog.DreamFM = toDreamFMConfig(document.DreamFM)
+		catalog.Listen = toListenConfig(document.Listen)
 	}
 
 	platformKey := provider.platformKey()
@@ -288,8 +288,8 @@ func toAsset(asset manifestPlatformAsset) softwareupdate.Asset {
 	}
 }
 
-func toDreamFMConfig(config manifestDreamFM) softwareupdate.DreamFMConfig {
-	return softwareupdate.DreamFMConfig{
+func toListenConfig(config manifestListen) softwareupdate.ListenConfig {
+	return softwareupdate.ListenConfig{
 		LiveChannel: softwareupdate.RemoteContentRef{
 			SchemaVersion: config.LiveChannel.SchemaVersion,
 			URL:           strings.TrimSpace(config.LiveChannel.URL),

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	fontsservice "xiadown/internal/application/fonts/service"
+	"xiadown/internal/application/lyricsromanization"
 	"xiadown/internal/infrastructure/opener"
 )
 
@@ -52,4 +53,8 @@ type CurrentUserProfile struct {
 
 func (handler *SystemHandler) GetCurrentUserProfile(ctx context.Context) (CurrentUserProfile, error) {
 	return loadCurrentUserProfile(ctx)
+}
+
+func (handler *SystemHandler) GetLyricsTranscriptionAvailable(_ context.Context) (bool, error) {
+	return lyricsromanization.Available(), nil
 }

@@ -452,14 +452,14 @@ type OpenPathRequest struct {
 	Path string `json:"path"`
 }
 
-type ListDreamFMLocalTracksRequest struct {
+type ListListenLocalTracksRequest struct {
 	Query              string `json:"query,omitempty"`
 	IncludeUnavailable bool   `json:"includeUnavailable,omitempty"`
 	Limit              int    `json:"limit,omitempty"`
 	Offset             int    `json:"offset,omitempty"`
 }
 
-type DreamFMLocalTrackDTO struct {
+type ListenLocalTrackDTO struct {
 	ID             string `json:"id"`
 	FileID         string `json:"fileId"`
 	LibraryID      string `json:"libraryId"`
@@ -471,18 +471,19 @@ type DreamFMLocalTrackDTO struct {
 	AudioCodec     string `json:"audioCodec,omitempty"`
 	DurationMs     *int64 `json:"durationMs,omitempty"`
 	SizeBytes      *int64 `json:"sizeBytes,omitempty"`
+	ModTimeUnix    int64  `json:"modTimeUnix,omitempty"`
 	Availability   string `json:"availability"`
 	LastCheckedAt  string `json:"lastCheckedAt,omitempty"`
 	ProbeError     string `json:"probeError,omitempty"`
 	UpdatedAt      string `json:"updatedAt,omitempty"`
 }
 
-type RefreshDreamFMLocalIndexRequest struct {
+type RefreshListenLocalIndexRequest struct {
 	FileID    string `json:"fileId,omitempty"`
 	LibraryID string `json:"libraryId,omitempty"`
 }
 
-type DreamFMLocalIndexRefreshResponse struct {
+type ListenLocalIndexRefreshResponse struct {
 	Scanned int `json:"scanned"`
 	Added   int `json:"added"`
 	Updated int `json:"updated"`
@@ -491,11 +492,11 @@ type DreamFMLocalIndexRefreshResponse struct {
 	Failed  int `json:"failed"`
 }
 
-type RemoveDreamFMLocalTrackRequest struct {
+type RemoveListenLocalTrackRequest struct {
 	FileID string `json:"fileId"`
 }
 
-type ClearMissingDreamFMLocalTracksResponse struct {
+type ClearMissingListenLocalTracksResponse struct {
 	Removed int `json:"removed"`
 }
 

@@ -1,7 +1,6 @@
 import { Events,System } from "@wailsio/runtime";
 import {
 ArrowUpCircle,
-CassetteTape,
 CheckCircle2,
 FolderOpen,
 Link2,
@@ -15,17 +14,16 @@ Wrench
 import * as React from "react";
 
 import {
-DreamFMPage,
-type DreamFMExternalCommand,
-type DreamFMNowPlayingStatus
-} from "@/app/main/DreamFM";
+ListenPage,
+type ListenExternalCommand,
+type ListenNowPlayingStatus
+} from "@/app/main/Listen";
 import { RunningPage } from "@/app/main/RunningPage";
 import {
 setPendingSettingsTab,
 type XiaSettingsTabId,
 } from "@/app/settings/sectionStorage";
 import { PetsGalleryPage,type PetsGalleryNavigation } from "@/app/pets-gallery";
-import { WindowControls } from "@/components/layout/WindowControls";
 import {
 ConnectorsSection
 } from "@/features/settings/connectors";
@@ -90,14 +88,14 @@ resolveThemePack,
 import { CompletedPage } from "@/app/main/completed/CompletedPage";
 import { WhatsNewFeatureDialog } from "@/app/main/dialogs";
 import {
-DREAM_FM_NOW_PLAYING_EVENT,
-DREAM_FM_NOW_PLAYING_STORAGE_KEY,
-DREAM_FM_TRAY_COMMAND_EVENT,
-} from "@/app/main/dreamfm/catalog";
+LISTEN_NOW_PLAYING_EVENT,
+LISTEN_NOW_PLAYING_STORAGE_KEY,
+LISTEN_TRAY_COMMAND_EVENT,
+} from "@/app/main/listen/catalog";
 import { formatVersionBadge,normalizeDependencyVersion,resolveCompletedStatusLabel } from "@/app/main/helpers";
 import { CORE_DEPENDENCIES,MAIN_SIDEBAR_ACTION_CLASS,MAIN_SIDEBAR_ICON_CLASS,SETUP_STORAGE_KEY,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME,useSetupState } from "@/app/main/main-constants";
 import { NewTaskDialog } from "@/app/main/NewTaskDialog";
-import { DreamFMNowPlayingMiniPlayer,DreamFMSidebarSourceBadge,resolveSidebarSurface,SidebarIconButton } from "@/app/main/sidebar";
+import { ListenNowPlayingMiniPlayer,resolveSidebarSurface,SidebarIconButton } from "@/app/main/sidebar";
 import type { MainViewId,NewTaskDialogMode } from "@/app/main/types";
 import {
 WELCOME_DEBUG_EVENT,
@@ -206,12 +204,12 @@ export function MainApp() {
   const [newTaskDialogMode, setNewTaskDialogMode] =
     React.useState<NewTaskDialogMode>("download");
   const [prefilledDownloadURL, setPrefilledDownloadURL] = React.useState("");
-  const [dreamFMNowPlaying, setDreamFMNowPlaying] =
-    React.useState<DreamFMNowPlayingStatus | null>(null);
-  const [dreamFMControlCommand, setDreamFMControlCommand] =
-    React.useState<DreamFMExternalCommand | null>(null);
-  const dreamFMCommandIdRef = React.useRef(0);
-  const dreamFMNotificationKeyRef = React.useRef("");
+  const [listenNowPlaying, setListenNowPlaying] =
+    React.useState<ListenNowPlayingStatus | null>(null);
+  const [listenControlCommand, setListenControlCommand] =
+    React.useState<ListenExternalCommand | null>(null);
+  const listenCommandIdRef = React.useRef(0);
+  const listenNotificationKeyRef = React.useRef("");
   const activeOperationSnapshotRef = React.useRef<Map<string, OperationListItemDTO>>(new Map());
   const notifiedOperationIdsRef = React.useRef<Set<string>>(new Set());
 
@@ -236,9 +234,8 @@ export function MainApp() {
       ),
     [libraries],
   );
-  const visibleRunningOperations = runningOperations;
   const runningPetAnimation = useRunningPetAnimation(
-    visibleRunningOperations,
+    runningOperations,
     terminalOperations,
     terminalQuery.isFetched,
   );
@@ -282,9 +279,7 @@ export function MainApp() {
     updateInfo.status === "downloading" ||
     updateInfo.status === "installing";
   const hasUserMenuUpdate = hasAppUpdateMenu || hasDependencyUpdate;
-  const shellTheme = activeView === "dreamfm" ? "dream" : "default";
-  const reverseShellBackground =
-    activeView === "completed" || activeView === "petsGallery";
+  const shellTheme = "dream";
 
   const localDownloadDirectory = resolveEffectiveDownloadDirectory(
     settings?.downloadDirectory,
@@ -413,57 +408,57 @@ export function MainApp() {
   }, [text, filesById, httpBaseURL, librariesById, terminalOperations]);
 
   React.useEffect(() => {
-    if (!dreamFMNowPlaying) {
+    if (!listenNowPlaying) {
       return;
     }
     try {
       localStorage.setItem(
-        DREAM_FM_NOW_PLAYING_STORAGE_KEY,
-        JSON.stringify(dreamFMNowPlaying),
+        LISTEN_NOW_PLAYING_STORAGE_KEY,
+        JSON.stringify(listenNowPlaying),
       );
     } catch {
       // noop
     }
-    void Events.Emit(DREAM_FM_NOW_PLAYING_EVENT, dreamFMNowPlaying);
-  }, [dreamFMNowPlaying]);
+    void Events.Emit(LISTEN_NOW_PLAYING_EVENT, listenNowPlaying);
+  }, [listenNowPlaying]);
 
   React.useEffect(() => {
-    if (!dreamFMNowPlaying || dreamFMNowPlaying.state !== "playing") {
+    if (!listenNowPlaying || listenNowPlaying.state !== "playing") {
       return;
     }
-    const title = dreamFMNowPlaying.title.trim();
+    const title = listenNowPlaying.title.trim();
     if (!title) {
       return;
     }
-    const artist = dreamFMNowPlaying.subtitle.trim();
-    const artworkURL = dreamFMNowPlaying.artworkURL.trim();
+    const artist = listenNowPlaying.subtitle.trim();
+    const artworkURL = listenNowPlaying.artworkURL.trim();
     const notificationKey = [
-      dreamFMNowPlaying.mode,
+      listenNowPlaying.mode,
       title,
       artist,
       artworkURL,
     ].join("::");
-    if (dreamFMNotificationKeyRef.current === notificationKey) {
+    if (listenNotificationKeyRef.current === notificationKey) {
       return;
     }
-    dreamFMNotificationKeyRef.current = notificationKey;
+    listenNotificationKeyRef.current = notificationKey;
 
     void publishOSNotification({
-      id: `dreamfm_${Date.now()}`,
+      id: `listen_${Date.now()}`,
       title,
-      body: artist || text.dreamFm.nowPlaying,
+      body: artist || text.listen.nowPlaying,
       iconUrl: artworkURL,
       imageUrl: artworkURL,
-      source: "Dream.fm",
+      source: "Listen",
       data: {
-        source: "dreamfm",
-        mode: dreamFMNowPlaying.mode,
+        source: "listen",
+        mode: listenNowPlaying.mode,
         title,
         artist,
         artworkURL,
       },
     });
-  }, [text.dreamFm.nowPlaying, dreamFMNowPlaying]);
+  }, [text.listen.nowPlaying, listenNowPlaying]);
 
   const openNewTaskDialog = React.useCallback((mode: NewTaskDialogMode, url = "") => {
     setNewTaskDialogMode(mode);
@@ -475,16 +470,16 @@ export function MainApp() {
     openNewTaskDialog("download", url);
   }, [openNewTaskDialog]);
 
-  const sendDreamFMCommand = React.useCallback(
-    (command: DreamFMExternalCommand["command"]) => {
-      dreamFMCommandIdRef.current += 1;
-      setDreamFMControlCommand({ id: dreamFMCommandIdRef.current, command });
+  const sendListenCommand = React.useCallback(
+    (command: ListenExternalCommand["command"]) => {
+      listenCommandIdRef.current += 1;
+      setListenControlCommand({ id: listenCommandIdRef.current, command });
     },
     [],
   );
 
   React.useEffect(() => {
-    const offTrayCommand = Events.On(DREAM_FM_TRAY_COMMAND_EVENT, (event: any) => {
+    const offTrayCommand = Events.On(LISTEN_TRAY_COMMAND_EVENT, (event: any) => {
       const payload = event?.data ?? event;
       const command =
         typeof payload === "string"
@@ -499,13 +494,13 @@ export function MainApp() {
         command === "pause" ||
         command === "next"
       ) {
-        sendDreamFMCommand(command);
+        sendListenCommand(command);
       }
     });
     return () => {
       offTrayCommand();
     };
-  }, [sendDreamFMCommand]);
+  }, [sendListenCommand]);
 
   React.useEffect(() => {
     const offNewDownload = Events.On(MAIN_NEW_DOWNLOAD_EVENT, () => {
@@ -617,19 +612,20 @@ export function MainApp() {
       data-shell-theme={shellTheme}
       className={cn(
         "app-main-shell relative flex h-screen overflow-hidden bg-background text-foreground",
-        shellTheme === "default" && "app-dream-frame app-dream-window",
+        "app-dream-frame app-dream-window",
       )}
     >
       <aside
         className={cn(
           "app-main-sidebar relative z-40 flex w-[var(--app-main-sidebar-width)] shrink-0 flex-col items-center justify-between border-sidebar-border/70 px-3 pb-4 pt-3 text-sidebar-foreground",
-          shellTheme === "default" && "app-main-default-sidebar",
-          reverseShellBackground && "app-main-sidebar-reverse-shell",
           resolveSidebarSurface(theme.id, shellTheme),
         )}
       >
-        <div className="flex flex-col items-center gap-5">
-          <div className="min-h-[34px]" aria-hidden="true" />
+        <div className="app-main-sidebar-nav flex flex-col items-center gap-5">
+          <div
+            className={cn("min-h-[34px]", isWindows && "wails-drag w-full")}
+            aria-hidden="true"
+          />
 
           <div className="flex flex-col items-center gap-3">
             <SidebarIconButton
@@ -656,38 +652,20 @@ export function MainApp() {
           </div>
         </div>
 
-        <div className="pointer-events-none absolute left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2">
-          <div className="pointer-events-auto">
-            <DreamFMNowPlayingMiniPlayer
-              status={dreamFMNowPlaying}
-              text={text}
-              onOpen={() => setActiveView("dreamfm")}
-              onToggle={() =>
-                sendDreamFMCommand(
-                  dreamFMNowPlaying?.state === "playing" ? "pause" : "play",
-                )
-              }
-              onControlCommand={sendDreamFMCommand}
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col items-center gap-3">
-          <SidebarIconButton
-            label={text.views.dreamFM}
-            active={activeView === "dreamfm"}
-            onClick={() => setActiveView("dreamfm")}
-          >
-            <CassetteTape className={MAIN_SIDEBAR_ICON_CLASS} />
-            <DreamFMSidebarSourceBadge status={dreamFMNowPlaying} />
-          </SidebarIconButton>
-          <SidebarIconButton
-            label={text.views.connections}
-            active={activeView === "connections"}
-            onClick={() => setActiveView("connections")}
-          >
-            <Link2 className={MAIN_SIDEBAR_ICON_CLASS} />
-          </SidebarIconButton>
+        <div className="app-main-sidebar-dock flex flex-col items-center gap-3">
+          <ListenNowPlayingMiniPlayer
+            status={listenNowPlaying}
+            text={text}
+            active={activeView === "listen"}
+            surface={settings?.effectiveAppearance === "dark" ? "dark" : "white"}
+            onOpen={() => setActiveView("listen")}
+            onToggle={() =>
+              sendListenCommand(
+                listenNowPlaying?.state === "playing" ? "pause" : "play",
+              )
+            }
+            onControlCommand={sendListenCommand}
+          />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -748,13 +726,24 @@ export function MainApp() {
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
+                  onSelect={() => setActiveView("connections")}
+                >
+                  <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
+                    <Link2 className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <span className="truncate font-medium text-foreground">
+                    {text.views.connections}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
                   onSelect={() => showSettingsWindow.mutate()}
                 >
                   <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
                     <Settings2 className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <span className="truncate font-medium text-foreground">
-                    {text.actions.openSettings}
+                    {text.actions.settings}
                   </span>
                 </DropdownMenuItem>
                 {localDownloadDirectory ? (
@@ -806,47 +795,33 @@ export function MainApp() {
       </aside>
 
       <main className="app-main-content relative flex min-w-0 flex-1 flex-col">
-        {activeView === "running" ? (
-          <div className="app-main-page-header wails-drag flex min-h-[3.75rem] items-center justify-between gap-4 px-5 pb-3 pt-4">
-            <div />
-            <div
-              className={cn(
-                "flex items-center justify-end gap-3",
-                isWindows && "min-w-[var(--app-windows-caption-control-width)]",
-              )}
-            >
-              {isWindows ? <WindowControls platform="windows" /> : null}
-            </div>
-          </div>
-        ) : null}
-
         <div
           className={cn(
             "app-main-view-viewport min-h-0 flex-1",
+            activeView === "running" ||
             activeView === "connections" ||
               activeView === "completed" ||
-              activeView === "dreamfm" ||
+              activeView === "listen" ||
               activeView === "petsGallery"
               ? "flex overflow-hidden"
-              : activeView === "running"
-                ? "overflow-hidden px-5 pb-5"
-                : "overflow-auto px-5 pb-5",
+              : "overflow-auto px-5 pb-5",
           )}
         >
           {activeView === "running" ? (
             <RunningPage
               text={text}
-              operations={visibleRunningOperations}
+              operations={runningOperations}
               filesById={filesById}
               httpBaseURL={httpBaseURL}
               pet={activePet}
               petImageURL={activePetImageURL}
               petAnimation={runningPetAnimation}
               loading={
-                visibleRunningOperations.length === 0 &&
+                runningOperations.length === 0 &&
                 !runningQuery.isFetched &&
                 runningQuery.isFetching
               }
+              isWindows={isWindows}
               onNewDownload={() => openDownloadDialog()}
             />
           ) : activeView === "completed" ? (
@@ -867,15 +842,15 @@ export function MainApp() {
               navigation={petsGalleryNavigation}
             />
           ) : null}
-          <DreamFMPage
-            active={activeView === "dreamfm"}
+          <ListenPage
+            active={activeView === "listen"}
             text={text}
             libraries={libraries}
             httpBaseURL={httpBaseURL}
             pet={activePet}
             petImageURL={activePetImageURL}
-            controlCommand={dreamFMControlCommand}
-            onNowPlayingChange={setDreamFMNowPlaying}
+            controlCommand={listenControlCommand}
+            onNowPlayingChange={setListenNowPlaying}
             onOpenConnections={() => setActiveView("connections")}
             onDownloadTrack={openDownloadDialog}
           />

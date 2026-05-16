@@ -25,13 +25,15 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
-import { Card, CardContent } from "@/shared/ui/card";
 import { WindowControls } from "@/components/layout/WindowControls";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
+  DialogListCard,
+  DialogListCardContent,
+  DialogRow,
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
@@ -137,6 +139,19 @@ const CONNECTOR_META: Record<string, ConnectorMeta> = {
     fallbackLabel: "Niconico",
   },
 };
+
+function resolveBrowserStatusKey(status: string) {
+  switch (status) {
+    case "not_open":
+      return "notOpen";
+    case "tab_closed":
+      return "tabClosed";
+    case "browser_closed":
+      return "browserClosed";
+    default:
+      return status;
+  }
+}
 
 const GENERAL_CARD_HEIGHT = "min-h-[240px]";
 const CONNECTOR_BRAND_ICONS = {
@@ -489,7 +504,9 @@ export function ConnectorsSection() {
     },
     {
       label: t("settings.connectors.loginCard.browserStatus"),
-      value: t(`settings.connectors.browserStatus.${loginBrowserStatus}`),
+      value: t(
+        `settings.connectors.browserStatus.${resolveBrowserStatusKey(loginBrowserStatus)}`,
+      ),
     },
     {
       label: t("settings.connectors.loginCard.currentCookiesCount"),
@@ -508,8 +525,20 @@ export function ConnectorsSection() {
   return (
     <div className="app-main-page app-main-connectors-page flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
       <aside className="app-main-list-pane app-connectors-list-pane flex min-h-0 w-[320px] shrink-0 flex-col border-r">
-        <div className="px-4 py-4">
-          <div className="app-dream-search-control app-dream-control-shell h-9 px-3">
+        <div
+          className={cn(
+            "px-4",
+            isWindows
+              ? "wails-drag flex min-h-[var(--app-page-top-drag-height)] items-center pb-3 pt-4"
+              : "pb-4 pt-4",
+          )}
+        >
+          <div
+            className={cn(
+              "app-dream-search-control app-dream-control-shell h-9 w-full min-w-0 px-3",
+              isWindows ? "wails-drag" : "wails-no-drag",
+            )}
+          >
             <Search className="h-4 w-4 text-muted-foreground" />
             <Input
               value={query}
@@ -576,14 +605,21 @@ export function ConnectorsSection() {
         </div>
       </aside>
 
-      <section className="app-main-detail-pane flex min-h-0 min-w-0 flex-1 flex-col">
+      <section className="app-main-detail-pane app-connectors-detail-pane flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           className={cn(
             "app-main-page-header app-connectors-detail-header wails-drag flex shrink-0 items-center justify-between border-b pl-5",
-            isWindows ? "pr-0" : "pr-5",
+            isWindows
+              ? "min-h-[var(--app-page-top-drag-height)] pb-3 pt-4 pr-0"
+              : "pr-5",
           )}
         >
-          <div className="flex min-h-[56px] min-w-0 flex-1 items-center gap-3 pr-3 text-sm">
+          <div
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-3 pr-3 text-sm",
+              isWindows ? "min-h-9" : "min-h-[56px]",
+            )}
+          >
             {selected ? (
               <>
                 <div className="app-connectors-detail-icon flex h-8 w-8 shrink-0 items-center justify-center">
@@ -735,26 +771,26 @@ export function ConnectorsSection() {
           </DialogHeader>
           <div className="min-h-0 overflow-y-auto pr-1">
             <div className="grid gap-2">
-            <Card className="app-connectors-info-card shadow-none">
-              <CardContent className="p-0">
-                {loginStatusRows.map((row, index) => (
-                  <div
-                    key={row.label}
-                    className="app-connectors-info-row flex items-center justify-between gap-4 px-3 py-2.5 text-sm"
-                  >
-                    <span className="text-muted-foreground">{row.label}</span>
-                    <span className="max-w-[55%] overflow-hidden break-words text-right font-medium leading-5 text-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-                      {row.value}
-                    </span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-            {loginError ? (
-              <div className="app-connectors-error p-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
-                {loginError}
-              </div>
-            ) : null}
+              <DialogListCard className="app-connectors-info-card shadow-none">
+                <DialogListCardContent>
+                  {loginStatusRows.map((row) => (
+                    <DialogRow
+                      key={row.label}
+                      className="app-connectors-info-row flex items-center justify-between gap-4 px-3 py-2.5 text-sm"
+                    >
+                      <span className="text-muted-foreground">{row.label}</span>
+                      <span className="max-w-[55%] overflow-hidden break-words text-right font-medium leading-5 text-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                        {row.value}
+                      </span>
+                    </DialogRow>
+                  ))}
+                </DialogListCardContent>
+              </DialogListCard>
+              {loginError ? (
+                <div className="app-connectors-error p-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
+                  {loginError}
+                </div>
+              ) : null}
             </div>
           </div>
           <DialogFooter className="shrink-0">

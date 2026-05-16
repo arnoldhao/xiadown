@@ -1,8 +1,9 @@
 import { useCallback, useSyncExternalStore } from "react";
 import enTranslations from "./locales/en.json";
 import zhCNTranslations from "./locales/zh-CN.json";
+import zhTWTranslations from "./locales/zh-TW.json";
 
-export type SupportedLanguage = "en" | "zh-CN";
+export type SupportedLanguage = "en" | "zh-CN" | "zh-TW";
 export type TFunction = (key: string) => string;
 
 const I18N_PREFIX = "i18n:";
@@ -12,7 +13,8 @@ const SUPPORTED_LANGUAGE_OPTIONS: Array<{
   labelKey: string;
 }> = [
   { value: "en", labelKey: "settings.language.option.en" },
-  { value: "zh-CN", labelKey: "settings.language.option.zh-CN" },
+  { value: "zh-CN", labelKey: "settings.language.option.zhCN" },
+  { value: "zh-TW", labelKey: "settings.language.option.zhTW" },
 ];
 
 type TranslationMap = Record<string, string>;
@@ -32,6 +34,7 @@ function flattenTranslations(input: Record<string, any>, prefix = "", output: Tr
 const translations: Record<SupportedLanguage, TranslationMap> = {
   en: flattenTranslations(enTranslations as Record<string, any>),
   "zh-CN": flattenTranslations(zhCNTranslations as Record<string, any>),
+  "zh-TW": flattenTranslations(zhTWTranslations as Record<string, any>),
 };
 
 let currentLanguage: SupportedLanguage = "en";
@@ -121,11 +124,24 @@ export function useI18n() {
   };
 }
 
-function normalizeLanguage(language: string): SupportedLanguage {
-  if (language === "zh-CN" || language?.toLowerCase() === "zh-cn") {
+export function normalizeLanguage(language: string): SupportedLanguage {
+  const normalized = language?.trim().replace(/_/g, "-").toLowerCase();
+  if (
+    normalized?.startsWith("zh-tw") ||
+    normalized?.startsWith("zh-hant") ||
+    normalized?.startsWith("zh-hk") ||
+    normalized?.startsWith("zh-mo")
+  ) {
+    return "zh-TW";
+  }
+  if (
+    normalized?.startsWith("zh-cn") ||
+    normalized?.startsWith("zh-hans") ||
+    normalized?.startsWith("zh-sg")
+  ) {
     return "zh-CN";
   }
-  if (language?.toLowerCase().startsWith("zh")) {
+  if (normalized?.startsWith("zh")) {
     return "zh-CN";
   }
   return "en";

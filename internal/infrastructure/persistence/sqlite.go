@@ -90,7 +90,10 @@ CREATE TABLE IF NOT EXISTS settings (
 	menu_bar_visibility TEXT DEFAULT 'whenRunning',
 	auto_start BOOLEAN,
 	minimize_to_tray_on_start BOOLEAN,
-	agent_model_provider_id TEXT,
+		synced_lyrics_enabled BOOLEAN DEFAULT 1,
+		romanized_lyrics BOOLEAN DEFAULT 1,
+		pinyin_lyrics BOOLEAN DEFAULT 1,
+		agent_model_provider_id TEXT,
 	agent_model_name TEXT,
 	chat_stream_enabled BOOLEAN,
 	chat_temperature REAL,
@@ -658,6 +661,7 @@ CREATE TABLE IF NOT EXISTS pets (
 	origin TEXT NOT NULL DEFAULT '',
 	scope TEXT NOT NULL,
 	status TEXT NOT NULL,
+	validation_code TEXT,
 	validation_message TEXT,
 	image_width INTEGER NOT NULL,
 	image_height INTEGER NOT NULL,
@@ -929,6 +933,9 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
 	if _, err := db.ExecContext(ctx, librarySchemaSQL); err != nil {
 		return err
 	}
+	if err := ensureListenLiveChannelsLooseColumn(ctx, db); err != nil {
+		return err
+	}
 	if err := createMemoryChunksFTSTable(ctx, db); err != nil {
 		return err
 	}
@@ -972,6 +979,21 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			table:     "settings",
 			column:    "appearance_config_json",
 			statement: "ALTER TABLE settings ADD COLUMN appearance_config_json TEXT",
+		},
+		{
+			table:     "settings",
+			column:    "synced_lyrics_enabled",
+			statement: "ALTER TABLE settings ADD COLUMN synced_lyrics_enabled BOOLEAN DEFAULT 1",
+		},
+		{
+			table:     "settings",
+			column:    "romanized_lyrics",
+			statement: "ALTER TABLE settings ADD COLUMN romanized_lyrics BOOLEAN DEFAULT 1",
+		},
+		{
+			table:     "settings",
+			column:    "pinyin_lyrics",
+			statement: "ALTER TABLE settings ADD COLUMN pinyin_lyrics BOOLEAN DEFAULT 1",
 		},
 		{
 			table:     "telemetry_state",
@@ -1025,6 +1047,11 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			table:     "library_files",
 			column:    "display_name",
 			statement: "ALTER TABLE library_files ADD COLUMN display_name TEXT",
+		},
+		{
+			table:     "pets",
+			column:    "validation_code",
+			statement: "ALTER TABLE pets ADD COLUMN validation_code TEXT",
 		},
 	}
 	for _, item := range updates {
@@ -1085,6 +1112,117 @@ WHERE TRIM(COALESCE(compatibility, '')) = ''
 		return err
 	}
 	return nil
+}
+
+func ensureListenLiveChannelsLooseColumn(ctx context.Context, db *sql.DB) error {
+	hasTable, err := sqliteTableExists(ctx, db, "listen_live_channels")
+	if err != nil || !hasTable {
+		return err
+	}
+	hasColumnForeignKey, err := listenLiveChannelsHasColumnForeignKey(ctx, db)
+	if err != nil || !hasColumnForeignKey {
+		return err
+	}
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = ON")
+	}()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	statements := []string{
+		"DROP TABLE IF EXISTS listen_live_channels_next",
+		`CREATE TABLE listen_live_channels_next (
+  id TEXT PRIMARY KEY,
+  column_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  video_id TEXT NOT NULL,
+  thumbnail_url TEXT NOT NULL DEFAULT '',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+)`,
+		`INSERT INTO listen_live_channels_next (
+  id,
+  column_id,
+  title,
+  channel,
+  description,
+  source,
+  video_id,
+  thumbnail_url,
+  enabled,
+  sort_order,
+  created_at,
+  updated_at
+)
+SELECT
+  id,
+  column_id,
+  title,
+  channel,
+  description,
+  source,
+  video_id,
+  thumbnail_url,
+  enabled,
+  sort_order,
+  created_at,
+  updated_at
+FROM listen_live_channels`,
+		"DROP TABLE listen_live_channels",
+		"ALTER TABLE listen_live_channels_next RENAME TO listen_live_channels",
+		`CREATE INDEX IF NOT EXISTS listen_live_channels_column_idx
+  ON listen_live_channels(column_id, sort_order, title COLLATE NOCASE)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func listenLiveChannelsHasColumnForeignKey(ctx context.Context, db *sql.DB) (bool, error) {
+	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_list(listen_live_channels)")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			id       int
+			seq      int
+			table    string
+			from     string
+			to       string
+			onUpdate string
+			onDelete string
+			match    string
+		)
+		if err := rows.Scan(&id, &seq, &table, &from, &to, &onUpdate, &onDelete, &match); err != nil {
+			return false, err
+		}
+		if table == "listen_live_columns" && from == "column_id" {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func backfillTelemetrySessionDays(ctx context.Context, db *sql.DB) error {
@@ -1240,7 +1378,7 @@ CREATE TABLE IF NOT EXISTS library_subtitle_documents (
   FOREIGN KEY (library_id) REFERENCES library_libraries(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS dreamfm_local_tracks (
+CREATE TABLE IF NOT EXISTS listen_local_tracks (
   file_id TEXT PRIMARY KEY,
   library_id TEXT NOT NULL,
   local_path TEXT NOT NULL,
@@ -1261,15 +1399,41 @@ CREATE TABLE IF NOT EXISTS dreamfm_local_tracks (
   FOREIGN KEY (library_id) REFERENCES library_libraries(id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS dreamfm_local_tracks_available_idx
-  ON dreamfm_local_tracks(updated_at DESC, title COLLATE NOCASE)
+CREATE INDEX IF NOT EXISTS listen_local_tracks_available_idx
+  ON listen_local_tracks(updated_at DESC, title COLLATE NOCASE)
   WHERE availability = 'available';
 
-CREATE INDEX IF NOT EXISTS dreamfm_local_tracks_library_idx
-  ON dreamfm_local_tracks(library_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS listen_local_tracks_library_idx
+  ON listen_local_tracks(library_id, updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS dreamfm_local_tracks_path_idx
-  ON dreamfm_local_tracks(local_path);
+CREATE INDEX IF NOT EXISTS listen_local_tracks_path_idx
+  ON listen_local_tracks(local_path);
+
+CREATE TABLE IF NOT EXISTS listen_live_columns (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS listen_live_channels (
+  id TEXT PRIMARY KEY,
+  column_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  channel TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  video_id TEXT NOT NULL,
+  thumbnail_url TEXT NOT NULL DEFAULT '',
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS listen_live_channels_column_idx
+  ON listen_live_channels(column_id, sort_order, title COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS library_operations (
   id TEXT PRIMARY KEY,
