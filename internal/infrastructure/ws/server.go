@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/net/websocket"
 	"xiadown/internal/application/events"
+	"xiadown/internal/infrastructure/localaccess"
 )
 
 type Server struct {
@@ -26,6 +27,7 @@ type Server struct {
 	handlers map[string]http.Handler
 	guardMu  sync.RWMutex
 	guard    AccessGuard
+	token    string
 }
 
 type AccessGuard func(r *http.Request) (allowed bool, statusCode int, message string)
@@ -64,8 +66,9 @@ const (
 
 func NewServer(addr string, bus events.Bus) *Server {
 	return &Server{
-		addr: strings.TrimSpace(addr),
-		bus:  bus,
+		addr:  strings.TrimSpace(addr),
+		bus:   bus,
+		token: localaccess.NewToken(),
 	}
 }
 
@@ -118,7 +121,7 @@ func (server *Server) Start(ctx context.Context) error {
 	wsHandler := websocket.Server{
 		Handler: websocket.Handler(server.handleWebsocket),
 		Handshake: func(config *websocket.Config, req *http.Request) error {
-			// Allow all origins; desktop app context is trusted/local.
+			// Access is enforced by the outer local token guard.
 			return nil
 		},
 	}
@@ -154,25 +157,40 @@ func (server *Server) withAccessGuard(next http.Handler) http.Handler {
 	if server == nil {
 		return next
 	}
-	server.guardMu.RLock()
-	guard := server.guard
-	server.guardMu.RUnlock()
-	if guard == nil {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		allowed, statusCode, message := guard(r)
-		if allowed {
-			next.ServeHTTP(w, r)
-			return
+		request := r
+		if token := strings.TrimSpace(server.token); token != "" {
+			if !localaccess.ValidToken(r, token) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if strippedPath, ok := localaccess.StripTokenPath(r.URL.Path); ok {
+				clonedRequest := r.Clone(r.Context())
+				clonedURL := *r.URL
+				clonedURL.Path = strippedPath
+				clonedURL.RawPath = ""
+				clonedRequest.URL = &clonedURL
+				request = clonedRequest
+			}
 		}
-		if statusCode == 0 {
-			statusCode = http.StatusForbidden
+
+		server.guardMu.RLock()
+		guard := server.guard
+		server.guardMu.RUnlock()
+		if guard != nil {
+			allowed, statusCode, message := guard(request)
+			if !allowed {
+				if statusCode == 0 {
+					statusCode = http.StatusForbidden
+				}
+				if message == "" {
+					message = http.StatusText(statusCode)
+				}
+				http.Error(w, message, statusCode)
+				return
+			}
 		}
-		if message == "" {
-			message = http.StatusText(statusCode)
-		}
-		http.Error(w, message, statusCode)
+		next.ServeHTTP(w, request)
 	})
 }
 
@@ -197,14 +215,21 @@ func (server *Server) URL() string {
 	if server.listener == nil {
 		return ""
 	}
-	return fmt.Sprintf("ws://%s/ws", server.listener.Addr().String())
+	return fmt.Sprintf("ws://%s%s", server.listener.Addr().String(), localaccess.WebSocketPath(server.token))
 }
 
 func (server *Server) HTTPURL() string {
 	if server.listener == nil {
 		return ""
 	}
-	return fmt.Sprintf("http://%s", server.listener.Addr().String())
+	return fmt.Sprintf("http://%s%s", server.listener.Addr().String(), localaccess.HTTPBasePath(server.token))
+}
+
+func (server *Server) AccessToken() string {
+	if server == nil {
+		return ""
+	}
+	return server.token
 }
 
 func (server *Server) handleWebsocket(conn *websocket.Conn) {
