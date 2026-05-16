@@ -34,11 +34,143 @@ const DialogContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDialogContent
     ref={ref}
-    className={cn("app-dialog-content app-motion-surface", className)}
+    className={cn("app-dialog-content app-motion-surface gap-3 p-4", className)}
     {...props}
   />
 ));
 DialogContent.displayName = "DialogContent";
+
+type DialogScrollAreaProps = React.HTMLAttributes<HTMLElement> & {
+  as?: "div" | "form";
+};
+
+const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
+  ({ as: Component = "div", className, children, ...props }, ref) => {
+    const scrollAreaRef = React.useRef<HTMLElement | null>(null);
+    const [scrollState, setScrollState] = React.useState({
+      atBottom: true,
+      atTop: true,
+      scrollbarVisible: false,
+      scrollable: false,
+    });
+    const ScrollComponent = Component as React.ElementType;
+
+    const setRefs = React.useCallback(
+      (node: HTMLElement | null) => {
+        scrollAreaRef.current = node;
+        if (typeof ref === "function") {
+          ref(node);
+          return;
+        }
+        if (ref) {
+          ref.current = node;
+        }
+      },
+      [ref],
+    );
+
+    const updateScrollState = React.useCallback(() => {
+      const node = scrollAreaRef.current;
+      if (!node) {
+        return;
+      }
+      const maxScrollTop = Math.max(0, node.scrollHeight - node.clientHeight);
+      const nextState = {
+        atBottom: maxScrollTop - node.scrollTop <= 1,
+        atTop: node.scrollTop <= 1,
+        scrollable: maxScrollTop > 1,
+      };
+      setScrollState((current) => {
+        const nextScrollbarVisible = nextState.scrollable
+          ? current.scrollable && current.scrollbarVisible
+          : false;
+        return current.atBottom === nextState.atBottom &&
+          current.atTop === nextState.atTop &&
+          current.scrollable === nextState.scrollable &&
+          current.scrollbarVisible === nextScrollbarVisible
+          ? current
+          : {
+              ...nextState,
+              scrollbarVisible: nextScrollbarVisible,
+            };
+      });
+    }, []);
+
+    React.useEffect(() => {
+      const node = scrollAreaRef.current;
+      if (!node || typeof window === "undefined") {
+        return;
+      }
+
+      let frame = 0;
+      const scheduleUpdate = () => {
+        window.cancelAnimationFrame(frame);
+        frame = window.requestAnimationFrame(updateScrollState);
+      };
+      const resizeObserver =
+        typeof ResizeObserver === "undefined"
+          ? null
+          : new ResizeObserver(scheduleUpdate);
+      const mutationObserver =
+        typeof MutationObserver === "undefined"
+          ? null
+          : new MutationObserver(scheduleUpdate);
+
+      node.addEventListener("scroll", scheduleUpdate, { passive: true });
+      resizeObserver?.observe(node);
+      Array.from(node.children).forEach((child) => resizeObserver?.observe(child));
+      mutationObserver?.observe(node, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+      scheduleUpdate();
+
+      return () => {
+        window.cancelAnimationFrame(frame);
+        node.removeEventListener("scroll", scheduleUpdate);
+        resizeObserver?.disconnect();
+        mutationObserver?.disconnect();
+      };
+    }, [updateScrollState]);
+
+    React.useEffect(() => {
+      if (
+        !scrollState.scrollable ||
+        scrollState.scrollbarVisible ||
+        typeof window === "undefined"
+      ) {
+        return;
+      }
+      const timeout = window.setTimeout(() => {
+        setScrollState((current) =>
+          current.scrollable
+            ? {
+                ...current,
+                scrollbarVisible: true,
+              }
+            : current,
+        );
+      }, 170);
+      return () => window.clearTimeout(timeout);
+    }, [scrollState.scrollable, scrollState.scrollbarVisible]);
+
+    return (
+      <ScrollComponent
+        ref={setRefs}
+        className={cn("app-dialog-scroll-area", className)}
+        data-at-bottom={scrollState.atBottom ? "true" : "false"}
+        data-at-top={scrollState.atTop ? "true" : "false"}
+        data-scrollbar-visible={scrollState.scrollbarVisible ? "true" : "false"}
+        data-scrollable={scrollState.scrollable ? "true" : "false"}
+        {...props}
+      >
+        {children}
+      </ScrollComponent>
+    );
+  },
+);
+DialogScrollArea.displayName = "DialogScrollArea";
 
 function DialogHeader({
   className,
@@ -51,7 +183,15 @@ function DialogFooter({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return <BaseDialogFooter className={cn("app-dialog-footer pt-2", className)} {...props} />;
+  return (
+    <BaseDialogFooter
+      className={cn(
+        "app-dialog-footer flex-row flex-wrap items-center justify-end gap-2 pt-0 sm:space-x-0",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 const DialogListCard = React.forwardRef<
@@ -111,7 +251,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDialogTitle
     ref={ref}
-    className={cn("text-lg font-semibold leading-[1.35] tracking-[-0.02em]", className)}
+    className={cn("text-base font-semibold leading-[1.35] tracking-normal", className)}
     {...props}
   />
 ));
@@ -136,6 +276,7 @@ export {
   DialogClose,
   DialogTrigger,
   DialogContent,
+  DialogScrollArea,
   DialogHeader,
   DialogFooter,
   DialogListCard,

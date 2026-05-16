@@ -73,13 +73,14 @@ useUpdateStore,
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
-Dialog,
-DialogClose,
-DialogContent,
-DialogDescription,
-DialogFooter,
-DialogHeader,
-DialogTitle,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogScrollArea,
+  DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
@@ -780,7 +781,7 @@ export function SettingsApp() {
             {text.settings.proxyDialogHint}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto pr-1">
+        <DialogScrollArea className="min-h-0">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
             <div className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">{text.settings.scheme}</span>
@@ -856,7 +857,7 @@ export function SettingsApp() {
               </Button>
             </div>
           </div>
-        </div>
+        </DialogScrollArea>
       </DialogContent>
     </Dialog>
   ) : null;
@@ -1597,9 +1598,9 @@ export function SettingsApp() {
               {text.about.viewChangelog}
             </DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 overflow-y-auto pr-1">
+          <DialogScrollArea className="min-h-0">
             <DialogMarkdown content={releaseNotes} className="max-h-none overflow-visible" />
-          </div>
+          </DialogScrollArea>
           <DialogFooter className="shrink-0 items-end sm:items-center">
             <Button type="button" variant="ghost" size="compact" onClick={() => setReleaseNotesOpen(false)}>
               {text.about.releaseNotesClose}

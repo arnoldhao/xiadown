@@ -712,7 +712,7 @@ export function MainApp() {
                 </div>
               </div>
               <DropdownMenuSeparator />
-              <div className="p-1">
+              <div className="grid">
                 <DropdownMenuItem
                   className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
                   onSelect={() => openPetsGallery({ action: "gallery" })}

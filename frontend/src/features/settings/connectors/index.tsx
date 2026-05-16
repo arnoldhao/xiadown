@@ -34,6 +34,7 @@ import {
   DialogListCard,
   DialogListCardContent,
   DialogRow,
+  DialogScrollArea,
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
@@ -769,7 +770,7 @@ export function ConnectorsSection() {
               {t("settings.connectors.loginTitle")}
             </DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 overflow-y-auto pr-1">
+          <DialogScrollArea className="min-h-0">
             <div className="grid gap-2">
               <DialogListCard className="app-connectors-info-card shadow-none">
                 <DialogListCardContent>
@@ -792,7 +793,7 @@ export function ConnectorsSection() {
                 </div>
               ) : null}
             </div>
-          </div>
+          </DialogScrollArea>
           <DialogFooter className="shrink-0">
             <Button
               variant="outline"

@@ -4,6 +4,18 @@
  * Welcome pixel-art scene styles intentionally live in app/main/welcome.css.
  */
 
+@property --app-dialog-scroll-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0rem;
+}
+
+@property --app-dialog-scroll-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0rem;
+}
+
 /* Dream app tokens */
 @layer base {
   :root {
@@ -131,6 +143,15 @@
     --dream-header-surface: hsl(var(--background) / 0.84);
     --dream-footer-surface: hsl(var(--secondary) / 0.34);
     --dream-surface-card: hsl(var(--card) / 0.82);
+    --dream-settings-card-surface:
+      linear-gradient(
+        180deg,
+        hsl(var(--background) / 0.52),
+        hsl(var(--background) / 0.34)
+      ),
+      hsl(var(--card) / 0.42);
+    --dream-settings-card-shadow:
+      inset 0 0 0 1px hsl(var(--foreground) / 0.045);
     --dream-surface-panel: hsl(var(--background) / 0.82);
     --dream-surface-muted: var(--dream-secondary-surface-muted);
     --dream-surface-soft: var(--dream-secondary-surface);
@@ -2209,18 +2230,16 @@
   .app-menu-content {
     min-width: var(--app-menu-min-width);
     overflow: hidden;
-    border-radius: var(--dream-radius-xl);
-    border: 1px solid var(--dream-menu-line);
-    background:
-      linear-gradient(180deg, var(--dream-menu-sheen-top), var(--dream-menu-sheen-bottom)),
-      var(--dream-menu-surface);
-    padding: 0.375rem;
+    border-radius: var(--dream-control-radius);
+    border: 1px solid hsl(var(--foreground) / 0.055);
+    background: var(--dream-settings-card-surface);
+    padding: 0.25rem;
     color: hsl(var(--popover-foreground));
     box-shadow:
-      inset 0 1px 0 var(--dream-menu-line-highlight),
-      0 22px 70px hsl(var(--foreground) / 0.24);
-    -webkit-backdrop-filter: blur(30px) saturate(1.28);
-    backdrop-filter: blur(30px) saturate(1.28);
+      var(--dream-settings-card-shadow),
+      0 18px 56px -36px hsl(var(--foreground) / 0.42);
+    -webkit-backdrop-filter: blur(18px) saturate(1.1);
+    backdrop-filter: blur(18px) saturate(1.1);
   }
 
   .app-dream-menu-item,
@@ -2239,8 +2258,8 @@
 
   .app-dream-menu-separator,
   .app-menu-separator {
-    margin-block: 0.375rem;
-    background: var(--dream-menu-line);
+    margin-block: 0.25rem;
+    background: var(--app-settings-card-divider-color);
   }
 
   .app-dream-menu-shortcut,
@@ -2442,17 +2461,17 @@
   }
 
   .app-dialog-content {
+    --app-dialog-content-padding-x: 1rem;
+    --app-dialog-edge-fade-size: 1.125rem;
     overflow: hidden;
-    border: 1px solid var(--dream-dialog-line);
+    border: 1px solid hsl(var(--foreground) / 0.055);
     border-radius: var(--dream-radius-xl);
-    background:
-      linear-gradient(180deg, var(--dream-dialog-sheen-top), var(--dream-dialog-sheen-bottom)),
-      var(--dream-dialog-surface);
+    background: var(--dream-settings-card-surface);
     box-shadow:
-      inset 0 1px 0 var(--dream-dialog-line-highlight),
-      0 22px 70px hsl(var(--foreground) / 0.24);
-    -webkit-backdrop-filter: blur(30px) saturate(1.28);
-    backdrop-filter: blur(30px) saturate(1.28);
+      var(--dream-settings-card-shadow),
+      0 24px 70px -42px hsl(var(--foreground) / 0.46);
+    -webkit-backdrop-filter: blur(18px) saturate(1.1);
+    backdrop-filter: blur(18px) saturate(1.1);
   }
 
   .app-dialog-content.app-dialog-content[data-state="open"] {
@@ -2465,6 +2484,7 @@
 
   .app-dialog-close {
     display: inline-flex;
+    z-index: 10;
     width: 1.75rem;
     height: 1.75rem;
     align-items: center;
@@ -2472,7 +2492,9 @@
     border-radius: 999px;
     background: transparent;
     color: hsl(var(--foreground) / 0.58);
+    cursor: pointer;
     opacity: 1;
+    pointer-events: auto;
     transition:
       background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
       color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
@@ -2496,7 +2518,92 @@
   }
 
   .app-dialog-header {
+    position: relative;
     gap: var(--app-space-2);
+  }
+
+  .app-dialog-scroll-area {
+    --app-dialog-scroll-fade-top: 0rem;
+    --app-dialog-scroll-fade-bottom: 0rem;
+    --app-dialog-scroll-card-inset: 0.5rem;
+    position: relative;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    margin-right: 0;
+    padding-right: 0;
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+    transition:
+      margin-right var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      padding-right var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      --app-dialog-scroll-fade-top var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      --app-dialog-scroll-fade-bottom var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  }
+
+  .app-dialog-scroll-area[data-scrollable="true"] {
+    margin-right: calc(var(--app-dialog-content-padding-x) * -1);
+    padding-right: calc(
+      var(--app-dialog-content-padding-x) + var(--app-dialog-scroll-card-inset)
+    );
+  }
+
+  .app-dialog-scroll-area[data-scrollbar-visible="true"] {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    -webkit-mask-image:
+      linear-gradient(
+        180deg,
+        transparent 0,
+        #000 var(--app-dialog-scroll-fade-top),
+        #000 calc(100% - var(--app-dialog-scroll-fade-bottom)),
+        transparent 100%
+      );
+    mask-image:
+      linear-gradient(
+        180deg,
+        transparent 0,
+        #000 var(--app-dialog-scroll-fade-top),
+        #000 calc(100% - var(--app-dialog-scroll-fade-bottom)),
+        transparent 100%
+      );
+  }
+
+  .app-dialog-scroll-area[data-scrollbar-visible="true"][data-at-top="false"] {
+    --app-dialog-scroll-fade-top: var(--app-dialog-edge-fade-size);
+  }
+
+  .app-dialog-scroll-area[data-scrollbar-visible="true"][data-at-bottom="false"] {
+    --app-dialog-scroll-fade-bottom: var(--app-dialog-edge-fade-size);
+  }
+
+  .app-dialog-scroll-area::-webkit-scrollbar {
+    width: 0;
+  }
+
+  .app-dialog-scroll-area[data-scrollbar-visible="true"]::-webkit-scrollbar {
+    width: 0.625rem;
+  }
+
+  .app-dialog-scroll-area::-webkit-scrollbar-thumb {
+    border: 0.1875rem solid transparent;
+    border-radius: 999px;
+    background-color: hsl(var(--foreground) / 0.18);
+    background-clip: content-box;
+  }
+
+  .app-dialog-scroll-area::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--foreground) / 0.26);
+  }
+
+  .app-dialog-scroll-area::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   .app-dialog-footer .app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
@@ -2506,12 +2613,16 @@
     padding-left: 0.875rem;
   }
 
+  .app-dialog-footer {
+    position: relative;
+  }
+
   .app-dialog-list-card {
     overflow: hidden;
     border: 0;
     border-radius: var(--dream-radius-xl);
-    background: var(--dream-surface-card);
-    box-shadow: var(--dream-card-shadow);
+    background: var(--dream-settings-card-surface);
+    box-shadow: var(--dream-settings-card-shadow);
     animation: app-dialog-card-enter 240ms var(--app-motion-ease-enter) both;
     -webkit-backdrop-filter: blur(14px) saturate(1.08);
     backdrop-filter: blur(14px) saturate(1.08);
@@ -2525,9 +2636,18 @@
     position: relative;
     min-height: var(--app-settings-row-compact-height);
     color: var(--dream-text-muted);
+    font-size: 13px;
+    font-weight: 520;
+    line-height: 1.45;
     transition:
       background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
       color var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  }
+
+  .app-dialog-content .app-dialog-row {
+    font-size: 13px;
+    font-weight: 520;
+    line-height: 1.45;
   }
 
   .app-dialog-list-card-content > .app-dialog-row + .app-dialog-row::before {
@@ -2542,10 +2662,12 @@
 
   .app-dialog-row > :first-child {
     color: var(--dream-text-soft);
+    font-weight: 650;
   }
 
   .app-dialog-row > :last-child {
     color: var(--dream-text-strong);
+    font-weight: 560;
   }
 
   .app-dialog-separator {
@@ -2593,16 +2715,8 @@
 }
 
 .app-settings-window .app-dream-card {
-  background:
-    linear-gradient(
-      180deg,
-      hsl(var(--background) / 0.52),
-      hsl(var(--background) / 0.34)
-    ),
-    hsl(var(--card) / 0.42);
-  box-shadow:
-    var(--dream-card-shadow),
-    inset 0 0 0 1px hsl(var(--foreground) / 0.045);
+  background: var(--dream-settings-card-surface);
+  box-shadow: var(--dream-settings-card-shadow);
 }
 
 .app-settings-window .app-dream-row-compact {
@@ -3197,8 +3311,8 @@
   overflow: hidden;
   border: 0;
   border-radius: var(--dream-radius-xl);
-  background: var(--dream-surface-card);
-  box-shadow: var(--dream-card-shadow);
+  background: var(--dream-settings-card-surface);
+  box-shadow: var(--dream-settings-card-shadow);
   -webkit-backdrop-filter: blur(14px) saturate(1.08);
   backdrop-filter: blur(14px) saturate(1.08);
 }
@@ -3382,8 +3496,8 @@
 }
 
 .listen-hush-column-card {
-  background: var(--dream-surface-card);
-  box-shadow: var(--dream-card-shadow);
+  background: var(--dream-settings-card-surface);
+  box-shadow: var(--dream-settings-card-shadow);
 }
 
 .listen-hush-column-row {
@@ -4128,8 +4242,8 @@
 .app-pets-info-box {
   border: 0;
   border-radius: var(--dream-radius-xl);
-  background: var(--dream-surface-card);
-  box-shadow: var(--dream-card-shadow);
+  background: var(--dream-settings-card-surface);
+  box-shadow: var(--dream-settings-card-shadow);
   color: var(--dream-text-muted);
 }
 
@@ -5235,18 +5349,16 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
 .app-menu-content,
 .listen-dropdown-content {
   overflow: hidden;
-  border: 1px solid var(--dream-menu-line);
-  border-radius: var(--dream-radius-xl);
-  background:
-    linear-gradient(180deg, var(--dream-menu-sheen-top), var(--dream-menu-sheen-bottom)),
-    var(--dream-menu-surface);
+  border: 1px solid hsl(var(--foreground) / 0.055);
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-settings-card-surface);
   box-shadow:
-    inset 0 1px 0 var(--dream-menu-line-highlight),
-    0 22px 70px hsl(var(--foreground) / 0.24);
-  padding: 0.375rem;
+    var(--dream-settings-card-shadow),
+    0 18px 56px -36px hsl(var(--foreground) / 0.42);
+  padding: 0.25rem;
   color: hsl(var(--popover-foreground));
-  -webkit-backdrop-filter: blur(30px) saturate(1.28);
-  backdrop-filter: blur(30px) saturate(1.28);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
 }
 
 .app-dream-menu-item,
@@ -5295,8 +5407,8 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
 }
 
 .app-completed-filter-menu.app-menu-content {
-  border-radius: var(--dream-radius-xl);
-  padding: 0.375rem;
+  border-radius: var(--dream-control-radius);
+  padding: 0.25rem;
 }
 
 .app-completed-filter-menu .app-menu-label {
@@ -5306,7 +5418,7 @@ select.app-dream-select.app-control-compact.app-completed-task-file-select:focus
 
 .app-completed-filter-menu .app-menu-separator {
   margin: 0.25rem;
-  background: var(--dream-divider-muted);
+  background: var(--app-settings-card-divider-color);
 }
 
 .app-completed-filter-menu-item,

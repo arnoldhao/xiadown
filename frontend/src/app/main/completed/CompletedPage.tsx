@@ -904,7 +904,7 @@ export function CompletedPage(props: {
           sideOffset={2}
           className={SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME}
         >
-          <div className="p-1">
+          <div className="grid">
             <DropdownMenuItem
               className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
               disabled={viewDisabled}
@@ -948,7 +948,7 @@ export function CompletedPage(props: {
         }
       }}
     >
-      <DialogContent className="grid h-[min(14rem,calc(100vh-2rem))] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
+      <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
         <DialogHeader className="min-w-0">
           <DialogTitle
             className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"

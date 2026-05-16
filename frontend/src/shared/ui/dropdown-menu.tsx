@@ -21,7 +21,7 @@ const DropdownMenuContent = React.forwardRef<
   <BaseDropdownMenuContent
     ref={ref}
     sideOffset={sideOffset}
-    className={cn("app-menu-content app-motion-surface text-xs", className)}
+    className={cn("app-menu-content app-motion-surface text-[13px]", className)}
     {...props}
   />
 ));
@@ -33,7 +33,7 @@ const DropdownMenuItem = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDropdownMenuItem
     ref={ref}
-    className={cn("app-menu-item app-motion-color text-xs leading-[1.35]", className)}
+    className={cn("app-menu-item app-motion-color text-[13px] leading-[1.35]", className)}
     {...props}
   />
 ));
@@ -45,7 +45,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDropdownMenuCheckboxItem
     ref={ref}
-    className={cn("app-menu-item app-motion-color text-xs leading-[1.35]", className)}
+    className={cn("app-menu-item app-motion-color text-[13px] leading-[1.35]", className)}
     {...props}
   />
 ));
@@ -57,7 +57,7 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDropdownMenuLabel
     ref={ref}
-    className={cn("app-menu-label text-2xs font-semibold uppercase tracking-[0.08em]", className)}
+    className={cn("app-menu-label text-[11px] font-semibold uppercase tracking-[0.08em]", className)}
     {...props}
   />
 ));
@@ -79,7 +79,7 @@ function DropdownMenuShortcut({
   className,
   ...props
 }: React.HTMLAttributes<HTMLSpanElement>) {
-  return <span className={cn("app-menu-shortcut text-2xs tracking-[0.08em]", className)} {...props} />;
+  return <span className={cn("app-menu-shortcut text-[11px] tracking-[0.08em]", className)} {...props} />;
 }
 
 export {

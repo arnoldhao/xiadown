@@ -13,7 +13,7 @@ import { getLanguage } from "@/shared/i18n";
 import { messageBus } from "@/shared/message";
 import { useOpenLibraryFileLocation, useOpenLibraryPath, useResumeOperation } from "@/shared/query/library";
 import { Button } from "@/shared/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogListCard, DialogListCardContent, DialogTitle } from "@/shared/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogListCard, DialogListCardContent, DialogScrollArea, DialogTitle } from "@/shared/ui/dialog";
 import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -661,7 +661,7 @@ export function CompletedTaskDetailHeaderMeta(props: {
               {props.text.completed.taskDtoDescription}
             </DialogDescription>
           </DialogHeader>
-          <div className="min-h-0 overflow-y-auto overflow-x-hidden pr-1">
+          <DialogScrollArea className="min-h-0">
             <DialogListCard className="app-completed-info-card shadow-none">
               <DialogListCardContent>
                 {taskDTOInfoRows.map((row) => {
@@ -729,7 +729,7 @@ export function CompletedTaskDetailHeaderMeta(props: {
                 })}
               </DialogListCardContent>
             </DialogListCard>
-          </div>
+          </DialogScrollArea>
           <DialogFooter className="shrink-0">
             <Button
               type="button"

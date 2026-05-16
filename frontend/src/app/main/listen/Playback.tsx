@@ -4844,7 +4844,7 @@ function ListenPlayerMoreMenu(props: {
         sideOffset={8}
         className={LISTEN_DROPDOWN_CONTENT_CLASS}
       >
-        <div className="p-1">
+        <div className="grid">
           <DropdownMenuItem
             className={LISTEN_DROPDOWN_ITEM_CLASS}
             disabled={props.disabled}

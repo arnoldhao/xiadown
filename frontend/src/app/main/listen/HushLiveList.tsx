@@ -23,6 +23,7 @@ DialogHeader,
 DialogListCard,
 DialogListCardContent,
 DialogRow,
+DialogScrollArea,
 DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
@@ -896,9 +897,10 @@ function ListenHushChannelDialog(props: {
           </DialogHeader>
         ) : null}
         {draft ? (
-          <form
+          <DialogScrollArea
+            as="form"
             id={formId}
-            className="min-h-0 space-y-3 overflow-y-auto pr-1"
+            className="min-h-0 space-y-3"
             onSubmit={(event) => {
               event.preventDefault();
               if (draft.kind === "add" && !draft.preview) {
@@ -960,7 +962,7 @@ function ListenHushChannelDialog(props: {
                 {draft.error}
               </div>
             ) : null}
-          </form>
+          </DialogScrollArea>
         ) : null}
         <DialogFooter>
           <Button type="button" variant="outline" size="compact" onClick={props.onCancel}>
@@ -1203,7 +1205,7 @@ function ListenHushColumnsDialog(props: {
         <DialogHeader>
           <DialogTitle className="text-left">{props.text.listen.manageColumns}</DialogTitle>
         </DialogHeader>
-        <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
+        <DialogScrollArea className="min-h-0 space-y-4">
           <div className="grid grid-cols-[minmax(0,1fr)_2rem] gap-2">
             <Input
               autoFocus
@@ -1343,7 +1345,7 @@ function ListenHushColumnsDialog(props: {
               {error}
             </div>
           ) : null}
-        </div>
+        </DialogScrollArea>
         <DialogFooter>
           <Button type="button" size="compact" onClick={() => props.onOpenChange(false)}>
             {props.text.actions.close}

@@ -46,6 +46,7 @@ DialogHeader,
 DialogListCard,
 DialogListCardContent,
 DialogRow,
+DialogScrollArea,
 DialogTitle
 } from "@/shared/ui/dialog";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
@@ -712,7 +713,7 @@ export function NewTaskDialog(props: {
             description={text.dialogs.dependenciesRequiredDescription}
           />
         ) : (
-          <div className="max-h-[min(68vh,34rem)] space-y-4 overflow-x-hidden overflow-y-auto pr-1">
+          <DialogScrollArea className="max-h-[min(68vh,34rem)] space-y-4">
             {activeMode === "download" && downloadStep === "input" ? (
               <DialogListCard className="app-new-task-panel">
                 <DialogListCardContent className="p-4">
@@ -1206,7 +1207,7 @@ export function NewTaskDialog(props: {
                 ) : null}
               </>
             ) : null}
-          </div>
+          </DialogScrollArea>
         )}
 
         {taskDependenciesReady &&

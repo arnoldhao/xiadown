@@ -53,6 +53,7 @@ import {
   DialogListCard,
   DialogListCardContent,
   DialogRow,
+  DialogScrollArea,
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
@@ -314,7 +315,7 @@ export function PetsGalleryPage(props: {
         sideOffset={2}
         className={PET_GALLERY_CONTEXT_MENU_CONTENT_CLASS_NAME}
       >
-        <div className="p-1">
+        <div className="grid">
           <DropdownMenuItem
             className={PET_GALLERY_CONTEXT_MENU_ITEM_CLASS_NAME}
             disabled={!contextMenuPet || contextMenuPet.id === activePet?.id || updateSettings.isPending}
@@ -365,7 +366,7 @@ export function PetsGalleryPage(props: {
         }
       }}
     >
-      <DialogContent className="grid h-[min(14rem,calc(100vh-2rem))] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
+      <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
         <DialogHeader className="min-w-0">
           <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
             {text.petGallery.deleteTitle}
@@ -701,7 +702,7 @@ function GenerationGuideDialog(props: {
           <DialogTitle>{guide.title}</DialogTitle>
           <DialogDescription className="sr-only">{guide.title}</DialogDescription>
         </DialogHeader>
-        <div className="max-h-[62vh] space-y-4 overflow-x-hidden overflow-y-auto pr-1">
+        <DialogScrollArea className="max-h-[62vh] space-y-4">
           <section className="grid gap-3 sm:grid-cols-2">
             {guide.steps.map((step, index) => (
               <div key={step.title} className="app-pets-guide-step p-4">
@@ -726,7 +727,7 @@ function GenerationGuideDialog(props: {
               ))}
             </ul>
           </section>
-        </div>
+        </DialogScrollArea>
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" variant="default">{props.text.actions.close}</Button>
@@ -940,7 +941,7 @@ function PetImportDialog(props: {
           />
         </DialogHeader>
 
-        <div className="max-h-[min(68vh,34rem)] space-y-4 overflow-x-hidden overflow-y-auto pr-1">
+        <DialogScrollArea className="max-h-[min(68vh,34rem)] space-y-4">
           {mode === "online" ? (
             <div className="app-pets-import-section space-y-3 p-4">
               <div className="text-xs leading-5 text-muted-foreground">{dialogText.onlineDescription}</div>
@@ -1071,7 +1072,7 @@ function PetImportDialog(props: {
               <div className="mt-3 text-xs text-muted-foreground">{dialogText.importedEmpty}</div>
             )}
           </div>
-        </div>
+        </DialogScrollArea>
 
         <DialogFooter>
           <Button type="button" variant="default" onClick={() => void handleCompleteImport()} disabled={finishPending}>
