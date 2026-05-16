@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Call, Events } from "@wailsio/runtime";
 
-import type { ProxySettings, Settings, SystemProxyInfo, UpdateSettingsRequest } from "@/shared/contracts/settings";
+import type { BrowserCandidate, ProxySettings, Settings, SystemProxyInfo, UpdateSettingsRequest } from "@/shared/contracts/settings";
 import { normalizeColorScheme } from "@/lib/theme/color-schemes";
 import {
+  GetBrowserCandidates,
   OpenLogDirectory,
   RefreshSystemProxy,
+  RefreshBrowserCandidates,
   SelectDownloadDirectory,
   HideSettingsWindow,
   ShowMainWindow,
@@ -18,6 +20,7 @@ import {
 } from "../../../bindings/xiadown/internal/application/settings/dto/models";
 
 export const SETTINGS_QUERY_KEY = ["settings"];
+export const BROWSER_CANDIDATES_QUERY_KEY = ["browser-candidates"];
 
 export function useSettings() {
   return useQuery({
@@ -41,6 +44,28 @@ export function useUpdateSettings() {
     onSuccess: (data) => {
       setLatestSettingsQueryData(queryClient, data);
       void Events.Emit("settings:updated", data);
+    },
+  });
+}
+
+export function useBrowserCandidates() {
+  return useQuery({
+    queryKey: BROWSER_CANDIDATES_QUERY_KEY,
+    queryFn: async (): Promise<BrowserCandidate[]> => {
+      return fetchBrowserCandidates(GetBrowserCandidates);
+    },
+    staleTime: 10_000,
+  });
+}
+
+export function useRefreshBrowserCandidates() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<BrowserCandidate[]> => {
+      return fetchBrowserCandidates(RefreshBrowserCandidates);
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(BROWSER_CANDIDATES_QUERY_KEY, data);
     },
   });
 }
@@ -126,6 +151,7 @@ function toSettings(raw: Partial<Settings>): Settings {
   return {
     ...(raw as Settings),
     appearance: normalizeAppearanceMode(raw.appearance ?? "auto"),
+    defaultBrowser: stringOrEmpty(raw.defaultBrowser),
     colorScheme: normalizeColorScheme(raw.colorScheme),
     menuBarVisibility: normalizeMenuBarVisibility(raw.menuBarVisibility ?? "whenRunning"),
     syncedLyricsEnabled: raw.syncedLyricsEnabled !== false,
@@ -140,6 +166,26 @@ function toSettings(raw: Partial<Settings>): Settings {
 
 function toSettingsUpdatePayload(request: UpdateSettingsRequest) {
   return { ...request };
+}
+
+async function fetchBrowserCandidates(fetcher: () => Promise<unknown>) {
+  const result = await fetcher();
+  return toBrowserCandidates(Array.isArray(result) ? result : []);
+}
+
+function toBrowserCandidates(raw: unknown[]): BrowserCandidate[] {
+  return raw
+    .map((item) => {
+      const candidate = item as Partial<BrowserCandidate>;
+      return {
+        id: stringOrEmpty(candidate.id),
+        label: stringOrEmpty(candidate.label),
+        execPath: stringOrEmpty(candidate.execPath),
+        available: candidate.available === true,
+        error: stringOrEmpty(candidate.error),
+      };
+    })
+    .filter((item) => item.id && item.label);
 }
 
 function shouldAdoptSettingsSnapshot(current: Settings | undefined, next: Settings) {
@@ -181,6 +227,10 @@ function normalizeAppearanceMode(value?: string): Settings["appearance"] {
     default:
       return "auto";
   }
+}
+
+function stringOrEmpty(value?: string) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeMenuBarVisibility(value?: string): Settings["menuBarVisibility"] {

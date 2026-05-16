@@ -1,9 +1,12 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"os"
 	"testing"
+
+	settingsdto "xiadown/internal/application/settings/dto"
 )
 
 func TestNormalizeOnlinePetImportSiteIDSupportsCodexpetXYZ(t *testing.T) {
@@ -80,6 +83,32 @@ func TestShutdownOnlinePetImportSessionsCleansResourcesAndRemovesSessions(t *tes
 	}
 	assertPathRemoved(t, downloadDir)
 	assertPathRemoved(t, userDataDir)
+}
+
+func TestOnlinePetImportPreferredBrowserReadsSettings(t *testing.T) {
+	service := NewService(
+		t.TempDir(),
+		nil,
+		"",
+		"",
+		WithSettingsReader(petSettingsReaderStub{settings: settingsdto.Settings{DefaultBrowser: "vivaldi"}}),
+	)
+
+	if got := service.preferredBrowser(context.Background()); got != "vivaldi" {
+		t.Fatalf("expected preferred browser from settings, got %q", got)
+	}
+}
+
+type petSettingsReaderStub struct {
+	settings settingsdto.Settings
+	err      error
+}
+
+func (stub petSettingsReaderStub) GetSettings(context.Context) (settingsdto.Settings, error) {
+	if stub.err != nil {
+		return settingsdto.Settings{}, stub.err
+	}
+	return stub.settings, nil
 }
 
 func assertPathRemoved(t *testing.T, path string) {

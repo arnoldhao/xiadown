@@ -12,6 +12,25 @@ func TestParseLanguageAcceptsTraditionalChinese(t *testing.T) {
 	}
 }
 
+func TestDefaultBrowserIsNormalized(t *testing.T) {
+	current, err := NewSettings(SettingsParams{
+		Appearance:        AppearanceAuto.String(),
+		ColorScheme:       DefaultColorScheme.String(),
+		Language:          LanguageEnglish.String(),
+		LogLevel:          DefaultLogLevel.String(),
+		DefaultBrowser:    "  Edge  ",
+		MainBounds:        DefaultSettings().MainBounds(),
+		SettingsBounds:    DefaultSettings().SettingsBounds(),
+		MenuBarVisibility: stringPtr(DefaultMenuBarVisibility.String()),
+	})
+	if err != nil {
+		t.Fatalf("NewSettings() error = %v", err)
+	}
+	if current.DefaultBrowser() != "edge" {
+		t.Fatalf("expected default browser to be normalized, got %q", current.DefaultBrowser())
+	}
+}
+
 func TestWithAppearanceConfigClonesNestedValues(t *testing.T) {
 	source := map[string]any{
 		"appearance": map[string]any{
@@ -40,4 +59,8 @@ func TestWithAppearanceConfigClonesNestedValues(t *testing.T) {
 	if nextAppearance["themePackId"] != "citrus" {
 		t.Fatalf("expected returned theme pack to be isolated from caller mutation, got %#v", nextAppearance["themePackId"])
 	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

@@ -29,6 +29,14 @@ export interface Proxy {
 
 export type ProxySettings = Proxy;
 
+export interface BrowserCandidate {
+  id: string;
+  label: string;
+  execPath?: string;
+  available: boolean;
+  error?: string;
+}
+
 export interface SystemProxyInfo {
   address: string;
   source?: SystemProxySource;
@@ -41,6 +49,7 @@ export interface Settings {
   fontFamily: string;
   fontSize: number;
   language: string;
+  defaultBrowser: string;
   themeColor: ThemeColor;
   colorScheme: ColorScheme;
   systemThemeColor?: string;
@@ -68,6 +77,7 @@ export interface UpdateSettingsRequest {
   fontFamily?: string;
   fontSize?: number;
   language?: string;
+  defaultBrowser?: string;
   themeColor?: ThemeColor;
   colorScheme?: ColorScheme;
   logLevel?: string;

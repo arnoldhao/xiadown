@@ -459,6 +459,8 @@
       "pinyinLyrics": "歌词拼音",
       "macOSOnly": "仅 macOS 10.14 或更高版本可用",
       "downloadDirectory": "下载目录",
+      "defaultBrowser": "默认浏览器",
+      "refreshBrowsers": "刷新浏览器列表",
       "language": "语言",
       "logLevel": "日志级别",
       "themePack": "主题",

@@ -217,6 +217,7 @@ func Start(ctx context.Context, options LaunchOptions) (*Runtime, error) {
 func buildLaunchArgs(port int, userDataDir string, options LaunchOptions) []string {
 	args := []string{
 		fmt.Sprintf("--remote-debugging-port=%d", port),
+		"--remote-debugging-address=127.0.0.1",
 		fmt.Sprintf("--user-data-dir=%s", userDataDir),
 		"--no-first-run",
 		"--no-default-browser-check",

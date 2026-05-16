@@ -71,9 +71,10 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 	}
 
 	runtime, err := browsercdp.Start(context.Background(), browsercdp.LaunchOptions{
-		Headless:    false,
-		UserDataDir: userDataDir,
-		ExtraArgs:   []string{"--disable-popup-blocking"},
+		PreferredBrowser: service.preferredBrowser(ctx),
+		Headless:         false,
+		UserDataDir:      userDataDir,
+		ExtraArgs:        []string{"--disable-popup-blocking"},
 	})
 	if err != nil {
 		_ = os.RemoveAll(downloadDir)
@@ -121,6 +122,17 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 
 	service.startOnlinePetImportMonitor(session.ID)
 	return service.snapshotOnlinePetImportSession(session.ID), nil
+}
+
+func (service *Service) preferredBrowser(ctx context.Context) string {
+	if service == nil || service.settingsReader == nil {
+		return ""
+	}
+	current, err := service.settingsReader.GetSettings(ctx)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(current.DefaultBrowser)
 }
 
 func (service *Service) GetOnlinePetImportSession(_ context.Context, request dto.GetOnlinePetImportSessionRequest) (dto.OnlinePetImportSession, error) {
