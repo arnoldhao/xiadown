@@ -62,8 +62,6 @@ export type ListenNativePlayerEvent = {
   artist?: string;
   thumbnailUrl?: string;
   likeStatus?: string;
-  videoAvailable?: boolean;
-  videoAvailabilityKnown?: boolean;
   trackChanged?: boolean;
   metadataSource?: string;
   currentTime?: number;

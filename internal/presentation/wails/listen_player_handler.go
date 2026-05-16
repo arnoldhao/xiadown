@@ -90,7 +90,7 @@ type ListenPlayerStatus struct {
 	Artist          string  `json:"artist,omitempty"`
 	ThumbnailURL    string  `json:"thumbnailUrl,omitempty"`
 	LikeStatus      string  `json:"likeStatus,omitempty"`
-	VideoAvailable  bool    `json:"videoAvailable"`
+	VideoAvailable  bool    `json:"videoAvailable,omitempty"`
 	VideoKnown      bool    `json:"videoAvailabilityKnown,omitempty"`
 	Advertising     bool    `json:"advertising,omitempty"`
 	AdLabel         string  `json:"adLabel,omitempty"`
@@ -318,8 +318,6 @@ type ListenYouTubeMusicPlayer struct {
 	observedArtist        string
 	observedThumb         string
 	observedLike          string
-	videoAvailable        bool
-	videoKnown            bool
 	advertising           bool
 	adLabel               string
 	adSkippable           bool
@@ -414,8 +412,6 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	player.observedArtist = ""
 	player.observedThumb = ""
 	player.observedLike = ""
-	player.videoAvailable = false
-	player.videoKnown = false
 	player.advertising = false
 	player.adLabel = ""
 	player.adSkippable = false
@@ -606,8 +602,6 @@ func (player *ListenYouTubeMusicPlayer) Reset() error {
 	player.observedTitle = ""
 	player.observedArtist = ""
 	player.observedThumb = ""
-	player.videoAvailable = false
-	player.videoKnown = false
 	player.currentTime = 0
 	player.duration = 0
 	player.bufferedTime = 0
@@ -817,8 +811,6 @@ func (player *ListenYouTubeMusicPlayer) Status() ListenPlayerStatus {
 		Artist:          artist,
 		ThumbnailURL:    player.observedThumb,
 		LikeStatus:      player.observedLike,
-		VideoAvailable:  player.videoAvailable,
-		VideoKnown:      player.videoKnown,
 		Advertising:     player.advertising,
 		AdLabel:         player.adLabel,
 		AdSkippable:     player.adSkippable,
@@ -867,9 +859,6 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	artist := listenPayloadString(payload, "artist")
 	thumbnailURL := listenPayloadString(payload, "thumbnailUrl")
 	likeStatus := listenPayloadString(payload, "likeStatus")
-	videoAvailable, hasVideoAvailable := listenPayloadBoolValue(payload, "videoAvailable")
-	videoKnown, hasVideoKnown := listenPayloadBoolValue(payload, "videoAvailabilityKnown")
-	videoAvailabilityKnown := videoKnown || (!hasVideoKnown && hasVideoAvailable && videoAvailable)
 	advertising := listenPayloadBool(payload, "advertising") || listenPayloadBool(payload, "ad")
 	adLabel := listenPayloadString(payload, "adLabel")
 	adSkippable := advertising && listenPayloadBool(payload, "adSkippable")
@@ -959,10 +948,6 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	if likeStatus != "" {
 		player.observedLike = likeStatus
 	}
-	if videoAvailabilityKnown {
-		player.videoKnown = true
-		player.videoAvailable = videoAvailable
-	}
 	player.advertising = advertising
 	player.adLabel = adLabel
 	player.adSkippable = adSkippable
@@ -1012,10 +997,6 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	if likeStatus != "" {
 		payload["likeStatus"] = likeStatus
 	}
-	if hasVideoKnown || hasVideoAvailable {
-		payload["videoAvailable"] = videoAvailable
-		payload["videoAvailabilityKnown"] = videoAvailabilityKnown
-	}
 	payload["advertising"] = advertising
 	if adLabel != "" {
 		payload["adLabel"] = adLabel
@@ -1043,8 +1024,6 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 		artist,
 		thumbnailURL,
 		likeStatus,
-		videoAvailable,
-		videoAvailabilityKnown,
 		trackChanged,
 		payload,
 	)
@@ -1061,8 +1040,6 @@ func (player *ListenYouTubeMusicPlayer) syncPlaybackServiceFromNativeEvent(
 	artist string,
 	thumbnailURL string,
 	likeStatus string,
-	videoAvailable bool,
-	videoAvailabilityKnown bool,
 	trackChanged bool,
 	payload map[string]any,
 ) {
@@ -1091,20 +1068,15 @@ func (player *ListenYouTubeMusicPlayer) syncPlaybackServiceFromNativeEvent(
 	if state != "" && (hasCurrentTime || hasDuration) {
 		_ = service.UpdatePlaybackState(ctx, state == "playing", currentTime, duration)
 	}
-	if videoAvailabilityKnown && !trackChanged {
-		service.UpdateVideoAvailability(ctx, videoAvailable, true)
-	}
 	if videoID != "" || title != "" {
 		_ = service.UpdateTrackMetadata(ctx, listenplayback.ObservedTrack{
-			ObservedVideoID:        videoID,
-			Title:                  title,
-			Artist:                 artist,
-			ThumbnailURL:           thumbnailURL,
-			LikeStatus:             likeStatus,
-			VideoAvailable:         videoAvailable,
-			VideoAvailabilityKnown: videoAvailabilityKnown,
-			TrackChanged:           trackChanged,
-			MetadataSource:         listenPayloadString(payload, "metadataSource"),
+			ObservedVideoID: videoID,
+			Title:           title,
+			Artist:          artist,
+			ThumbnailURL:    thumbnailURL,
+			LikeStatus:      likeStatus,
+			TrackChanged:    trackChanged,
+			MetadataSource:  listenPayloadString(payload, "metadataSource"),
 		})
 	}
 }
@@ -2085,22 +2057,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     );
   }
 
-  function videoAvailabilitySnapshot() {
-    const switcher = document.querySelector("ytmusic-av-switcher");
-    const videoButton = switcher?.querySelector("#video-button") ||
-      document.querySelector("ytmusic-av-switcher #video-button");
-    if (videoButton && isElementVisible(videoButton) && !isControlDisabled(videoButton)) {
-      return { known: true, available: true };
-    }
-    const buttons = Array.from(document.querySelectorAll("tp-yt-paper-button, button, [role='button']"));
-    const hasVideoToggle = buttons.some((button) => {
-      const text = (button.textContent || button.innerText || "").trim().toLowerCase();
-      return (text === "video" || text === "song") && isElementVisible(button) && !isControlDisabled(button);
-    });
-    if (hasVideoToggle) return { known: true, available: true };
-    return { known: false, available: false };
-  }
-
   function metadataSnapshot() {
     const data = playerData();
     let videoId = "";
@@ -2462,7 +2418,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     const videoWidth = video ? finiteNumber(video.videoWidth, 0) : 0;
     const videoHeight = video ? finiteNumber(video.videoHeight, 0) : 0;
     const ad = adSnapshot();
-    const videoAvailability = videoAvailabilitySnapshot();
     const payload = {
       type: "state",
       state,
@@ -2473,8 +2428,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       artist: metadata.artist,
       thumbnailUrl: metadata.thumbnailUrl,
       likeStatus: metadata.likeStatus,
-      videoAvailable: videoAvailability.available,
-      videoAvailabilityKnown: videoAvailability.known,
       trackChanged,
       metadataSource: metadata.metadataSource,
       currentTime,
@@ -2504,7 +2457,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     const videoId = metadata.videoId || lastObservedVideoId || currentVideoId();
     const ad = adSnapshot();
     const error = errorSnapshot(video);
-    const videoAvailability = videoAvailabilitySnapshot();
     if (videoId) lastObservedVideoId = videoId;
     if (metadata.title) lastObservedTitle = metadata.title;
     if (metadata.artist) lastObservedArtist = metadata.artist;
@@ -2518,8 +2470,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       artist: metadata.artist || lastObservedArtist,
       thumbnailUrl: metadata.thumbnailUrl,
       likeStatus: metadata.likeStatus,
-      videoAvailable: videoAvailability.available,
-      videoAvailabilityKnown: videoAvailability.known,
       trackChanged: false,
       metadataSource: metadata.metadataSource,
       currentTime: video ? finiteNumber(video.currentTime, 0) : 0,
@@ -2754,7 +2704,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     applyVolume();
     scheduleVolumeBurst();
     const bootMetadata = metadataSnapshot();
-    const bootVideoAvailability = videoAvailabilitySnapshot();
     post({
       type: "ready",
       state: "loading",
@@ -2764,8 +2713,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       artist: bootMetadata.artist,
       thumbnailUrl: bootMetadata.thumbnailUrl,
       likeStatus: bootMetadata.likeStatus,
-      videoAvailable: bootVideoAvailability.available,
-      videoAvailabilityKnown: bootVideoAvailability.known,
       metadataSource: bootMetadata.metadataSource,
       url: window.location.href
     });

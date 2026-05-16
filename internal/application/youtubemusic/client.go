@@ -839,6 +839,7 @@ func trackFromMusicResponsiveRenderer(renderer map[string]any) (Track, bool) {
 		DurationLabel:  duration,
 		PlayCountLabel: playCount,
 		ThumbnailURL:   lastThumbnailURL(renderer),
+		MusicVideoType: positiveMusicVideoTypeFromRenderer(renderer),
 		RawDescription: album,
 	}, true
 }
@@ -868,6 +869,7 @@ func trackFromPlaylistPanelRenderer(renderer map[string]any) (Track, bool) {
 		ArtistBrowseID: artistBrowseID,
 		DurationLabel:  duration,
 		ThumbnailURL:   lastThumbnailURL(renderer),
+		MusicVideoType: positiveMusicVideoTypeFromRenderer(renderer),
 	}, true
 }
 
@@ -944,6 +946,15 @@ func musicVideoTypeFromRenderer(renderer map[string]any) string {
 		return value
 	}
 	return findFirstStringByKey(renderer, "musicVideoType")
+}
+
+func positiveMusicVideoTypeFromRenderer(renderer map[string]any) string {
+	value := musicVideoTypeFromRenderer(renderer)
+	_, known := MusicVideoTypeVideoAvailability(value)
+	if !known {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func musicVideoTypeFromWatchEndpoint(watchEndpoint map[string]any) string {

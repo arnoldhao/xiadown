@@ -147,8 +147,6 @@ function createNativeOnlineItem(params: {
   title?: string;
   artist?: string;
   thumbnailUrl?: string;
-  hasVideo?: boolean;
-  videoAvailabilityKnown?: boolean;
 }): ListenOnlineItem {
   const videoId = params.videoId.trim();
   const title = params.title?.trim() || videoId;
@@ -166,9 +164,6 @@ function createNativeOnlineItem(params: {
     description: "",
     durationLabel: "",
     thumbnailUrl: thumbnailUrl,
-    hasVideo: params.hasVideo === true,
-    videoAvailabilityKnown:
-      params.videoAvailabilityKnown === true ? true : undefined,
   };
 }
 
@@ -273,8 +268,6 @@ function nativeStatusToPlayerEvent(
     artist: stringFromNativeStatus(record.artist),
     thumbnailUrl: stringFromNativeStatus(record.thumbnailUrl),
     likeStatus: stringFromNativeStatus(record.likeStatus),
-    videoAvailable: record.videoAvailable === true,
-    videoAvailabilityKnown: record.videoAvailabilityKnown === true,
     currentTime: secondsFromNativeStatus(record.currentTime),
     duration: secondsFromNativeStatus(record.duration),
     bufferedTime: secondsFromNativeStatus(record.bufferedTime),

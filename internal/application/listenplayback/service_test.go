@@ -483,7 +483,9 @@ func TestPreviousSeeksToStartBeforeWalkingForwardSkipStack(t *testing.T) {
 func TestPlaybackStatePublishesOnlyMaterialProgressChanges(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(&fakeTransport{})
-	if err := service.PlayQueue(ctx, makeTracks(), 0, "Queue"); err != nil {
+	tracks := makeTracks()
+	tracks[0].ThumbnailURL = "https://lh3.googleusercontent.com/art=w544-h544"
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
 		t.Fatal(err)
 	}
 	var snapshots []Snapshot
@@ -729,12 +731,10 @@ func TestSameQueueTrackObservedMetadataDoesNotReplaceAuthoritativeQueueMetadata(
 		t.Fatal(err)
 	}
 	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
-		ObservedVideoID:        "video-one",
-		Title:                  "One",
-		Artist:                 "Artist",
-		VideoAvailable:         true,
-		VideoAvailabilityKnown: true,
-		TrackChanged:           true,
+		ObservedVideoID: "video-one",
+		Title:           "One",
+		Artist:          "Artist",
+		TrackChanged:    true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -793,22 +793,54 @@ func TestObservedMetadataFillsMissingQueueThumbnail(t *testing.T) {
 	}
 }
 
-func TestVideoAvailabilityUpdatesCurrentQueueTrackWithoutUnknownResets(t *testing.T) {
+func TestObservedMetadataInfersVideoAvailabilityFromYouTubeThumbnail(t *testing.T) {
 	ctx := context.Background()
 	service := newTestService(&fakeTransport{})
 	if err := service.PlayQueue(ctx, makeTracks(), 0, "Queue"); err != nil {
 		t.Fatal(err)
 	}
 
-	service.UpdateVideoAvailability(ctx, true, true)
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-one",
+		ThumbnailURL:    "https://i.ytimg.com/vi/video-one/hq720.jpg",
+		TrackChanged:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	track, ok := service.CurrentTrack()
 	if !ok || !track.VideoAvailabilityKnown || !track.HasVideo {
-		t.Fatalf("expected available video state, got %#v", track)
+		t.Fatalf("expected YouTube video thumbnail to mark track video-capable, got %#v", track)
 	}
-	service.UpdateVideoAvailability(ctx, false, false)
-	track, ok = service.CurrentTrack()
-	if !ok || !track.VideoAvailabilityKnown || !track.HasVideo {
-		t.Fatalf("expected unknown video update to preserve known state, got %#v", track)
+	if track.ThumbnailURL != "https://i.ytimg.com/vi/video-one/hq720.jpg" {
+		t.Fatalf("expected video thumbnail to replace non-video artwork for availability, got %q", track.ThumbnailURL)
+	}
+}
+
+func TestAudioTrackVideoTypeOverridesVideoThumbnailAvailability(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(&fakeTransport{})
+	tracks := makeTracks()
+	tracks[0].MusicVideoType = "MUSIC_VIDEO_TYPE_ATV"
+	tracks[0].ThumbnailURL = "https://i.ytimg.com/vi/video-one/hq720.jpg"
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	if track, ok := service.CurrentTrack(); !ok || !track.VideoAvailabilityKnown || track.HasVideo {
+		t.Fatalf("expected ATV metadata to keep video unavailable even with video thumbnail, got %#v", track)
+	}
+
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-one",
+		Title:           "One",
+		Artist:          "Artist",
+		ThumbnailURL:    "https://i.ytimg.com/vi/video-one/maxresdefault.jpg",
+		TrackChanged:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if track, ok := service.CurrentTrack(); !ok || !track.VideoAvailabilityKnown || track.HasVideo {
+		t.Fatalf("expected observed thumbnail availability to stay blocked for ATV, got %#v", track)
 	}
 }
 

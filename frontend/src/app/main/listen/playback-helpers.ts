@@ -5,6 +5,7 @@ getXiaText
 import { fetchListenTrackLyrics,getListenErrorCode,getListenErrorMessage,getListenErrorRetryable } from "@/app/main/listen/api";
 import type { ListenQueuePopupAnchor } from "@/app/main/listen/queue-popups";
 import type { ListenLyricsData,ListenNativePlayerEvent,ListenOnlineItem,ListenRemotePlaybackState } from "@/app/main/listen/types";
+import { doesListenThumbnailSuggestVideoContent,hasListenMusicVideoContent,isListenMusicVideoKnownNoVideo } from "@/app/main/listen/video-types";
 
 export { getListenErrorCode,getListenErrorMessage };
 
@@ -129,10 +130,6 @@ export function resolveListenPlaybackStatusLabel(
   }
 }
 
-function hasListenMusicVideoContent(musicVideoType: string | undefined) {
-  return musicVideoType?.trim() === "MUSIC_VIDEO_TYPE_OMV";
-}
-
 export function resolveListenTrackVideoAvailability(
   track: ListenOnlineItem,
   live: boolean,
@@ -144,15 +141,18 @@ export function resolveListenTrackVideoAvailability(
   if (live) {
     return "available";
   }
-  if (track.videoAvailabilityKnown === true) {
-    return track.hasVideo === true ? "available" : "unavailable";
-  }
   const musicVideoType = track.musicVideoType?.trim();
+  if (isListenMusicVideoKnownNoVideo(musicVideoType)) {
+    return "unavailable";
+  }
   if (hasListenMusicVideoContent(musicVideoType)) {
     return "available";
   }
-  if (track.hasVideo === true) {
+  if (doesListenThumbnailSuggestVideoContent(videoId, track.thumbnailUrl)) {
     return "available";
+  }
+  if (track.thumbnailUrl?.trim()) {
+    return "unavailable";
   }
   return "checking";
 }

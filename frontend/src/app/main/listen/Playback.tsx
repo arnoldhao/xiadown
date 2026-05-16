@@ -1363,6 +1363,7 @@ export function ListenYouTubePlayback(props: {
     isLive,
     props.track.hasVideo,
     props.track.musicVideoType,
+    props.track.thumbnailUrl,
     props.track.videoAvailabilityKnown,
     props.track.videoId,
   ]);
@@ -1934,7 +1935,9 @@ export function ListenYouTubePlayback(props: {
           return;
         }
         const resolved = resolveListenTrackVideoAvailability(item, false);
-        setVideoAvailability(resolved === "checking" ? "unavailable" : resolved);
+        if (resolved !== "checking") {
+          setVideoAvailability(resolved);
+        }
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) {
@@ -1944,7 +1947,6 @@ export function ListenYouTubePlayback(props: {
           videoId,
           error,
         });
-        setVideoAvailability("unavailable");
       });
     return () => controller.abort();
   }, [
@@ -2337,14 +2339,16 @@ export function ListenYouTubePlayback(props: {
         if (isLive || !eventBelongsToCurrentTrack) {
           return;
         }
-        if (data.videoAvailabilityKnown === true) {
-          setVideoAvailability(
-            data.videoAvailable === true ? "available" : "unavailable",
-          );
+        const resolved = resolveListenTrackVideoAvailability(
+          {
+            ...props.track,
+            thumbnailUrl: data.thumbnailUrl || props.track.thumbnailUrl,
+          },
+          false,
+        );
+        if (resolved !== "checking") {
+          setVideoAvailability(resolved);
           return;
-        }
-        if (data.videoAvailable === true) {
-          setVideoAvailability("available");
         }
       };
 

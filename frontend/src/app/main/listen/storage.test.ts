@@ -44,7 +44,7 @@ describe("listen playback storage helpers", () => {
     ).toBe("https://lh3.googleusercontent.com/art=w226-h226=s120");
   });
 
-  test("drops stale audio endpoint video-unavailable cache entries", () => {
+  test("keeps audio endpoint video-unavailable cache entries", () => {
     const items = sanitizeListenOnlineItems([
       {
         id: "track",
@@ -60,7 +60,85 @@ describe("listen playback storage helpers", () => {
       },
     ]);
 
+    expect(items[0].hasVideo).toBe(false);
+    expect(items[0].videoAvailabilityKnown).toBe(true);
+  });
+
+  test("drops stale user generated endpoint video-unavailable cache entries", () => {
+    const items = sanitizeListenOnlineItems([
+      {
+        id: "track",
+        group: "playlist",
+        videoId: "TESTVID007G",
+        title: "Track",
+        channel: "Artist",
+        description: "",
+        durationLabel: "",
+        musicVideoType: "MUSIC_VIDEO_TYPE_UGC",
+        hasVideo: false,
+        videoAvailabilityKnown: true,
+      },
+    ]);
+
     expect(items[0].hasVideo).toBeUndefined();
     expect(items[0].videoAvailabilityKnown).toBeUndefined();
+  });
+
+  test("drops stale video-capable cache entries without a metadata signal", () => {
+    const items = sanitizeListenOnlineItems([
+      {
+        id: "track",
+        group: "playlist",
+        videoId: "TESTVID007G",
+        title: "Track",
+        channel: "Artist",
+        description: "",
+        durationLabel: "",
+        musicVideoType: "MUSIC_VIDEO_TYPE_UGC",
+        hasVideo: true,
+        videoAvailabilityKnown: true,
+      },
+    ]);
+
+    expect(items[0].hasVideo).toBeUndefined();
+    expect(items[0].videoAvailabilityKnown).toBeUndefined();
+  });
+
+  test("uses non-video thumbnails as confirmed unavailable", () => {
+    const items = sanitizeListenOnlineItems([
+      {
+        id: "track",
+        group: "playlist",
+        videoId: "TESTVID007G",
+        title: "Track",
+        channel: "Artist",
+        description: "",
+        durationLabel: "",
+        musicVideoType: "MUSIC_VIDEO_TYPE_UGC",
+        thumbnailUrl: "https://lh3.googleusercontent.com/art=w544-h544",
+      },
+    ]);
+
+    expect(items[0].hasVideo).toBe(false);
+    expect(items[0].videoAvailabilityKnown).toBe(true);
+  });
+
+  test("restores YouTube video thumbnails as video-capable", () => {
+    const items = sanitizeListenOnlineItems([
+      {
+        id: "track",
+        group: "playlist",
+        videoId: "TESTVID007G",
+        title: "Track",
+        channel: "Artist",
+        description: "",
+        durationLabel: "",
+        musicVideoType: "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+        thumbnailUrl: "https://i.ytimg.com/vi/TESTVID007G/hq720.jpg",
+      },
+    ]);
+
+    expect(items[0].hasVideo).toBe(true);
+    expect(items[0].videoAvailabilityKnown).toBe(true);
   });
 });

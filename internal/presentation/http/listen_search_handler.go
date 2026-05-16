@@ -190,7 +190,8 @@ func mapYouTubeMusicTracksToListenItems(tracks []youtubemusic.Track, prefix stri
 		}
 		channel := strings.TrimSpace(track.Channel)
 		musicVideoType := strings.TrimSpace(track.MusicVideoType)
-		hasVideo := listenMusicVideoTypeHasVideo(musicVideoType)
+		thumbnailURL := strings.TrimSpace(track.ThumbnailURL)
+		hasVideo, videoAvailabilityKnown := listenTrackVideoAvailability(musicVideoType, videoID, thumbnailURL)
 		items = append(items, ListenSearchItem{
 			ID:                     idPrefix + "-" + videoID,
 			Group:                  "playlist",
@@ -201,17 +202,17 @@ func mapYouTubeMusicTracksToListenItems(tracks []youtubemusic.Track, prefix stri
 			Description:            strings.TrimSpace(track.RawDescription),
 			DurationLabel:          strings.TrimSpace(track.DurationLabel),
 			PlayCountLabel:         strings.TrimSpace(track.PlayCountLabel),
-			ThumbnailURL:           strings.TrimSpace(track.ThumbnailURL),
+			ThumbnailURL:           thumbnailURL,
 			MusicVideoType:         musicVideoType,
 			HasVideo:               hasVideo,
-			VideoAvailabilityKnown: hasVideo,
+			VideoAvailabilityKnown: videoAvailabilityKnown,
 		})
 	}
 	return items
 }
 
-func listenMusicVideoTypeHasVideo(value string) bool {
-	return strings.TrimSpace(value) == "MUSIC_VIDEO_TYPE_OMV"
+func listenTrackVideoAvailability(musicVideoType string, videoID string, thumbnailURL string) (bool, bool) {
+	return youtubemusic.TrackVideoAvailability(musicVideoType, videoID, thumbnailURL)
 }
 
 func mapYouTubeMusicArtistsToListenArtistItems(artists []youtubemusic.Artist, prefix string) []ListenArtistItem {

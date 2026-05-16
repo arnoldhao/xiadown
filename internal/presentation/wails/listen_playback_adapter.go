@@ -170,7 +170,8 @@ func listenPlaybackTracksFromYouTubeMusic(tracks []youtubemusic.Track) []listenp
 func listenPlaybackTrackFromYouTubeMusic(track youtubemusic.Track) listenplayback.Track {
 	videoID := strings.TrimSpace(track.VideoID)
 	musicVideoType := strings.TrimSpace(track.MusicVideoType)
-	hasVideo := listenMusicVideoTypeHasVideoForPlayback(musicVideoType)
+	thumbnailURL := strings.TrimSpace(track.ThumbnailURL)
+	hasVideo, videoAvailabilityKnown := listenTrackVideoAvailabilityForPlayback(musicVideoType, videoID, thumbnailURL)
 	return listenplayback.Track{
 		ID:                     strings.TrimSpace(track.ID),
 		VideoID:                videoID,
@@ -178,10 +179,10 @@ func listenPlaybackTrackFromYouTubeMusic(track youtubemusic.Track) listenplaybac
 		Artist:                 strings.TrimSpace(track.Channel),
 		ArtistBrowseID:         strings.TrimSpace(track.ArtistBrowseID),
 		DurationLabel:          strings.TrimSpace(track.DurationLabel),
-		ThumbnailURL:           strings.TrimSpace(track.ThumbnailURL),
+		ThumbnailURL:           thumbnailURL,
 		MusicVideoType:         musicVideoType,
 		HasVideo:               hasVideo,
-		VideoAvailabilityKnown: hasVideo,
+		VideoAvailabilityKnown: videoAvailabilityKnown,
 	}
 }
 
@@ -205,6 +206,8 @@ func listenPlaybackTrackFromMetadata(metadata youtubemusic.TrackMetadata, fallba
 	if metadata.LikeStatusKnown {
 		likeStatus = string(metadata.LikeStatus)
 	}
+	thumbnailURL := strings.TrimSpace(metadata.ThumbnailURL)
+	hasVideo, videoAvailabilityKnown := listenTrackVideoAvailabilityForPlayback(musicVideoType, videoID, thumbnailURL)
 	return listenplayback.Track{
 		ID:                     videoID,
 		VideoID:                videoID,
@@ -212,10 +215,10 @@ func listenPlaybackTrackFromMetadata(metadata youtubemusic.TrackMetadata, fallba
 		Artist:                 strings.TrimSpace(metadata.Channel),
 		ArtistBrowseID:         strings.TrimSpace(metadata.ArtistBrowseID),
 		DurationLabel:          strings.TrimSpace(metadata.DurationLabel),
-		ThumbnailURL:           strings.TrimSpace(metadata.ThumbnailURL),
+		ThumbnailURL:           thumbnailURL,
 		MusicVideoType:         musicVideoType,
-		HasVideo:               listenMusicVideoTypeHasVideoForPlayback(musicVideoType),
-		VideoAvailabilityKnown: musicVideoType != "",
+		HasVideo:               hasVideo,
+		VideoAvailabilityKnown: videoAvailabilityKnown,
 		LikeStatus:             likeStatus,
 	}
 }
@@ -237,6 +240,6 @@ func moveListenPlaybackTrackToFront(tracks []listenplayback.Track, videoID strin
 	return tracks
 }
 
-func listenMusicVideoTypeHasVideoForPlayback(value string) bool {
-	return strings.TrimSpace(value) == "MUSIC_VIDEO_TYPE_OMV"
+func listenTrackVideoAvailabilityForPlayback(musicVideoType string, videoID string, thumbnailURL string) (bool, bool) {
+	return youtubemusic.TrackVideoAvailability(musicVideoType, videoID, thumbnailURL)
 }

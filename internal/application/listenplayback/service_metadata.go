@@ -36,20 +36,6 @@ func (service *PlayerService) MergeTrackMetadata(ctx context.Context, track Trac
 	service.saveCurrentSession(ctx)
 }
 
-func (service *PlayerService) UpdateVideoAvailability(ctx context.Context, available bool, known bool) {
-	if !known {
-		return
-	}
-	service.mu.Lock()
-	changed := service.applyVideoAvailabilityLocked(available)
-	service.mu.Unlock()
-	if !changed {
-		return
-	}
-	service.PublishSnapshot(ctx)
-	service.saveCurrentSession(ctx)
-}
-
 func (service *PlayerService) requestTrackMetadataEnrichment(track Track) {
 	if service == nil || service.library == nil {
 		return
@@ -149,23 +135,6 @@ func isMissingTrackArtist(artist string) bool {
 		return true
 	}
 	return false
-}
-
-func (service *PlayerService) applyVideoAvailabilityLocked(available bool) bool {
-	if !service.hasCurrentTrack {
-		return false
-	}
-	changed := !service.currentTrack.VideoAvailabilityKnown || service.currentTrack.HasVideo != available
-	service.currentTrack.VideoAvailabilityKnown = true
-	service.currentTrack.HasVideo = available
-	if current, ok := service.currentQueueTrackLocked(); ok && current.VideoID == service.currentTrack.VideoID {
-		index := safeQueueIndex(service.currentIndex, len(service.queue))
-		if index >= 0 && index < len(service.queue) {
-			service.queue[index].VideoAvailabilityKnown = true
-			service.queue[index].HasVideo = available
-		}
-	}
-	return changed
 }
 
 func mergeTrackMetadata(existing Track, incoming Track) Track {

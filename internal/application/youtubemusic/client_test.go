@@ -236,7 +236,7 @@ func TestTrackThumbnailMatchesKasetRendererThumbnail(t *testing.T) {
 	}
 }
 
-func TestListTrackRendererDoesNotPromoteEndpointMusicVideoType(t *testing.T) {
+func TestListTrackRendererPromotesAudioTrackMusicVideoType(t *testing.T) {
 	track, ok := trackFromMusicResponsiveRenderer(map[string]any{
 		"playlistItemData": map[string]any{"videoId": "TESTVID007G"},
 		"navigationEndpoint": map[string]any{"watchEndpoint": map[string]any{
@@ -256,8 +256,33 @@ func TestListTrackRendererDoesNotPromoteEndpointMusicVideoType(t *testing.T) {
 	if !ok {
 		t.Fatal("expected track")
 	}
-	if track.MusicVideoType != "" {
-		t.Fatalf("list rows should leave video availability to track metadata, got %q", track.MusicVideoType)
+	if track.MusicVideoType != "MUSIC_VIDEO_TYPE_ATV" {
+		t.Fatalf("expected ATV music video type, got %q", track.MusicVideoType)
+	}
+}
+
+func TestListTrackRendererPromotesOfficialVideoMusicVideoType(t *testing.T) {
+	track, ok := trackFromMusicResponsiveRenderer(map[string]any{
+		"playlistItemData": map[string]any{"videoId": "TESTVID007G"},
+		"navigationEndpoint": map[string]any{"watchEndpoint": map[string]any{
+			"watchEndpointMusicSupportedConfigs": map[string]any{
+				"watchEndpointMusicConfig": map[string]any{
+					"musicVideoType": "MUSIC_VIDEO_TYPE_OMV",
+				},
+			},
+		}},
+		"flexColumns": []any{
+			map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"runs": []any{map[string]any{"text": "Fan Upload"}}}}},
+			map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"runs": []any{
+				map[string]any{"text": "Uploader"},
+			}}}},
+		},
+	})
+	if !ok {
+		t.Fatal("expected track")
+	}
+	if track.MusicVideoType != "MUSIC_VIDEO_TYPE_OMV" {
+		t.Fatalf("expected OMV video type, got %q", track.MusicVideoType)
 	}
 }
 

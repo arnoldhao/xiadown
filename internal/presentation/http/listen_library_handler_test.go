@@ -123,9 +123,10 @@ func TestListenLibraryHandlerServesChartTabShelves(t *testing.T) {
 					Title: "Top songs",
 					Kind:  youtubemusic.ShelfTracks,
 					Tracks: []youtubemusic.Track{{
-						VideoID: "TopSong0001",
-						Title:   "Top Song",
-						Channel: "Dream FM",
+						VideoID:      "TopSong0001",
+						Title:        "Top Song",
+						Channel:      "Dream FM",
+						ThumbnailURL: "https://i.ytimg.com/vi/TopSong0001/hq720.jpg",
 					}},
 				}}}, nil
 			case "artists":
@@ -176,6 +177,7 @@ func TestListenLibraryHandlerServesChartTabShelves(t *testing.T) {
 		`"title":"Top songs"`,
 		`"kind":"artists"`,
 		`"browseId":"UCsuperlofi"`,
+		`"hasVideo":true`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected %s in body: %s", expected, body)

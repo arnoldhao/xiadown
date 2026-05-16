@@ -62,6 +62,7 @@ LISTEN_LIST_SECTION_TITLE_CLASS,
 import { clampVolume,formatProgressSeconds } from "@/app/main/listen/local-library";
 import { buildListenAvatarImageCandidates,buildListenImageCandidates,buildListenPosterCandidates,buildListenTrackThumbnailCandidates } from "@/app/main/listen/storage";
 import type { ListenArtistItem,ListenCategoryItem,ListenLiveStatus,ListenLiveStatusValue,ListenLocalItem,ListenMode,ListenOnlineItem,ListenPlayMode,ListenPlaylistItem,ListenPlaylistLibraryAction } from "@/app/main/listen/types";
+import { doesListenThumbnailSuggestVideoContent,hasListenMusicVideoContent,isListenMusicVideoKnownNoVideo } from "@/app/main/listen/video-types";
 
 type ListenArtworkShape = "square" | "circle";
 
@@ -1540,8 +1541,9 @@ export function ListenMuseTrackListGroup(props: {
 
 export function hasListenMuseItemVideo(item: ListenOnlineItem) {
   return (
-    item.hasVideo === true ||
-    item.musicVideoType?.trim() === "MUSIC_VIDEO_TYPE_OMV"
+    hasListenMusicVideoContent(item.musicVideoType) ||
+    (!isListenMusicVideoKnownNoVideo(item.musicVideoType) &&
+      doesListenThumbnailSuggestVideoContent(item.videoId, item.thumbnailUrl))
   );
 }
 

@@ -308,7 +308,7 @@ func normalizeTrack(track Track) Track {
 	if track.Title == "" {
 		track.Title = track.VideoID
 	}
-	return track
+	return normalizeTrackVideoAvailability(track)
 }
 
 func stringsTrim(value string) string {
