@@ -295,6 +295,28 @@ func TestPlayRadioQueueKeepsRadioKindAndStartsAtRequestedIndex(t *testing.T) {
 	}
 }
 
+func TestPlayQueueWithShuffleEnabledMaterializesSelectedTrackFirst(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	service.SetShuffleEnabled(true)
+
+	if err := service.PlayQueue(ctx, makeTracks(), 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, index := service.Queue()
+	if index != 0 {
+		t.Fatalf("expected shuffled queue to start at index 0, got %d", index)
+	}
+	if got := queue[0].VideoID; got != "video-two" {
+		t.Fatalf("expected selected track to be first, got %q", got)
+	}
+	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-two" {
+		t.Fatalf("expected selected track to load, got %q", got)
+	}
+}
+
 func TestNextPublishesCurrentTrackSnapshot(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
@@ -463,7 +485,7 @@ func TestNextWithRepeatOneAdvancesQueue(t *testing.T) {
 	}
 }
 
-func TestNextWithShuffleAndRepeatOneUsesShuffle(t *testing.T) {
+func TestNextWithShuffleAndRepeatOneFollowsMaterializedQueue(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
 	service := newTestService(transport)
@@ -477,12 +499,36 @@ func TestNextWithShuffleAndRepeatOneUsesShuffle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, index := service.Queue()
-	if index != 2 {
-		t.Fatalf("expected shuffle to pick deterministic index 2, got %d", index)
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected next to follow materialized queue index 1, got %d", index)
 	}
-	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-three" {
-		t.Fatalf("expected video-three to load, got %q", got)
+	if got := transport.loads[len(transport.loads)-1].videoID; got != queue[1].VideoID {
+		t.Fatalf("expected next load to follow visible queue, got %q want %q", got, queue[1].VideoID)
+	}
+}
+
+func TestToggleShuffleOffRestoresOriginalQueueOrder(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks(), 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.ToggleShuffle()
+	service.ToggleShuffle()
+
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected current index restored to 1, got %d", index)
+	}
+	if got := []string{queue[0].VideoID, queue[1].VideoID, queue[2].VideoID}; got[0] != "video-one" || got[1] != "video-two" || got[2] != "video-three" {
+		t.Fatalf("expected original queue order after shuffle off, got %v", got)
+	}
+	track, ok := service.CurrentTrack()
+	if !ok || track.VideoID != "video-two" {
+		t.Fatalf("expected current track to remain video-two, got %#v", track)
 	}
 }
 

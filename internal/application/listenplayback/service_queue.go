@@ -14,12 +14,18 @@ func (service *PlayerService) PlayQueue(ctx context.Context, tracks []Track, sta
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
-	service.queue = normalized
 	service.queueKind = QueueKindPlaylist
 	service.queueTitle = stringsTrim(title)
-	service.currentIndex = index
 	service.mixContinuationToken = ""
-	action, err := service.preparePlayTrackLocked(normalized[index], VideoLoadStandard, PlayOptions{})
+	if service.shuffleEnabled && len(normalized) > 1 {
+		service.materializeShuffleQueueLocked(normalized, index, false, true)
+	} else {
+		service.queueOrderBeforeShuffle = nil
+		service.queue = normalized
+		service.currentIndex = index
+	}
+	track := service.queue[safeQueueIndex(service.currentIndex, len(service.queue))]
+	action, err := service.preparePlayTrackLocked(track, VideoLoadStandard, PlayOptions{})
 	service.mu.Unlock()
 	if err != nil {
 		return err
@@ -42,6 +48,7 @@ func (service *PlayerService) PlayWithRadio(ctx context.Context, track Track, ti
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
 	service.queue = []Track{track}
+	service.queueOrderBeforeShuffle = nil
 	service.queueKind = QueueKindRadio
 	service.queueTitle = stringsTrim(title)
 	service.currentIndex = 0
@@ -76,12 +83,18 @@ func (service *PlayerService) PlayRadioQueue(ctx context.Context, tracks []Track
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
-	service.queue = normalized
 	service.queueKind = QueueKindRadio
 	service.queueTitle = stringsTrim(title)
-	service.currentIndex = index
 	service.mixContinuationToken = ""
-	action, err := service.preparePlayTrackLocked(normalized[index], VideoLoadStandard, PlayOptions{})
+	if service.shuffleEnabled && len(normalized) > 1 {
+		service.materializeShuffleQueueLocked(normalized, index, false, true)
+	} else {
+		service.queueOrderBeforeShuffle = nil
+		service.queue = normalized
+		service.currentIndex = index
+	}
+	track := service.queue[safeQueueIndex(service.currentIndex, len(service.queue))]
+	action, err := service.preparePlayTrackLocked(track, VideoLoadStandard, PlayOptions{})
 	service.mu.Unlock()
 	if err != nil {
 		return err
@@ -112,6 +125,7 @@ func (service *PlayerService) PlayWithMix(ctx context.Context, playlistID string
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
 	service.queue = tracks
+	service.queueOrderBeforeShuffle = nil
 	service.queueKind = QueueKindMix
 	service.queueTitle = stringsTrim(title)
 	service.currentIndex = 0
@@ -165,24 +179,6 @@ func (service *PlayerService) Next(ctx context.Context) error {
 		if hasPending {
 			return service.executeActions(ctx, transportAction{kind: "next"})
 		}
-		return nil
-	}
-
-	if service.shuffleEnabled {
-		index := safeQueueIndex(service.random(len(service.queue)), len(service.queue))
-		action, err := service.playQueueIndexLocked(index, true, VideoLoadStandard)
-		service.mu.Unlock()
-		if err != nil {
-			return err
-		}
-		if err := service.executeActions(ctx, action); err != nil {
-			return err
-		}
-		service.PublishSnapshot(ctx)
-		if err := service.FetchMoreMixSongsIfNeeded(ctx); err != nil {
-			return err
-		}
-		service.saveCurrentSession(ctx)
 		return nil
 	}
 
@@ -309,6 +305,7 @@ func (service *PlayerService) ClearQueueEntirely(ctx context.Context) {
 	service.recordQueueStateForUndoLocked()
 	service.mixContinuationToken = ""
 	service.queue = nil
+	service.queueOrderBeforeShuffle = nil
 	service.queueKind = QueueKindNone
 	service.queueTitle = ""
 	service.currentIndex = 0
@@ -322,6 +319,7 @@ func (service *PlayerService) ClearQueue(ctx context.Context) {
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
 	service.mixContinuationToken = ""
+	service.queueOrderBeforeShuffle = nil
 	if service.hasCurrentTrack {
 		service.queue = []Track{service.currentTrack}
 		service.currentIndex = 0
@@ -510,23 +508,7 @@ func (service *PlayerService) ShuffleQueue(ctx context.Context) {
 		service.mu.Unlock()
 		return
 	}
-	service.clearForwardSkipNavigationStackLocked()
-	service.recordQueueStateForUndoLocked()
-	current := Track{}
-	hasCurrent := false
-	if service.currentIndex >= 0 && service.currentIndex < len(service.queue) {
-		current = service.queue[service.currentIndex]
-		hasCurrent = true
-		service.queue = append(service.queue[:service.currentIndex], service.queue[service.currentIndex+1:]...)
-	}
-	for index := len(service.queue) - 1; index > 0; index-- {
-		swap := safeQueueIndex(service.random(index+1), index+1)
-		service.queue[index], service.queue[swap] = service.queue[swap], service.queue[index]
-	}
-	if hasCurrent {
-		service.queue = append([]Track{current}, service.queue...)
-		service.currentIndex = 0
-	}
+	service.materializeShuffleQueueLocked(service.queue, service.currentIndex, true, false)
 	service.mu.Unlock()
 	service.saveCurrentSession(ctx)
 }
@@ -614,6 +596,109 @@ func (service *PlayerService) FetchMoreMixSongsIfNeeded(ctx context.Context) err
 	return nil
 }
 
+func (service *PlayerService) setShuffleEnabledLocked(enabled bool, recordUndo bool) {
+	if service.shuffleEnabled == enabled {
+		return
+	}
+	service.shuffleEnabled = enabled
+	if enabled {
+		service.materializeShuffleQueueLocked(service.queue, service.currentIndex, recordUndo, true)
+		return
+	}
+	service.restoreQueueOrderBeforeShuffleLocked(recordUndo)
+}
+
+func (service *PlayerService) materializeShuffleQueueLocked(entries []Track, startingAt int, recordUndo bool, storesOriginalOrder bool) {
+	if len(entries) <= 1 {
+		service.queue = cloneTracks(entries)
+		service.currentIndex = safeQueueIndex(startingAt, len(service.queue))
+		if len(entries) == 0 {
+			service.queueOrderBeforeShuffle = nil
+		}
+		return
+	}
+	service.clearForwardSkipNavigationStackLocked()
+	if recordUndo {
+		service.recordQueueStateForUndoLocked()
+	}
+	if storesOriginalOrder {
+		service.queueOrderBeforeShuffle = cloneTracks(entries)
+	}
+
+	queue := cloneTracks(entries)
+	index := safeQueueIndex(startingAt, len(queue))
+	current := queue[index]
+	queue = append(queue[:index], queue[index+1:]...)
+	shuffleTracks(queue, service.random)
+	service.queue = append([]Track{current}, queue...)
+	service.currentIndex = 0
+}
+
+func (service *PlayerService) restoreQueueOrderBeforeShuffleLocked(recordUndo bool) {
+	snapshot := cloneTracks(service.queueOrderBeforeShuffle)
+	if len(snapshot) == 0 {
+		service.queueOrderBeforeShuffle = nil
+		return
+	}
+	currentQueue := cloneTracks(service.queue)
+	if len(currentQueue) == 0 {
+		service.queueOrderBeforeShuffle = nil
+		service.queue = nil
+		service.currentIndex = 0
+		return
+	}
+	currentKey := ""
+	if service.currentIndex >= 0 && service.currentIndex < len(currentQueue) {
+		currentKey = queueTrackIdentity(currentQueue[service.currentIndex])
+	}
+
+	service.clearForwardSkipNavigationStackLocked()
+	if recordUndo {
+		service.recordQueueStateForUndoLocked()
+	}
+
+	used := make([]bool, len(currentQueue))
+	restored := make([]Track, 0, len(currentQueue))
+	for _, original := range snapshot {
+		key := queueTrackIdentity(original)
+		for index, track := range currentQueue {
+			if used[index] || queueTrackIdentity(track) != key {
+				continue
+			}
+			restored = append(restored, track)
+			used[index] = true
+			break
+		}
+	}
+	for index, track := range currentQueue {
+		if !used[index] {
+			restored = append(restored, track)
+		}
+	}
+	if len(restored) == 0 {
+		service.queueOrderBeforeShuffle = nil
+		return
+	}
+	service.queue = restored
+	service.currentIndex = safeQueueIndex(service.currentIndex, len(service.queue))
+	if currentKey != "" {
+		for index, track := range service.queue {
+			if queueTrackIdentity(track) == currentKey {
+				service.currentIndex = index
+				break
+			}
+		}
+	}
+	service.queueOrderBeforeShuffle = nil
+}
+
+func queueTrackIdentity(track Track) string {
+	if track.ID != "" {
+		return "id:" + track.ID
+	}
+	return "video:" + track.VideoID
+}
+
 func (service *PlayerService) playQueueIndexLocked(index int, rememberForwardSkip bool, strategy VideoLoadStrategy) (transportAction, error) {
 	if index < 0 || index >= len(service.queue) {
 		return transportAction{}, nil
@@ -646,9 +731,14 @@ func (service *PlayerService) applyRadioQueue(ctx context.Context, seed Track, t
 	}
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
-	service.queue = queue
 	service.queueKind = QueueKindRadio
-	service.currentIndex = 0
+	if service.shuffleEnabled && len(queue) > 1 {
+		service.materializeShuffleQueueLocked(queue, 0, false, true)
+	} else {
+		service.queueOrderBeforeShuffle = nil
+		service.queue = queue
+		service.currentIndex = 0
+	}
 	service.mu.Unlock()
 	service.requestTracksMetadataEnrichment(queue)
 	service.saveCurrentSession(ctx)

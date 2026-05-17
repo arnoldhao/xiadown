@@ -299,9 +299,7 @@ func (service *PlayerService) nextActionsLocked() []transportAction {
 		return nil
 	}
 	index := service.currentIndex + 1
-	if service.shuffleEnabled {
-		index = safeQueueIndex(service.random(len(service.queue)), len(service.queue))
-	} else if service.currentIndex >= len(service.queue)-1 {
+	if service.currentIndex >= len(service.queue)-1 {
 		if service.repeatMode == RepeatModeAll {
 			index = 0
 		} else {

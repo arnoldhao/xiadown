@@ -47,6 +47,8 @@ type PlayerService struct {
 	queueTitle   string
 	currentIndex int
 
+	queueOrderBeforeShuffle []Track
+
 	queueUndo []QueueSnapshot
 	queueRedo []QueueSnapshot
 
@@ -274,13 +276,13 @@ func (service *PlayerService) MiniPlayerDismissed() {
 func (service *PlayerService) ToggleShuffle() {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	service.shuffleEnabled = !service.shuffleEnabled
+	service.setShuffleEnabledLocked(!service.shuffleEnabled, true)
 }
 
 func (service *PlayerService) SetShuffleEnabled(enabled bool) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	service.shuffleEnabled = enabled
+	service.setShuffleEnabledLocked(enabled, true)
 }
 
 func (service *PlayerService) CycleRepeatMode() RepeatMode {
