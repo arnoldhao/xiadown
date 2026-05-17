@@ -253,6 +253,43 @@ func TestNormalizeWindowBoundsForPersistenceRejectsEmptyBounds(t *testing.T) {
 	}
 }
 
+func TestNormalizeWindowBoundsForLaunchClampsMinimumSize(t *testing.T) {
+	got := normalizeWindowBoundsForLaunch(settingsdto.WindowBounds{
+		X:      20,
+		Y:      30,
+		Width:  400,
+		Height: 300,
+	}, windowTypeMain)
+	if got.X != 20 || got.Y != 30 {
+		t.Fatalf("expected position to be preserved, got %+v", got)
+	}
+	if got.Width != settings.MinMainWindowWidth || got.Height != settings.MinMainWindowHeight {
+		t.Fatalf("expected main launch bounds to clamp to minimum size, got %+v", got)
+	}
+
+	settingsBounds := normalizeWindowBoundsForLaunch(settingsdto.WindowBounds{
+		X:      40,
+		Y:      50,
+		Width:  320,
+		Height: 360,
+	}, windowTypeSettings)
+	if settingsBounds.Width != settings.MinSettingsWindowWidth || settingsBounds.Height != settings.MinSettingsWindowHeight {
+		t.Fatalf("expected settings launch bounds to clamp to minimum size, got %+v", settingsBounds)
+	}
+}
+
+func TestNormalizeWindowBoundsForLaunchPreservesSavedSize(t *testing.T) {
+	got := normalizeWindowBoundsForLaunch(settingsdto.WindowBounds{
+		X:      132,
+		Y:      61,
+		Width:  1249,
+		Height: 842,
+	}, windowTypeMain)
+	if got.X != 132 || got.Y != 61 || got.Width != 1249 || got.Height != 842 {
+		t.Fatalf("expected saved launch bounds to be preserved, got %+v", got)
+	}
+}
+
 func TestWindowManagerCachedBoundsUsesLastValidBounds(t *testing.T) {
 	manager := &WindowManager{
 		lastMainBounds: settingsdto.WindowBounds{
@@ -298,5 +335,29 @@ func TestWindowManagerCachedBoundsUsesLastValidBounds(t *testing.T) {
 	manager.markBoundsClean(windowTypeMain)
 	if _, ok := manager.cachedBoundsForPersistence(windowTypeMain); ok {
 		t.Fatal("expected cached bounds to be clean after markBoundsClean")
+	}
+}
+
+func TestWindowManagerBoundsTrackingReadyIsPerWindow(t *testing.T) {
+	manager := &WindowManager{}
+
+	if manager.boundsTrackingReady(windowTypeMain) {
+		t.Fatal("expected main bounds tracking to start disabled")
+	}
+	if manager.boundsTrackingReady(windowTypeSettings) {
+		t.Fatal("expected settings bounds tracking to start disabled")
+	}
+
+	manager.markBoundsTrackingReady(windowTypeMain)
+	if !manager.boundsTrackingReady(windowTypeMain) {
+		t.Fatal("expected main bounds tracking to be enabled")
+	}
+	if manager.boundsTrackingReady(windowTypeSettings) {
+		t.Fatal("expected settings bounds tracking to remain disabled")
+	}
+
+	manager.markBoundsTrackingReady(windowTypeSettings)
+	if !manager.boundsTrackingReady(windowTypeSettings) {
+		t.Fatal("expected settings bounds tracking to be enabled")
 	}
 }

@@ -121,7 +121,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 			}
 		}
 		if windowManager != nil {
-			windowManager.PersistAllBounds()
+			windowManager.PrepareQuit()
 		}
 		if petsService != nil {
 			petsService.ShutdownOnlinePetImportSessions()
