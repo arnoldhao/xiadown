@@ -54,6 +54,7 @@ func (service *PlayerService) shouldIgnoreZeroProgressResetLocked(progress float
 func (service *PlayerService) ApplyRestoredPlaybackSession(queue []Track, currentIndex int, progress float64, duration float64) {
 	defer service.PublishSnapshot(context.Background())
 	service.applyRestoredPlaybackSession(queue, QueueKindPlaylist, "", currentIndex, progress, duration)
+	service.requestCurrentQueueMetadataEnrichment()
 }
 
 func (service *PlayerService) applyRestoredPlaybackSession(

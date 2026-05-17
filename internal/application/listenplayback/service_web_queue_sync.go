@@ -63,6 +63,7 @@ func (service *PlayerService) UpdateTrackMetadata(ctx context.Context, observed 
 	observed.Artist = stringsTrim(observed.Artist)
 	observed.ThumbnailURL = stringsTrim(observed.ThumbnailURL)
 	observed.LikeStatus = stringsTrim(observed.LikeStatus)
+	observed.MetadataSource = stringsTrim(observed.MetadataSource)
 
 	var trackForEnrichment Track
 	service.mu.Lock()
@@ -298,9 +299,7 @@ func (service *PlayerService) nextActionsLocked() []transportAction {
 		return nil
 	}
 	index := service.currentIndex + 1
-	if service.shuffleEnabled {
-		index = safeQueueIndex(service.random(len(service.queue)), len(service.queue))
-	} else if service.currentIndex >= len(service.queue)-1 {
+	if service.currentIndex >= len(service.queue)-1 {
 		if service.repeatMode == RepeatModeAll {
 			index = 0
 		} else {
@@ -454,9 +453,6 @@ func (service *PlayerService) mergeObservedQueueTrackLocked(track Track, observe
 	if service.shouldFillAuthoritativeTitleLocked(track, observed.Title) {
 		track.Title = observed.Title
 	}
-	if track.Artist == "" && observed.Artist != "" {
-		track.Artist = observed.Artist
-	}
 	if track.DurationSeconds <= 0 && service.duration > 0 {
 		track.DurationSeconds = service.duration
 	}
@@ -491,6 +487,10 @@ func (service *PlayerService) observedTrackLocked(resolvedVideoID string, observ
 	}
 	if observed.Artist != "" {
 		track.Artist = observed.Artist
+		track.ArtistSource = observed.MetadataSource
+		if track.ArtistSource == "" {
+			track.ArtistSource = TrackArtistSourceObserved
+		}
 	}
 	if track.ThumbnailURL == "" || shouldUseObservedThumbnailForVideoAvailability(track, observed.ThumbnailURL) {
 		track.ThumbnailURL = observed.ThumbnailURL

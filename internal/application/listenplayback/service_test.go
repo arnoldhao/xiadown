@@ -164,6 +164,23 @@ func waitForTrackArtist(t *testing.T, service *PlayerService, videoID string, ar
 	t.Fatalf("timed out waiting for %q artist %q, snapshot: %#v", videoID, artist, snapshot.CurrentTrack)
 }
 
+func waitForQueueTrackArtist(t *testing.T, service *PlayerService, videoID string, artist string) Track {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := service.Snapshot(context.Background())
+		for _, track := range snapshot.Queue {
+			if track.VideoID == videoID && track.Artist == artist {
+				return track
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot := service.Snapshot(context.Background())
+	t.Fatalf("timed out waiting for queue track %q artist %q, snapshot queue: %#v", videoID, artist, snapshot.Queue)
+	return Track{}
+}
+
 func TestPlayTrackEnrichesMissingArtistFromLibraryMetadata(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
@@ -187,6 +204,32 @@ func TestPlayTrackEnrichesMissingArtistFromLibraryMetadata(t *testing.T) {
 	service.ConfirmPlaybackStarted()
 
 	if err := service.PlayTrack(ctx, Track{ID: "video-one", VideoID: "video-one", Title: "One"}, PlayOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForTrackArtist(t, service, "video-one", "Metadata Artist")
+}
+
+func TestPlayTrackEnrichesPlaceholderArtistFromLibraryMetadata(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			metadata: map[string]Track{
+				"video-one": {
+					ID:             "video-one",
+					VideoID:        "video-one",
+					Title:          "One",
+					Artist:         "Metadata Artist",
+					ArtistBrowseID: "UCmetadata",
+				},
+			},
+		}),
+	)
+	service.ConfirmPlaybackStarted()
+
+	if err := service.PlayTrack(ctx, Track{ID: "video-one", VideoID: "video-one", Title: "One", Artist: "专为"}, PlayOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,6 +292,28 @@ func TestPlayRadioQueueKeepsRadioKindAndStartsAtRequestedIndex(t *testing.T) {
 	}
 	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-two" {
 		t.Fatalf("expected video-two to load, got %q", got)
+	}
+}
+
+func TestPlayQueueWithShuffleEnabledMaterializesSelectedTrackFirst(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	service.SetShuffleEnabled(true)
+
+	if err := service.PlayQueue(ctx, makeTracks(), 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, index := service.Queue()
+	if index != 0 {
+		t.Fatalf("expected shuffled queue to start at index 0, got %d", index)
+	}
+	if got := queue[0].VideoID; got != "video-two" {
+		t.Fatalf("expected selected track to be first, got %q", got)
+	}
+	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-two" {
+		t.Fatalf("expected selected track to load, got %q", got)
 	}
 }
 
@@ -420,7 +485,7 @@ func TestNextWithRepeatOneAdvancesQueue(t *testing.T) {
 	}
 }
 
-func TestNextWithShuffleAndRepeatOneUsesShuffle(t *testing.T) {
+func TestNextWithShuffleAndRepeatOneFollowsMaterializedQueue(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
 	service := newTestService(transport)
@@ -434,12 +499,36 @@ func TestNextWithShuffleAndRepeatOneUsesShuffle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, index := service.Queue()
-	if index != 2 {
-		t.Fatalf("expected shuffle to pick deterministic index 2, got %d", index)
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected next to follow materialized queue index 1, got %d", index)
 	}
-	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-three" {
-		t.Fatalf("expected video-three to load, got %q", got)
+	if got := transport.loads[len(transport.loads)-1].videoID; got != queue[1].VideoID {
+		t.Fatalf("expected next load to follow visible queue, got %q want %q", got, queue[1].VideoID)
+	}
+}
+
+func TestToggleShuffleOffRestoresOriginalQueueOrder(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks(), 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.ToggleShuffle()
+	service.ToggleShuffle()
+
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected current index restored to 1, got %d", index)
+	}
+	if got := []string{queue[0].VideoID, queue[1].VideoID, queue[2].VideoID}; got[0] != "video-one" || got[1] != "video-two" || got[2] != "video-three" {
+		t.Fatalf("expected original queue order after shuffle off, got %v", got)
+	}
+	track, ok := service.CurrentTrack()
+	if !ok || track.VideoID != "video-two" {
+		t.Fatalf("expected current track to remain video-two, got %#v", track)
 	}
 }
 
@@ -561,6 +650,124 @@ func TestTrackEndedRepeatOneRestartsCurrentQueueTrack(t *testing.T) {
 	}
 	if transport.actions[len(transport.actions)-1] != "play" {
 		t.Fatalf("expected repeat one to resume after seek, actions=%v", transport.actions)
+	}
+}
+
+func TestManualSeekToEndAdvancesQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 180); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected manual seek to end to advance queue, got index %d", index)
+	}
+	if got := transport.loads[len(transport.loads)-1]; got.videoID != "video-two" {
+		t.Fatalf("expected manual seek to load next track, got %#v", got)
+	}
+}
+
+func TestManualSeekWithinEndThresholdAdvancesQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 179.75); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected near-end manual seek to advance queue, got index %d", index)
+	}
+}
+
+func TestManualSeekToMiddleDoesNotAdvanceQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 90); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 0 {
+		t.Fatalf("expected middle seek to keep current queue index, got %d", index)
+	}
+	if len(transport.seeks) == 0 || transport.seeks[len(transport.seeks)-1] != 90 {
+		t.Fatalf("expected middle seek to reach transport, seeks=%v", transport.seeks)
+	}
+}
+
+func TestManualSeekToEndOfLastTrackPausesAtEnd(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 180); err != nil {
+		t.Fatal(err)
+	}
+
+	if service.State() != PlaybackStateEnded {
+		t.Fatalf("expected manual seek to last-track end to mark ended, got %s", service.State())
+	}
+	if len(transport.seeks) == 0 || transport.seeks[len(transport.seeks)-1] != 180 {
+		t.Fatalf("expected terminal seek to synchronize transport position, seeks=%v", transport.seeks)
+	}
+	if transport.actions[len(transport.actions)-1] != "pause" {
+		t.Fatalf("expected terminal seek to pause transport, actions=%v", transport.actions)
+	}
+}
+
+func TestRestoredSeekToEndIsDeferred(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	service.ApplyRestoredPlaybackSession(makeTracks()[:2], 0, 60, 180)
+	if err := service.Seek(ctx, 180); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 0 {
+		t.Fatalf("expected restored seek to keep queue index, got %d", index)
+	}
+	snapshot := service.Snapshot(ctx)
+	if snapshot.Progress != 180 || snapshot.PendingPlayVideoID != "video-one" {
+		t.Fatalf("expected restored seek to update deferred progress only, got %+v", snapshot)
+	}
+	if len(transport.actions) != 0 {
+		t.Fatalf("expected restored seek to avoid transport actions, got %v", transport.actions)
 	}
 }
 
@@ -790,6 +997,114 @@ func TestObservedMetadataFillsMissingQueueThumbnail(t *testing.T) {
 	}
 	if track.ThumbnailURL != "https://example.com/player-bar-thumbnail.jpg" {
 		t.Fatalf("expected missing thumbnail to be filled, got %q", track.ThumbnailURL)
+	}
+}
+
+func TestObservedMetadataDoesNotReplaceQueueArtistWithoutTrustedSource(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(&fakeTransport{})
+	tracks := makeTracks()
+	tracks[0].Artist = "专为"
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-one",
+		Title:           "One",
+		Artist:          "Resolved Artist",
+		TrackChanged:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	track, ok := service.CurrentTrack()
+	if !ok || track.Artist != "专为" {
+		t.Fatalf("expected untrusted observed metadata to keep queue artist, got %#v", track)
+	}
+}
+
+func TestQueuePlaceholderArtistIsReplacedByTrustedLibraryMetadata(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	tracks := makeTracks()
+	tracks[0].Artist = "专为"
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			metadata: map[string]Track{
+				"video-one": {
+					ID:             "video-one",
+					VideoID:        "video-one",
+					Title:          "One",
+					Artist:         "Resolved Artist",
+					ArtistBrowseID: "UCresolved",
+				},
+			},
+		}),
+	)
+	service.ConfirmPlaybackStarted()
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForTrackArtist(t, service, "video-one", "Resolved Artist")
+}
+
+func TestPlayQueueEnrichesUpNextArtistFromLibraryMetadata(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	tracks := makeTracks()
+	tracks[1].Artist = "Made for"
+	tracks[1].ArtistSource = TrackArtistSourceAPIText
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			metadata: map[string]Track{
+				"video-two": {
+					ID:           "video-two",
+					VideoID:      "video-two",
+					Title:        "Two",
+					Artist:       "Resolved Artist",
+					ArtistSource: TrackArtistSourceAPIMetadata,
+				},
+			},
+		}),
+	)
+	service.ConfirmPlaybackStarted()
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	track := waitForQueueTrackArtist(t, service, "video-two", "Resolved Artist")
+	if track.ArtistSource != TrackArtistSourceAPIMetadata {
+		t.Fatalf("expected enriched queue artist to come from API metadata, got %#v", track)
+	}
+}
+
+func TestMergeTrackMetadataDoesNotDowngradeTrustedArtistSource(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(&fakeTransport{})
+	tracks := makeTracks()[:1]
+	tracks[0].Artist = "Resolved Artist"
+	tracks[0].ArtistSource = TrackArtistSourceAPILinked
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.MergeTrackMetadata(ctx, Track{
+		ID:           "video-one",
+		VideoID:      "video-one",
+		Title:        "One",
+		Artist:       "Made for",
+		ArtistSource: TrackArtistSourceAPIText,
+	})
+
+	track, ok := service.CurrentTrack()
+	if !ok || track.Artist != "Resolved Artist" || track.ArtistSource != TrackArtistSourceAPILinked {
+		t.Fatalf("expected trusted artist source to remain intact, got %#v", track)
 	}
 }
 

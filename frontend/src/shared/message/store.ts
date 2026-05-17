@@ -85,7 +85,7 @@ function normalizeDialog(input: PublishDialogInput): DialogMessage {
     i18n: input.i18n,
     confirmLabel: input.confirmLabel ?? "OK",
     confirmLabelKey: input.confirmLabelKey,
-    cancelLabel: input.cancelLabel ?? "Cancel",
+    cancelLabel: input.cancelLabel,
     cancelLabelKey: input.cancelLabelKey,
     destructive: input.destructive ?? input.intent === "danger",
     onConfirm: input.onConfirm,

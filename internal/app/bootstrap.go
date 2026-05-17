@@ -121,7 +121,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 			}
 		}
 		if windowManager != nil {
-			windowManager.PersistAllBounds()
+			windowManager.PrepareQuit()
 		}
 		if petsService != nil {
 			petsService.ShutdownOnlinePetImportSessions()
@@ -367,7 +367,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 
 	osNotifications := notifications.New()
 	app.RegisterService(application.NewService(wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, listenPlayer, listenLivePlayer)))
-	app.RegisterService(application.NewService(wails.NewConnectorsHandler(connectorsService, telemetryService, listenPlayer, listenLivePlayer)))
+	app.RegisterService(application.NewService(wails.NewConnectorsHandler(connectorsService, windowManager, telemetryService, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewDependenciesHandler(dependenciesService, windowManager, telemetryService)))
 	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService)))
 	app.RegisterService(application.NewService(wails.NewSystemHandler(fontService)))
@@ -391,6 +391,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	app.RegisterService(application.NewService(wails.NewUpdateHandler(updateService, telemetryService, app)))
 
 	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(_ *application.ApplicationEvent) {
+		windowManager.MarkApplicationStarted()
 		go func() {
 			time.Sleep(500 * time.Millisecond)
 			libraryService.RecoverPendingJobs(context.Background())

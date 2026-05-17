@@ -57,7 +57,7 @@ func TestConnectorsHandlerResetsOnlinePlayerForYouTubeMutations(t *testing.T) {
 	repo := newMemoryConnectorRepository()
 	service := connectorsservice.NewConnectorsService(repo)
 	resetter := &countingOnlinePlayerResetter{}
-	handler := NewConnectorsHandler(service, nil, resetter)
+	handler := NewConnectorsHandler(service, nil, nil, resetter)
 
 	if _, err := handler.UpsertConnector(ctx, dto.UpsertConnectorRequest{
 		ID:     "connector-youtube",

@@ -764,7 +764,11 @@ export function ConnectorsSection() {
           void handleDismissLogin();
         }}
       >
-        <DialogContent className="grid max-h-[min(32rem,calc(100vh-2rem))] w-[min(32rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-4 overflow-hidden">
+        <DialogContent
+          className="grid max-h-[min(32rem,calc(100vh-2rem))] w-[min(32rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-4 overflow-hidden"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+          onInteractOutside={(event) => event.preventDefault()}
+        >
           <DialogHeader className="min-w-0">
             <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
               {t("settings.connectors.loginTitle")}
@@ -800,7 +804,7 @@ export function ConnectorsSection() {
               onClick={() => void handleDismissLogin()}
               disabled={isLoginRunning}
             >
-              {t("common.cancel")}
+              {t("common.close")}
             </Button>
             <Button
               onClick={() => void handleFinishLogin()}

@@ -12,8 +12,11 @@ import (
 type ConnectorsHandler struct {
 	service         *service.ConnectorsService
 	telemetry       connectorsTelemetry
+	windows         *WindowManager
 	playerResetters []connectorsOnlinePlayerResetter
 }
+
+const ListenYouTubeConnectorChangedEvent = "listen:youtube-connector:changed"
 
 type connectorsTelemetry interface {
 	TrackConnectorConnected(ctx context.Context, connectorType string)
@@ -23,8 +26,8 @@ type connectorsOnlinePlayerResetter interface {
 	Reset() error
 }
 
-func NewConnectorsHandler(service *service.ConnectorsService, telemetry connectorsTelemetry, playerResetters ...connectorsOnlinePlayerResetter) *ConnectorsHandler {
-	return &ConnectorsHandler{service: service, telemetry: telemetry, playerResetters: playerResetters}
+func NewConnectorsHandler(service *service.ConnectorsService, windows *WindowManager, telemetry connectorsTelemetry, playerResetters ...connectorsOnlinePlayerResetter) *ConnectorsHandler {
+	return &ConnectorsHandler{service: service, telemetry: telemetry, windows: windows, playerResetters: playerResetters}
 }
 
 func (handler *ConnectorsHandler) ServiceName() string {
@@ -42,6 +45,7 @@ func (handler *ConnectorsHandler) UpsertConnector(ctx context.Context, request d
 	}
 	if isYouTubeConnectorDTO(connector) {
 		handler.resetOnlinePlayer()
+		handler.dispatchYouTubeConnectorChanged("upsert", connector.ID, connector.Status)
 	}
 	return connector, nil
 }
@@ -53,6 +57,7 @@ func (handler *ConnectorsHandler) ClearConnector(ctx context.Context, request dt
 	}
 	if resetAfterClear {
 		handler.resetOnlinePlayer()
+		handler.dispatchYouTubeConnectorChanged("clear", request.ID, connectors.StatusDisconnected)
 	}
 	return nil
 }
@@ -82,6 +87,7 @@ func (handler *ConnectorsHandler) FinishConnectorConnect(ctx context.Context, re
 	}
 	if result.Saved && isYouTubeConnectorDTO(result.Connector) {
 		handler.resetOnlinePlayer()
+		handler.dispatchYouTubeConnectorChanged("finish", result.Connector.ID, result.Connector.Status)
 	}
 	return result, nil
 }
@@ -123,6 +129,29 @@ func (handler *ConnectorsHandler) resetOnlinePlayer() {
 		if resetter != nil {
 			_ = resetter.Reset()
 		}
+	}
+}
+
+func (handler *ConnectorsHandler) dispatchYouTubeConnectorChanged(action string, connectorID string, status any) {
+	if handler == nil || handler.windows == nil {
+		return
+	}
+	handler.windows.dispatchWindowEvent(ListenYouTubeConnectorChangedEvent, map[string]any{
+		"action":        strings.TrimSpace(action),
+		"connectorId":   strings.TrimSpace(connectorID),
+		"connectorType": string(connectors.ConnectorYouTube),
+		"status":        strings.TrimSpace(toConnectorStatusString(status)),
+	})
+}
+
+func toConnectorStatusString(status any) string {
+	switch value := status.(type) {
+	case connectors.ConnectorStatus:
+		return string(value)
+	case string:
+		return value
+	default:
+		return ""
 	}
 }
 

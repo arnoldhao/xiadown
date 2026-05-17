@@ -3,8 +3,11 @@ package listenplayback
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 )
+
+const manualSeekToEndThreshold = 0.5
 
 type transportAction struct {
 	kind     string
@@ -132,10 +135,48 @@ func (service *PlayerService) Seek(ctx context.Context, seconds float64) error {
 		return nil
 	}
 	service.clearRestoredPlaybackSessionStateLocked()
+	if service.manualSeekReachedEndLocked(target) {
+		duration := service.duration
+		service.progress = duration
+		service.currentTimeMs = int(duration*1000 + 0.5)
+		observedVideoID := service.expectedCurrentVideoIDLocked()
+		actions := service.terminalManualSeekActionsLocked(duration)
+		service.mu.Unlock()
+		if err := service.executeActions(ctx, actions...); err != nil {
+			return err
+		}
+		return service.HandleTrackEnded(ctx, observedVideoID)
+	}
 	service.progress = target
 	service.currentTimeMs = int(target*1000 + 0.5)
 	service.mu.Unlock()
 	return service.executeActions(ctx, transportAction{kind: "seek", seconds: target})
+}
+
+func (service *PlayerService) manualSeekReachedEndLocked(target float64) bool {
+	if service.duration <= manualSeekToEndThreshold || target <= 0 {
+		return false
+	}
+	return target >= service.duration-manualSeekToEndThreshold ||
+		math.Abs(target-service.duration) <= manualSeekToEndThreshold
+}
+
+func (service *PlayerService) terminalManualSeekActionsLocked(duration float64) []transportAction {
+	if !service.shouldSynchronizeTerminalManualSeekLocked() {
+		return nil
+	}
+	actions := []transportAction{{kind: "seek", seconds: duration}}
+	if len(service.queue) == 0 && service.repeatMode != RepeatModeOne {
+		actions = append(actions, transportAction{kind: "pause"})
+	}
+	return actions
+}
+
+func (service *PlayerService) shouldSynchronizeTerminalManualSeekLocked() bool {
+	if len(service.queue) == 0 {
+		return !(service.repeatMode == RepeatModeOne && (service.hasCurrentTrack || service.pendingPlayVideoID != ""))
+	}
+	return !service.canAdvanceQueueAfterTrackEndLocked()
 }
 
 func (service *PlayerService) SetVolume(ctx context.Context, volume float64, muted bool) error {
@@ -298,6 +339,7 @@ func normalizeTrack(track Track) Track {
 	track.Title = stringsTrim(track.Title)
 	track.Artist = stringsTrim(track.Artist)
 	track.ArtistBrowseID = stringsTrim(track.ArtistBrowseID)
+	track.ArtistSource = stringsTrim(track.ArtistSource)
 	track.DurationLabel = stringsTrim(track.DurationLabel)
 	track.ThumbnailURL = stringsTrim(track.ThumbnailURL)
 	track.MusicVideoType = stringsTrim(track.MusicVideoType)

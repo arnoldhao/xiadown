@@ -23,17 +23,25 @@ import (
 )
 
 type WindowManager struct {
-	app             *application.App
-	mainWindow      *application.WebviewWindow
-	settingsWindow  *application.WebviewWindow
-	trayMiniPlayer  *application.WebviewWindow
-	settingsService *service.SettingsService
-	appVersion      string
-	mainVisibal     bool
-	settingsVisible bool
-	initialized     bool
-	updateState     update.Info
-	quitting        atomic.Bool
+	app                 *application.App
+	mainWindow          *application.WebviewWindow
+	settingsWindow      *application.WebviewWindow
+	trayMiniPlayer      *application.WebviewWindow
+	settingsService     *service.SettingsService
+	appVersion          string
+	mainVisibal         bool
+	settingsVisible     bool
+	boundsMu            sync.Mutex
+	lastMainBounds      dto.WindowBounds
+	lastSettingsBounds  dto.WindowBounds
+	mainBoundsDirty     bool
+	settingsBoundsDirty bool
+	initialized         bool
+	updateState         update.Info
+	quitting            atomic.Bool
+	applicationStarted  atomic.Bool
+	mainBoundsReady     atomic.Bool
+	settingsBoundsReady atomic.Bool
 
 	systemTray *SystemTrayController
 }
@@ -94,21 +102,25 @@ func NewWindowManager(app *application.App, settingsService *service.SettingsSer
 		return nil, err
 	}
 
-	mainWindow := app.Window.NewWithOptions(buildMainWindowOptions(current, launchedByAutoStart))
-	settingsWindow := app.Window.NewWithOptions(buildSettingsWindowOptions(current, launchedByAutoStart))
+	mainWindowOptions := buildMainWindowOptions(current, launchedByAutoStart)
+	settingsWindowOptions := buildSettingsWindowOptions(current, launchedByAutoStart)
+	mainWindow := app.Window.NewWithOptions(mainWindowOptions)
+	settingsWindow := app.Window.NewWithOptions(settingsWindowOptions)
 	trayMiniPlayer := app.Window.NewWithOptions(buildTrayMiniPlayerWindowOptions(current))
 	settingsWindow.Hide()
 	startHidden := shouldStartHidden(current, launchedByAutoStart)
 
 	manager := &WindowManager{
-		app:             app,
-		mainWindow:      mainWindow,
-		settingsWindow:  settingsWindow,
-		trayMiniPlayer:  trayMiniPlayer,
-		settingsService: settingsService,
-		appVersion:      appVersion,
-		mainVisibal:     !startHidden,
-		settingsVisible: false,
+		app:                app,
+		mainWindow:         mainWindow,
+		settingsWindow:     settingsWindow,
+		trayMiniPlayer:     trayMiniPlayer,
+		settingsService:    settingsService,
+		appVersion:         appVersion,
+		mainVisibal:        !startHidden,
+		settingsVisible:    false,
+		lastMainBounds:     current.MainBounds,
+		lastSettingsBounds: current.SettingsBounds,
 	}
 
 	manager.systemTray = NewSystemTrayController(app, windowTrayActions{
@@ -125,12 +137,26 @@ func NewWindowManager(app *application.App, settingsService *service.SettingsSer
 	return manager, nil
 }
 
+func (manager *WindowManager) MarkApplicationStarted() {
+	if manager == nil {
+		return
+	}
+	manager.applicationStarted.Store(true)
+	manager.restoreStartupWindowBounds()
+}
+
+func (manager *WindowManager) canInvokeSync() bool {
+	return manager != nil && manager.initialized && manager.applicationStarted.Load()
+}
+
 func (manager *WindowManager) ShowMainWindow() {
 	manager.mainVisibal = true
+	manager.restoreCachedBounds(windowTypeMain)
 	manager.ensureWindowVisible(windowTypeMain)
 	manager.mainWindow.UnMinimise()
 	manager.mainWindow.Show()
 	manager.mainWindow.Focus()
+	manager.markBoundsTrackingReady(windowTypeMain)
 }
 
 func (manager *WindowManager) OpenNewDownload() {
@@ -143,10 +169,12 @@ func (manager *WindowManager) OpenNewDownload() {
 
 func (manager *WindowManager) ShowSettingsWindow() {
 	manager.settingsVisible = true
+	manager.restoreCachedBounds(windowTypeSettings)
 	manager.ensureWindowVisible(windowTypeSettings)
 	manager.settingsWindow.UnMinimise()
 	manager.settingsWindow.Show()
 	manager.settingsWindow.Focus()
+	manager.markBoundsTrackingReady(windowTypeSettings)
 }
 
 func (manager *WindowManager) SetMainWindowChromeHidden(hidden bool) {
@@ -166,7 +194,10 @@ func (manager *WindowManager) PrepareQuit() {
 	if manager == nil {
 		return
 	}
-	manager.quitting.Store(true)
+	if !manager.quitting.CompareAndSwap(false, true) {
+		return
+	}
+	manager.PersistAllBounds()
 }
 
 func (manager *WindowManager) HandleSecondInstanceLaunch() {
@@ -178,7 +209,7 @@ func (manager *WindowManager) HandleSecondInstanceLaunch() {
 		manager.ShowMainWindow()
 	}
 
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(reveal)
 		return
 	}
@@ -259,11 +290,13 @@ func isDialogCancelledError(err error) bool {
 }
 
 func (manager *WindowManager) HideMainWindow() {
+	manager.persistBoundsOrCached(windowTypeMain, "hide-main")
 	manager.mainVisibal = false
 	manager.mainWindow.Hide()
 }
 
 func (manager *WindowManager) HideSettingsWindow() {
+	manager.persistBoundsOrCached(windowTypeSettings, "hide-settings")
 	manager.settingsVisible = false
 	manager.settingsWindow.Hide()
 }
@@ -295,7 +328,7 @@ func (manager *WindowManager) ApplySettings(current dto.Settings) {
 		manager.dispatchWindowEvent("theme:changed", current.EffectiveAppearance)
 	}
 
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(apply)
 		return
 	}
@@ -331,7 +364,7 @@ func (manager *WindowManager) EmitDependenciesUpdated() {
 	emit := func() {
 		manager.app.Event.Emit("dependencies:updated")
 	}
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(emit)
 		return
 	}
@@ -342,22 +375,41 @@ func (manager *WindowManager) registerMainWindowEvents() {
 	mainDebounce := debounce.New(600 * time.Millisecond)
 
 	manager.mainWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		manager.restoreCachedBounds(windowTypeMain)
 		manager.ensureWindowVisible(windowTypeMain)
+		manager.markBoundsTrackingReady(windowTypeMain)
 		configureListenYouTubeMusicNativeWindow(manager.mainWindow.NativeWindow(), listenYouTubeMusicUserAgent())
 	})
 
 	manager.mainWindow.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) {
+		if ignoreCommonWindowBoundsEvents() {
+			return
+		}
+		manager.rememberCurrentBounds(windowTypeMain)
 		mainDebounce(func() {
-			manager.persistBounds(windowTypeMain)
+			manager.persistBoundsOrCached(windowTypeMain, "common-window-did-move-debounced")
 		})
 	})
 
 	manager.mainWindow.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) {
 		manager.enforceMinimumSize(windowTypeMain)
+		if ignoreCommonWindowBoundsEvents() {
+			return
+		}
+		manager.rememberCurrentBounds(windowTypeMain)
 		mainDebounce(func() {
-			manager.persistBounds(windowTypeMain)
+			manager.persistBoundsOrCached(windowTypeMain, "common-window-did-resize-debounced")
 		})
 	})
+
+	if runtime.GOOS == "windows" {
+		manager.mainWindow.OnWindowEvent(events.Windows.WindowEndMove, func(_ *application.WindowEvent) {
+			manager.persistBoundsOrCached(windowTypeMain, "windows-window-end-move")
+		})
+		manager.mainWindow.OnWindowEvent(events.Windows.WindowEndResize, func(_ *application.WindowEvent) {
+			manager.persistBoundsOrCached(windowTypeMain, "windows-window-end-resize")
+		})
+	}
 
 	// Use hook to cancel default destroy flow and just hide.
 	manager.mainWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
@@ -374,21 +426,40 @@ func (manager *WindowManager) registerSettingsWindowEvents() {
 	settingsDebounce := debounce.New(600 * time.Millisecond)
 
 	manager.settingsWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+		manager.restoreCachedBounds(windowTypeSettings)
 		manager.ensureWindowVisible(windowTypeSettings)
+		manager.markBoundsTrackingReady(windowTypeSettings)
 	})
 
 	manager.settingsWindow.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) {
+		if ignoreCommonWindowBoundsEvents() {
+			return
+		}
+		manager.rememberCurrentBounds(windowTypeSettings)
 		settingsDebounce(func() {
-			manager.persistBounds(windowTypeSettings)
+			manager.persistBoundsOrCached(windowTypeSettings, "common-window-did-move-debounced")
 		})
 	})
 
 	manager.settingsWindow.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) {
 		manager.enforceMinimumSize(windowTypeSettings)
+		if ignoreCommonWindowBoundsEvents() {
+			return
+		}
+		manager.rememberCurrentBounds(windowTypeSettings)
 		settingsDebounce(func() {
-			manager.persistBounds(windowTypeSettings)
+			manager.persistBoundsOrCached(windowTypeSettings, "common-window-did-resize-debounced")
 		})
 	})
+
+	if runtime.GOOS == "windows" {
+		manager.settingsWindow.OnWindowEvent(events.Windows.WindowEndMove, func(_ *application.WindowEvent) {
+			manager.persistBoundsOrCached(windowTypeSettings, "windows-window-end-move")
+		})
+		manager.settingsWindow.OnWindowEvent(events.Windows.WindowEndResize, func(_ *application.WindowEvent) {
+			manager.persistBoundsOrCached(windowTypeSettings, "windows-window-end-resize")
+		})
+	}
 
 	// Use hook to cancel default destroy flow and just hide.
 	manager.settingsWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
@@ -441,7 +512,10 @@ func (manager *WindowManager) ensureWindowVisible(target windowType) {
 	}
 
 	window.SetBounds(nextBounds)
-	manager.persistBounds(target)
+	manager.rememberBounds(target, nextBounds)
+	if manager.persistResolvedBounds(target, nextBounds, "ensure-window-visible") {
+		manager.markBoundsClean(target)
+	}
 
 	windowName := "main"
 	if target == windowTypeSettings {
@@ -462,13 +536,47 @@ func (manager *WindowManager) ensureWindowVisible(target windowType) {
 	)
 }
 
-func (manager *WindowManager) persistBounds(target windowType) {
-	bounds := manager.windowBounds(target)
-
-	if bounds.Width <= 0 || bounds.Height <= 0 {
-		return
+func (manager *WindowManager) persistBounds(target windowType, source string) bool {
+	if !manager.boundsTrackingReady(target) {
+		return false
 	}
 
+	bounds, ok := manager.capturableWindowBounds(target)
+	if !ok {
+		return false
+	}
+
+	manager.rememberBounds(target, bounds)
+	if !manager.persistResolvedBounds(target, bounds, source) {
+		return false
+	}
+	manager.markBoundsClean(target)
+	return true
+}
+
+func (manager *WindowManager) persistBoundsOrCached(target windowType, source string) {
+	if manager.persistBounds(target, source) {
+		return
+	}
+	manager.persistCachedBounds(target, source)
+}
+
+func (manager *WindowManager) persistCachedBounds(target windowType, source string) bool {
+	bounds, ok := manager.cachedBoundsForPersistence(target)
+	if !ok {
+		return false
+	}
+	if !manager.persistResolvedBounds(target, bounds, source+"-cached") {
+		return false
+	}
+	manager.markBoundsClean(target)
+	return true
+}
+
+func normalizeWindowBoundsForPersistence(bounds application.Rect, target windowType) (application.Rect, bool) {
+	if bounds.Width <= 0 || bounds.Height <= 0 {
+		return application.Rect{}, false
+	}
 	minWidth := settings.MinMainWindowWidth
 	minHeight := settings.MinMainWindowHeight
 	if target == windowTypeSettings {
@@ -481,7 +589,10 @@ func (manager *WindowManager) persistBounds(target windowType) {
 	if bounds.Height < minHeight {
 		bounds.Height = minHeight
 	}
+	return bounds, true
+}
 
+func (manager *WindowManager) persistResolvedBounds(target windowType, bounds application.Rect, source string) bool {
 	request := dto.UpdateSettingsRequest{}
 
 	if target == windowTypeMain {
@@ -502,20 +613,26 @@ func (manager *WindowManager) persistBounds(target windowType) {
 
 	_, err := manager.settingsService.UpdateSettings(context.Background(), request)
 	if err != nil {
-		zap.S().Warnf("save window bounds failed: %v", err)
+		zap.L().Warn("save window bounds failed",
+			zap.String("source", source),
+			zap.Error(err),
+			zap.String("window", windowTypeName(target)),
+			zap.Int("x", bounds.X),
+			zap.Int("y", bounds.Y),
+			zap.Int("width", bounds.Width),
+			zap.Int("height", bounds.Height),
+		)
+		return false
 	}
+	return true
 }
 
 func (manager *WindowManager) PersistAllBounds() {
 	if manager == nil {
 		return
 	}
-	if manager.mainWindow != nil {
-		manager.persistBounds(windowTypeMain)
-	}
-	if manager.settingsWindow != nil {
-		manager.persistBounds(windowTypeSettings)
-	}
+	manager.persistBoundsOrCached(windowTypeMain, "persist-all")
+	manager.persistBoundsOrCached(windowTypeSettings, "persist-all")
 }
 
 func (manager *WindowManager) windowForType(target windowType) *application.WebviewWindow {
@@ -530,6 +647,147 @@ func (manager *WindowManager) windowBounds(target windowType) application.Rect {
 		return manager.mainWindow.Bounds()
 	}
 	return manager.settingsWindow.Bounds()
+}
+
+func (manager *WindowManager) capturableWindowBounds(target windowType) (application.Rect, bool) {
+	window := manager.windowForType(target)
+	if window == nil || !window.IsVisible() || window.IsMinimised() || window.IsFullscreen() || window.IsMaximised() {
+		return application.Rect{}, false
+	}
+	return normalizeWindowBoundsForPersistence(manager.windowBounds(target), target)
+}
+
+func (manager *WindowManager) rememberCurrentBounds(target windowType) bool {
+	if !manager.boundsTrackingReady(target) {
+		return false
+	}
+
+	bounds, ok := manager.capturableWindowBounds(target)
+	if !ok {
+		return false
+	}
+	manager.rememberBounds(target, bounds)
+	return true
+}
+
+func (manager *WindowManager) rememberBounds(target windowType, bounds application.Rect) {
+	if manager == nil {
+		return
+	}
+	bounds, ok := normalizeWindowBoundsForPersistence(bounds, target)
+	if !ok {
+		return
+	}
+	remembered := dto.WindowBounds{
+		X:      bounds.X,
+		Y:      bounds.Y,
+		Width:  bounds.Width,
+		Height: bounds.Height,
+	}
+	manager.boundsMu.Lock()
+	defer manager.boundsMu.Unlock()
+	if target == windowTypeMain {
+		manager.lastMainBounds = remembered
+		manager.mainBoundsDirty = true
+		return
+	}
+	manager.lastSettingsBounds = remembered
+	manager.settingsBoundsDirty = true
+}
+
+func (manager *WindowManager) cachedBounds(target windowType) (application.Rect, bool) {
+	if manager == nil {
+		return application.Rect{}, false
+	}
+	manager.boundsMu.Lock()
+	defer manager.boundsMu.Unlock()
+	bounds := manager.lastMainBounds
+	if target == windowTypeSettings {
+		bounds = manager.lastSettingsBounds
+	}
+	return normalizeWindowBoundsForPersistence(application.Rect{
+		X:      bounds.X,
+		Y:      bounds.Y,
+		Width:  bounds.Width,
+		Height: bounds.Height,
+	}, target)
+}
+
+func (manager *WindowManager) cachedBoundsForPersistence(target windowType) (application.Rect, bool) {
+	if manager == nil {
+		return application.Rect{}, false
+	}
+	manager.boundsMu.Lock()
+	defer manager.boundsMu.Unlock()
+	bounds := manager.lastMainBounds
+	dirty := manager.mainBoundsDirty
+	if target == windowTypeSettings {
+		bounds = manager.lastSettingsBounds
+		dirty = manager.settingsBoundsDirty
+	}
+	if !dirty {
+		return application.Rect{}, false
+	}
+	return normalizeWindowBoundsForPersistence(application.Rect{
+		X:      bounds.X,
+		Y:      bounds.Y,
+		Width:  bounds.Width,
+		Height: bounds.Height,
+	}, target)
+}
+
+func (manager *WindowManager) markBoundsClean(target windowType) {
+	if manager == nil {
+		return
+	}
+	manager.boundsMu.Lock()
+	defer manager.boundsMu.Unlock()
+	if target == windowTypeMain {
+		manager.mainBoundsDirty = false
+		return
+	}
+	manager.settingsBoundsDirty = false
+}
+
+func (manager *WindowManager) boundsTrackingReady(target windowType) bool {
+	if manager == nil {
+		return false
+	}
+	if target == windowTypeSettings {
+		return manager.settingsBoundsReady.Load()
+	}
+	return manager.mainBoundsReady.Load()
+}
+
+func (manager *WindowManager) markBoundsTrackingReady(target windowType) {
+	if manager == nil {
+		return
+	}
+	if target == windowTypeSettings {
+		manager.settingsBoundsReady.Store(true)
+		return
+	}
+	manager.mainBoundsReady.Store(true)
+}
+
+func (manager *WindowManager) restoreStartupWindowBounds() {
+	if manager == nil {
+		return
+	}
+	manager.restoreCachedBounds(windowTypeMain)
+	manager.restoreCachedBounds(windowTypeSettings)
+}
+
+func (manager *WindowManager) restoreCachedBounds(target windowType) {
+	window := manager.windowForType(target)
+	if window == nil || window.IsFullscreen() || window.IsMaximised() {
+		return
+	}
+	bounds, ok := manager.cachedBounds(target)
+	if !ok {
+		return
+	}
+	window.SetBounds(bounds)
 }
 
 func resolveVisibleWindowBounds(bounds application.Rect, screens []*application.Screen, primary *application.Screen) (application.Rect, bool) {
@@ -602,8 +860,19 @@ const (
 	windowTypeSettings
 )
 
+func windowTypeName(target windowType) string {
+	if target == windowTypeSettings {
+		return "settings"
+	}
+	return "main"
+}
+
+func ignoreCommonWindowBoundsEvents() bool {
+	return runtime.GOOS == "windows"
+}
+
 func buildMainWindowOptions(current dto.Settings, launchedByAutoStart bool) application.WebviewWindowOptions {
-	mainBounds := current.MainBounds
+	mainBounds := normalizeWindowBoundsForLaunch(current.MainBounds, windowTypeMain)
 	titles := resolveWindowTitles(current)
 	options := buildWindowOptions(
 		"main",
@@ -623,7 +892,7 @@ func buildMainWindowOptions(current dto.Settings, launchedByAutoStart bool) appl
 }
 
 func buildSettingsWindowOptions(current dto.Settings, launchedByAutoStart bool) application.WebviewWindowOptions {
-	settingsBounds := current.SettingsBounds
+	settingsBounds := normalizeWindowBoundsForLaunch(current.SettingsBounds, windowTypeSettings)
 	if settingsBounds.Width == 960 && settingsBounds.Height == 640 {
 		settingsBounds.Width = settings.DefaultSettingsWidth
 		settingsBounds.Height = settings.DefaultSettingsHeight
@@ -706,6 +975,22 @@ func buildWindowOptions(name, title, url string, bounds dto.WindowBounds, curren
 	}
 
 	return options
+}
+
+func normalizeWindowBoundsForLaunch(bounds dto.WindowBounds, target windowType) dto.WindowBounds {
+	minWidth := settings.MinMainWindowWidth
+	minHeight := settings.MinMainWindowHeight
+	if target == windowTypeSettings {
+		minWidth = settings.MinSettingsWindowWidth
+		minHeight = settings.MinSettingsWindowHeight
+	}
+	if bounds.Width < minWidth {
+		bounds.Width = minWidth
+	}
+	if bounds.Height < minHeight {
+		bounds.Height = minHeight
+	}
+	return bounds
 }
 
 func macWindowOptions(current dto.Settings) application.MacWindow {
@@ -855,7 +1140,7 @@ func (manager *WindowManager) rebuildMenu(current dto.Settings) {
 		manager.SetMenu(menu)
 	}
 
-	if manager.initialized {
+	if manager.canInvokeSync() {
 		application.InvokeSync(buildMenu)
 	} else {
 		buildMenu()
@@ -882,17 +1167,31 @@ func (manager *WindowManager) SetUpdateAvailable(available bool) {
 		zap.L().Warn("failed to refresh system tray after update flag change", zap.Error(err))
 		return
 	}
-	manager.systemTray.SetUpdateAvailable(available, current)
+	updateTray := func() {
+		manager.systemTray.SetUpdateAvailable(available, current)
+	}
+	if manager.canInvokeSync() {
+		application.InvokeSync(updateTray)
+		return
+	}
+	updateTray()
 }
 
 // NotifyUpdateState implements update.Notifier to drive menu/tray.
 func (manager *WindowManager) NotifyUpdateState(info update.Info) {
-	manager.updateState = info
 	current, err := manager.settingsService.GetSettings(context.Background())
 	if err != nil {
 		return
 	}
-	manager.systemTray.SetUpdateState(info, current)
+	updateTray := func() {
+		manager.updateState = info
+		manager.systemTray.SetUpdateState(info, current)
+	}
+	if manager.canInvokeSync() {
+		application.InvokeSync(updateTray)
+	} else {
+		updateTray()
+	}
 	// rebuildMenu requires windows to be ready; guard nil.
 	if manager.mainWindow != nil && manager.settingsWindow != nil {
 		manager.rebuildMenu(current)

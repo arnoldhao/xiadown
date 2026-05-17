@@ -1129,12 +1129,15 @@ func TestParseTrackMetadata(t *testing.T) {
 																		},
 																	},
 																}},
-																"longBylineText": map[string]any{"runs": []any{map[string]any{
-																	"text": "Rick Astley",
-																	"navigationEndpoint": map[string]any{
-																		"browseEndpoint": map[string]any{"browseId": "UCuAXFkgsw1L7xaCfnd5JJOw"},
+																"longBylineText": map[string]any{"runs": []any{
+																	map[string]any{"text": "专为"},
+																	map[string]any{
+																		"text": "Rick Astley",
+																		"navigationEndpoint": map[string]any{
+																			"browseEndpoint": map[string]any{"browseId": "UCuAXFkgsw1L7xaCfnd5JJOw"},
+																		},
 																	},
-																}}},
+																}},
 																"lengthText": map[string]any{"runs": []any{map[string]any{"text": "3:33"}}},
 																"thumbnail":  map[string]any{"thumbnails": []any{map[string]any{"url": "https://i.ytimg.com/vi/TESTVID007G/hqdefault.jpg"}}},
 																"menu": map[string]any{
@@ -1188,6 +1191,68 @@ func TestParseTrackMetadata(t *testing.T) {
 	}
 	if metadata.MusicVideoType != "MUSIC_VIDEO_TYPE_OMV" {
 		t.Fatalf("unexpected music video type: %#v", metadata)
+	}
+}
+
+func TestParseTrackMetadataUsesPlainArtistBeforeAlbumByline(t *testing.T) {
+	data := map[string]any{
+		"contents": map[string]any{
+			"singleColumnMusicWatchNextResultsRenderer": map[string]any{
+				"tabbedRenderer": map[string]any{
+					"watchNextTabbedResultsRenderer": map[string]any{
+						"tabs": []any{
+							map[string]any{
+								"tabRenderer": map[string]any{
+									"content": map[string]any{
+										"musicQueueRenderer": map[string]any{
+											"content": map[string]any{
+												"playlistPanelRenderer": map[string]any{
+													"contents": []any{
+														map[string]any{
+															"playlistPanelVideoRenderer": map[string]any{
+																"videoId": "CPONUbyJ3YM",
+																"title":   map[string]any{"runs": []any{map[string]any{"text": "You are my magic"}}},
+																"longBylineText": map[string]any{"runs": []any{
+																	map[string]any{"text": "Accusefive"},
+																	map[string]any{"text": " • "},
+																	map[string]any{
+																		"text": "Rose Says",
+																		"navigationEndpoint": map[string]any{
+																			"browseEndpoint": map[string]any{
+																				"browseId": "MPREb_rWRwXVPHvuX",
+																				"browseEndpointContextSupportedConfigs": map[string]any{
+																					"browseEndpointContextMusicConfig": map[string]any{
+																						"pageType": "MUSIC_PAGE_TYPE_ALBUM",
+																					},
+																				},
+																			},
+																		},
+																	},
+																	map[string]any{"text": " • "},
+																	map[string]any{"text": "2022"},
+																}},
+																"shortBylineText": map[string]any{"runs": []any{
+																	map[string]any{"text": "Accusefive"},
+																}},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	metadata := parseTrackMetadata(data, "CPONUbyJ3YM")
+	if metadata.Channel != "Accusefive" || metadata.ArtistBrowseID != "" || metadata.ArtistSource != trackArtistSourceAPIText {
+		t.Fatalf("unexpected metadata artist: %#v", metadata)
 	}
 }
 

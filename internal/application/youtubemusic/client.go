@@ -87,6 +87,7 @@ type Track struct {
 	Title           string
 	Channel         string
 	ArtistBrowseID  string
+	ArtistSource    string
 	DurationLabel   string
 	PlayCountLabel  string
 	ThumbnailURL    string
@@ -109,11 +110,17 @@ const (
 	LikeStatusDislike     LikeStatus = "dislike"
 )
 
+const (
+	trackArtistSourceAPILinked = "api-linked"
+	trackArtistSourceAPIText   = "api-text"
+)
+
 type TrackMetadata struct {
 	VideoID         string
 	Title           string
 	Channel         string
 	ArtistBrowseID  string
+	ArtistSource    string
 	DurationLabel   string
 	LikeStatus      LikeStatus
 	LikeStatusKnown bool
@@ -836,6 +843,7 @@ func trackFromMusicResponsiveRenderer(renderer map[string]any) (Track, bool) {
 		Title:          title,
 		Channel:        channel,
 		ArtistBrowseID: artistBrowseID,
+		ArtistSource:   artistSourceFromBrowseID(channel, artistBrowseID),
 		DurationLabel:  duration,
 		PlayCountLabel: playCount,
 		ThumbnailURL:   lastThumbnailURL(renderer),
@@ -853,10 +861,7 @@ func trackFromPlaylistPanelRenderer(renderer map[string]any) (Track, bool) {
 	if title == "" {
 		title = videoID
 	}
-	channel, artistBrowseID := firstCreatorRun(textRunsWithNavigation(asMap(renderer["longBylineText"])))
-	if channel == "" {
-		channel, artistBrowseID = firstCreatorRun(textRunsWithNavigation(asMap(renderer["shortBylineText"])))
-	}
+	channel, artistBrowseID, artistSource := artistRunFromPlaylistPanelRenderer(renderer)
 	duration := firstUsefulText(runsText(asMap(renderer["lengthText"])))
 	if duration == "" {
 		duration = firstDurationLabel(collectTextRuns(renderer))
@@ -867,6 +872,7 @@ func trackFromPlaylistPanelRenderer(renderer map[string]any) (Track, bool) {
 		Title:          title,
 		Channel:        fallbackString(channel, "YouTube Music"),
 		ArtistBrowseID: artistBrowseID,
+		ArtistSource:   artistSource,
 		DurationLabel:  duration,
 		ThumbnailURL:   lastThumbnailURL(renderer),
 		MusicVideoType: positiveMusicVideoTypeFromRenderer(renderer),
@@ -919,6 +925,7 @@ func parseTrackMetadata(data map[string]any, videoID string) TrackMetadata {
 			Title:           track.Title,
 			Channel:         track.Channel,
 			ArtistBrowseID:  track.ArtistBrowseID,
+			ArtistSource:    track.ArtistSource,
 			DurationLabel:   track.DurationLabel,
 			LikeStatus:      likeStatus,
 			LikeStatusKnown: likeStatusKnown,
@@ -1157,15 +1164,51 @@ func firstCreatorText(values []string) string {
 	return ""
 }
 
-func firstCreatorRun(values []textRun) (string, string) {
+func artistRunFromPlaylistPanelRenderer(renderer map[string]any) (string, string, string) {
+	channel, artistBrowseID, artistSource := artistRunFromBylineRuns(textRunsWithNavigation(asMap(renderer["longBylineText"])))
+	if channel != "" {
+		return channel, artistBrowseID, artistSource
+	}
+	return artistRunFromBylineRuns(textRunsWithNavigation(asMap(renderer["shortBylineText"])))
+}
+
+func artistRunFromBylineRuns(values []textRun) (string, string, string) {
+	artists := artistRuns(values)
+	if len(artists) > 0 {
+		names := make([]string, 0, len(artists))
+		for _, artist := range artists {
+			names = append(names, strings.TrimSpace(artist.Text))
+		}
+		return strings.Join(names, ", "), strings.TrimSpace(artists[0].BrowseID), trackArtistSourceAPILinked
+	}
+	if channel := firstPlainCreatorRun(values); channel != "" {
+		return channel, "", trackArtistSourceAPIText
+	}
+	return "", "", ""
+}
+
+func firstPlainCreatorRun(values []textRun) string {
 	for _, run := range values {
+		if strings.TrimSpace(run.BrowseID) != "" {
+			continue
+		}
 		trimmed := strings.TrimSpace(run.Text)
 		if !isUsefulCreatorText(trimmed) {
 			continue
 		}
-		return trimmed, strings.TrimSpace(run.BrowseID)
+		return trimmed
 	}
-	return "", ""
+	return ""
+}
+
+func artistSourceFromBrowseID(channel string, browseID string) string {
+	if strings.TrimSpace(channel) == "" {
+		return ""
+	}
+	if strings.TrimSpace(browseID) != "" {
+		return trackArtistSourceAPILinked
+	}
+	return ""
 }
 
 func artistRunFromFlexColumns(flexColumns []map[string]any) (string, string) {

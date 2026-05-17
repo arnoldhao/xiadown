@@ -1,4 +1,4 @@
-import { Call,System } from "@wailsio/runtime";
+import { Call,Events,System } from "@wailsio/runtime";
 import * as React from "react";
 import "./listen/listen.css";
 
@@ -7,10 +7,11 @@ import { REALTIME_TOPICS,registerTopic } from "@/shared/realtime";
 
 import { fetchListenArtist,fetchListenLibrary,fetchListenLiveCatalog,fetchListenLiveStatuses,fetchListenLiveUserCatalog,fetchListenPlaylistPage,fetchListenPlaylistQueue,fetchListenSearch,fetchListenTrackFavorite,fetchListenTrackFavoriteStatuses,fetchListenTrackInfo,getListenErrorCode,getListenErrorMessage,saveListenLiveUserCatalog,updateListenArtistSubscription,updateListenPlaylistLibrary,updateListenTrackFavorite } from "@/app/main/listen/api";
 import type { ListenLiveUserCatalog } from "@/app/main/listen/api";
-import { LISTEN_LIKED_SONGS_SHELF_ID,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_SERVICE } from "@/app/main/listen/catalog";
+import { LISTEN_LIKED_SONGS_SHELF_ID,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_YOUTUBE_CONNECTOR_CHANGED_EVENT } from "@/app/main/listen/catalog";
 import { clampVolume,matchesQuery,normalizeSearch,resolveListenLiveSelectionId,resolveQueueIndex,useListenLocalTracks } from "@/app/main/listen/local-library";
 import { ListenPageView } from "@/app/main/listen/PageView";
 import { callListenPlaybackAppendToQueue,callListenPlaybackClearQueue,callListenPlaybackInsertNextInQueue,callListenPlaybackMergeTrackMetadata,callListenPlaybackMoveQueueItem,callListenPlaybackNext,callListenPlaybackObserveNativeEvent,callListenPlaybackPause,callListenPlaybackPlayPause,callListenPlaybackPlayQueue,callListenPlaybackPlayTrack,callListenPlaybackPrevious,callListenPlaybackRedoQueue,callListenPlaybackRemoveFromQueue,callListenPlaybackResume,callListenPlaybackSeek,callListenPlaybackSetRepeatMode,callListenPlaybackSetShuffle,callListenPlaybackSetVolume,callListenPlaybackUndoQueue,listenRepeatModeFromPlayMode,type ListenPlaybackSnapshot } from "@/app/main/listen/playback-api";
+import { hasTrustedListenOnlineArtist,isMissingListenArtistLabel } from "@/app/main/listen/playback-helpers";
 import { useListenPlaybackStore } from "@/app/main/listen/playback-store";
 import { pushListenForwardSkipIndex,resolveListenQueueNextAction,resolveListenQueuePreviousAction } from "@/app/main/listen/queue";
 import { buildListenHighQualityThumbnailURL,buildListenImageCacheURL,buildYouTubePosterURL,dedupeLibraryShelves,dedupeOnlineItems,dedupePlaylistItems,readListenStorageState,updateListenProgressMap,writeListenStorageState } from "@/app/main/listen/storage";
@@ -22,7 +23,6 @@ const LISTEN_UNKNOWN_ARTIST = "Unknown Artist";
 const LISTEN_LIVE_STATUS_POLL_MS = 60_000;
 const LISTEN_LIVE_STATUS_WARM_POLL_MS = 4_000;
 const LISTEN_ARTIST_SHELF_CONTINUATION_MAX_PAGES = 20;
-const LISTEN_RELEASE_YEAR_ARTIST_PATTERN = /^(?:19|20)\d{2}\s*年?$/;
 
 type ListenLibraryPageCacheEntry = {
   playlists: ListenPlaylistItem[];
@@ -50,32 +50,6 @@ function resolveListenLibraryPageCacheKey(
   ].join(":");
 }
 
-function isMissingListenArtist(value: string) {
-  const artist = value.trim();
-  return (
-    !artist ||
-    artist === "YouTube Music" ||
-    artist === LISTEN_UNKNOWN_ARTIST ||
-    isListenReleaseYearArtist(artist)
-  );
-}
-
-function isListenReleaseYearArtist(value: string) {
-  return LISTEN_RELEASE_YEAR_ARTIST_PATTERN.test(value.trim());
-}
-
-function fallbackMissingListenArtist(
-  incomingChannel: string,
-  currentChannel: string,
-) {
-  for (const channel of [currentChannel, incomingChannel]) {
-    if (channel && !isListenReleaseYearArtist(channel)) {
-      return channel;
-    }
-  }
-  return LISTEN_UNKNOWN_ARTIST;
-}
-
 function mergeListenNativeTrackItem(
   incoming: ListenOnlineItem,
   current: ListenOnlineItem,
@@ -83,8 +57,8 @@ function mergeListenNativeTrackItem(
   const videoId = current.videoId || incoming.videoId;
   const incomingTitle = incoming.title.trim();
   const currentTitle = current.title.trim();
-  const incomingChannel = incoming.channel.trim();
-  const currentChannel = current.channel.trim();
+  const incomingArtistTrusted = hasTrustedListenOnlineArtist(incoming);
+  const currentArtistTrusted = hasTrustedListenOnlineArtist(current);
   const incomingVideoKnown = incoming.videoAvailabilityKnown === true;
   const currentVideoKnown = current.videoAvailabilityKnown === true;
   return {
@@ -94,13 +68,17 @@ function mergeListenNativeTrackItem(
       incomingTitle && incomingTitle !== videoId
         ? incoming.title
         : currentTitle || videoId,
-    channel:
-      !isMissingListenArtist(incomingChannel)
-        ? incoming.channel
-        : !isMissingListenArtist(currentChannel)
-          ? current.channel
-          : fallbackMissingListenArtist(incomingChannel, currentChannel),
+    channel: incomingArtistTrusted
+      ? incoming.channel
+      : currentArtistTrusted
+        ? current.channel
+        : LISTEN_UNKNOWN_ARTIST,
     artistBrowseId: incoming.artistBrowseId || current.artistBrowseId,
+    artistSource: incomingArtistTrusted
+      ? incoming.artistSource || (incoming.artistBrowseId ? "api-linked" : undefined)
+      : currentArtistTrusted
+        ? current.artistSource || (current.artistBrowseId ? "api-linked" : undefined)
+        : incoming.artistSource || current.artistSource,
     description: incoming.description || current.description,
     durationLabel: incoming.durationLabel || current.durationLabel,
     playCountLabel: incoming.playCountLabel || current.playCountLabel,
@@ -151,7 +129,7 @@ function createNativeOnlineItem(params: {
   const videoId = params.videoId.trim();
   const title = params.title?.trim() || videoId;
   const rawArtist = params.artist?.trim() || "YouTube Music";
-  const artist = isListenReleaseYearArtist(rawArtist)
+  const artist = isMissingListenArtistLabel(rawArtist)
     ? LISTEN_UNKNOWN_ARTIST
     : rawArtist;
   const thumbnailUrl = params.thumbnailUrl?.trim() || "";
@@ -161,6 +139,7 @@ function createNativeOnlineItem(params: {
     videoId,
     title,
     channel: artist,
+    artistSource: "observed",
     description: "",
     durationLabel: "",
     thumbnailUrl: thumbnailUrl,
@@ -169,6 +148,9 @@ function createNativeOnlineItem(params: {
 
 function cleanListenPlaylistPlaybackArtist(value: string) {
   let artist = value.trim();
+  if (!artist) {
+    return "";
+  }
   if (artist === "Album") {
     return LISTEN_UNKNOWN_ARTIST;
   }
@@ -181,7 +163,7 @@ function cleanListenPlaylistPlaybackArtist(value: string) {
       artist = parts[1].trim();
     }
   }
-  if (isListenReleaseYearArtist(artist)) {
+  if (isMissingListenArtistLabel(artist)) {
     return LISTEN_UNKNOWN_ARTIST;
   }
   return artist;
@@ -199,7 +181,7 @@ function applyListenPlaylistPlaybackFallback(
     } else if (channel.startsWith("Album, ")) {
       channel = channel.slice(7).trim();
     }
-    if (isListenReleaseYearArtist(channel)) {
+    if (isMissingListenArtistLabel(channel)) {
       channel = "";
     }
     if (!channel && cleanedFallback) {
@@ -214,11 +196,11 @@ function resolveListenPlaylistPlaybackFallbackArtist(
   detailAuthor: string,
 ) {
   const author = detailAuthor.trim();
-  if (author && !isListenReleaseYearArtist(author)) {
+  if (author && !isMissingListenArtistLabel(author)) {
     return author;
   }
   const channel = playlist.channel.trim();
-  if (isListenReleaseYearArtist(channel)) {
+  if (isMissingListenArtistLabel(channel)) {
     return playlist.description.trim();
   }
   const normalizedChannel = channel.toLowerCase();
@@ -273,8 +255,6 @@ function nativeStatusToPlayerEvent(
     bufferedTime: secondsFromNativeStatus(record.bufferedTime),
     advertising: record.advertising === true,
     adLabel: stringFromNativeStatus(record.adLabel),
-    adSkippable: record.adSkippable === true,
-    adSkipLabel: stringFromNativeStatus(record.adSkipLabel),
     errorCode: stringFromNativeStatus(record.errorCode),
     errorMessage: stringFromNativeStatus(record.errorMessage),
   };
@@ -449,6 +429,7 @@ export function ListenPage(props: ListenPageProps) {
   const [libraryError, setLibraryError] = React.useState(false);
   const [libraryErrorCode, setLibraryErrorCode] = React.useState("");
   const [libraryReloadToken, setLibraryReloadToken] = React.useState(0);
+  const [museAccountReloadToken, setMuseAccountReloadToken] = React.useState(0);
   const [playlistTracks, setPlaylistTracks] = React.useState<
     ListenOnlineItem[]
   >([]);
@@ -570,6 +551,51 @@ export function ListenPage(props: ListenPageProps) {
     [],
   );
 
+  const reloadMuseAccountData = React.useCallback(() => {
+    libraryPageCacheRef.current.clear();
+    activeLibraryPageCacheKeyRef.current = "";
+    favoriteOverrideByVideoIdRef.current = {};
+    setHomeShelves([]);
+    setLibraryPlaylists([]);
+    setLibraryArtists([]);
+    setLibraryContinuation("");
+    setLibraryAppending(false);
+    setLibraryError(false);
+    setLibraryErrorCode("");
+    setSearchItems([]);
+    setSearchArtists([]);
+    setSearchPlaylists([]);
+    setSearchContinuation("");
+    setSearchAppending(false);
+    setSearchLoading(false);
+    setSearchError(false);
+    setPlaylistTracks([]);
+    setPlaylistContinuation("");
+    setPlaylistDetailAuthor("");
+    setPlaylistDetailTitle("");
+    setPlaylistAppending(false);
+    setPlaylistLoading(false);
+    setArtistActionBusy("");
+    setArtistBrowsePage((current) =>
+      current
+        ? {
+            ...current,
+            items: [],
+            shelves: [],
+            continuation: "",
+            loading: true,
+            appending: false,
+            error: false,
+          }
+        : current,
+    );
+    setOnlineFavoriteByVideoId({});
+    setFavoriteLoadingVideoId("");
+    setFavoriteMutationVideoId("");
+    setLibraryReloadToken((current) => current + 1);
+    setMuseAccountReloadToken((current) => current + 1);
+  }, []);
+
   const activateMusePlayback = React.useCallback(() => {
     setMode("muse");
     setPlaybackMode("muse");
@@ -619,6 +645,24 @@ export function ListenPage(props: ListenPageProps) {
     modeRef.current = mode;
     playbackModeRef.current = playbackMode;
   }, [mode, playbackMode]);
+
+  React.useEffect(() => {
+    const offYouTubeConnectorChanged = Events.On(
+      LISTEN_YOUTUBE_CONNECTOR_CHANGED_EVENT,
+      (event: any) => {
+        const payload = event?.data ?? event;
+        const connectorType =
+          typeof payload?.connectorType === "string"
+            ? payload.connectorType.trim().toLowerCase()
+            : "";
+        if (connectorType && connectorType !== "youtube") {
+          return;
+        }
+        reloadMuseAccountData();
+      },
+    );
+    return () => offYouTubeConnectorChanged();
+  }, [reloadMuseAccountData]);
 
   React.useEffect(
     () => () => {
@@ -698,7 +742,7 @@ export function ListenPage(props: ListenPageProps) {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [artistBrowsePage, listenLanguage, mode, normalizedQuery, props.httpBaseURL, query]);
+  }, [artistBrowsePage, listenLanguage, mode, museAccountReloadToken, normalizedQuery, props.httpBaseURL, query]);
 
   React.useEffect(() => {
     if (mode !== "muse") {
@@ -773,7 +817,7 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [libraryReloadToken, listenLanguage, mode, onlineBrowseDetail, onlineBrowseSource, props.httpBaseURL]);
+  }, [libraryReloadToken, listenLanguage, mode, museAccountReloadToken, onlineBrowseDetail, onlineBrowseSource, props.httpBaseURL]);
 
   const artistBrowseId = artistBrowsePage?.id ?? "";
   const artistBrowseName = artistBrowsePage?.name ?? "";
@@ -841,7 +885,7 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [artistBrowseId, artistBrowseName, listenLanguage, mode, props.httpBaseURL]);
+  }, [artistBrowseId, artistBrowseName, listenLanguage, mode, museAccountReloadToken, props.httpBaseURL]);
 
   const requestOnlineAutoplay = React.useCallback((options: {
     startSeconds?: number;
@@ -1634,6 +1678,7 @@ export function ListenPage(props: ListenPageProps) {
   }, [
     mode,
     listenLanguage,
+    museAccountReloadToken,
     onlineFavoriteSeedKey,
     onlineFavoriteSeedVideoIds,
     props.httpBaseURL,
@@ -1676,7 +1721,7 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [activeOnline, listenLanguage, playbackMode, onlineFavoriteByVideoId, props.httpBaseURL, shouldIgnoreObservedFavorite]);
+  }, [activeOnline, listenLanguage, museAccountReloadToken, playbackMode, onlineFavoriteByVideoId, props.httpBaseURL, shouldIgnoreObservedFavorite]);
 
   React.useEffect(() => {
     if (mode !== "muse" && browsePlaylistId === "") {
@@ -1723,7 +1768,7 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [browsePlaylistId, listenLanguage, mode, props.httpBaseURL]);
+  }, [browsePlaylistId, listenLanguage, mode, museAccountReloadToken, props.httpBaseURL]);
 
   const currentQueue =
     playbackMode === "hush"
@@ -2149,7 +2194,7 @@ export function ListenPage(props: ListenPageProps) {
       !activeOnline.durationLabel.trim() ||
       !activeOnline.thumbnailUrl?.trim() ||
       activeOnline.title.trim() === activeOnline.videoId ||
-      isMissingListenArtist(activeOnline.channel);
+      !hasTrustedListenOnlineArtist(activeOnline);
     if (!needsMetadata) {
       return;
     }

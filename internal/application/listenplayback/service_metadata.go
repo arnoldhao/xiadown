@@ -2,11 +2,17 @@ package listenplayback
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
 )
 
-const trackMetadataEnrichmentTimeout = 25 * time.Second
+const (
+	trackMetadataEnrichmentTimeout      = 25 * time.Second
+	queueMetadataEnrichmentRequestDelay = 100 * time.Millisecond
+)
+
+var trackArtistReleaseYearPattern = regexp.MustCompile(`^(?:19|20)\d{2}\s*年?$`)
 
 func (service *PlayerService) MergeTrackMetadata(ctx context.Context, track Track) {
 	defer service.PublishSnapshot(ctx)
@@ -18,6 +24,7 @@ func (service *PlayerService) MergeTrackMetadata(ctx context.Context, track Trac
 	track.Title = stringsTrim(track.Title)
 	track.Artist = stringsTrim(track.Artist)
 	track.ArtistBrowseID = stringsTrim(track.ArtistBrowseID)
+	track.ArtistSource = stringsTrim(track.ArtistSource)
 	track.DurationLabel = stringsTrim(track.DurationLabel)
 	track.ThumbnailURL = stringsTrim(track.ThumbnailURL)
 	track.MusicVideoType = stringsTrim(track.MusicVideoType)
@@ -37,55 +44,100 @@ func (service *PlayerService) MergeTrackMetadata(ctx context.Context, track Trac
 }
 
 func (service *PlayerService) requestTrackMetadataEnrichment(track Track) {
-	if service == nil || service.library == nil {
+	service.requestTracksMetadataEnrichment([]Track{track})
+}
+
+func (service *PlayerService) requestCurrentQueueMetadataEnrichment() {
+	if service == nil {
 		return
 	}
-	track = normalizeTrack(track)
-	if !trackNeedsMetadataEnrichment(track) {
-		return
-	}
-	videoID := track.VideoID
 	service.mu.Lock()
+	tracks := cloneTracks(service.queue)
+	service.mu.Unlock()
+	service.requestTracksMetadataEnrichment(tracks)
+}
+
+func (service *PlayerService) requestTracksMetadataEnrichment(tracks []Track) {
+	videoIDs := service.reserveTrackMetadataEnrichment(tracks)
+	if len(videoIDs) == 0 {
+		return
+	}
+
+	go service.enrichTrackMetadata(videoIDs)
+}
+
+func (service *PlayerService) reserveTrackMetadataEnrichment(tracks []Track) []string {
+	if service == nil || service.library == nil {
+		return nil
+	}
+	if len(tracks) == 0 {
+		return nil
+	}
+	videoIDs := make([]string, 0, len(tracks))
+	seen := make(map[string]struct{}, len(tracks))
+
+	service.mu.Lock()
+	defer service.mu.Unlock()
 	if service.metadataEnrichmentInFlight == nil {
 		service.metadataEnrichmentInFlight = make(map[string]struct{})
 	}
 	if service.metadataEnrichmentAttempted == nil {
 		service.metadataEnrichmentAttempted = make(map[string]struct{})
 	}
-	if _, exists := service.metadataEnrichmentInFlight[videoID]; exists {
-		service.mu.Unlock()
-		return
+	for _, track := range tracks {
+		track = normalizeTrack(track)
+		if !trackNeedsMetadataEnrichment(track) {
+			continue
+		}
+		videoID := track.VideoID
+		if _, exists := seen[videoID]; exists {
+			continue
+		}
+		seen[videoID] = struct{}{}
+		if _, exists := service.metadataEnrichmentInFlight[videoID]; exists {
+			continue
+		}
+		if _, exists := service.metadataEnrichmentAttempted[videoID]; exists {
+			continue
+		}
+		service.metadataEnrichmentInFlight[videoID] = struct{}{}
+		service.metadataEnrichmentAttempted[videoID] = struct{}{}
+		videoIDs = append(videoIDs, videoID)
 	}
-	if _, exists := service.metadataEnrichmentAttempted[videoID]; exists {
-		service.mu.Unlock()
-		return
+
+	return videoIDs
+}
+
+func (service *PlayerService) enrichTrackMetadata(videoIDs []string) {
+	for index, videoID := range videoIDs {
+		service.enrichSingleTrackMetadata(videoID)
+		if index < len(videoIDs)-1 {
+			time.Sleep(queueMetadataEnrichmentRequestDelay)
+		}
 	}
-	service.metadataEnrichmentInFlight[videoID] = struct{}{}
-	service.metadataEnrichmentAttempted[videoID] = struct{}{}
-	service.mu.Unlock()
+}
 
-	go func() {
-		defer func() {
-			service.mu.Lock()
-			delete(service.metadataEnrichmentInFlight, videoID)
-			service.mu.Unlock()
-		}()
-
-		ctx, cancel := context.WithTimeout(context.Background(), trackMetadataEnrichmentTimeout)
-		defer cancel()
-		metadata, err := service.library.TrackMetadata(ctx, videoID)
-		if err != nil {
-			return
-		}
-		metadata.VideoID = normalizedVideoID(metadata.VideoID)
-		if metadata.VideoID == "" {
-			metadata.VideoID = videoID
-		}
-		if metadata.VideoID != videoID || !trackMetadataHasUsefulFields(metadata) {
-			return
-		}
-		service.MergeTrackMetadata(context.Background(), metadata)
+func (service *PlayerService) enrichSingleTrackMetadata(videoID string) {
+	defer func() {
+		service.mu.Lock()
+		delete(service.metadataEnrichmentInFlight, videoID)
+		service.mu.Unlock()
 	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), trackMetadataEnrichmentTimeout)
+	defer cancel()
+	metadata, err := service.library.TrackMetadata(ctx, videoID)
+	if err != nil {
+		return
+	}
+	metadata.VideoID = normalizedVideoID(metadata.VideoID)
+	if metadata.VideoID == "" {
+		metadata.VideoID = videoID
+	}
+	if metadata.VideoID != videoID || !trackMetadataHasUsefulFields(metadata) {
+		return
+	}
+	service.MergeTrackMetadata(context.Background(), metadata)
 }
 
 func trackNeedsMetadataEnrichment(track Track) bool {
@@ -94,7 +146,7 @@ func trackNeedsMetadataEnrichment(track Track) bool {
 		return false
 	}
 	return isPlaceholderTrackTitle(track.Title, track.VideoID) ||
-		isMissingTrackArtist(track.Artist) ||
+		!hasTrustedTrackArtist(track) ||
 		(track.DurationLabel == "" && track.DurationSeconds <= 0) ||
 		track.ThumbnailURL == "" ||
 		track.MusicVideoType == ""
@@ -102,7 +154,7 @@ func trackNeedsMetadataEnrichment(track Track) bool {
 
 func trackMetadataHasUsefulFields(track Track) bool {
 	return (strings.TrimSpace(track.Title) != "" && !isPlaceholderTrackTitle(track.Title, track.VideoID)) ||
-		!isMissingTrackArtist(track.Artist) ||
+		hasTrustedTrackArtist(track) ||
 		strings.TrimSpace(track.ArtistBrowseID) != "" ||
 		strings.TrimSpace(track.DurationLabel) != "" ||
 		track.DurationSeconds > 0 ||
@@ -134,22 +186,52 @@ func isMissingTrackArtist(artist string) bool {
 	case "unknown", "unknown artist", "youtube", "youtube music":
 		return true
 	}
-	return false
+	return trackArtistReleaseYearPattern.MatchString(trimmed)
+}
+
+func hasTrustedTrackArtist(track Track) bool {
+	track.Artist = stringsTrim(track.Artist)
+	track.ArtistBrowseID = stringsTrim(track.ArtistBrowseID)
+	track.ArtistSource = stringsTrim(track.ArtistSource)
+	if isMissingTrackArtist(track.Artist) {
+		return false
+	}
+	if track.ArtistBrowseID != "" {
+		return true
+	}
+	return track.ArtistSource == TrackArtistSourceAPILinked ||
+		track.ArtistSource == TrackArtistSourceAPIMetadata
+}
+
+func shouldAcceptIncomingTrackArtist(existing Track, incoming Track) bool {
+	if isMissingTrackArtist(incoming.Artist) {
+		return false
+	}
+	return hasTrustedTrackArtist(incoming)
 }
 
 func mergeTrackMetadata(existing Track, incoming Track) Track {
 	existing = normalizeTrack(existing)
+	incoming = normalizeTrack(incoming)
 	if incoming.ID != "" {
 		existing.ID = incoming.ID
 	}
 	if incoming.Title != "" && incoming.Title != incoming.VideoID {
 		existing.Title = incoming.Title
 	}
-	if incoming.Artist != "" {
+	acceptedArtist := false
+	if incoming.Artist != "" && shouldAcceptIncomingTrackArtist(existing, incoming) {
 		existing.Artist = incoming.Artist
+		acceptedArtist = true
 	}
 	if incoming.ArtistBrowseID != "" {
 		existing.ArtistBrowseID = incoming.ArtistBrowseID
+	}
+	if acceptedArtist && incoming.ArtistSource != "" {
+		existing.ArtistSource = incoming.ArtistSource
+	}
+	if acceptedArtist && incoming.ArtistBrowseID != "" {
+		existing.ArtistSource = TrackArtistSourceAPILinked
 	}
 	if incoming.DurationLabel != "" {
 		existing.DurationLabel = incoming.DurationLabel

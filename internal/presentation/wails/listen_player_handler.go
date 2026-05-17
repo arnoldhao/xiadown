@@ -94,8 +94,6 @@ type ListenPlayerStatus struct {
 	VideoKnown      bool    `json:"videoAvailabilityKnown,omitempty"`
 	Advertising     bool    `json:"advertising,omitempty"`
 	AdLabel         string  `json:"adLabel,omitempty"`
-	AdSkippable     bool    `json:"adSkippable,omitempty"`
-	AdSkipLabel     string  `json:"adSkipLabel,omitempty"`
 	ErrorCode       string  `json:"errorCode,omitempty"`
 	ErrorMessage    string  `json:"errorMessage,omitempty"`
 	CurrentTime     float64 `json:"currentTime,omitempty"`
@@ -182,13 +180,6 @@ func (handler *ListenPlayerHandler) Seek(ctx context.Context, request ListenPlay
 		return handler.service.Seek(ctx, request.Seconds)
 	}
 	return handler.player.Seek(request.Seconds)
-}
-
-func (handler *ListenPlayerHandler) SkipAd(_ context.Context) error {
-	if handler == nil || handler.player == nil {
-		return fmt.Errorf("listen player unavailable")
-	}
-	return handler.player.SkipAd()
 }
 
 func (handler *ListenPlayerHandler) SetVolume(ctx context.Context, request ListenPlayerVolumeRequest) error {
@@ -320,8 +311,6 @@ type ListenYouTubeMusicPlayer struct {
 	observedLike          string
 	advertising           bool
 	adLabel               string
-	adSkippable           bool
-	adSkipLabel           string
 	errorCode             string
 	errorMessage          string
 	currentTime           float64
@@ -414,8 +403,6 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	player.observedLike = ""
 	player.advertising = false
 	player.adLabel = ""
-	player.adSkippable = false
-	player.adSkipLabel = ""
 	player.errorCode = ""
 	player.errorMessage = ""
 	player.currentTime = 0
@@ -535,15 +522,6 @@ func (player *ListenYouTubeMusicPlayer) Seek(seconds float64) error {
 	return nil
 }
 
-func (player *ListenYouTubeMusicPlayer) SkipAd() error {
-	window := player.currentWindow()
-	if window == nil {
-		return nil
-	}
-	execListenYouTubeMusicJS(window, listenYouTubeMusicSkipAdScript())
-	return nil
-}
-
 func (player *ListenYouTubeMusicPlayer) SetVolume(volume float64, muted bool) error {
 	volume = clampListenVolume(volume)
 
@@ -602,6 +580,8 @@ func (player *ListenYouTubeMusicPlayer) Reset() error {
 	player.observedTitle = ""
 	player.observedArtist = ""
 	player.observedThumb = ""
+	player.advertising = false
+	player.adLabel = ""
 	player.currentTime = 0
 	player.duration = 0
 	player.bufferedTime = 0
@@ -802,6 +782,13 @@ func (player *ListenYouTubeMusicPlayer) Status() ListenPlayerStatus {
 	if artist == "" {
 		artist = player.requestArtist
 	}
+	thumbnailURL := player.observedThumb
+	if thumbnailURL == "" {
+		thumbnailURL = listenYouTubePosterURL(player.observedVideo)
+	}
+	if thumbnailURL == "" {
+		thumbnailURL = listenYouTubePosterURL(player.currentVideo)
+	}
 	return ListenPlayerStatus{
 		Available:       player.window != nil,
 		VideoID:         player.currentVideo,
@@ -809,12 +796,10 @@ func (player *ListenYouTubeMusicPlayer) Status() ListenPlayerStatus {
 		State:           player.currentState,
 		Title:           title,
 		Artist:          artist,
-		ThumbnailURL:    player.observedThumb,
+		ThumbnailURL:    thumbnailURL,
 		LikeStatus:      player.observedLike,
 		Advertising:     player.advertising,
 		AdLabel:         player.adLabel,
-		AdSkippable:     player.adSkippable,
-		AdSkipLabel:     player.adSkipLabel,
 		ErrorCode:       player.errorCode,
 		ErrorMessage:    player.errorMessage,
 		CurrentTime:     player.currentTime,
@@ -861,8 +846,6 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	likeStatus := listenPayloadString(payload, "likeStatus")
 	advertising := listenPayloadBool(payload, "advertising") || listenPayloadBool(payload, "ad")
 	adLabel := listenPayloadString(payload, "adLabel")
-	adSkippable := advertising && listenPayloadBool(payload, "adSkippable")
-	adSkipLabel := listenPayloadString(payload, "adSkipLabel")
 	trackChanged := listenPayloadBool(payload, "trackChanged")
 	errorCode := listenPayloadDisplayString(payload, "errorCode")
 	if errorCode == "" {
@@ -950,8 +933,6 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	}
 	player.advertising = advertising
 	player.adLabel = adLabel
-	player.adSkippable = adSkippable
-	player.adSkipLabel = adSkipLabel
 	if state == "error" {
 		player.errorCode = errorCode
 		player.errorMessage = errorMessage
@@ -1000,10 +981,6 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	payload["advertising"] = advertising
 	if adLabel != "" {
 		payload["adLabel"] = adLabel
-	}
-	payload["adSkippable"] = adSkippable
-	if adSkipLabel != "" {
-		payload["adSkipLabel"] = adSkipLabel
 	}
 	if state == "error" {
 		if errorCode != "" {
@@ -1558,6 +1535,14 @@ func listenYouTubeMusicWatchURL(videoID string, language string) string {
 	return listenYouTubeMusicOrigin + "/watch?" + values.Encode()
 }
 
+func listenYouTubePosterURL(videoID string) string {
+	trimmed := strings.TrimSpace(videoID)
+	if !listenYouTubeVideoIDPattern.MatchString(trimmed) {
+		return ""
+	}
+	return "https://i.ytimg.com/vi/" + url.PathEscape(trimmed) + "/hqdefault.jpg"
+}
+
 func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 	initial, _ := json.Marshal(request)
 	return fmt.Sprintf(`
@@ -1578,6 +1563,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 	  let lyricsPollTimer = null;
 	  let autoplayTimer = null;
   let autoplayCount = 0;
+  let autoplayRecoveryPending = true;
   let mediaSessionOverrideFrame = null;
   let listenersAttachedTo = new WeakSet();
   let startAppliedForVideo = "";
@@ -1683,6 +1669,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     );
     if (Object.prototype.hasOwnProperty.call(incoming, "videoId")) {
       scheduleVolumeBurst();
+      autoplayRecoveryPending = true;
     }
     if (
       Object.prototype.hasOwnProperty.call(incoming, "videoId") &&
@@ -1745,7 +1732,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     );
   }
 
-  function skipButtonSelectors() {
+  function adControlSelectors() {
     return [
       ".ytp-ad-skip-button-modern",
       ".ytp-ad-skip-button",
@@ -1769,65 +1756,17 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       ".ytp-ad-preview-text",
       ".ytp-ad-simple-ad-badge",
       ".ytp-ad-duration-remaining",
-      skipButtonSelectors()
+      adControlSelectors()
     ].join(",");
     return Array.from(document.querySelectorAll(adSelector)).filter(isElementVisible);
   }
 
-  function isSkipElement(element) {
-    const selector = skipButtonSelectors();
+  function isAdControlElement(element) {
+    const selector = adControlSelectors();
     return Boolean(
       element &&
       (element.matches?.(selector) || element.closest?.(selector))
     );
-  }
-
-  function skipButtonClickableElement(element) {
-    if (!element) return null;
-    if (element.matches?.("button,[role='button']")) return element;
-    return element.querySelector?.("button,[role='button']") ||
-      element.closest?.("button,[role='button']") ||
-      element;
-  }
-
-  function skipButton() {
-    const candidates = Array.from(document.querySelectorAll(skipButtonSelectors()));
-    for (const candidate of candidates) {
-      const button = skipButtonClickableElement(candidate);
-      if (!button) continue;
-      if (!isElementVisible(button) && !isElementVisible(candidate)) continue;
-      if (isControlDisabled(button)) continue;
-      return button;
-    }
-    return null;
-  }
-
-  function clickSkipElement(element) {
-    const target = skipButtonClickableElement(element);
-    if (!target) return false;
-    try { target.focus?.({ preventScroll: true }); } catch (error) {}
-    ["pointerdown", "mousedown", "pointerup", "mouseup"].forEach((name) => dispatchSkipPointerEvent(target, name));
-    try { target.click(); } catch (error) {}
-    dispatchSkipPointerEvent(target, "click");
-    return true;
-  }
-
-  function dispatchSkipPointerEvent(target, name) {
-    const pointer = name.indexOf("pointer") === 0;
-    const EventCtor = pointer && typeof window.PointerEvent === "function" ? window.PointerEvent : window.MouseEvent;
-    const options = {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      button: 0,
-      buttons: name === "pointerdown" || name === "mousedown" ? 1 : 0
-    };
-    if (pointer) {
-      options.pointerId = 1;
-      options.pointerType = "mouse";
-      options.isPrimary = true;
-    }
-    try { target.dispatchEvent(new EventCtor(name, options)); } catch (error) {}
   }
 
   function normalizeAdLabel(value) {
@@ -1840,7 +1779,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 
   function isMeaningfulAdElement(element) {
     if (!element) return false;
-    if (isSkipElement(element)) return true;
+    if (isAdControlElement(element)) return true;
     if (element.matches?.(".ytp-ad-duration-remaining")) {
       return /\d/.test(adElementText(element));
     }
@@ -1864,7 +1803,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       if (text && !/skip|跳过|略過|スキップ|건너뛰기/i.test(text)) return text;
     }
     for (const element of elements) {
-      if (isSkipElement(element)) continue;
+      if (isAdControlElement(element)) continue;
       const text = adElementText(element);
       if (text && !/skip|跳过|略過|スキップ|건너뛰기/i.test(text)) return text;
     }
@@ -1875,44 +1814,14 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     const now = Date.now();
     const hasClass = hasActiveAdPlayerClass();
     const elements = visibleAdElements().filter(isMeaningfulAdElement);
-    const skip = skipButton();
-    const hasStrongSignal = elements.length > 0 || Boolean(skip);
+    const hasStrongSignal = elements.length > 0;
     if (hasStrongSignal) {
       lastStrongAdAt = now;
     }
     const advertising = hasStrongSignal || (hasClass && lastStrongAdAt > 0 && now - lastStrongAdAt < 1500);
     const label = advertising ? adLabelFromElements(elements) : "";
-    const activeSkip = advertising ? skip : null;
-    const skipLabel = normalizeAdLabel(activeSkip ? (activeSkip.getAttribute("aria-label") || activeSkip.textContent || activeSkip.innerText || "") : "");
     lastAdvertising = advertising;
-    return { advertising, label, skippable: Boolean(activeSkip), skipLabel };
-  }
-
-  function invokeSkipAd(reason) {
-    const eventReason = reason || "skip-ad";
-    let attempted = false;
-    const api = playerApi();
-    if (api && typeof api.skipAd === "function") {
-      try {
-        api.skipAd();
-        attempted = true;
-      } catch (error) {}
-    }
-    const button = skipButton();
-    if (button) {
-      attempted = clickSkipElement(button) || attempted;
-    }
-    if (!attempted) {
-      sendState("skip-ad-unavailable", true);
-      return false;
-    }
-    sendState(eventReason, true);
-    window.setTimeout(() => {
-      const retryButton = skipButton();
-      if (retryButton) clickSkipElement(retryButton);
-      sendState("skip-ad-confirm", true);
-    }, 180);
-    return true;
+    return { advertising, label };
   }
 
   function normalizeErrorLine(value) {
@@ -2376,12 +2285,44 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   function installMediaSessionHandlers() {
     try {
       if (!navigator.mediaSession || typeof navigator.mediaSession.setActionHandler !== "function") return;
+      installMediaSessionActionHandlerGuard();
+      try {
+        navigator.mediaSession.setActionHandler("seekforward", null);
+      } catch (error) {}
+      try {
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+      } catch (error) {}
       try {
         navigator.mediaSession.setActionHandler("nexttrack", () => post({ type: "remote-next" }));
       } catch (error) {}
       try {
         navigator.mediaSession.setActionHandler("previoustrack", () => post({ type: "remote-previous" }));
       } catch (error) {}
+    } catch (error) {}
+  }
+
+  function installMediaSessionActionHandlerGuard() {
+    try {
+      const mediaSession = navigator.mediaSession;
+      if (
+        !mediaSession ||
+        typeof mediaSession.setActionHandler !== "function" ||
+        mediaSession.__listenSetActionHandlerWrapped
+      ) {
+        return;
+      }
+      const originalSetActionHandler = mediaSession.setActionHandler.bind(mediaSession);
+      mediaSession.setActionHandler = function(type, handler) {
+        if (type === "seekforward" || type === "seekbackward") {
+          return originalSetActionHandler(type, null);
+        }
+        return originalSetActionHandler(type, handler);
+      };
+      Object.defineProperty(mediaSession, "__listenSetActionHandlerWrapped", {
+        configurable: false,
+        enumerable: false,
+        value: true
+      });
     } catch (error) {}
   }
 
@@ -2437,8 +2378,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       videoHeight,
       advertising: ad.advertising,
       adLabel: ad.label,
-      adSkippable: ad.skippable,
-      adSkipLabel: ad.skipLabel,
       errorCode: error.code,
       errorMessage: error.message,
       readyState: video ? video.readyState : 0,
@@ -2479,8 +2418,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       videoHeight: video ? finiteNumber(video.videoHeight, 0) : 0,
       advertising: ad.advertising,
       adLabel: ad.label,
-      adSkippable: ad.skippable,
-      adSkipLabel: ad.skipLabel,
       errorCode: error.code,
       errorMessage: error.message,
       code: error.errored ? error.code || (video && video.error ? video.error.code || 0 : 0) : 0,
@@ -2540,7 +2477,33 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     autoplayCount = 0;
   }
 
+  function attemptAutoplayRecovery(video, reason) {
+    if (!autoplayRecoveryPending || lastRequestedAction === "pause") return "noop";
+    if (!video || !video.paused || playerStateCode() === 1) {
+      autoplayRecoveryPending = false;
+      return "noop";
+    }
+    if (video.readyState < 2) return "not-ready";
+    autoplayRecoveryPending = false;
+    lastRequestedAction = "play";
+    scheduleVolumeBurst();
+    applyVolume();
+    applyStartPosition(video);
+    const button = document.querySelector(".play-pause-button.ytmusic-player-bar, ytmusic-player-bar .play-pause-button");
+    if (button && !isControlDisabled(button)) {
+      try {
+        button.click();
+        sendState(reason || "autoplay-recovery-click", true);
+        return "clicked";
+      } catch (error) {}
+    }
+    invokePlay(reason || "autoplay-recovery");
+    autoplayRecoveryPending = false;
+    return "played";
+  }
+
   function invokePlay(reason) {
+    autoplayRecoveryPending = true;
     lastRequestedAction = "play";
     const video = videoElement();
     sendState(reason || "play-requested", true);
@@ -2566,6 +2529,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 
   function invokePause(reason) {
     lastRequestedAction = "pause";
+    autoplayRecoveryPending = false;
     cancelAutoplay();
     sendState(reason || "pause-requested", true);
     pauseVideos();
@@ -2593,6 +2557,9 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
         video.addEventListener(name, () => {
           applyVolume();
           applyStartPosition(video);
+          if (name === "loadeddata" || name === "canplay" || name === "canplaythrough") {
+            attemptAutoplayRecovery(video, "autoplay-recovery-" + name);
+          }
           sendState(name, true);
         });
       });
@@ -2614,6 +2581,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
           return;
         }
         lastRequestedAction = "";
+        autoplayRecoveryPending = false;
         applyVolume();
         cancelAutoplay();
         startPolling();
@@ -2662,6 +2630,9 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
           window.clearInterval(volumeBurst);
         }
       }, 200);
+      if (video.readyState >= 3) {
+        attemptAutoplayRecovery(video, "autoplay-recovery-ready");
+      }
     });
     if (anyVideoPlaying()) startPolling();
   }
@@ -2790,7 +2761,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       sendState("api-previous-unavailable", true);
       return "no-button";
     },
-	    skipAd: () => invokeSkipAd("api-skip-ad"),
 	    startLyricsPoll: () => {
 	      startLyricsPoll();
 	      return "started";
@@ -2992,79 +2962,6 @@ func listenYouTubeMusicSeekScript(seconds float64) string {
   if (video) video.currentTime = %f;
 })();
 `, clampListenSeconds(seconds), clampListenSeconds(seconds))
-}
-
-func listenYouTubeMusicSkipAdScript() string {
-	return `
-(function() {
-  function dispatchSkipPointerEvent(target, name) {
-    const pointer = name.indexOf("pointer") === 0;
-    const EventCtor = pointer && typeof window.PointerEvent === "function" ? window.PointerEvent : window.MouseEvent;
-    const options = {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      button: 0,
-      buttons: name === "pointerdown" || name === "mousedown" ? 1 : 0
-    };
-    if (pointer) {
-      options.pointerId = 1;
-      options.pointerType = "mouse";
-      options.isPrimary = true;
-    }
-    try { target.dispatchEvent(new EventCtor(name, options)); } catch (error) {}
-  }
-
-  function clickVisibleSkipButton() {
-    const buttons = Array.from(document.querySelectorAll([
-      ".ytp-ad-skip-button-modern",
-      ".ytp-ad-skip-button",
-      ".ytp-ad-skip-button-container button",
-      ".ytp-ad-skip-button-container",
-      ".ytp-skip-ad-button",
-      ".ytp-ad-skip-button-slot button",
-      ".ytp-ad-skip-button-slot",
-      "button.ytp-ad-skip-button-modern",
-      "button.ytp-ad-skip-button",
-      "button[aria-label*='skip' i]",
-      "button[aria-label*='跳过']",
-      "button[aria-label*='略過']",
-      "button[aria-label*='スキップ']",
-      "button[aria-label*='건너뛰기']"
-    ].join(",")));
-    const button = buttons.map((element) => (
-      element.matches?.("button,[role='button']")
-        ? element
-        : element.querySelector?.("button,[role='button']") || element.closest?.("button,[role='button']") || element
-    )).find((element) => {
-      const rect = element.getBoundingClientRect();
-      const style = window.getComputedStyle(element);
-      return rect && rect.width > 1 && rect.height > 1 &&
-        style.display !== "none" &&
-        style.visibility !== "hidden" &&
-        !element.disabled &&
-        element.getAttribute("aria-disabled") !== "true";
-    });
-    if (!button) return false;
-    try { button.focus?.({ preventScroll: true }); } catch (error) {}
-    ["pointerdown", "mousedown", "pointerup", "mouseup"].forEach((name) => dispatchSkipPointerEvent(button, name));
-    try { button.click(); } catch (error) {}
-    dispatchSkipPointerEvent(button, "click");
-    return true;
-  }
-
-  const api = window.__listenNativePlayer;
-  let apiAttempted = false;
-  if (api && typeof api.skipAd === "function") {
-    try {
-      api.skipAd();
-      apiAttempted = true;
-    } catch (error) {}
-  }
-  if (apiAttempted) window.setTimeout(clickVisibleSkipButton, 180);
-  else clickVisibleSkipButton();
-})();
-`
 }
 
 func listenYouTubeMusicVolumeScript(volume float64, muted bool) string {

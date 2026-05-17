@@ -215,3 +215,149 @@ func TestResolveVisibleWindowBoundsLeavesVisibleWindowUntouched(t *testing.T) {
 		t.Fatalf("expected bounds to stay the same, got %+v", got)
 	}
 }
+
+func TestNormalizeWindowBoundsForPersistenceClampsMinimumSize(t *testing.T) {
+	got, ok := normalizeWindowBoundsForPersistence(application.Rect{
+		X:      120,
+		Y:      80,
+		Width:  400,
+		Height: 300,
+	}, windowTypeMain)
+	if !ok {
+		t.Fatal("expected bounds to be valid")
+	}
+	if got.Width != settings.MinMainWindowWidth || got.Height != settings.MinMainWindowHeight {
+		t.Fatalf("expected main bounds to clamp to minimum size, got %+v", got)
+	}
+
+	settingsBounds, ok := normalizeWindowBoundsForPersistence(application.Rect{
+		X:      20,
+		Y:      30,
+		Width:  320,
+		Height: 360,
+	}, windowTypeSettings)
+	if !ok {
+		t.Fatal("expected settings bounds to be valid")
+	}
+	if settingsBounds.Width != settings.MinSettingsWindowWidth || settingsBounds.Height != settings.MinSettingsWindowHeight {
+		t.Fatalf("expected settings bounds to clamp to minimum size, got %+v", settingsBounds)
+	}
+}
+
+func TestNormalizeWindowBoundsForPersistenceRejectsEmptyBounds(t *testing.T) {
+	if _, ok := normalizeWindowBoundsForPersistence(application.Rect{Width: 0, Height: 640}, windowTypeMain); ok {
+		t.Fatal("expected zero-width bounds to be rejected")
+	}
+	if _, ok := normalizeWindowBoundsForPersistence(application.Rect{Width: 960, Height: 0}, windowTypeMain); ok {
+		t.Fatal("expected zero-height bounds to be rejected")
+	}
+}
+
+func TestNormalizeWindowBoundsForLaunchClampsMinimumSize(t *testing.T) {
+	got := normalizeWindowBoundsForLaunch(settingsdto.WindowBounds{
+		X:      20,
+		Y:      30,
+		Width:  400,
+		Height: 300,
+	}, windowTypeMain)
+	if got.X != 20 || got.Y != 30 {
+		t.Fatalf("expected position to be preserved, got %+v", got)
+	}
+	if got.Width != settings.MinMainWindowWidth || got.Height != settings.MinMainWindowHeight {
+		t.Fatalf("expected main launch bounds to clamp to minimum size, got %+v", got)
+	}
+
+	settingsBounds := normalizeWindowBoundsForLaunch(settingsdto.WindowBounds{
+		X:      40,
+		Y:      50,
+		Width:  320,
+		Height: 360,
+	}, windowTypeSettings)
+	if settingsBounds.Width != settings.MinSettingsWindowWidth || settingsBounds.Height != settings.MinSettingsWindowHeight {
+		t.Fatalf("expected settings launch bounds to clamp to minimum size, got %+v", settingsBounds)
+	}
+}
+
+func TestNormalizeWindowBoundsForLaunchPreservesSavedSize(t *testing.T) {
+	got := normalizeWindowBoundsForLaunch(settingsdto.WindowBounds{
+		X:      132,
+		Y:      61,
+		Width:  1249,
+		Height: 842,
+	}, windowTypeMain)
+	if got.X != 132 || got.Y != 61 || got.Width != 1249 || got.Height != 842 {
+		t.Fatalf("expected saved launch bounds to be preserved, got %+v", got)
+	}
+}
+
+func TestWindowManagerCachedBoundsUsesLastValidBounds(t *testing.T) {
+	manager := &WindowManager{
+		lastMainBounds: settingsdto.WindowBounds{
+			X:      50,
+			Y:      60,
+			Width:  1280,
+			Height: 720,
+		},
+	}
+
+	got, ok := manager.cachedBounds(windowTypeMain)
+	if !ok {
+		t.Fatal("expected cached main bounds")
+	}
+	if got.X != 50 || got.Y != 60 || got.Width != 1280 || got.Height != 720 {
+		t.Fatalf("unexpected cached bounds: %+v", got)
+	}
+	if _, ok := manager.cachedBoundsForPersistence(windowTypeMain); ok {
+		t.Fatal("expected initial cached bounds to be clean")
+	}
+
+	manager.rememberBounds(windowTypeMain, application.Rect{
+		X:      80,
+		Y:      90,
+		Width:  1400,
+		Height: 900,
+	})
+	got, ok = manager.cachedBounds(windowTypeMain)
+	if !ok {
+		t.Fatal("expected updated cached main bounds")
+	}
+	if got.X != 80 || got.Y != 90 || got.Width != 1400 || got.Height != 900 {
+		t.Fatalf("unexpected updated cached bounds: %+v", got)
+	}
+	persistable, ok := manager.cachedBoundsForPersistence(windowTypeMain)
+	if !ok {
+		t.Fatal("expected updated cached bounds to be dirty")
+	}
+	if persistable != got {
+		t.Fatalf("expected persistable cached bounds to match cached bounds, got %+v", persistable)
+	}
+
+	manager.markBoundsClean(windowTypeMain)
+	if _, ok := manager.cachedBoundsForPersistence(windowTypeMain); ok {
+		t.Fatal("expected cached bounds to be clean after markBoundsClean")
+	}
+}
+
+func TestWindowManagerBoundsTrackingReadyIsPerWindow(t *testing.T) {
+	manager := &WindowManager{}
+
+	if manager.boundsTrackingReady(windowTypeMain) {
+		t.Fatal("expected main bounds tracking to start disabled")
+	}
+	if manager.boundsTrackingReady(windowTypeSettings) {
+		t.Fatal("expected settings bounds tracking to start disabled")
+	}
+
+	manager.markBoundsTrackingReady(windowTypeMain)
+	if !manager.boundsTrackingReady(windowTypeMain) {
+		t.Fatal("expected main bounds tracking to be enabled")
+	}
+	if manager.boundsTrackingReady(windowTypeSettings) {
+		t.Fatal("expected settings bounds tracking to remain disabled")
+	}
+
+	manager.markBoundsTrackingReady(windowTypeSettings)
+	if !manager.boundsTrackingReady(windowTypeSettings) {
+		t.Fatal("expected settings bounds tracking to be enabled")
+	}
+}

@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 )
@@ -71,10 +72,19 @@ func (bus *InMemoryBus) Publish(_ context.Context, event Event) error {
 	bus.mu.Unlock()
 
 	for _, handler := range handlers {
-		handler(event)
+		dispatchHandler(event, handler)
 	}
 
 	return nil
+}
+
+func dispatchHandler(event Event, handler Handler) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("events: subscriber panic topic=%s type=%s: %v", event.Topic, event.Type, r)
+		}
+	}()
+	handler(event)
 }
 
 func (bus *InMemoryBus) Replay(topic string, afterSeq int64, limit int) ([]Event, bool) {

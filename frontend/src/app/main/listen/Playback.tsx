@@ -75,7 +75,7 @@ import {
 readListenNativeVideoRadius,
 useListenNativeVideoUnderlay,
 } from "@/app/main/listen/native-video-underlay";
-import { copyListenTextToClipboard,fetchListenLyricsCached,forgetListenLyricsCache,getListenErrorCode,getListenErrorMessage,isListenLyricsDataAvailable,listenLyricsSummary,LISTEN_EMPTY_PROGRESS,LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,logListenLyrics,normalizeListenInlineVideoAspectRatio,normalizeListenLiveNativeState,readListenLyricsCache,readListenNativeEventURLVideoId,resolveListenNativeEventVideoAspectRatio,resolveListenPlaybackStatusLabel,resolveListenQueuePopupAnchor,resolveListenTrackVideoAvailability,type ListenLyricsTrackRequest,type ListenVideoAvailability } from "@/app/main/listen/playback-helpers";
+import { copyListenTextToClipboard,fetchListenLyricsCached,forgetListenLyricsCache,getListenErrorCode,getListenErrorMessage,isListenLyricsDataAvailable,listenLyricsSummary,LISTEN_EMPTY_PROGRESS,LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,logListenLyrics,normalizeListenInlineVideoAspectRatio,normalizeListenLiveNativeState,readListenLyricsCache,readListenNativeEventURLVideoId,resolveListenNativeEventVideoAspectRatio,resolveListenPlaybackStatusLabel,resolveListenQueuePopupAnchor,resolveListenTrackVideoAvailability,resolveTrustedListenOnlineArtistLabel,type ListenLyricsTrackRequest,type ListenVideoAvailability } from "@/app/main/listen/playback-helpers";
 import { ListenLocalPlaybackQueuePopup,ListenPlaybackQueuePopup,type ListenQueuePopupAnchor } from "@/app/main/listen/queue-popups";
 import { fetchListenTrackInfo } from "@/app/main/listen/api";
 import { clampVolume,formatProgressSeconds,resolveAudioSource } from "@/app/main/listen/local-library";
@@ -1186,7 +1186,7 @@ export function ListenYouTubePlayback(props: {
   const playerEventSource = isLive
     ? "listen-youtube-live-player"
     : "listen-youtube-music-player";
-  const artistName = props.track.channel.trim();
+  const artistName = resolveTrustedListenOnlineArtistLabel(props.track);
   const showFavoriteAction =
     props.mode === "muse" && !isLive;
   const trackVideoId = props.track.videoId.trim();
@@ -1211,8 +1211,6 @@ export function ListenYouTubePlayback(props: {
   const [playbackAdvertising, setPlaybackAdvertising] = React.useState(false);
   const [playbackAdvertisingLabel, setPlaybackAdvertisingLabel] =
     React.useState("");
-  const [playbackAdSkippable, setPlaybackAdSkippable] =
-    React.useState(false);
   const [playbackAdvertisingProgress, setPlaybackAdvertisingProgress] =
     React.useState<{
       currentTime: number;
@@ -1342,7 +1340,6 @@ export function ListenYouTubePlayback(props: {
     inlineNativeVideoRectRef.current = null;
     setPlaybackAdvertising(false);
     setPlaybackAdvertisingLabel("");
-    setPlaybackAdSkippable(false);
     setPlaybackAdvertisingProgress(null);
     setPlaybackErrorLabel("");
     setPlaybackErrorMessage("");
@@ -2014,15 +2011,6 @@ export function ListenYouTubePlayback(props: {
     });
   }, [callNativePlayer, props.airPlaySupported]);
 
-  const handleSkipAd = React.useCallback(() => {
-    if (!playbackAdvertising || !playbackAdSkippable) {
-      return;
-    }
-    void callNativePlayer("SkipAd").catch((error) => {
-      console.warn("[Listen] native ad skip unavailable", error);
-    });
-  }, [callNativePlayer, playbackAdSkippable, playbackAdvertising]);
-
   const handleOnlineMediaModeChange = React.useCallback(
     (mode: ListenMediaMode) => {
       if (mode === "lyrics") {
@@ -2104,7 +2092,6 @@ export function ListenYouTubePlayback(props: {
       lastPlayRequestRef.current = requestKey;
       setPlaybackAdvertising(false);
       setPlaybackAdvertisingLabel("");
-      setPlaybackAdSkippable(false);
       setPlaybackAdvertisingProgress(null);
       setPlaybackErrorLabel("");
       setPlaybackErrorMessage("");
@@ -2359,7 +2346,6 @@ export function ListenYouTubePlayback(props: {
           const errorMessage = String(data.errorMessage || data.message || "").trim();
           setPlaybackAdvertising(false);
           setPlaybackAdvertisingLabel("");
-          setPlaybackAdSkippable(false);
           setPlaybackAdvertisingProgress(null);
           setPlaybackErrorLabel(errorCode);
           setPlaybackErrorMessage(errorMessage);
@@ -2367,7 +2353,6 @@ export function ListenYouTubePlayback(props: {
           const advertising = Boolean(data.advertising || data.ad);
           setPlaybackAdvertising(advertising);
           setPlaybackAdvertisingLabel(advertising ? String(data.adLabel || "").trim() : "");
-          setPlaybackAdSkippable(advertising && Boolean(data.adSkippable));
           if (advertising) {
             const nextAdProgress = {
               currentTime: Math.max(0, Number(data.currentTime || 0)),
@@ -2605,7 +2590,6 @@ export function ListenYouTubePlayback(props: {
     setVideoOpen(false);
     setPlaybackAdvertising(false);
     setPlaybackAdvertisingLabel("");
-    setPlaybackAdSkippable(false);
     setPlaybackAdvertisingProgress(null);
     setPlaybackErrorLabel("");
     setPlaybackErrorMessage("");
@@ -2748,7 +2732,6 @@ export function ListenYouTubePlayback(props: {
         progress={playbackTimelineProgress}
         advertising={playbackAdvertising}
         advertisingLabel={playbackAdvertisingLabel}
-        adSkippable={playbackAdSkippable}
         progressLoading={progressLoading}
         errorActive={props.state === "error"}
         errorLabel={
@@ -2757,7 +2740,6 @@ export function ListenYouTubePlayback(props: {
             : ""
         }
         errorTitle={props.state === "error" ? playbackErrorMessage : ""}
-        onSkipAd={handleSkipAd}
         onSeek={isLive ? undefined : handleOnlineSeek}
         onStopPlayback={handleStopPlayback}
         onFitLiveVideoWindow={handleFitLiveVideoWindow}
@@ -2852,12 +2834,10 @@ function ListenPlayerChrome(props: {
   };
   advertising?: boolean;
   advertisingLabel?: string;
-  adSkippable?: boolean;
   progressLoading?: boolean;
   errorActive?: boolean;
   errorLabel?: string;
   errorTitle?: string;
-  onSkipAd?: () => void;
   onSeek?: (seconds: number) => void;
   onStopPlayback?: () => void;
   onFitLiveVideoWindow?: () => void;
@@ -3116,12 +3096,10 @@ function ListenPlayerChrome(props: {
                       playing={props.playing}
                       advertising={props.advertising}
                       advertisingLabel={props.advertisingLabel}
-                      adSkippable={props.adSkippable}
                       loading={props.progressLoading}
                       errorActive={props.errorActive}
                       errorLabel={props.errorLabel}
                       errorTitle={props.errorTitle}
-                      onSkipAd={props.onSkipAd}
                       onSeek={props.onSeek}
                     />
                     <ListenPlayerTransport
@@ -4164,12 +4142,10 @@ function ListenPlayerProgress(props: {
   playing?: boolean;
   advertising?: boolean;
   advertisingLabel?: string;
-  adSkippable?: boolean;
   loading?: boolean;
   errorActive?: boolean;
   errorLabel?: string;
   errorTitle?: string;
-  onSkipAd?: () => void;
   onSeek?: (seconds: number) => void;
 }) {
   const duration = Number.isFinite(props.progress.duration)
@@ -4207,8 +4183,6 @@ function ListenPlayerProgress(props: {
     : loading
       ? props.text.listen.loading
       : props.text.listen.liveBadge;
-  const skipAvailable =
-    !hasError && !loading && advertising && props.adSkippable && props.onSkipAd;
   const hasTimedAdProgress =
     advertising &&
     duration > 0 &&
@@ -4298,17 +4272,7 @@ function ListenPlayerProgress(props: {
                 {label}
               </span>
               <span aria-hidden="true" />
-              {skipAvailable ? (
-                <button
-                  type="button"
-                  className="justify-self-end rounded px-1.5 text-[10px] font-semibold leading-4 text-sidebar-primary transition hover:bg-sidebar-primary/10 hover:text-sidebar-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-primary/35"
-                  onClick={() => props.onSkipAd?.()}
-                >
-                  {props.text.listen.skipAd}
-                </button>
-              ) : (
-                <span aria-hidden="true" />
-              )}
+              <span aria-hidden="true" />
             </>
           ) : loading ? (
             <>

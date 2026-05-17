@@ -72,8 +72,6 @@ export type ListenNativePlayerEvent = {
   advertising?: boolean;
   ad?: boolean;
   adLabel?: string;
-  adSkippable?: boolean;
-  adSkipLabel?: string;
   errorCode?: string;
   errorMessage?: string;
   readyState?: number;
@@ -208,6 +206,7 @@ export type ListenOnlineItem = {
   title: string;
   channel: string;
   artistBrowseId?: string;
+  artistSource?: string;
   description: string;
   durationLabel: string;
   durationSeconds?: number;
@@ -255,6 +254,7 @@ export type ListenSearchItemDTO = {
   title: string;
   channel: string;
   artistBrowseId?: string;
+  artistSource?: string;
   description: string;
   durationLabel: string;
   playCountLabel?: string;

@@ -51,6 +51,7 @@ type ListenSearchItem struct {
 	Title                  string `json:"title"`
 	Channel                string `json:"channel"`
 	ArtistBrowseID         string `json:"artistBrowseId,omitempty"`
+	ArtistSource           string `json:"artistSource,omitempty"`
 	Description            string `json:"description"`
 	DurationLabel          string `json:"durationLabel"`
 	PlayCountLabel         string `json:"playCountLabel,omitempty"`
@@ -199,6 +200,7 @@ func mapYouTubeMusicTracksToListenItems(tracks []youtubemusic.Track, prefix stri
 			Title:                  title,
 			Channel:                channel,
 			ArtistBrowseID:         strings.TrimSpace(track.ArtistBrowseID),
+			ArtistSource:           strings.TrimSpace(track.ArtistSource),
 			Description:            strings.TrimSpace(track.RawDescription),
 			DurationLabel:          strings.TrimSpace(track.DurationLabel),
 			PlayCountLabel:         strings.TrimSpace(track.PlayCountLabel),

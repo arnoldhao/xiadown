@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveListenTrackVideoAvailability } from "@/app/main/listen/playback-helpers";
+import { hasTrustedListenOnlineArtist,resolveListenTrackVideoAvailability,resolveTrustedListenOnlineArtistLabel } from "@/app/main/listen/playback-helpers";
 import type { ListenOnlineItem } from "@/app/main/listen/types";
 
 function item(overrides: Partial<ListenOnlineItem>): ListenOnlineItem {
@@ -83,5 +83,35 @@ describe("listen playback video availability", () => {
         false,
       ),
     ).toBe("unavailable");
+  });
+});
+
+describe("listen playback artist provenance", () => {
+  test("does not trust plain API text recommendation labels as artists", () => {
+    const track = item({ channel: "Made for", artistSource: "api-text" });
+
+    expect(hasTrustedListenOnlineArtist(track)).toBe(false);
+    expect(resolveTrustedListenOnlineArtistLabel(track)).toBe("");
+  });
+
+  test("trusts linked API artists", () => {
+    const track = item({
+      channel: "Resolved Artist",
+      artistBrowseId: "UCresolved",
+      artistSource: "api-linked",
+    });
+
+    expect(hasTrustedListenOnlineArtist(track)).toBe(true);
+    expect(resolveTrustedListenOnlineArtistLabel(track)).toBe("Resolved Artist");
+  });
+
+  test("trusts artists resolved by backend track metadata", () => {
+    const track = item({
+      channel: "Accusefive",
+      artistSource: "api-metadata",
+    });
+
+    expect(hasTrustedListenOnlineArtist(track)).toBe(true);
+    expect(resolveTrustedListenOnlineArtistLabel(track)).toBe("Accusefive");
   });
 });

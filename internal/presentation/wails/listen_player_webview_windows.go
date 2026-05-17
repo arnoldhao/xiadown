@@ -22,6 +22,7 @@ import (
 
 var listenYouTubeMusicRuntimeReadyWindowIDs sync.Map
 var listenWindowsWebViewConfiguredWindowIDs sync.Map
+var listenWindowsYouTubeAdBlockerWindowIDs sync.Map
 var listenWindowsWebResourceHeaderWindowIDs sync.Map
 
 var (
@@ -98,6 +99,7 @@ func prepareListenWindowsWebView(window *application.WebviewWindow, cookies []ap
 			return
 		}
 		configureListenWindowsWebView(window, chromium)
+		installListenWindowsYouTubeAdBlocker(window, chromium)
 		installListenWindowsWebResourceHeaders(window, chromium)
 		if len(cookies) == 0 {
 			return
@@ -133,6 +135,16 @@ func configureListenWindowsWebView(window *application.WebviewWindow, chromium *
 			listenWindowsWebViewConfiguredWindowIDs.Delete(window.ID())
 		}
 	}
+}
+
+func installListenWindowsYouTubeAdBlocker(window *application.WebviewWindow, chromium *edge.Chromium) {
+	if window == nil || chromium == nil {
+		return
+	}
+	if _, loaded := listenWindowsYouTubeAdBlockerWindowIDs.LoadOrStore(window.ID(), struct{}{}); loaded {
+		return
+	}
+	chromium.Init(listenYouTubeAdBlockScript())
 }
 
 func installListenWindowsWebResourceHeaders(window *application.WebviewWindow, chromium *edge.Chromium) {

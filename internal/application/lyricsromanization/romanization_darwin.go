@@ -94,7 +94,7 @@ char* xiadown_romanize_with_locale(const char *input, const char *localeIdentifi
             kCFAllocatorDefault,
             (__bridge CFStringRef)text,
             CFRangeMake(0, [text length]),
-            kCFStringTokenizerUnitWord | kCFStringTokenizerAttributeLatinTranscription,
+            kCFStringTokenizerUnitWord,
             locale
         );
         CFRelease(locale);

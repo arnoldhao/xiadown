@@ -12,6 +12,59 @@ func TestRomanizeSkipsLatinOnlyText(t *testing.T) {
 	}
 }
 
+func TestDominantScriptDetectsAdditionalScripts(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want script
+	}{
+		{name: "korean", text: "감사합니다", want: scriptKorean},
+		{name: "thai", text: "ขอบคุณ", want: scriptThai},
+		{name: "bengali", text: "নমস্কার", want: scriptBengali},
+		{name: "hindi", text: "नमस्ते", want: scriptHindi},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := dominantScript(test.text); got != test.want {
+				t.Fatalf("expected %v, got %v", test.want, got)
+			}
+		})
+	}
+}
+
+func TestRomanizeKoreanKnownSyllables(t *testing.T) {
+	tests := []struct {
+		text string
+		want string
+	}{
+		{text: "가", want: "ga"},
+		{text: "한", want: "han"},
+		{text: "방", want: "bang"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.text, func(t *testing.T) {
+			if got := romanizeKorean(test.text); got != test.want {
+				t.Fatalf("expected %q, got %q", test.want, got)
+			}
+		})
+	}
+}
+
+func TestRomanizeKoreanLatinPassthrough(t *testing.T) {
+	result := Transcribe("hey 안녕")
+	if result.Kind != KindRomanized {
+		t.Fatalf("expected romanized kind, got %+v", result)
+	}
+	if !strings.Contains(result.Text, "hey") {
+		t.Fatalf("expected latin token to be preserved, got %+v", result)
+	}
+	if strings.Contains(result.Text, "안") || strings.Contains(result.Text, "녕") {
+		t.Fatalf("expected Hangul to be romanized, got %+v", result)
+	}
+}
+
 func TestRomanizeJapaneseKanaPreservesLatinTokens(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("system romanization is only available on darwin")
@@ -119,5 +172,55 @@ func TestRomanizeChineseMixedWithLatinDoesNotLeakCharacters(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(result.Text), "love") {
 		t.Fatalf("expected latin token to be preserved, got %+v", result)
+	}
+}
+
+func TestRomanizeThai(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("system romanization is only available on darwin")
+	}
+	const text = "สวัสดีครับ"
+	raw := romanizeWithLocale(text, "th")
+	if raw == "" {
+		t.Fatalf("expected Thai tokenizer to return text")
+	}
+
+	result := Transcribe(text)
+	if canonicalize(raw) == text || containsSourceScript(raw) {
+		if result.Text != "" {
+			t.Fatalf("expected unchanged Thai tokenizer result to be skipped, got %+v", result)
+		}
+		return
+	}
+	if result.Kind != KindRomanized || result.Text == "" {
+		t.Fatalf("expected Thai romanized result, got %+v", result)
+	}
+}
+
+func TestRomanizeBengali(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("system romanization is only available on darwin")
+	}
+	assertSystemRomanized(t, "নমস্কার")
+}
+
+func TestRomanizeHindi(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("system romanization is only available on darwin")
+	}
+	assertSystemRomanized(t, "नमस्ते")
+}
+
+func assertSystemRomanized(t *testing.T, text string) {
+	t.Helper()
+	result := Transcribe(text)
+	if result.Kind != KindRomanized {
+		t.Fatalf("expected romanized kind, got %+v", result)
+	}
+	if result.Text == "" {
+		t.Fatalf("expected romanized text")
+	}
+	if containsSourceScript(result.Text) {
+		t.Fatalf("expected source script to be romanized, got %+v", result)
 	}
 }

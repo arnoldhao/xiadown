@@ -37,6 +37,16 @@ func (stub *downloaderStub) Download(_ context.Context, _ string, progress func(
 	return stub.path, nil
 }
 
+type panicNotifier struct{}
+
+func (panicNotifier) SetUpdateAvailable(bool) {
+	panic("availability notifier failed")
+}
+
+func (panicNotifier) NotifyUpdateState(domainupdate.Info) {
+	panic("state notifier failed")
+}
+
 type installerStub struct {
 	installErr            error
 	restartErr            error
@@ -433,6 +443,30 @@ func TestDownloadUpdateRequiresChecksum(t *testing.T) {
 	info, err := service.DownloadUpdate(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "checksum is required") {
 		t.Fatalf("expected checksum requirement error, got %v", err)
+	}
+	if info.Status != domainupdate.StatusError {
+		t.Fatalf("expected error status, got %q", info.Status)
+	}
+}
+
+func TestDownloadUpdateTimeoutErrorDoesNotPanicWhenNotifierPanics(t *testing.T) {
+	t.Parallel()
+
+	service := NewService(ServiceParams{
+		Downloader: &downloaderStub{err: context.DeadlineExceeded},
+		Installer:  &installerStub{},
+		Notifier:   panicNotifier{},
+	})
+	service.state = domainupdate.Info{
+		Kind:        domainupdate.KindApp,
+		Status:      domainupdate.StatusAvailable,
+		DownloadURL: "https://example.com/xiadown-update.zip",
+	}
+	service.downloadSHA256 = emptyFileSHA256
+
+	info, err := service.DownloadUpdate(context.Background())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline error, got %v", err)
 	}
 	if info.Status != domainupdate.StatusError {
 		t.Fatalf("expected error status, got %q", info.Status)

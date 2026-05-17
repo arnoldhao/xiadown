@@ -178,6 +178,7 @@ func listenPlaybackTrackFromYouTubeMusic(track youtubemusic.Track) listenplaybac
 		Title:                  strings.TrimSpace(track.Title),
 		Artist:                 strings.TrimSpace(track.Channel),
 		ArtistBrowseID:         strings.TrimSpace(track.ArtistBrowseID),
+		ArtistSource:           strings.TrimSpace(track.ArtistSource),
 		DurationLabel:          strings.TrimSpace(track.DurationLabel),
 		ThumbnailURL:           thumbnailURL,
 		MusicVideoType:         musicVideoType,
@@ -189,10 +190,11 @@ func listenPlaybackTrackFromYouTubeMusic(track youtubemusic.Track) listenplaybac
 func listenPlaybackTrackFromPlayRequest(request ListenPlayerPlayRequest) listenplayback.Track {
 	videoID := strings.TrimSpace(request.VideoID)
 	return listenplayback.Track{
-		ID:      videoID,
-		VideoID: videoID,
-		Title:   strings.TrimSpace(request.Title),
-		Artist:  strings.TrimSpace(request.Artist),
+		ID:           videoID,
+		VideoID:      videoID,
+		Title:        strings.TrimSpace(request.Title),
+		Artist:       strings.TrimSpace(request.Artist),
+		ArtistSource: listenplayback.TrackArtistSourceObserved,
 	}
 }
 
@@ -214,12 +216,30 @@ func listenPlaybackTrackFromMetadata(metadata youtubemusic.TrackMetadata, fallba
 		Title:                  strings.TrimSpace(metadata.Title),
 		Artist:                 strings.TrimSpace(metadata.Channel),
 		ArtistBrowseID:         strings.TrimSpace(metadata.ArtistBrowseID),
+		ArtistSource:           listenPlaybackMetadataArtistSource(metadata),
 		DurationLabel:          strings.TrimSpace(metadata.DurationLabel),
 		ThumbnailURL:           thumbnailURL,
 		MusicVideoType:         musicVideoType,
 		HasVideo:               hasVideo,
 		VideoAvailabilityKnown: videoAvailabilityKnown,
 		LikeStatus:             likeStatus,
+	}
+}
+
+func listenPlaybackMetadataArtistSource(metadata youtubemusic.TrackMetadata) string {
+	if strings.TrimSpace(metadata.Channel) == "" {
+		return ""
+	}
+	if strings.TrimSpace(metadata.ArtistBrowseID) != "" {
+		return listenplayback.TrackArtistSourceAPILinked
+	}
+	switch strings.TrimSpace(metadata.ArtistSource) {
+	case "api-linked":
+		return listenplayback.TrackArtistSourceAPILinked
+	case "api-text":
+		return listenplayback.TrackArtistSourceAPIMetadata
+	default:
+		return strings.TrimSpace(metadata.ArtistSource)
 	}
 }
 

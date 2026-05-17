@@ -11,7 +11,11 @@ const (
 	scriptUnknown script = iota
 	scriptLatin
 	scriptJapanese
+	scriptKorean
 	scriptChinese
+	scriptThai
+	scriptBengali
+	scriptHindi
 )
 
 type Kind string
@@ -41,7 +45,7 @@ func Available() bool {
 
 func Transcribe(text string) Result {
 	source := strings.TrimSpace(text)
-	if source == "" || isLatinOnly(source) || !Available() {
+	if source == "" || isLatinOnly(source) {
 		return Result{}
 	}
 
@@ -49,11 +53,38 @@ func Transcribe(text string) Result {
 	var kind Kind
 	switch dominantScript(source) {
 	case scriptJapanese:
+		if !Available() {
+			return Result{}
+		}
 		result = romanizeWithLocale(source, "ja")
 		kind = KindRomanized
+	case scriptKorean:
+		result = romanizeKorean(source)
+		kind = KindRomanized
 	case scriptChinese:
+		if !Available() {
+			return Result{}
+		}
 		result = romanizeWithLocale(normalizeChineseForTokenizer(source), "zh")
 		kind = KindPinyin
+	case scriptThai:
+		if !Available() {
+			return Result{}
+		}
+		result = romanizeWithLocale(source, "th")
+		kind = KindRomanized
+	case scriptBengali:
+		if !Available() {
+			return Result{}
+		}
+		result = romanizeWithLocale(source, "bn")
+		kind = KindRomanized
+	case scriptHindi:
+		if !Available() {
+			return Result{}
+		}
+		result = romanizeWithLocale(source, "hi")
+		kind = KindRomanized
 	default:
 		return Result{}
 	}
@@ -66,6 +97,31 @@ func Transcribe(text string) Result {
 }
 
 func dominantScript(text string) script {
+	if hasJapanese(text) {
+		return scriptJapanese
+	}
+	if hasKorean(text) {
+		return scriptKorean
+	}
+	if hasChinese(text) {
+		return scriptChinese
+	}
+	if hasThai(text) {
+		return scriptThai
+	}
+	if hasBengali(text) {
+		return scriptBengali
+	}
+	if hasHindi(text) {
+		return scriptHindi
+	}
+	if isLatinOnly(text) {
+		return scriptLatin
+	}
+	return scriptUnknown
+}
+
+func hasJapanese(text string) bool {
 	hasKana := false
 	hasCJK := false
 	for _, r := range text {
@@ -77,22 +133,69 @@ func dominantScript(text string) script {
 		}
 	}
 	if hasKana {
-		return scriptJapanese
+		return true
 	}
 	if !hasCJK {
-		if isLatinOnly(text) {
-			return scriptLatin
+		return false
+	}
+	return isJapaneseCJKText(text)
+}
+
+func hasKorean(text string) bool {
+	for _, r := range text {
+		if isHangul(r) {
+			return true
 		}
-		return scriptUnknown
 	}
-	switch language := strings.ToLower(strings.TrimSpace(dominantLanguage(text))); {
-	case strings.HasPrefix(language, "ja"):
-		return scriptJapanese
-	case strings.HasPrefix(language, "zh"):
-		return scriptChinese
-	default:
-		return scriptChinese
+	return false
+}
+
+func hasChinese(text string) bool {
+	hasCJK := false
+	for _, r := range text {
+		if isKana(r) {
+			return false
+		}
+		if isCJK(r) {
+			hasCJK = true
+		}
 	}
+	if !hasCJK {
+		return false
+	}
+	return !isJapaneseCJKText(text)
+}
+
+func hasThai(text string) bool {
+	for _, r := range text {
+		if r >= 0x0e00 && r <= 0x0e7f {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBengali(text string) bool {
+	for _, r := range text {
+		if r >= 0x0980 && r <= 0x09ff {
+			return true
+		}
+	}
+	return false
+}
+
+func hasHindi(text string) bool {
+	for _, r := range text {
+		if r >= 0x0900 && r <= 0x097f {
+			return true
+		}
+	}
+	return false
+}
+
+func isJapaneseCJKText(text string) bool {
+	language := strings.ToLower(strings.TrimSpace(dominantLanguage(text)))
+	return strings.HasPrefix(language, "ja")
 }
 
 func canonicalize(text string) string {
@@ -127,9 +230,18 @@ func isCJK(r rune) bool {
 		(r >= 0xf900 && r <= 0xfaff)
 }
 
+func isHangul(r rune) bool {
+	return (r >= 0x1100 && r <= 0x11ff) ||
+		(r >= 0x3130 && r <= 0x318f) ||
+		(r >= 0xac00 && r <= 0xd7af)
+}
+
 func containsSourceScript(text string) bool {
 	for _, r := range text {
-		if isKana(r) || isCJK(r) {
+		if isKana(r) || isCJK(r) || isHangul(r) ||
+			(r >= 0x0e00 && r <= 0x0e7f) ||
+			(r >= 0x0980 && r <= 0x09ff) ||
+			(r >= 0x0900 && r <= 0x097f) {
 			return true
 		}
 	}

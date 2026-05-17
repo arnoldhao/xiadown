@@ -841,7 +841,6 @@ function buildText(language: SupportedLanguage) {
       liveStatusUnavailable: t("xiadown.listen.liveStatusUnavailable", language),
       liveStatusUnknown: t("xiadown.listen.liveStatusUnknown", language),
       adBadge: t("xiadown.listen.adBadge", language),
-      skipAd: t("xiadown.listen.skipAd", language),
       browse: t("xiadown.listen.browse", language),
       upNext: t("xiadown.listen.upNext", language),
       play: t("xiadown.listen.play", language),
