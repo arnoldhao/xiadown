@@ -13,6 +13,12 @@ var SupportedLanguages = []settings.Language{
 	settings.LanguageEnglish,
 	settings.LanguageChineseSimplified,
 	settings.LanguageChineseTraditional,
+	settings.LanguageJapanese,
+	settings.LanguageKorean,
+	settings.LanguageSpanishLatinAmerica,
+	settings.LanguagePortugueseBrazil,
+	settings.LanguageIndonesian,
+	settings.LanguageVietnamese,
 }
 
 // DetectSystemLanguage tries to derive the OS language from common environment variables.
@@ -53,6 +59,18 @@ func normalizeLanguage(tag string) (settings.Language, bool) {
 		strings.HasPrefix(normalized, "zh-hk") ||
 		strings.HasPrefix(normalized, "zh-mo"):
 		return settings.LanguageChineseTraditional, true
+	case normalized == "ja" || strings.HasPrefix(normalized, "ja-"):
+		return settings.LanguageJapanese, true
+	case normalized == "ko" || strings.HasPrefix(normalized, "ko-"):
+		return settings.LanguageKorean, true
+	case normalized == "es" || strings.HasPrefix(normalized, "es-"):
+		return settings.LanguageSpanishLatinAmerica, true
+	case normalized == "pt" || strings.HasPrefix(normalized, "pt-"):
+		return settings.LanguagePortugueseBrazil, true
+	case normalized == "id" || strings.HasPrefix(normalized, "id-"):
+		return settings.LanguageIndonesian, true
+	case normalized == "vi" || strings.HasPrefix(normalized, "vi-"):
+		return settings.LanguageVietnamese, true
 	default:
 		return "", false
 	}
@@ -81,7 +99,7 @@ func parseLanguageTag(value string) string {
 
 	base, _ := parsed.Base()
 	region, _ := parsed.Region()
-	if region.IsCountry() {
+	if region.String() != "ZZ" {
 		return strings.ToLower(base.String() + "-" + region.String())
 	}
 

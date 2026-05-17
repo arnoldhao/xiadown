@@ -22,6 +22,12 @@ const englishStyleSkipKeys = new Set([
   "settings.language.option.en",
   "settings.language.option.zhCN",
   "settings.language.option.zhTW",
+  "settings.language.option.jaJP",
+  "settings.language.option.koKR",
+  "settings.language.option.es419",
+  "settings.language.option.ptBR",
+  "settings.language.option.idID",
+  "settings.language.option.viVN",
 ]);
 const englishStylePreservePhrases = [
   "XiaDown",
@@ -243,7 +249,7 @@ const zhGlossaryReplacements = [
   ["Cloud Dancer", "暖云白"],
 ];
 const zhAllowedEnglishKeyPatterns = [
-  /^settings\.language\.option\.en$/,
+  /^settings\.language\.option\./,
   /^xiadown\.running\.units\.bytesPerSecond$/,
   /^xiadown\.running\.units\.framesPerSecond$/,
   /^settings\.connectors\.item\./,
@@ -297,6 +303,12 @@ const knownNativeLanguageLabels = {
   "settings.language.option.en": "English",
   "settings.language.option.zhCN": "简体中文",
   "settings.language.option.zhTW": "繁體中文",
+  "settings.language.option.jaJP": "日本語",
+  "settings.language.option.koKR": "한국어",
+  "settings.language.option.es419": "Español (LatAm)",
+  "settings.language.option.ptBR": "Português (BR)",
+  "settings.language.option.idID": "Bahasa Indonesia",
+  "settings.language.option.viVN": "Tiếng Việt",
 };
 const hardcodedEnglishAllowedText = new Set([
   "HTTP",
@@ -432,7 +444,7 @@ function isI18nCallExpression(node) {
 
 function isExplicitLanguageArg(node, sourceFile) {
   const text = node.getText(sourceFile).trim();
-  return /(^language\b)|(\blanguage\b\s+as\s+)|(as\s+"en"\s*\|\s*"zh-CN"\s*\|\s*"zh-TW")|(^"en"$)|(^"zh-CN"$)|(^"zh-TW"$)/.test(text);
+  return /(^language\b)|(\blanguage\b\s+as\s+)|(as\s+"en"\s*\|\s*"zh-CN"\s*\|\s*"zh-TW")|(^"en"$)|(^"zh-CN"$)|(^"zh-TW"$)|(^"ja-JP"$)|(^"ko-KR"$)|(^"es-419"$)|(^"pt-BR"$)|(^"id-ID"$)|(^"vi-VN"$)/.test(text);
 }
 
 function splitWord(word) {

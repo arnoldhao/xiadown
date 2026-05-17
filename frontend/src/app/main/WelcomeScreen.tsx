@@ -1132,6 +1132,12 @@ export function WelcomeScreen(props: {
     { value: "en", label: text.common.languages.en },
     { value: "zh-CN", label: text.common.languages.zhCN },
     { value: "zh-TW", label: text.common.languages.zhTW },
+    { value: "ja-JP", label: text.common.languages.jaJP },
+    { value: "ko-KR", label: text.common.languages.koKR },
+    { value: "es-419", label: text.common.languages.es419 },
+    { value: "pt-BR", label: text.common.languages.ptBR },
+    { value: "id-ID", label: text.common.languages.idID },
+    { value: "vi-VN", label: text.common.languages.viVN },
   ];
   const themeOptions: Array<WelcomeDropdownOption<XiaThemePackId>> =
     XIA_THEME_PACKS.map((pack) => ({

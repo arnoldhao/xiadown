@@ -12,6 +12,27 @@ func TestParseLanguageAcceptsTraditionalChinese(t *testing.T) {
 	}
 }
 
+func TestParseLanguageAcceptsAdditionalLocales(t *testing.T) {
+	tests := []Language{
+		LanguageJapanese,
+		LanguageKorean,
+		LanguageSpanishLatinAmerica,
+		LanguagePortugueseBrazil,
+		LanguageIndonesian,
+		LanguageVietnamese,
+	}
+
+	for _, expected := range tests {
+		language, err := ParseLanguage(expected.String())
+		if err != nil {
+			t.Fatalf("parse language %q: %v", expected, err)
+		}
+		if language != expected {
+			t.Fatalf("expected %q, got %q", expected, language)
+		}
+	}
+}
+
 func TestDefaultBrowserIsNormalized(t *testing.T) {
 	current, err := NewSettings(SettingsParams{
 		Appearance:        AppearanceAuto.String(),

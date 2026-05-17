@@ -85,10 +85,16 @@ const (
 )
 
 const (
-	LanguageEnglish            Language = "en"
-	LanguageChineseSimplified  Language = "zh-CN"
-	LanguageChineseTraditional Language = "zh-TW"
-	DefaultLanguage                     = LanguageEnglish
+	LanguageEnglish             Language = "en"
+	LanguageChineseSimplified   Language = "zh-CN"
+	LanguageChineseTraditional  Language = "zh-TW"
+	LanguageJapanese            Language = "ja-JP"
+	LanguageKorean              Language = "ko-KR"
+	LanguageSpanishLatinAmerica Language = "es-419"
+	LanguagePortugueseBrazil    Language = "pt-BR"
+	LanguageIndonesian          Language = "id-ID"
+	LanguageVietnamese          Language = "vi-VN"
+	DefaultLanguage                      = LanguageEnglish
 )
 
 const (
@@ -391,7 +397,15 @@ func ParseLanguage(value string) (Language, error) {
 		return DefaultLanguage, nil
 	}
 	switch Language(trimmed) {
-	case LanguageEnglish, LanguageChineseSimplified, LanguageChineseTraditional:
+	case LanguageEnglish,
+		LanguageChineseSimplified,
+		LanguageChineseTraditional,
+		LanguageJapanese,
+		LanguageKorean,
+		LanguageSpanishLatinAmerica,
+		LanguagePortugueseBrazil,
+		LanguageIndonesian,
+		LanguageVietnamese:
 		return Language(trimmed), nil
 	default:
 		return "", fmt.Errorf("%w: language", ErrInvalidSettings)
