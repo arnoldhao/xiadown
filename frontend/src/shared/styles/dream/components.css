@@ -1294,7 +1294,7 @@
   }
 
   .listen-video-title-line > h1,
-  .listen-video-title-line > span {
+  .listen-video-title-line > .listen-video-author {
     overflow: hidden;
     margin: 0;
     text-overflow: ellipsis;
@@ -1311,7 +1311,7 @@
     line-height: 18px;
   }
 
-  .listen-video-title-line > span {
+  .listen-video-title-line > .listen-video-author {
     max-width: 30%;
     color: hsl(var(--foreground) / 0.52);
     -webkit-text-fill-color: hsl(var(--foreground) / 0.52);
@@ -1320,10 +1320,12 @@
     line-height: 14px;
   }
 
-  .listen-video-title-line > span::before {
-    content: "·";
-    margin-right: 6px;
+  .listen-video-title-separator {
+    flex: 0 0 auto;
     color: hsl(var(--foreground) / 0.32);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 14px;
   }
 
   .listen-video-status-cluster {
