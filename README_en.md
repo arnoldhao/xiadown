@@ -6,7 +6,13 @@
   <p>
     <a href="./README.md">简体中文</a> ·
     <a href="./README_zh-Hant.md">繁體中文</a> ·
-    <strong>English</strong>
+    <strong>English</strong> ·
+    <a href="./README_ja-JP.md">日本語</a> ·
+    <a href="./README_ko-KR.md">한국어</a> ·
+    <a href="./README_es-419.md">Español (LatAm)</a> ·
+    <a href="./README_pt-BR.md">Português (BR)</a> ·
+    <a href="./README_id-ID.md">Bahasa Indonesia</a> ·
+    <a href="./README_vi-VN.md">Tiếng Việt</a>
   </p>
   <p>
     <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="Latest version" />
