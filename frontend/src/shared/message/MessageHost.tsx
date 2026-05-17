@@ -273,7 +273,7 @@ function DialogHost({ message }: { message: DialogMessage }) {
     message.i18n?.params,
     t
   );
-  const cancelLabel = message.cancelLabelKey ? t(message.cancelLabelKey) : message.cancelLabel ?? "Cancel";
+  const cancelLabel = message.cancelLabelKey ? t(message.cancelLabelKey) : message.cancelLabel ?? t("common.cancel");
   const confirmLabel = message.confirmLabelKey ? t(message.confirmLabelKey) : message.confirmLabel ?? "Confirm";
 
   const handleClose = () => {
