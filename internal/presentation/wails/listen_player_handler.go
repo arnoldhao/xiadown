@@ -782,6 +782,13 @@ func (player *ListenYouTubeMusicPlayer) Status() ListenPlayerStatus {
 	if artist == "" {
 		artist = player.requestArtist
 	}
+	thumbnailURL := player.observedThumb
+	if thumbnailURL == "" {
+		thumbnailURL = listenYouTubePosterURL(player.observedVideo)
+	}
+	if thumbnailURL == "" {
+		thumbnailURL = listenYouTubePosterURL(player.currentVideo)
+	}
 	return ListenPlayerStatus{
 		Available:       player.window != nil,
 		VideoID:         player.currentVideo,
@@ -789,7 +796,7 @@ func (player *ListenYouTubeMusicPlayer) Status() ListenPlayerStatus {
 		State:           player.currentState,
 		Title:           title,
 		Artist:          artist,
-		ThumbnailURL:    player.observedThumb,
+		ThumbnailURL:    thumbnailURL,
 		LikeStatus:      player.observedLike,
 		Advertising:     player.advertising,
 		AdLabel:         player.adLabel,
@@ -1528,6 +1535,14 @@ func listenYouTubeMusicWatchURL(videoID string, language string) string {
 	return listenYouTubeMusicOrigin + "/watch?" + values.Encode()
 }
 
+func listenYouTubePosterURL(videoID string) string {
+	trimmed := strings.TrimSpace(videoID)
+	if !listenYouTubeVideoIDPattern.MatchString(trimmed) {
+		return ""
+	}
+	return "https://i.ytimg.com/vi/" + url.PathEscape(trimmed) + "/hqdefault.jpg"
+}
+
 func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 	initial, _ := json.Marshal(request)
 	return fmt.Sprintf(`
@@ -1548,6 +1563,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 	  let lyricsPollTimer = null;
 	  let autoplayTimer = null;
   let autoplayCount = 0;
+  let autoplayRecoveryPending = true;
   let mediaSessionOverrideFrame = null;
   let listenersAttachedTo = new WeakSet();
   let startAppliedForVideo = "";
@@ -1653,6 +1669,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     );
     if (Object.prototype.hasOwnProperty.call(incoming, "videoId")) {
       scheduleVolumeBurst();
+      autoplayRecoveryPending = true;
     }
     if (
       Object.prototype.hasOwnProperty.call(incoming, "videoId") &&
@@ -2268,12 +2285,44 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   function installMediaSessionHandlers() {
     try {
       if (!navigator.mediaSession || typeof navigator.mediaSession.setActionHandler !== "function") return;
+      installMediaSessionActionHandlerGuard();
+      try {
+        navigator.mediaSession.setActionHandler("seekforward", null);
+      } catch (error) {}
+      try {
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+      } catch (error) {}
       try {
         navigator.mediaSession.setActionHandler("nexttrack", () => post({ type: "remote-next" }));
       } catch (error) {}
       try {
         navigator.mediaSession.setActionHandler("previoustrack", () => post({ type: "remote-previous" }));
       } catch (error) {}
+    } catch (error) {}
+  }
+
+  function installMediaSessionActionHandlerGuard() {
+    try {
+      const mediaSession = navigator.mediaSession;
+      if (
+        !mediaSession ||
+        typeof mediaSession.setActionHandler !== "function" ||
+        mediaSession.__listenSetActionHandlerWrapped
+      ) {
+        return;
+      }
+      const originalSetActionHandler = mediaSession.setActionHandler.bind(mediaSession);
+      mediaSession.setActionHandler = function(type, handler) {
+        if (type === "seekforward" || type === "seekbackward") {
+          return originalSetActionHandler(type, null);
+        }
+        return originalSetActionHandler(type, handler);
+      };
+      Object.defineProperty(mediaSession, "__listenSetActionHandlerWrapped", {
+        configurable: false,
+        enumerable: false,
+        value: true
+      });
     } catch (error) {}
   }
 
@@ -2428,7 +2477,33 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     autoplayCount = 0;
   }
 
+  function attemptAutoplayRecovery(video, reason) {
+    if (!autoplayRecoveryPending || lastRequestedAction === "pause") return "noop";
+    if (!video || !video.paused || playerStateCode() === 1) {
+      autoplayRecoveryPending = false;
+      return "noop";
+    }
+    if (video.readyState < 2) return "not-ready";
+    autoplayRecoveryPending = false;
+    lastRequestedAction = "play";
+    scheduleVolumeBurst();
+    applyVolume();
+    applyStartPosition(video);
+    const button = document.querySelector(".play-pause-button.ytmusic-player-bar, ytmusic-player-bar .play-pause-button");
+    if (button && !isControlDisabled(button)) {
+      try {
+        button.click();
+        sendState(reason || "autoplay-recovery-click", true);
+        return "clicked";
+      } catch (error) {}
+    }
+    invokePlay(reason || "autoplay-recovery");
+    autoplayRecoveryPending = false;
+    return "played";
+  }
+
   function invokePlay(reason) {
+    autoplayRecoveryPending = true;
     lastRequestedAction = "play";
     const video = videoElement();
     sendState(reason || "play-requested", true);
@@ -2454,6 +2529,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 
   function invokePause(reason) {
     lastRequestedAction = "pause";
+    autoplayRecoveryPending = false;
     cancelAutoplay();
     sendState(reason || "pause-requested", true);
     pauseVideos();
@@ -2481,6 +2557,9 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
         video.addEventListener(name, () => {
           applyVolume();
           applyStartPosition(video);
+          if (name === "loadeddata" || name === "canplay" || name === "canplaythrough") {
+            attemptAutoplayRecovery(video, "autoplay-recovery-" + name);
+          }
           sendState(name, true);
         });
       });
@@ -2502,6 +2581,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
           return;
         }
         lastRequestedAction = "";
+        autoplayRecoveryPending = false;
         applyVolume();
         cancelAutoplay();
         startPolling();
@@ -2550,6 +2630,9 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
           window.clearInterval(volumeBurst);
         }
       }, 200);
+      if (video.readyState >= 3) {
+        attemptAutoplayRecovery(video, "autoplay-recovery-ready");
+      }
     });
     if (anyVideoPlaying()) startPolling();
   }

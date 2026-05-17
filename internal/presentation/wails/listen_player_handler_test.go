@@ -85,6 +85,10 @@ func TestListenBridgePreservesPauseIntent(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"navigator.mediaSession.setActionHandler",
+		"installMediaSessionActionHandlerGuard",
+		`setActionHandler("seekforward", null)`,
+		`setActionHandler("seekbackward", null)`,
+		`type === "seekforward" || type === "seekbackward"`,
 		"scheduleMediaSessionOverrideLoop",
 		"window.requestAnimationFrame",
 		`post({ type: "remote-next" })`,
@@ -95,6 +99,23 @@ func TestListenBridgePreservesPauseIntent(t *testing.T) {
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("bridge script should override media session action %q", expected)
+		}
+	}
+}
+
+func TestListenBridgeAttemptsAutoplayRecoveryOnReadyMedia(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
+		VideoID: "TESTVID001A",
+	})
+	for _, expected := range []string{
+		"autoplayRecoveryPending",
+		"function attemptAutoplayRecovery(video, reason)",
+		`attemptAutoplayRecovery(video, "autoplay-recovery-" + name)`,
+		`video.readyState >= 3`,
+		`".play-pause-button.ytmusic-player-bar, ytmusic-player-bar .play-pause-button"`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("bridge script should include autoplay recovery %q", expected)
 		}
 	}
 }
@@ -126,6 +147,18 @@ func TestListenPlayerStatusPrefersObservedMetadata(t *testing.T) {
 		status.Duration != 180 ||
 		status.BufferedTime != 48 {
 		t.Fatalf("status should include observed playback details, got %+v", status)
+	}
+}
+
+func TestListenPlayerStatusFallsBackToYouTubePoster(t *testing.T) {
+	player := &ListenYouTubeMusicPlayer{
+		currentVideo: "TESTVID001A",
+		currentState: "playing",
+	}
+
+	status := player.Status()
+	if status.ThumbnailURL != "https://i.ytimg.com/vi/TESTVID001A/hqdefault.jpg" {
+		t.Fatalf("expected public YouTube thumbnail fallback, got %+v", status)
 	}
 }
 

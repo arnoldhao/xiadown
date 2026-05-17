@@ -653,6 +653,124 @@ func TestTrackEndedRepeatOneRestartsCurrentQueueTrack(t *testing.T) {
 	}
 }
 
+func TestManualSeekToEndAdvancesQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 180); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected manual seek to end to advance queue, got index %d", index)
+	}
+	if got := transport.loads[len(transport.loads)-1]; got.videoID != "video-two" {
+		t.Fatalf("expected manual seek to load next track, got %#v", got)
+	}
+}
+
+func TestManualSeekWithinEndThresholdAdvancesQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 179.75); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected near-end manual seek to advance queue, got index %d", index)
+	}
+}
+
+func TestManualSeekToMiddleDoesNotAdvanceQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 90); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 0 {
+		t.Fatalf("expected middle seek to keep current queue index, got %d", index)
+	}
+	if len(transport.seeks) == 0 || transport.seeks[len(transport.seeks)-1] != 90 {
+		t.Fatalf("expected middle seek to reach transport, seeks=%v", transport.seeks)
+	}
+}
+
+func TestManualSeekToEndOfLastTrackPausesAtEnd(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 24, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Seek(ctx, 180); err != nil {
+		t.Fatal(err)
+	}
+
+	if service.State() != PlaybackStateEnded {
+		t.Fatalf("expected manual seek to last-track end to mark ended, got %s", service.State())
+	}
+	if len(transport.seeks) == 0 || transport.seeks[len(transport.seeks)-1] != 180 {
+		t.Fatalf("expected terminal seek to synchronize transport position, seeks=%v", transport.seeks)
+	}
+	if transport.actions[len(transport.actions)-1] != "pause" {
+		t.Fatalf("expected terminal seek to pause transport, actions=%v", transport.actions)
+	}
+}
+
+func TestRestoredSeekToEndIsDeferred(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	service.ApplyRestoredPlaybackSession(makeTracks()[:2], 0, 60, 180)
+	if err := service.Seek(ctx, 180); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 0 {
+		t.Fatalf("expected restored seek to keep queue index, got %d", index)
+	}
+	snapshot := service.Snapshot(ctx)
+	if snapshot.Progress != 180 || snapshot.PendingPlayVideoID != "video-one" {
+		t.Fatalf("expected restored seek to update deferred progress only, got %+v", snapshot)
+	}
+	if len(transport.actions) != 0 {
+		t.Fatalf("expected restored seek to avoid transport actions, got %v", transport.actions)
+	}
+}
+
 func TestStaleTrackEndedEventDoesNotAdvanceQueue(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}

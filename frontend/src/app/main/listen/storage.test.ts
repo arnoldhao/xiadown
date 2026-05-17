@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   buildListenImageCacheURL,
   buildListenHighQualityThumbnailURL,
+  buildListenTrackThumbnailCandidates,
+  buildYouTubePosterURL,
   sanitizeListenOnlineItems,
   updateListenProgressMap,
 } from "@/app/main/listen/storage";
@@ -42,6 +44,18 @@ describe("listen playback storage helpers", () => {
         "https://lh3.googleusercontent.com/art=w60-h60=s120",
       ),
     ).toBe("https://lh3.googleusercontent.com/art=w226-h226=s120");
+  });
+
+  test("adds public YouTube thumbnail fallback for track artwork", () => {
+    expect(buildYouTubePosterURL("TESTVID007G")).toBe(
+      "https://i.ytimg.com/vi/TESTVID007G/hqdefault.jpg",
+    );
+    expect(
+      buildListenTrackThumbnailCandidates("http://127.0.0.1:5678", {
+        videoId: "TESTVID007G",
+        thumbnailUrl: "",
+      }),
+    ).toEqual(["https://i.ytimg.com/vi/TESTVID007G/hqdefault.jpg"]);
   });
 
   test("keeps audio endpoint video-unavailable cache entries", () => {
