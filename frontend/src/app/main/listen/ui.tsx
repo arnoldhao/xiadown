@@ -60,6 +60,7 @@ LISTEN_LIST_SECTION_TITLE_CLASS,
 } from "@/shared/styles/listen";
 
 import { clampVolume,formatProgressSeconds } from "@/app/main/listen/local-library";
+import { resolveTrustedListenOnlineArtistLabel } from "@/app/main/listen/playback-helpers";
 import { buildListenAvatarImageCandidates,buildListenImageCandidates,buildListenPosterCandidates,buildListenTrackThumbnailCandidates } from "@/app/main/listen/storage";
 import type { ListenArtistItem,ListenCategoryItem,ListenLiveStatus,ListenLiveStatusValue,ListenLocalItem,ListenMode,ListenOnlineItem,ListenPlayMode,ListenPlaylistItem,ListenPlaylistLibraryAction } from "@/app/main/listen/types";
 import { doesListenThumbnailSuggestVideoContent,hasListenMusicVideoContent,isListenMusicVideoKnownNoVideo } from "@/app/main/listen/video-types";
@@ -1576,15 +1577,7 @@ function resolveListenMuseTrackListArtist(
   item: ListenOnlineItem,
   fallback?: string,
 ) {
-  const channel = item.channel.trim();
-  switch (channel.toLocaleLowerCase()) {
-    case "":
-    case "youtube":
-    case "youtube music":
-      return fallback?.trim() ?? "";
-    default:
-      return channel;
-  }
+  return resolveTrustedListenOnlineArtistLabel(item, fallback);
 }
 
 function resolveListenMuseTrackListAlbum(
@@ -1905,7 +1898,7 @@ function ListenMuseCardText(props: {
 }
 
 function resolveListenMuseTrackCardSubtitle(item: ListenOnlineItem) {
-  return item.channel.trim() || item.title.trim();
+  return resolveTrustedListenOnlineArtistLabel(item) || item.title.trim();
 }
 
 function ListenMuseListArtwork(props: {

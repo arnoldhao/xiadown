@@ -206,6 +206,7 @@ export type ListenOnlineItem = {
   title: string;
   channel: string;
   artistBrowseId?: string;
+  artistSource?: string;
   description: string;
   durationLabel: string;
   durationSeconds?: number;
@@ -253,6 +254,7 @@ export type ListenSearchItemDTO = {
   title: string;
   channel: string;
   artistBrowseId?: string;
+  artistSource?: string;
   description: string;
   durationLabel: string;
   playCountLabel?: string;

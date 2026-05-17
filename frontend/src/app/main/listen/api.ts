@@ -1264,6 +1264,7 @@ export function mapListenRemoteItem(
     title: item.title || item.videoId,
     channel: item.channel || "",
     artistBrowseId: item.artistBrowseId,
+    artistSource: item.artistSource,
     description:
       item.description === "YouTube search" ? "" : item.description || "",
     durationLabel: item.durationLabel || "",

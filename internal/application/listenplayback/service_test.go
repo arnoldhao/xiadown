@@ -164,6 +164,23 @@ func waitForTrackArtist(t *testing.T, service *PlayerService, videoID string, ar
 	t.Fatalf("timed out waiting for %q artist %q, snapshot: %#v", videoID, artist, snapshot.CurrentTrack)
 }
 
+func waitForQueueTrackArtist(t *testing.T, service *PlayerService, videoID string, artist string) Track {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot := service.Snapshot(context.Background())
+		for _, track := range snapshot.Queue {
+			if track.VideoID == videoID && track.Artist == artist {
+				return track
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot := service.Snapshot(context.Background())
+	t.Fatalf("timed out waiting for queue track %q artist %q, snapshot queue: %#v", videoID, artist, snapshot.Queue)
+	return Track{}
+}
+
 func TestPlayTrackEnrichesMissingArtistFromLibraryMetadata(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
@@ -187,6 +204,32 @@ func TestPlayTrackEnrichesMissingArtistFromLibraryMetadata(t *testing.T) {
 	service.ConfirmPlaybackStarted()
 
 	if err := service.PlayTrack(ctx, Track{ID: "video-one", VideoID: "video-one", Title: "One"}, PlayOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForTrackArtist(t, service, "video-one", "Metadata Artist")
+}
+
+func TestPlayTrackEnrichesPlaceholderArtistFromLibraryMetadata(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			metadata: map[string]Track{
+				"video-one": {
+					ID:             "video-one",
+					VideoID:        "video-one",
+					Title:          "One",
+					Artist:         "Metadata Artist",
+					ArtistBrowseID: "UCmetadata",
+				},
+			},
+		}),
+	)
+	service.ConfirmPlaybackStarted()
+
+	if err := service.PlayTrack(ctx, Track{ID: "video-one", VideoID: "video-one", Title: "One", Artist: "专为"}, PlayOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -790,6 +833,114 @@ func TestObservedMetadataFillsMissingQueueThumbnail(t *testing.T) {
 	}
 	if track.ThumbnailURL != "https://example.com/player-bar-thumbnail.jpg" {
 		t.Fatalf("expected missing thumbnail to be filled, got %q", track.ThumbnailURL)
+	}
+}
+
+func TestObservedMetadataDoesNotReplaceQueueArtistWithoutTrustedSource(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(&fakeTransport{})
+	tracks := makeTracks()
+	tracks[0].Artist = "专为"
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-one",
+		Title:           "One",
+		Artist:          "Resolved Artist",
+		TrackChanged:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	track, ok := service.CurrentTrack()
+	if !ok || track.Artist != "专为" {
+		t.Fatalf("expected untrusted observed metadata to keep queue artist, got %#v", track)
+	}
+}
+
+func TestQueuePlaceholderArtistIsReplacedByTrustedLibraryMetadata(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	tracks := makeTracks()
+	tracks[0].Artist = "专为"
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			metadata: map[string]Track{
+				"video-one": {
+					ID:             "video-one",
+					VideoID:        "video-one",
+					Title:          "One",
+					Artist:         "Resolved Artist",
+					ArtistBrowseID: "UCresolved",
+				},
+			},
+		}),
+	)
+	service.ConfirmPlaybackStarted()
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForTrackArtist(t, service, "video-one", "Resolved Artist")
+}
+
+func TestPlayQueueEnrichesUpNextArtistFromLibraryMetadata(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	tracks := makeTracks()
+	tracks[1].Artist = "Made for"
+	tracks[1].ArtistSource = TrackArtistSourceAPIText
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			metadata: map[string]Track{
+				"video-two": {
+					ID:           "video-two",
+					VideoID:      "video-two",
+					Title:        "Two",
+					Artist:       "Resolved Artist",
+					ArtistSource: TrackArtistSourceAPIMetadata,
+				},
+			},
+		}),
+	)
+	service.ConfirmPlaybackStarted()
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	track := waitForQueueTrackArtist(t, service, "video-two", "Resolved Artist")
+	if track.ArtistSource != TrackArtistSourceAPIMetadata {
+		t.Fatalf("expected enriched queue artist to come from API metadata, got %#v", track)
+	}
+}
+
+func TestMergeTrackMetadataDoesNotDowngradeTrustedArtistSource(t *testing.T) {
+	ctx := context.Background()
+	service := newTestService(&fakeTransport{})
+	tracks := makeTracks()[:1]
+	tracks[0].Artist = "Resolved Artist"
+	tracks[0].ArtistSource = TrackArtistSourceAPILinked
+
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.MergeTrackMetadata(ctx, Track{
+		ID:           "video-one",
+		VideoID:      "video-one",
+		Title:        "One",
+		Artist:       "Made for",
+		ArtistSource: TrackArtistSourceAPIText,
+	})
+
+	track, ok := service.CurrentTrack()
+	if !ok || track.Artist != "Resolved Artist" || track.ArtistSource != TrackArtistSourceAPILinked {
+		t.Fatalf("expected trusted artist source to remain intact, got %#v", track)
 	}
 }
 

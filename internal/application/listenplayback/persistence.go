@@ -32,6 +32,7 @@ func (service *PlayerService) RestorePlaybackSession(ctx context.Context) (bool,
 		service.volumeBeforeMute = service.volume
 	}
 	service.mu.Unlock()
+	service.requestCurrentQueueMetadataEnrichment()
 	return true, nil
 }
 

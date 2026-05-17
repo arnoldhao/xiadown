@@ -27,6 +27,7 @@ func (service *PlayerService) PlayQueue(ctx context.Context, tracks []Track, sta
 	if err := service.executeActions(ctx, action); err != nil {
 		return err
 	}
+	service.requestTracksMetadataEnrichment(normalized)
 	service.saveCurrentSession(ctx)
 	return nil
 }
@@ -53,6 +54,7 @@ func (service *PlayerService) PlayWithRadio(ctx context.Context, track Track, ti
 	if err := service.executeActions(ctx, action); err != nil {
 		return err
 	}
+	service.requestTracksMetadataEnrichment([]Track{track})
 	service.PublishSnapshot(ctx)
 	if service.library != nil {
 		radioTracks, err := service.library.Radio(ctx, track.VideoID, radioQueueLimit)
@@ -87,6 +89,7 @@ func (service *PlayerService) PlayRadioQueue(ctx context.Context, tracks []Track
 	if err := service.executeActions(ctx, action); err != nil {
 		return err
 	}
+	service.requestTracksMetadataEnrichment(normalized)
 	service.saveCurrentSession(ctx)
 	return nil
 }
@@ -121,6 +124,7 @@ func (service *PlayerService) PlayWithMix(ctx context.Context, playlistID string
 	if err := service.executeActions(ctx, action); err != nil {
 		return err
 	}
+	service.requestTracksMetadataEnrichment(tracks)
 	service.saveCurrentSession(ctx)
 	return nil
 }
@@ -346,6 +350,7 @@ func (service *PlayerService) InsertNextInQueue(ctx context.Context, tracks []Tr
 	}
 	service.queue = append(service.queue[:insertIndex], append(tracks, service.queue[insertIndex:]...)...)
 	service.mu.Unlock()
+	service.requestTracksMetadataEnrichment(tracks)
 	service.saveCurrentSession(ctx)
 }
 
@@ -359,6 +364,7 @@ func (service *PlayerService) AppendToQueue(ctx context.Context, tracks []Track)
 	service.recordQueueStateForUndoLocked()
 	service.queue = append(service.queue, tracks...)
 	service.mu.Unlock()
+	service.requestTracksMetadataEnrichment(tracks)
 	service.saveCurrentSession(ctx)
 }
 
@@ -543,6 +549,7 @@ func (service *PlayerService) UndoQueue(ctx context.Context) {
 	service.clearForwardSkipNavigationStackLocked()
 	service.realignCurrentTrackLocked()
 	service.mu.Unlock()
+	service.requestCurrentQueueMetadataEnrichment()
 	service.saveCurrentSession(ctx)
 }
 
@@ -564,6 +571,7 @@ func (service *PlayerService) RedoQueue(ctx context.Context) {
 	service.clearForwardSkipNavigationStackLocked()
 	service.realignCurrentTrackLocked()
 	service.mu.Unlock()
+	service.requestCurrentQueueMetadataEnrichment()
 	service.saveCurrentSession(ctx)
 }
 
@@ -582,23 +590,27 @@ func (service *PlayerService) FetchMoreMixSongsIfNeeded(ctx context.Context) err
 	result, err := service.library.MixQueueContinuation(ctx, token)
 
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	service.fetchingMoreMixSongs = false
 	if err != nil {
+		service.mu.Unlock()
 		return err
 	}
 	existing := make(map[string]struct{}, len(service.queue))
 	for _, track := range service.queue {
 		existing[track.VideoID] = struct{}{}
 	}
+	addedTracks := make([]Track, 0, len(result.Tracks))
 	for _, track := range normalizeTracks(result.Tracks) {
 		if _, ok := existing[track.VideoID]; ok {
 			continue
 		}
 		service.queue = append(service.queue, track)
 		existing[track.VideoID] = struct{}{}
+		addedTracks = append(addedTracks, track)
 	}
 	service.mixContinuationToken = stringsTrim(result.ContinuationToken)
+	service.mu.Unlock()
+	service.requestTracksMetadataEnrichment(addedTracks)
 	return nil
 }
 
@@ -638,6 +650,7 @@ func (service *PlayerService) applyRadioQueue(ctx context.Context, seed Track, t
 	service.queueKind = QueueKindRadio
 	service.currentIndex = 0
 	service.mu.Unlock()
+	service.requestTracksMetadataEnrichment(queue)
 	service.saveCurrentSession(ctx)
 }
 

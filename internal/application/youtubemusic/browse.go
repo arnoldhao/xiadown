@@ -1236,10 +1236,9 @@ func trackFromHomeTwoRowRenderer(renderer map[string]any) (Track, bool) {
 	}
 	subtitleNavigationRuns := textRunsWithNavigation(asMap(renderer["subtitle"]))
 	subtitleRuns := textValuesFromRuns(subtitleNavigationRuns)
-	channel := firstCreatorText(subtitleRuns)
-	channelFromRun, artistBrowseID := firstCreatorRun(subtitleNavigationRuns)
-	if channelFromRun != "" {
-		channel = channelFromRun
+	channel, artistBrowseID, artistSource := artistRunFromBylineRuns(subtitleNavigationRuns)
+	if channel == "" {
+		channel = firstCreatorText(subtitleRuns)
 	}
 	duration := firstDurationLabel(subtitleRuns)
 	return Track{
@@ -1248,6 +1247,7 @@ func trackFromHomeTwoRowRenderer(renderer map[string]any) (Track, bool) {
 		Title:          title,
 		Channel:        fallbackString(channel, "YouTube Music"),
 		ArtistBrowseID: artistBrowseID,
+		ArtistSource:   artistSource,
 		DurationLabel:  duration,
 		ThumbnailURL:   lastThumbnailURL(renderer),
 	}, true

@@ -75,7 +75,7 @@ import {
 readListenNativeVideoRadius,
 useListenNativeVideoUnderlay,
 } from "@/app/main/listen/native-video-underlay";
-import { copyListenTextToClipboard,fetchListenLyricsCached,forgetListenLyricsCache,getListenErrorCode,getListenErrorMessage,isListenLyricsDataAvailable,listenLyricsSummary,LISTEN_EMPTY_PROGRESS,LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,logListenLyrics,normalizeListenInlineVideoAspectRatio,normalizeListenLiveNativeState,readListenLyricsCache,readListenNativeEventURLVideoId,resolveListenNativeEventVideoAspectRatio,resolveListenPlaybackStatusLabel,resolveListenQueuePopupAnchor,resolveListenTrackVideoAvailability,type ListenLyricsTrackRequest,type ListenVideoAvailability } from "@/app/main/listen/playback-helpers";
+import { copyListenTextToClipboard,fetchListenLyricsCached,forgetListenLyricsCache,getListenErrorCode,getListenErrorMessage,isListenLyricsDataAvailable,listenLyricsSummary,LISTEN_EMPTY_PROGRESS,LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,logListenLyrics,normalizeListenInlineVideoAspectRatio,normalizeListenLiveNativeState,readListenLyricsCache,readListenNativeEventURLVideoId,resolveListenNativeEventVideoAspectRatio,resolveListenPlaybackStatusLabel,resolveListenQueuePopupAnchor,resolveListenTrackVideoAvailability,resolveTrustedListenOnlineArtistLabel,type ListenLyricsTrackRequest,type ListenVideoAvailability } from "@/app/main/listen/playback-helpers";
 import { ListenLocalPlaybackQueuePopup,ListenPlaybackQueuePopup,type ListenQueuePopupAnchor } from "@/app/main/listen/queue-popups";
 import { fetchListenTrackInfo } from "@/app/main/listen/api";
 import { clampVolume,formatProgressSeconds,resolveAudioSource } from "@/app/main/listen/local-library";
@@ -1186,7 +1186,7 @@ export function ListenYouTubePlayback(props: {
   const playerEventSource = isLive
     ? "listen-youtube-live-player"
     : "listen-youtube-music-player";
-  const artistName = props.track.channel.trim();
+  const artistName = resolveTrustedListenOnlineArtistLabel(props.track);
   const showFavoriteAction =
     props.mode === "muse" && !isLive;
   const trackVideoId = props.track.videoId.trim();

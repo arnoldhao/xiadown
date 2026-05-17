@@ -298,6 +298,7 @@ func normalizeTrack(track Track) Track {
 	track.Title = stringsTrim(track.Title)
 	track.Artist = stringsTrim(track.Artist)
 	track.ArtistBrowseID = stringsTrim(track.ArtistBrowseID)
+	track.ArtistSource = stringsTrim(track.ArtistSource)
 	track.DurationLabel = stringsTrim(track.DurationLabel)
 	track.ThumbnailURL = stringsTrim(track.ThumbnailURL)
 	track.MusicVideoType = stringsTrim(track.MusicVideoType)

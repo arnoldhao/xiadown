@@ -16,12 +16,46 @@ const LISTEN_LYRICS_AUTO_RETRY_DELAYS_MS = [700, 1600] as const;
 export const LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO = 16 / 9;
 const LISTEN_INLINE_VIDEO_MIN_ASPECT_RATIO = 9 / 16;
 const LISTEN_INLINE_VIDEO_MAX_ASPECT_RATIO = 21 / 9;
+const LISTEN_RELEASE_YEAR_ARTIST_PATTERN = /^(?:19|20)\d{2}\s*年?$/;
 
 export const LISTEN_EMPTY_PROGRESS = {
   currentTime: 0,
   duration: 0,
   bufferedTime: 0,
 };
+
+export function isMissingListenArtistLabel(value: string) {
+  const artist = value.trim();
+  const normalized = artist.toLowerCase();
+  return (
+    !artist ||
+    normalized === "unknown" ||
+    normalized === "unknown artist" ||
+    normalized === "youtube" ||
+    normalized === "youtube music" ||
+    LISTEN_RELEASE_YEAR_ARTIST_PATTERN.test(artist)
+  );
+}
+
+export function hasTrustedListenOnlineArtist(
+  item: Pick<ListenOnlineItem, "channel" | "artistBrowseId" | "artistSource">,
+) {
+  if (isMissingListenArtistLabel(item.channel)) {
+    return false;
+  }
+  return (
+    Boolean(item.artistBrowseId?.trim()) ||
+    item.artistSource === "api-linked" ||
+    item.artistSource === "api-metadata"
+  );
+}
+
+export function resolveTrustedListenOnlineArtistLabel(
+  item: Pick<ListenOnlineItem, "channel" | "artistBrowseId" | "artistSource">,
+  fallback = "",
+) {
+  return hasTrustedListenOnlineArtist(item) ? item.channel.trim() : fallback.trim();
+}
 
 export function readListenNativeEventURLVideoId(value: string) {
   const trimmed = value.trim();

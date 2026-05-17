@@ -8,6 +8,7 @@ import (
 
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/listenplayback"
+	"xiadown/internal/application/youtubemusic"
 )
 
 func TestFilterListenPlaybackCookiesKeepsUsableYouTubeCookies(t *testing.T) {
@@ -25,6 +26,19 @@ func TestFilterListenPlaybackCookiesKeepsUsableYouTubeCookies(t *testing.T) {
 	}
 	if cookies[0].Name != "SID" || cookies[0].Value != "sid" {
 		t.Fatalf("unexpected cookie: %+v", cookies[0])
+	}
+}
+
+func TestListenPlaybackMetadataMapsPlainAPITextToMetadataArtistSource(t *testing.T) {
+	track := listenPlaybackTrackFromMetadata(youtubemusic.TrackMetadata{
+		VideoID:      "CPONUbyJ3YM",
+		Title:        "You are my magic",
+		Channel:      "Accusefive",
+		ArtistSource: "api-text",
+	}, "CPONUbyJ3YM")
+
+	if track.Artist != "Accusefive" || track.ArtistSource != listenplayback.TrackArtistSourceAPIMetadata {
+		t.Fatalf("expected API metadata artist source, got %#v", track)
 	}
 }
 

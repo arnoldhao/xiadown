@@ -15,6 +15,7 @@ export type ListenPlaybackTrack = {
   title: string;
   artist: string;
   artistBrowseId?: string;
+  artistSource?: string;
   durationLabel?: string;
   durationSeconds?: number;
   thumbnailUrl?: string;
@@ -134,6 +135,7 @@ export function listenPlaybackTrackFromOnlineItem(
     title: item.title,
     artist: item.channel,
     artistBrowseId: item.artistBrowseId,
+    artistSource: item.artistSource || (item.artistBrowseId ? "api-linked" : undefined),
     durationLabel: item.durationLabel,
     durationSeconds: item.durationSeconds,
     thumbnailUrl: item.thumbnailUrl,
@@ -154,6 +156,7 @@ export function listenOnlineItemFromPlaybackTrack(
     title: track.title || track.videoId,
     channel: track.artist || "YouTube Music",
     artistBrowseId: track.artistBrowseId,
+    artistSource: track.artistSource,
     description: "",
     durationLabel: track.durationLabel || "",
     durationSeconds: track.durationSeconds,

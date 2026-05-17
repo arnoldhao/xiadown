@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import { LISTEN_PLAYER_ICON_BUTTON_CLASS } from "@/shared/styles/listen";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
+import { resolveTrustedListenOnlineArtistLabel } from "@/app/main/listen/playback-helpers";
 import { buildListenPosterCandidates } from "@/app/main/listen/storage";
 import type { ListenLocalItem,ListenOnlineItem } from "@/app/main/listen/types";
 import { hasListenMuseItemVideo,ListenMuseVideoIndicator } from "@/app/main/listen/ui";
@@ -215,7 +216,7 @@ export function ListenPlaybackQueuePopup(props: {
 }
 
 function resolveListenUpNextArtistLabel(item: ListenOnlineItem) {
-  let artist = item.channel.trim();
+  let artist = resolveTrustedListenOnlineArtistLabel(item);
   if (artist.startsWith("Album, ")) {
     artist = artist.slice(7).trim();
   }
