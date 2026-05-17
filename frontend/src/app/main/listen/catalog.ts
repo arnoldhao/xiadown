@@ -283,6 +283,8 @@ export const LISTEN_NOW_PLAYING_EVENT = "listen:now-playing";
 export const LISTEN_NOW_PLAYING_STORAGE_KEY = "xiadown:listen:now-playing:v1";
 export const LISTEN_TRAY_COMMAND_EVENT = "listen:tray-command";
 export const LISTEN_PLAYBACK_SNAPSHOT_EVENT = "listen:playback:snapshot";
+export const LISTEN_YOUTUBE_CONNECTOR_CHANGED_EVENT =
+  "listen:youtube-connector:changed";
 export const LISTEN_NATIVE_PLAYER_EVENT = "listen:youtube-music-player";
 export const LISTEN_NATIVE_PLAYER_SERVICE =
   "xiadown/internal/presentation/wails.ListenPlayerHandler";

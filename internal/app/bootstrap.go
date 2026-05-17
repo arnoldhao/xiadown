@@ -367,7 +367,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 
 	osNotifications := notifications.New()
 	app.RegisterService(application.NewService(wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, listenPlayer, listenLivePlayer)))
-	app.RegisterService(application.NewService(wails.NewConnectorsHandler(connectorsService, telemetryService, listenPlayer, listenLivePlayer)))
+	app.RegisterService(application.NewService(wails.NewConnectorsHandler(connectorsService, windowManager, telemetryService, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewDependenciesHandler(dependenciesService, windowManager, telemetryService)))
 	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService)))
 	app.RegisterService(application.NewService(wails.NewSystemHandler(fontService)))
