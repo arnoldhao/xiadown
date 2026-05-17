@@ -959,6 +959,12 @@ export function SettingsApp() {
                     <option value="en">{text.common.languages.en}</option>
                     <option value="zh-CN">{text.common.languages.zhCN}</option>
                     <option value="zh-TW">{text.common.languages.zhTW}</option>
+                    <option value="ja-JP">{text.common.languages.jaJP}</option>
+                    <option value="ko-KR">{text.common.languages.koKR}</option>
+                    <option value="es-419">{text.common.languages.es419}</option>
+                    <option value="pt-BR">{text.common.languages.ptBR}</option>
+                    <option value="id-ID">{text.common.languages.idID}</option>
+                    <option value="vi-VN">{text.common.languages.viVN}</option>
                   </Select>
                 </SettingsCompactRow>
               </SettingsCompactListCard>

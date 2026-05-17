@@ -999,6 +999,12 @@ function buildText(language: SupportedLanguage) {
         en: t("settings.language.option.en", language),
         zhCN: t("settings.language.option.zhCN", language),
         zhTW: t("settings.language.option.zhTW", language),
+        jaJP: t("settings.language.option.jaJP", language),
+        koKR: t("settings.language.option.koKR", language),
+        es419: t("settings.language.option.es419", language),
+        ptBR: t("settings.language.option.ptBR", language),
+        idID: t("settings.language.option.idID", language),
+        viVN: t("settings.language.option.viVN", language),
       },
     },
   };

@@ -1,9 +1,24 @@
 import { useCallback, useSyncExternalStore } from "react";
 import enTranslations from "./locales/en.json";
+import es419Translations from "./locales/es-419.json";
+import idIDTranslations from "./locales/id-ID.json";
+import jaJPTranslations from "./locales/ja-JP.json";
+import koKRTranslations from "./locales/ko-KR.json";
+import ptBRTranslations from "./locales/pt-BR.json";
+import viVNTranslations from "./locales/vi-VN.json";
 import zhCNTranslations from "./locales/zh-CN.json";
 import zhTWTranslations from "./locales/zh-TW.json";
 
-export type SupportedLanguage = "en" | "zh-CN" | "zh-TW";
+export type SupportedLanguage =
+  | "en"
+  | "zh-CN"
+  | "zh-TW"
+  | "ja-JP"
+  | "ko-KR"
+  | "es-419"
+  | "pt-BR"
+  | "id-ID"
+  | "vi-VN";
 export type TFunction = (key: string) => string;
 
 const I18N_PREFIX = "i18n:";
@@ -15,6 +30,12 @@ const SUPPORTED_LANGUAGE_OPTIONS: Array<{
   { value: "en", labelKey: "settings.language.option.en" },
   { value: "zh-CN", labelKey: "settings.language.option.zhCN" },
   { value: "zh-TW", labelKey: "settings.language.option.zhTW" },
+  { value: "ja-JP", labelKey: "settings.language.option.jaJP" },
+  { value: "ko-KR", labelKey: "settings.language.option.koKR" },
+  { value: "es-419", labelKey: "settings.language.option.es419" },
+  { value: "pt-BR", labelKey: "settings.language.option.ptBR" },
+  { value: "id-ID", labelKey: "settings.language.option.idID" },
+  { value: "vi-VN", labelKey: "settings.language.option.viVN" },
 ];
 
 type TranslationMap = Record<string, string>;
@@ -35,6 +56,12 @@ const translations: Record<SupportedLanguage, TranslationMap> = {
   en: flattenTranslations(enTranslations as Record<string, any>),
   "zh-CN": flattenTranslations(zhCNTranslations as Record<string, any>),
   "zh-TW": flattenTranslations(zhTWTranslations as Record<string, any>),
+  "ja-JP": flattenTranslations(jaJPTranslations as Record<string, any>),
+  "ko-KR": flattenTranslations(koKRTranslations as Record<string, any>),
+  "es-419": flattenTranslations(es419Translations as Record<string, any>),
+  "pt-BR": flattenTranslations(ptBRTranslations as Record<string, any>),
+  "id-ID": flattenTranslations(idIDTranslations as Record<string, any>),
+  "vi-VN": flattenTranslations(viVNTranslations as Record<string, any>),
 };
 
 let currentLanguage: SupportedLanguage = "en";
@@ -143,6 +170,24 @@ export function normalizeLanguage(language: string): SupportedLanguage {
   }
   if (normalized?.startsWith("zh")) {
     return "zh-CN";
+  }
+  if (normalized?.startsWith("ja")) {
+    return "ja-JP";
+  }
+  if (normalized?.startsWith("ko")) {
+    return "ko-KR";
+  }
+  if (normalized === "es-419" || normalized?.startsWith("es")) {
+    return "es-419";
+  }
+  if (normalized?.startsWith("pt")) {
+    return "pt-BR";
+  }
+  if (normalized?.startsWith("id")) {
+    return "id-ID";
+  }
+  if (normalized?.startsWith("vi")) {
+    return "vi-VN";
   }
   return "en";
 }
