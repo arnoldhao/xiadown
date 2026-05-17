@@ -30,6 +30,7 @@ export type XiaThemePack = {
     shell: string;
     sidebar: string;
     accent: string;
+    darkAccent?: string;
   };
   light: ThemeVariables;
   dark: ThemeVariables;
@@ -660,7 +661,12 @@ const themePacks: XiaThemePack[] = [
   },
   {
     id: "nocturne",
-    preview: { shell: "#F5F7FB", sidebar: "#D8DEF0", accent: "#0F172A" },
+    preview: {
+      shell: "#F5F7FB",
+      sidebar: "#D8DEF0",
+      accent: "#0F172A",
+      darkAccent: "#F3B549",
+    },
     light: {
       background: "220 43% 97%",
       foreground: "222 47% 11%",
@@ -727,6 +733,17 @@ export function resolveThemePack(id?: string): XiaThemePack {
     themePacks.find((item) => item.id === defaultAppearance.themePackId) ??
     themePacks[0]
   );
+}
+
+export function resolveThemePackAccentColor(
+  id?: string,
+  effectiveAppearance?: string,
+): string {
+  const pack = resolveThemePack(id);
+  if (effectiveAppearance === "dark") {
+    return pack.preview.darkAccent ?? pack.preview.accent;
+  }
+  return pack.preview.accent;
 }
 
 export function readXiaAppearance(

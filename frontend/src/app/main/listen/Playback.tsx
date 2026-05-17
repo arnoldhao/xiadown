@@ -1186,7 +1186,9 @@ export function ListenYouTubePlayback(props: {
   const playerEventSource = isLive
     ? "listen-youtube-live-player"
     : "listen-youtube-music-player";
-  const artistName = resolveTrustedListenOnlineArtistLabel(props.track);
+  const artistName = isLive
+    ? props.track.channel.trim()
+    : resolveTrustedListenOnlineArtistLabel(props.track);
   const showFavoriteAction =
     props.mode === "muse" && !isLive;
   const trackVideoId = props.track.videoId.trim();
@@ -3510,6 +3512,8 @@ function ListenLiveVideoShell(props: {
   const listLabel = props.listOpen
     ? props.text.listen.collapseList
     : props.text.listen.openList;
+  const titleLabel = props.title || props.text.listen.selectStation;
+  const authorLabel = props.subtitle.trim();
   React.useEffect(() => {
     visualLiveVideoVisibleRef.current = visualLiveVideoVisible;
   }, [visualLiveVideoVisible]);
@@ -3743,22 +3747,26 @@ function ListenLiveVideoShell(props: {
           <ListenFullscreenChannelCover
             httpBaseURL={props.httpBaseURL}
             track={props.track}
-            title={props.title || props.text.listen.selectStation}
+            title={titleLabel}
           />
           <div className="listen-video-info">
             <div className="listen-video-title-line">
               <h1>
                 <ListenScrollingText
-                  text={props.title || props.text.listen.selectStation}
+                  text={titleLabel}
                   as="span"
                 />
               </h1>
-              <span>
-                <ListenScrollingText
-                  text={props.subtitle || props.text.listen.liveStations}
-                  as="span"
-                />
-              </span>
+              {authorLabel ? (
+                <>
+                  <span className="listen-video-title-separator" aria-hidden="true">
+                    ·
+                  </span>
+                  <span className="listen-video-author">
+                    <ListenScrollingText text={authorLabel} as="span" />
+                  </span>
+                </>
+              ) : null}
             </div>
             <div className="listen-video-status-cluster">
               {visualLiveVideoVisible && props.onFitLiveVideoWindow ? (
