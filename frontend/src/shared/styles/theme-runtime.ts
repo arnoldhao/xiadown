@@ -12,6 +12,7 @@ import {
 import type { Settings } from "@/shared/contracts/settings";
 import {
   readXiaAppearance,
+  resolveThemePackAccentColor,
   resolveThemePack,
 } from "@/shared/styles/xiadown-theme";
 
@@ -224,7 +225,7 @@ export function applyXiaTheme(settings: Settings) {
   applyThemePack(appearance.themePackId, settings.effectiveAppearance);
   applyAppearanceAttributes(appearance);
   applyPrimaryColor(
-    resolveThemePack(appearance.themePackId).preview.accent,
+    resolveThemePackAccentColor(appearance.themePackId, settings.effectiveAppearance),
     undefined,
     settings.effectiveAppearance,
   );
@@ -251,7 +252,7 @@ export function applyXiaAppearanceChange(
   applyThemePack(appearance.themePackId, effectiveAppearance);
   applyAppearanceAttributes(appearance);
   applyPrimaryColor(
-    resolveThemePack(appearance.themePackId).preview.accent,
+    resolveThemePackAccentColor(appearance.themePackId, effectiveAppearance),
     undefined,
     effectiveAppearance,
   );
@@ -265,7 +266,10 @@ export function applyXiaAppearanceChange(
 
 function resolveTrayThemeColor(settings?: Settings | null) {
   const appearance = readXiaAppearance(settings);
-  const packColor = resolveThemePack(appearance.themePackId).preview.accent;
+  const packColor = resolveThemePackAccentColor(
+    appearance.themePackId,
+    settings?.effectiveAppearance,
+  );
   const themeColor = (settings?.themeColor ?? "").trim();
   const configuredColor =
     appearance.accentMode === "color"
