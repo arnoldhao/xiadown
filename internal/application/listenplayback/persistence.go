@@ -98,6 +98,9 @@ func (service *PlayerService) currentSession() (RestoredPlaybackSession, bool) {
 }
 
 func resolvedPersistedQueueIndex(savedIndex int, currentVideoID string, queue []Track) int {
+	if savedIndex >= 0 && savedIndex < len(queue) {
+		return savedIndex
+	}
 	currentVideoID = normalizedVideoID(currentVideoID)
 	if currentVideoID != "" {
 		for index, track := range queue {

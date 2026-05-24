@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/browser"
+	targetpkg "github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 
@@ -43,6 +44,7 @@ type onlinePetImportSession struct {
 	BrowserStatus      string
 	Runtime            *browsercdp.Runtime
 	TabCancel          context.CancelFunc
+	TargetID           string
 	DownloadDir        string
 	UserDataDir        string
 	ImportedPets       []dto.Pet
@@ -82,7 +84,7 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 		return dto.OnlinePetImportSession{}, err
 	}
 
-	tabCtx, tabCancel, _, err := browsercdp.AttachOrCreatePageTarget(runtime, 5*time.Second)
+	tabCtx, tabCancel, targetID, err := browsercdp.AttachOrCreatePageTarget(runtime, 5*time.Second)
 	if err != nil {
 		runtime.Stop()
 		_ = os.RemoveAll(downloadDir)
@@ -107,6 +109,7 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 		BrowserStatus:      onlinePetBrowserStatusOpen,
 		Runtime:            runtime,
 		TabCancel:          tabCancel,
+		TargetID:           strings.TrimSpace(targetID),
 		DownloadDir:        downloadDir,
 		UserDataDir:        userDataDir,
 		UpdatedAt:          service.now().UTC(),
@@ -114,13 +117,9 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 	}
 	service.putOnlinePetImportSession(session)
 	service.listenOnlinePetDownloads(session.ID, runtime, downloadDir)
-
-	if err := chromedp.Run(tabCtx, chromedp.Navigate(siteURL)); err != nil {
-		service.finishOnlinePetImportSession(session.ID, onlinePetBrowserStatusFailed)
-		return dto.OnlinePetImportSession{}, err
-	}
-
+	service.watchOnlinePetImportTarget(session.ID, runtime, session.TargetID)
 	service.startOnlinePetImportMonitor(session.ID)
+	go service.navigateOnlinePetImportSession(session.ID, tabCtx, siteURL)
 	return service.snapshotOnlinePetImportSession(session.ID), nil
 }
 
@@ -268,12 +267,10 @@ func cleanupOnlinePetImportSessionResources(session *onlinePetImportSession) {
 		return
 	}
 	session.cleanupOnce.Do(func() {
-		if session.TabCancel != nil {
-			session.TabCancel()
-		}
 		if session.Runtime != nil {
 			session.Runtime.Stop()
 		}
+		cancelOnlinePetImportContextAsync(session.ID, session.TabCancel)
 		if strings.TrimSpace(session.DownloadDir) != "" {
 			_ = os.RemoveAll(session.DownloadDir)
 		}
@@ -281,6 +278,46 @@ func cleanupOnlinePetImportSessionResources(session *onlinePetImportSession) {
 			_ = os.RemoveAll(session.UserDataDir)
 		}
 	})
+}
+
+func cancelOnlinePetImportContextAsync(_ string, cancel context.CancelFunc) {
+	if cancel == nil {
+		return
+	}
+	go func() {
+		defer func() {
+			_ = recover()
+		}()
+		cancel()
+	}()
+}
+
+func (service *Service) navigateOnlinePetImportSession(sessionID string, tabCtx context.Context, siteURL string) {
+	if tabCtx == nil {
+		return
+	}
+	if err := chromedp.Run(tabCtx, chromedp.Navigate(siteURL)); err != nil {
+		service.failOnlinePetImportSession(sessionID, err)
+	}
+}
+
+func (service *Service) failOnlinePetImportSession(sessionID string, err error) {
+	if err == nil {
+		return
+	}
+	service.mu.Lock()
+	session := service.importSessions[strings.TrimSpace(sessionID)]
+	if session != nil {
+		session.State = onlinePetImportStateFailed
+		session.BrowserStatus = onlinePetBrowserStatusFailed
+		session.ErrorCode = ""
+		session.Error = err.Error()
+		session.UpdatedAt = service.now().UTC()
+	}
+	service.mu.Unlock()
+	if session != nil {
+		cleanupOnlinePetImportSessionResources(session)
+	}
 }
 
 func (service *Service) listenOnlinePetDownloads(sessionID string, runtime *browsercdp.Runtime, downloadDir string) {
@@ -309,6 +346,25 @@ func (service *Service) listenOnlinePetDownloads(sessionID string, runtime *brow
 					session.ErrorCode = petErrorCodeOnlineDownloadCanceled
 					session.Error = "pet download was canceled"
 				})
+			}
+		}
+	})
+}
+
+func (service *Service) watchOnlinePetImportTarget(sessionID string, runtime *browsercdp.Runtime, targetID string) {
+	targetID = strings.TrimSpace(targetID)
+	if service == nil || runtime == nil || runtime.BrowserContext() == nil || targetID == "" {
+		return
+	}
+	chromedp.ListenBrowser(runtime.BrowserContext(), func(event any) {
+		switch current := event.(type) {
+		case *targetpkg.EventTargetDestroyed:
+			if strings.TrimSpace(string(current.TargetID)) == targetID {
+				service.markOnlinePetImportBrowserClosed(sessionID)
+			}
+		case *targetpkg.EventTargetCrashed:
+			if strings.TrimSpace(string(current.TargetID)) == targetID {
+				service.markOnlinePetImportBrowserClosed(sessionID)
 			}
 		}
 	})

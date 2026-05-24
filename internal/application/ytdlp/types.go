@@ -42,6 +42,7 @@ type CommandOptions struct {
 	OutputTemplate    string
 	SubtitleTemplate  string
 	ThumbnailTemplate string
+	Headers           map[string]string
 	CookiesPath       string
 	ProxyURL          string
 	Timeout           time.Duration
@@ -53,4 +54,5 @@ type InfoOptions struct {
 	URL         string
 	CookiesPath string
 	ProxyURL    string
+	Timeout     time.Duration
 }

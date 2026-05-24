@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"xiadown/internal/domain/dependencies"
 )
@@ -41,10 +42,21 @@ func FetchInfo(ctx context.Context, options InfoOptions) (map[string]any, error)
 	}
 	args = append(args, targetURL)
 
-	command := exec.CommandContext(ctx, execPath, args...)
+	runCtx := ctx
+	cancel := func() {}
+	if options.Timeout > 0 {
+		runCtx, cancel = context.WithTimeout(ctx, options.Timeout)
+	}
+	defer cancel()
+
+	command := exec.CommandContext(runCtx, execPath, args...)
+	command.WaitDelay = 2 * time.Second
 	ConfigureProcessGroup(command)
 	output, err := command.CombinedOutput()
 	if err != nil {
+		if runCtx.Err() != nil {
+			return nil, runCtx.Err()
+		}
 		detail := truncateOutput(output)
 		if detail != "" {
 			return nil, fmt.Errorf("yt-dlp failed: %s", detail)

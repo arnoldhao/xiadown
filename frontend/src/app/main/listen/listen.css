@@ -29,6 +29,200 @@
     color: hsl(var(--sidebar-foreground) / 0.20);
   }
 
+  .listen-player-inline-visualizer {
+    height: 0;
+    margin-top: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(-0.35rem);
+    transition:
+      height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      margin-top 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 180ms ease-out,
+      transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .listen-player-inline-visualizer[data-visible="true"] {
+    height: clamp(2rem, 6vh, 3rem);
+    margin-top: clamp(0.5rem, 1.4vh, 1rem);
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (max-height: 700px) {
+    .listen-player-inline-visualizer[data-visible="true"] {
+      height: 1.6rem;
+      margin-top: 0.375rem;
+    }
+  }
+
+  @media (max-height: 620px) {
+    .listen-player-inline-visualizer[data-visible="true"] {
+      height: 1.25rem;
+      margin-top: 0.25rem;
+    }
+  }
+
+  .listen-artwork-shell[data-visualizer-visible="true"] {
+    padding: 2rem;
+  }
+
+  .listen-artwork-shell[data-visualizer-visible="true"] .listen-artwork-shadow {
+    opacity: 0;
+  }
+
+  .listen-artwork-shell[data-frame-active="true"] .listen-artwork-shadow {
+    opacity: 0.8;
+    transform: translateY(1.5rem) scale(1.05);
+  }
+
+  .listen-artwork-shell[data-frame-active="true"][data-visualizer-visible="true"] .listen-artwork-shadow {
+    opacity: 0;
+  }
+
+  .listen-artwork-shell[data-frame-active="true"][data-visualizer-visible="false"] .listen-artwork-frame {
+    box-shadow: 0 34px 100px -46px rgba(15, 23, 42, 0.56);
+    transform: translateY(-0.25rem) scale(1.012);
+  }
+
+  .listen-artwork-shell[data-frame-active="true"][data-visualizer-visible="true"] .listen-artwork-frame,
+  .listen-artwork-shell[data-frame-active="true"][data-visualizer-visible="true"] .listen-artwork-visualizer {
+    transform: translateY(-0.125rem) scale(1.008);
+  }
+
+  .listen-artwork-shell[data-frame-active="true"] .listen-artwork-frame img {
+    transform: scale(1.035);
+  }
+
+  .listen-artwork-visualizer-halo {
+    box-shadow:
+      0 0 14px 3px hsl(var(--primary) / 0.24),
+      0 0 20px 5px hsl(var(--primary) / 0.15),
+      0 0 24px 6px hsl(var(--accent-foreground) / 0.07);
+    opacity: 0.78;
+    transform: scale(1);
+    transition:
+      opacity 180ms ease-out,
+      box-shadow 180ms ease-out,
+      transform 180ms ease-out;
+  }
+
+  .listen-artwork-visualizer-rim {
+    border: 1px solid hsl(var(--primary) / 0.26);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.12),
+      0 0 18px hsl(var(--primary) / 0.26);
+    opacity: 0.7;
+    transition:
+      opacity 180ms ease-out,
+      box-shadow 180ms ease-out,
+      transform 180ms ease-out;
+  }
+
+  .listen-artwork-visualizer[data-active="true"] .listen-artwork-visualizer-halo {
+    box-shadow:
+      0 0 16px 4px hsl(var(--primary) / 0.36),
+      0 0 24px 6px hsl(var(--primary) / 0.20),
+      0 0 28px 4px hsl(var(--accent-foreground) / 0.10);
+    opacity: 0.95;
+    transform: scale(1.015);
+  }
+
+  .listen-artwork-visualizer[data-active="true"] .listen-artwork-visualizer-rim {
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.18),
+      0 0 26px hsl(var(--primary) / 0.44);
+    opacity: 0.88;
+    transform: scale(1.01);
+  }
+
+  .listen-artwork-visualizer[data-mode="ring"] .listen-artwork-visualizer-halo {
+    box-shadow:
+      0 0 12px 3px hsl(var(--primary) / 0.18),
+      0 0 22px 6px hsl(var(--primary) / 0.10);
+    opacity: 0.46;
+    transform: none;
+  }
+
+  .listen-artwork-visualizer[data-mode="ring"] .listen-artwork-visualizer-rim {
+    border-color: hsl(var(--primary) / 0.18);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.08),
+      0 0 18px hsl(var(--primary) / 0.20);
+    opacity: 0.56;
+    transform: none;
+  }
+
+  .listen-artwork-visualizer[data-mode="ring"][data-active="true"] .listen-artwork-visualizer-halo {
+    box-shadow:
+      0 0 14px 3px hsl(var(--primary) / 0.22),
+      0 0 26px 7px hsl(var(--primary) / 0.13);
+    opacity: 0.56;
+  }
+
+  .listen-artwork-visualizer[data-mode="ring"][data-active="true"] .listen-artwork-visualizer-rim {
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.10),
+      0 0 22px hsl(var(--primary) / 0.24);
+    opacity: 0.64;
+  }
+
+  .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-halo,
+  .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-halo,
+  .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-halo {
+    box-shadow:
+      0 0 22px 7px hsl(var(--primary) / var(--listen-artwork-visualizer-halo-accent-alpha)),
+      0 0 38px 12px hsl(var(--primary) / var(--listen-artwork-visualizer-halo-secondary-alpha)),
+      0 0 46px 14px hsl(var(--accent-foreground) / var(--listen-artwork-visualizer-halo-tertiary-alpha));
+    opacity: var(--listen-artwork-visualizer-halo-opacity);
+    transform: none;
+  }
+
+  .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-rim,
+  .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-rim,
+  .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-rim {
+    border-color: hsl(var(--primary) / 0.10);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.06),
+      0 0 18px hsl(var(--primary) / var(--listen-artwork-visualizer-rim-shadow-alpha));
+    opacity: var(--listen-artwork-visualizer-rim-opacity);
+    transform: none;
+  }
+
+  .listen-artwork-visualizer-pulse-canvas {
+    opacity: 0.96;
+  }
+
+  .dark .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-halo,
+  .dark .listen-artwork-visualizer[data-mode="ring"] .listen-artwork-visualizer-halo,
+  .dark .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-halo,
+  .dark .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-halo,
+  .dark .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-rim,
+  .dark .listen-artwork-visualizer[data-mode="ring"] .listen-artwork-visualizer-rim,
+  .dark .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-rim,
+  .dark .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-rim,
+  .dark .listen-artwork-visualizer-pulse-canvas {
+    filter: brightness(0.84) saturate(0.9);
+  }
+
+  .dark .listen-artwork-visualizer[data-mode="ring"] canvas {
+    filter: brightness(0.78) saturate(0.86);
+    opacity: 0.76;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .listen-player-inline-visualizer,
+    .listen-artwork-shell,
+    .listen-artwork-shadow,
+    .listen-artwork-frame,
+    .listen-artwork-frame img,
+    .listen-artwork-visualizer,
+    .listen-artwork-visualizer-halo,
+    .listen-artwork-visualizer-rim {
+      transition-duration: 1ms !important;
+    }
+  }
+
   :root[data-listen-native-video-underlay="true"] body {
     background: transparent !important;
   }

@@ -271,6 +271,8 @@ export function ListenOnlineArtwork(props: {
   httpBaseURL: string;
   track: ListenOnlineItem;
   className?: string;
+  visualizer?: React.ReactNode;
+  visualizerVisible?: boolean;
 }) {
   const posterCandidates = React.useMemo(
     () => buildListenPosterCandidates(props.httpBaseURL, props.track),
@@ -283,13 +285,17 @@ export function ListenOnlineArtwork(props: {
   } = useListenStableImageSource(posterCandidates);
 
   return (
-    <ListenArtworkShell className={props.className}>
+    <ListenArtworkShell
+      className={props.className}
+      visualizer={props.visualizer}
+      visualizerVisible={props.visualizerVisible}
+    >
       <>
         <img
           key={visiblePoster}
           src={visiblePoster}
           alt={props.track.title}
-          className="block h-full w-full object-cover transition-transform duration-500 ease-out group-hover/listen-artwork:scale-[1.035]"
+          className="block h-full w-full object-cover transition-transform duration-500 ease-out"
           loading="eager"
         />
         {posterReady ? (
@@ -421,17 +427,38 @@ export function ListenVolumeControl(props: {
 
 export function ListenArtworkShell(props: {
   className?: string;
+  visualizer?: React.ReactNode;
+  visualizerVisible?: boolean;
   children: React.ReactNode;
 }) {
+  const [frameActive, setFrameActive] = React.useState(false);
   return (
     <div
+      data-frame-active={frameActive ? "true" : "false"}
+      data-visualizer-visible={props.visualizerVisible === true ? "true" : "false"}
       className={cn(
-        "group/listen-artwork relative w-[min(18rem,62vw,48vh)] shrink-0 animate-in fade-in-0 zoom-in-95 duration-300 sm:w-[min(22rem,50vw,54vh)] xl:w-[min(25rem,34vw,58vh)]",
+        "listen-artwork-shell relative isolate w-full shrink-0 overflow-visible transition-[padding] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)] animate-in fade-in-0 zoom-in-95",
         props.className,
       )}
     >
-      <div className="absolute inset-0 translate-y-5 rounded-[2rem] bg-black/14 blur-3xl transition-[transform,opacity] duration-300 ease-out group-hover/listen-artwork:translate-y-6 group-hover/listen-artwork:scale-105 group-hover/listen-artwork:opacity-80" />
-      <div className="listen-artwork-frame relative aspect-square overflow-hidden rounded-[2rem] bg-white shadow-[0_28px_90px_-42px_rgba(15,23,42,0.45)] transition-[transform,box-shadow] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)] group-hover/listen-artwork:-translate-y-1 group-hover/listen-artwork:scale-[1.012] group-hover/listen-artwork:shadow-[0_34px_100px_-46px_rgba(15,23,42,0.56)]">
+      <div
+        className={cn(
+          "listen-artwork-shadow absolute inset-0 z-0 translate-y-5 rounded-[2rem] bg-black/14 blur-3xl transition-[transform,opacity] duration-300 ease-out",
+          "opacity-100",
+        )}
+      />
+      {props.visualizer}
+      <div
+        className="listen-artwork-frame relative z-10 aspect-square overflow-hidden rounded-[2rem] bg-white shadow-[0_28px_90px_-42px_rgba(15,23,42,0.45)] transition-[transform,box-shadow] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)]"
+        onPointerEnter={() => setFrameActive(true)}
+        onPointerLeave={() => setFrameActive(false)}
+        onFocusCapture={() => setFrameActive(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setFrameActive(false);
+          }
+        }}
+      >
         {props.children}
         <span
           className="pointer-events-none absolute inset-0 z-30 rounded-[2rem] border border-white/50"

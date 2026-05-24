@@ -131,6 +131,51 @@ func TestBuildCommandUsesExplicitToolArgsWithoutMutatingPATH(t *testing.T) {
 	}
 }
 
+func TestBuildCommandAddsSafeCapturedHeaders(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: filepath.Join(tempDir, "yt-dlp"),
+		Request: dto.CreateYTDLPJobRequest{
+			URL: "https://media.example/replay/index.m3u8",
+		},
+		OutputTemplate: filepath.Join(tempDir, "downloads", "%(title)s.%(ext)s"),
+		Headers: map[string]string{
+			"Referer":        "https://page.example/watch",
+			"User-Agent":     "TestAgent",
+			"Cookie":         "sid=1",
+			"Range":          "bytes=0-1",
+			"Content-Length": "2",
+			"Sec-Fetch-Site": "same-origin",
+			"Sec-CH-UA":      `"Chromium";v="129"`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	defer command.Cancel()
+	if command.Cleanup != nil {
+		defer command.Cleanup()
+	}
+
+	argsJoined := strings.Join(command.Args, "\n")
+	for _, expected := range []string{
+		"--add-header\nReferer: https://page.example/watch",
+		"--add-header\nUser-Agent: TestAgent",
+		"--add-header\nCookie: sid=1",
+	} {
+		if !strings.Contains(argsJoined, expected) {
+			t.Fatalf("expected captured header args to contain %q, got %v", expected, command.Args)
+		}
+	}
+	for _, forbidden := range []string{"Range:", "Content-Length:", "Sec-Fetch-Site:", "Sec-CH-UA:"} {
+		if strings.Contains(argsJoined, forbidden) {
+			t.Fatalf("expected unsafe header %q to be omitted, got %v", forbidden, command.Args)
+		}
+	}
+}
+
 func TestBuildSubtitleCommandUsesSubtitleArgsWithoutMutatingPATH(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 

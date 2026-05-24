@@ -11,12 +11,40 @@ func SanitizeArgs(args []string) []string {
 	}
 	copied := append([]string{}, args...)
 	for i := 0; i < len(copied); i++ {
-		if copied[i] != "--proxy" || i+1 >= len(copied) {
+		if i+1 >= len(copied) {
 			continue
 		}
-		copied[i+1] = MaskProxyURL(copied[i+1])
+		switch copied[i] {
+		case "--proxy":
+			copied[i+1] = MaskProxyURL(copied[i+1])
+		case "--add-header", "--add-headers":
+			copied[i+1] = MaskHeaderArg(copied[i+1])
+		}
 	}
 	return copied
+}
+
+func MaskHeaderArg(raw string) string {
+	name, value, ok := strings.Cut(raw, ":")
+	if !ok {
+		return raw
+	}
+	if !sensitiveHeaderName(name) {
+		return raw
+	}
+	if strings.TrimSpace(value) == "" {
+		return strings.TrimSpace(name) + ":"
+	}
+	return strings.TrimSpace(name) + ": ****"
+}
+
+func sensitiveHeaderName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "authorization", "cookie", "proxy-authorization", "x-csrf-token", "x-xsrf-token":
+		return true
+	default:
+		return false
+	}
 }
 
 func MaskProxyURL(raw string) string {

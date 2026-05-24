@@ -100,7 +100,7 @@ func (handler *ConnectorsHandler) GetConnectorConnectSession(ctx context.Context
 	return handler.service.GetConnectorConnectSession(ctx, request)
 }
 
-func (handler *ConnectorsHandler) OpenConnectorSite(ctx context.Context, request dto.OpenConnectorSiteRequest) error {
+func (handler *ConnectorsHandler) OpenConnectorSite(ctx context.Context, request dto.OpenConnectorSiteRequest) (dto.StartConnectorConnectResult, error) {
 	return handler.service.OpenConnectorSite(ctx, request)
 }
 

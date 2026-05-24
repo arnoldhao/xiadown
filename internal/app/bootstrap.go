@@ -9,8 +9,10 @@ import (
 	"time"
 
 	appdefaults "xiadown/internal/app/defaults"
+	"xiadown/internal/application/browsercdp"
 	connectorsservice "xiadown/internal/application/connectors/service"
 	dependenciesservice "xiadown/internal/application/dependencies/service"
+	"xiadown/internal/application/equalizer"
 	appevents "xiadown/internal/application/events"
 	fontsservice "xiadown/internal/application/fonts/service"
 	libraryservice "xiadown/internal/application/library/service"
@@ -26,6 +28,8 @@ import (
 	"xiadown/internal/infrastructure/autostart"
 	"xiadown/internal/infrastructure/connectorsrepo"
 	"xiadown/internal/infrastructure/dependenciesrepo"
+	"xiadown/internal/infrastructure/equalizeraudio"
+	"xiadown/internal/infrastructure/equalizerstore"
 	"xiadown/internal/infrastructure/libraryicons"
 	"xiadown/internal/infrastructure/libraryrepo"
 	"xiadown/internal/infrastructure/listenplaybackstore"
@@ -57,6 +61,9 @@ var (
 func CreateApplication(assets fs.FS) (*application.App, error) {
 	appVersion := resolveVersion(os.Getenv("APP_ENV"))
 	startup := currentStartupContext(os.Args[1:])
+	if err := browsercdp.CleanupStaleRuntimes(context.Background()); err != nil {
+		zap.L().Warn("cleanup stale browser runtimes", zap.Error(err))
+	}
 	appIcon := loadAppIcon(assets)
 	trayIcon := loadTrayIcon(assets)
 	var windowManager *wails.WindowManager
@@ -64,6 +71,8 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	var listenLivePlayer *wails.ListenYouTubeLivePlayer
 	var telemetryShutdown func()
 	var listenPlaybackSnapshotUnsubscribe func()
+	var equalizerPlaybackUnsubscribe func()
+	var equalizerService *equalizer.Service
 
 	app := application.New(application.Options{
 		Name:        AppName,
@@ -111,11 +120,16 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	}
 	var libraryService *libraryservice.LibraryService
 	var petsService *petsservice.Service
+	var connectorsService *connectorsservice.ConnectorsService
 	app.OnShutdown(func() {
 		if libraryService != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			stoppedSniffs := libraryService.ShutdownResourceSniffSessions(shutdownCtx)
 			stoppedRuns := libraryService.ShutdownActiveRuns(shutdownCtx)
 			cancel()
+			if stoppedSniffs > 0 {
+				zap.L().Info("resource sniff sessions stopped on shutdown", zap.Int("count", stoppedSniffs))
+			}
 			if stoppedRuns > 0 {
 				zap.L().Info("library operation runs stopped on shutdown", zap.Int("count", stoppedRuns))
 			}
@@ -126,11 +140,23 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		if petsService != nil {
 			petsService.ShutdownOnlinePetImportSessions()
 		}
+		if connectorsService != nil {
+			stoppedConnectors := connectorsService.ShutdownSessions()
+			if stoppedConnectors > 0 {
+				zap.L().Info("connector browser sessions stopped on shutdown", zap.Int("count", stoppedConnectors))
+			}
+		}
 		if telemetryShutdown != nil {
 			telemetryShutdown()
 		}
 		if listenPlaybackSnapshotUnsubscribe != nil {
 			listenPlaybackSnapshotUnsubscribe()
+		}
+		if equalizerPlaybackUnsubscribe != nil {
+			equalizerPlaybackUnsubscribe()
+		}
+		if equalizerService != nil {
+			equalizerService.Stop()
 		}
 		_ = database.Close()
 	})
@@ -232,7 +258,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	}
 
 	connectorsRepo := connectorsrepo.NewSQLiteConnectorRepository(database.Bun)
-	connectorsService := connectorsservice.NewConnectorsService(connectorsRepo, connectorsservice.WithSettingsReader(settingsService))
+	connectorsService = connectorsservice.NewConnectorsService(connectorsRepo, connectorsservice.WithSettingsReader(settingsService))
 	if err := connectorsService.EnsureDefaults(ctx); err != nil {
 		return nil, err
 	}
@@ -264,6 +290,16 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	listenPlayer.SetPlaybackService(listenPlaybackService)
 	_, _ = listenPlaybackService.RestorePlaybackSession(ctx)
 	listenPlaybackSnapshotUnsubscribe = wails.NewListenPlaybackSnapshotEmitter(app, listenPlaybackService)
+	equalizerStore, err := equalizerstore.DefaultJSONStore()
+	if err != nil {
+		return nil, err
+	}
+	equalizerService = equalizer.NewService(equalizerStore, equalizeraudio.NewEngine())
+	equalizerPlaybackUnsubscribe = listenPlaybackService.Subscribe(func(snapshot listenplayback.Snapshot) {
+		active := snapshot.State == listenplayback.PlaybackStatePlaying ||
+			snapshot.State == listenplayback.PlaybackStateBuffering
+		equalizerService.ObservePlayback(active, snapshot.Progress)
+	})
 	listenLiveCatalogHandler := presentationhttp.NewListenLiveCatalogHandler(proxyManager)
 	realtimeServer.Handle("/api/listen/live/catalog", listenLiveCatalogHandler)
 	realtimeServer.Handle("/api/listen/live/catalog/", listenLiveCatalogHandler)
@@ -358,6 +394,8 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	}
 	libraryFileMaintenanceHandler := presentationhttp.NewLibraryFileMaintenanceHandler(libraryService)
 	realtimeServer.Handle("/api/library/files/", libraryFileMaintenanceHandler)
+	resourceSniffPreviewHandler := presentationhttp.NewResourceSniffPreviewHandler(libraryService)
+	realtimeServer.Handle("/api/sniff/resource-preview/", resourceSniffPreviewHandler)
 	listenLocalHandler := presentationhttp.NewListenLocalHandler(libraryService)
 	realtimeServer.Handle("/api/listen/local", listenLocalHandler)
 	realtimeServer.Handle("/api/listen/local/", listenLocalHandler)
@@ -374,6 +412,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	app.RegisterService(application.NewService(wails.NewOSNotificationHandlerWithHTTPClientProvider(osNotifications, app, proxyManager)))
 	app.RegisterService(application.NewService(wails.NewRealtimeHandler(realtimeServer)))
 	app.RegisterService(application.NewService(wails.NewPetsHandler(petsService)))
+	app.RegisterService(application.NewService(wails.NewEqualizerHandler(equalizerService)))
 	app.RegisterService(application.NewService(wails.NewListenPlayerHandler(listenPlayer, listenPlaybackService)))
 	app.RegisterService(application.NewService(wails.NewListenLyricsHandler(listenLyricsService)))
 	app.RegisterService(application.NewService(wails.NewListenLivePlayerHandler(listenLivePlayer)))

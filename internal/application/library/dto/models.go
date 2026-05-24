@@ -132,6 +132,7 @@ type OperationRequestPreviewDTO struct {
 	Extractor                      string `json:"extractor,omitempty"`
 	Author                         string `json:"author,omitempty"`
 	ThumbnailURL                   string `json:"thumbnailUrl,omitempty"`
+	DownloadMethod                 string `json:"downloadMethod,omitempty"`
 	FileID                         string `json:"fileId,omitempty"`
 	InputPath                      string `json:"inputPath,omitempty"`
 	RootFileID                     string `json:"rootFileId,omitempty"`
@@ -541,6 +542,8 @@ type CreateYTDLPJobRequest struct {
 	DeleteSourceFileAfterTranscode bool     `json:"deleteSourceFileAfterTranscode,omitempty"`
 	ConnectorID                    string   `json:"connectorId,omitempty"`
 	UseConnector                   bool     `json:"useConnector,omitempty"`
+	ResourceSessionID              string   `json:"resourceSessionId,omitempty"`
+	ResourceMediaID                string   `json:"resourceMediaId,omitempty"`
 }
 
 type CheckYTDLPOperationFailureRequest struct {
@@ -584,12 +587,14 @@ type PrepareYTDLPDownloadRequest struct {
 	URL string `json:"url"`
 }
 type PrepareYTDLPDownloadResponse struct {
-	URL                string `json:"url"`
-	Domain             string `json:"domain"`
-	Icon               string `json:"icon,omitempty"`
-	ConnectorID        string `json:"connectorId,omitempty"`
-	ConnectorAvailable bool   `json:"connectorAvailable"`
-	Reachable          bool   `json:"reachable,omitempty"`
+	URL                      string `json:"url"`
+	Domain                   string `json:"domain"`
+	Icon                     string `json:"icon,omitempty"`
+	ConnectorID              string `json:"connectorId,omitempty"`
+	ConnectorAvailable       bool   `json:"connectorAvailable"`
+	ConnectorCredentialMode  string `json:"connectorCredentialMode,omitempty"`
+	ConnectorCredentialState string `json:"connectorCredentialState,omitempty"`
+	Reachable                bool   `json:"reachable,omitempty"`
 }
 
 type ResolveDomainIconRequest struct {
@@ -628,13 +633,156 @@ type YTDLPSubtitleOption struct {
 }
 
 type ParseYTDLPDownloadResponse struct {
-	Title        string                `json:"title,omitempty"`
-	Domain       string                `json:"domain,omitempty"`
-	Extractor    string                `json:"extractor,omitempty"`
-	Author       string                `json:"author,omitempty"`
-	ThumbnailURL string                `json:"thumbnailUrl,omitempty"`
-	Formats      []YTDLPFormatOption   `json:"formats"`
-	Subtitles    []YTDLPSubtitleOption `json:"subtitles"`
+	Title             string                `json:"title,omitempty"`
+	Domain            string                `json:"domain,omitempty"`
+	Extractor         string                `json:"extractor,omitempty"`
+	Author            string                `json:"author,omitempty"`
+	ThumbnailURL      string                `json:"thumbnailUrl,omitempty"`
+	PageURL           string                `json:"pageUrl,omitempty"`
+	ResourceSessionID string                `json:"resourceSessionId,omitempty"`
+	ResourceMediaID   string                `json:"resourceMediaId,omitempty"`
+	Formats           []YTDLPFormatOption   `json:"formats"`
+	Subtitles         []YTDLPSubtitleOption `json:"subtitles"`
+}
+
+type StartResourceSniffRequest struct {
+	URL string `json:"url"`
+}
+
+type StartResourceSniffResult struct {
+	Session *ResourceSniffSession `json:"session,omitempty"`
+	Failure *ResourceSniffFailure `json:"failure,omitempty"`
+}
+
+type GetResourceSniffSessionRequest struct {
+	SessionID string `json:"sessionId"`
+}
+
+type ListResourceSniffResourcesRequest struct {
+	SessionID string `json:"sessionId"`
+}
+
+type ClearResourceSniffResourcesRequest struct {
+	SessionID string `json:"sessionId"`
+}
+
+type GetResourceSniffPreviewRequest struct {
+	SessionID  string `json:"sessionId"`
+	ResourceID string `json:"resourceId"`
+}
+
+type ResourceSniffPreviewResponse struct {
+	ResourceID string `json:"resourceId"`
+	Kind       string `json:"kind"`
+	MimeType   string `json:"mimeType,omitempty"`
+	SizeBytes  int64  `json:"sizeBytes,omitempty"`
+	DataBase64 string `json:"dataBase64"`
+	SeenAt     string `json:"seenAt,omitempty"`
+}
+
+type PrepareResourceSniffRawPreviewRequest struct {
+	SessionID  string `json:"sessionId"`
+	ResourceID string `json:"resourceId"`
+}
+
+type PrepareResourceSniffRawPreviewResponse struct {
+	ResourceID string `json:"resourceId"`
+	LeaseID    string `json:"leaseId"`
+	Kind       string `json:"kind"`
+	MimeType   string `json:"mimeType,omitempty"`
+	FileName   string `json:"fileName,omitempty"`
+	SizeBytes  int64  `json:"sizeBytes,omitempty"`
+	ExpiresAt  string `json:"expiresAt,omitempty"`
+}
+
+type ListResourceSniffResourcesResponse struct {
+	Session   ResourceSniffSession       `json:"session"`
+	Resources []ResourceSniffRawResource `json:"resources"`
+	UpdatedAt string                     `json:"updatedAt"`
+}
+
+type ResourceSniffRawResource struct {
+	ID                string `json:"id"`
+	Source            string `json:"source"`
+	Kind              string `json:"kind"`
+	URL               string `json:"url"`
+	PageURL           string `json:"pageUrl,omitempty"`
+	Domain            string `json:"domain,omitempty"`
+	MimeType          string `json:"mimeType,omitempty"`
+	ContentType       string `json:"contentType,omitempty"`
+	ResourceType      string `json:"resourceType,omitempty"`
+	Status            int64  `json:"status,omitempty"`
+	SizeBytes         int64  `json:"sizeBytes,omitempty"`
+	Score             int    `json:"score,omitempty"`
+	Reason            string `json:"reason,omitempty"`
+	TargetID          string `json:"targetId,omitempty"`
+	SeenAt            string `json:"seenAt,omitempty"`
+	Downloadable      bool   `json:"downloadable"`
+	PreviewAvailable  bool   `json:"previewAvailable"`
+	PreviewKind       string `json:"previewKind,omitempty"`
+	PreviewMimeType   string `json:"previewMimeType,omitempty"`
+	PreviewSizeBytes  int64  `json:"previewSizeBytes,omitempty"`
+	PreviewDataBase64 string `json:"previewDataBase64,omitempty"`
+}
+
+type PrepareResourceSniffRawDownloadRequest struct {
+	SessionID  string `json:"sessionId"`
+	ResourceID string `json:"resourceId"`
+}
+
+type ParseResourceSniffRequest struct {
+	SessionID string `json:"sessionId"`
+}
+
+type ParseResourceSniffResponse struct {
+	Media   *ParseYTDLPDownloadResponse `json:"media,omitempty"`
+	Failure *ResourceSniffFailure       `json:"failure,omitempty"`
+}
+
+type ResourceSniffFailure struct {
+	Code      string `json:"code"`
+	Site      string `json:"site,omitempty"`
+	Action    string `json:"action,omitempty"`
+	Retryable bool   `json:"retryable"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+type CancelResourceSniffRequest struct {
+	SessionID string `json:"sessionId"`
+}
+
+type ResourceSniffSession struct {
+	SessionID         string `json:"sessionId"`
+	State             string `json:"state"`
+	BrowserStatus     string `json:"browserStatus"`
+	URL               string `json:"url"`
+	CurrentURL        string `json:"currentUrl,omitempty"`
+	Title             string `json:"title,omitempty"`
+	ActiveTargetID    string `json:"activeTargetId,omitempty"`
+	TabCount          int    `json:"tabCount"`
+	UnoptimizedDomain string `json:"unoptimizedDomain,omitempty"`
+	AuthStatus        string `json:"authStatus,omitempty"`
+	AuthUser          string `json:"authUser,omitempty"`
+	AuthSite          string `json:"authSite,omitempty"`
+}
+
+type CDPBrowserStatus struct {
+	Active        bool                  `json:"active"`
+	Mode          string                `json:"mode,omitempty"`
+	Session       *ResourceSniffSession `json:"session,omitempty"`
+	RuntimeID     string                `json:"runtimeId,omitempty"`
+	BrowserStatus string                `json:"browserStatus,omitempty"`
+	CurrentURL    string                `json:"currentUrl,omitempty"`
+	Title         string                `json:"title,omitempty"`
+	TabCount      int                   `json:"tabCount,omitempty"`
+	PID           int                   `json:"pid,omitempty"`
+	ProcessCount  int                   `json:"processCount,omitempty"`
+	OrphanCount   int                   `json:"orphanCount,omitempty"`
+	StartedAt     string                `json:"startedAt,omitempty"`
+}
+
+type StopCDPBrowserRuntimeRequest struct {
+	RuntimeID string `json:"runtimeId"`
 }
 
 type CreateVideoImportRequest struct {

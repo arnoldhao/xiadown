@@ -15,20 +15,26 @@ import {
   CircleOff,
   ExternalLink,
   Eye,
+  FolderOpen,
   Globe2,
   Link2,
   Loader2,
+  Panda,
   Plug2,
   RefreshCw,
   Search,
   Trash2,
+  UserRound,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
 import { WindowControls } from "@/components/layout/WindowControls";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogListCard,
@@ -38,6 +44,7 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
+import { Select } from "@/shared/ui/select";
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -58,11 +65,15 @@ import {
   useOpenConnectorSite,
   useStartConnectorConnect,
 } from "@/shared/query/connectors";
+import { useOpenLibraryPath } from "@/shared/query/library";
+import { useBrowserCandidates } from "@/shared/query/settings";
 import { messageBus } from "@/shared/message";
+import { formatBytes } from "@/shared/utils/formatBytes";
 import type {
   Connector,
   ConnectorConnectSession,
   FinishConnectorConnectResult,
+  StartConnectorConnectResult,
 } from "@/shared/contracts/connectors";
 import { cn } from "@/lib/utils";
 
@@ -91,12 +102,19 @@ const STATUS_META: Record<
     className: "app-connectors-status-badge app-connectors-status-disconnected",
     icon: CircleOff,
   },
+  profile: {
+    statusKey: "profile",
+    className: "app-connectors-status-badge app-connectors-status-profile",
+    icon: UserRound,
+  },
 };
 
 type ConnectorMeta = {
   labelKey: string;
   fallbackLabel: string;
 };
+
+type ConnectorDialogMode = "connect" | "profile" | "open";
 
 const CONNECTOR_META: Record<string, ConnectorMeta> = {
   youtube: {
@@ -111,9 +129,9 @@ const CONNECTOR_META: Record<string, ConnectorMeta> = {
     labelKey: "settings.connectors.item.tiktok",
     fallbackLabel: "TikTok",
   },
-  douyin: {
-    labelKey: "settings.connectors.item.douyin",
-    fallbackLabel: "Douyin",
+  china_private: {
+    labelKey: "settings.connectors.item.chinaPrivate",
+    fallbackLabel: "China private domain",
   },
   instagram: {
     labelKey: "settings.connectors.item.instagram",
@@ -159,7 +177,6 @@ const CONNECTOR_BRAND_ICONS = {
   youtube: siYoutube,
   bilibili: siBilibili,
   tiktok: siTiktok,
-  douyin: siTiktok,
   instagram: siInstagram,
   x: siX,
   facebook: siFacebook,
@@ -179,6 +196,25 @@ const formatCookieExpires = (expires?: number) => {
   return date.toLocaleString();
 };
 
+const formatConnectorTemplate = (
+  template: string,
+  params: Record<string, string>,
+) =>
+  Object.entries(params).reduce(
+    (text, [key, value]) => text.split(`{${key}}`).join(value),
+    template,
+  );
+
+const resolveConnectorErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+  return fallback;
+};
+
 const resolveConnectorMeta = (connectorType: string): ConnectorMeta | null => {
   const normalized = connectorType.trim().toLowerCase();
   if (!normalized) {
@@ -193,6 +229,14 @@ export function ConnectorBrandIcon(props: {
   fallback?: "globe" | "none";
 }) {
   const normalized = props.connectorType?.trim().toLowerCase() ?? "";
+  if (normalized === "china_private") {
+    return (
+      <Panda
+        className={cn("block shrink-0", props.className)}
+        aria-hidden="true"
+      />
+    );
+  }
   const icon = normalized
     ? CONNECTOR_BRAND_ICONS[normalized as keyof typeof CONNECTOR_BRAND_ICONS]
     : undefined;
@@ -218,28 +262,80 @@ export function ConnectorsSection() {
   const { t } = useI18n();
   const isWindows = System.IsWindows();
   const connectors = useConnectors();
+  const browserCandidates = useBrowserCandidates();
   const startConnectorConnect = useStartConnectorConnect();
   const finishConnectorConnect = useFinishConnectorConnect();
   const cancelConnectorConnect = useCancelConnectorConnect();
   const clearConnector = useClearConnector();
   const openConnectorSite = useOpenConnectorSite();
+  const openProfilePath = useOpenLibraryPath();
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
   const [loginDialogOpen, setLoginDialogOpen] = React.useState(false);
   const [loginTarget, setLoginTarget] = React.useState<Connector | null>(null);
+  const [loginTargetURL, setLoginTargetURL] = React.useState("");
   const [loginSessionId, setLoginSessionId] = React.useState("");
   const [loginResult, setLoginResult] =
     React.useState<FinishConnectorConnectResult | null>(null);
   const [loginError, setLoginError] = React.useState("");
+  const [loginDialogMode, setLoginDialogMode] =
+    React.useState<ConnectorDialogMode>("connect");
+  const [loginFinalBrowserStatus, setLoginFinalBrowserStatus] =
+    React.useState("");
+  const [loginClosing, setLoginClosing] = React.useState(false);
   const [cookiesDialogOpen, setCookiesDialogOpen] = React.useState(false);
+  const [profileContentDialogOpen, setProfileContentDialogOpen] =
+    React.useState(false);
+  const [clearConfirmTarget, setClearConfirmTarget] =
+    React.useState<Connector | null>(null);
+  const [clearConfirmError, setClearConfirmError] = React.useState("");
+  const [profileSiteURLByConnectorId, setProfileSiteURLByConnectorId] =
+    React.useState<Record<string, string>>({});
   const loginStartTokenRef = React.useRef(0);
+  const loginSessionIdRef = React.useRef("");
+  const loginStartPromiseRef =
+    React.useRef<Promise<StartConnectorConnectResult | null> | null>(null);
   const loginSession = useConnectorConnectSession(
     { sessionId: loginSessionId },
     loginDialogOpen && loginSessionId.trim().length > 0,
   );
 
+  React.useEffect(() => {
+    loginSessionIdRef.current = loginSessionId;
+  }, [loginSessionId]);
+
   const items = connectors.data ?? [];
+  const browserLabelById = React.useMemo(
+    () =>
+      new Map(
+        (browserCandidates.data ?? []).map((candidate) => [
+          candidate.id,
+          candidate.label,
+        ]),
+      ),
+    [browserCandidates.data],
+  );
+  const resolveBrowserLabel = React.useCallback(
+    (browser?: string) => {
+      const normalized = (browser ?? "").trim();
+      if (!normalized) {
+        return "-";
+      }
+      if (normalized === "default") {
+        return t("settings.connectors.detail.profileBrowserDefault");
+      }
+      return (
+        browserLabelById.get(normalized) ??
+        normalized
+          .split(/[-_\s]+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" ")
+      );
+    },
+    [browserLabelById, t],
+  );
   const resolveConnectorLabel = React.useCallback(
     (connector: Connector) => {
       const meta = resolveConnectorMeta(connector.type);
@@ -252,6 +348,22 @@ export function ConnectorsSection() {
   );
 
   const trimmedQuery = query.trim().toLowerCase();
+  const connectorUsesProfile = React.useCallback(
+    (connector: Connector) => connector.credentialMode === "profile",
+    [],
+  );
+  const resolveConnectorListSubtitle = React.useCallback(
+    (connector: Connector) => {
+      if (connector.type === "china_private") {
+        return t("settings.connectors.item.chinaPrivateSites");
+      }
+      if (connector.credentialMode !== "profile") {
+        return "";
+      }
+      return (connector.domains ?? []).join(" ");
+    },
+    [t],
+  );
   const filteredItems = React.useMemo(() => {
     if (!trimmedQuery) {
       return items;
@@ -263,12 +375,113 @@ export function ConnectorsSection() {
     });
   }, [items, resolveConnectorLabel, trimmedQuery]);
 
-  const sortedItems = React.useMemo(
+  const sortedProfileItems = React.useMemo(
     () =>
-      [...filteredItems].sort((left, right) =>
-        resolveConnectorLabel(left).localeCompare(resolveConnectorLabel(right)),
-      ),
-    [filteredItems, resolveConnectorLabel],
+      filteredItems
+        .filter(connectorUsesProfile)
+        .sort((left, right) =>
+          resolveConnectorLabel(left).localeCompare(resolveConnectorLabel(right)),
+        ),
+    [connectorUsesProfile, filteredItems, resolveConnectorLabel],
+  );
+  const sortedCookieItems = React.useMemo(
+    () =>
+      filteredItems
+        .filter((connector) => !connectorUsesProfile(connector))
+        .sort((left, right) =>
+          resolveConnectorLabel(left).localeCompare(resolveConnectorLabel(right)),
+        ),
+    [connectorUsesProfile, filteredItems, resolveConnectorLabel],
+  );
+  const sortedItems = React.useMemo(
+    () => [...sortedProfileItems, ...sortedCookieItems],
+    [sortedCookieItems, sortedProfileItems],
+  );
+  const connectorListGroups = React.useMemo(
+    () =>
+      [
+        {
+          key: "profile",
+          label: t("settings.connectors.status.profile"),
+          items: sortedProfileItems,
+        },
+        {
+          key: "cookies",
+          label: t("settings.connectors.cookiesTitle"),
+          items: sortedCookieItems,
+        },
+      ].filter((group) => group.items.length > 0),
+    [sortedCookieItems, sortedProfileItems, t],
+  );
+
+  const renderConnectorListItem = React.useCallback(
+    (connector: Connector) => {
+      const statusMeta =
+        STATUS_META[
+          connector.credentialState ??
+            connector.status ??
+            "disconnected"
+        ] ?? STATUS_META.disconnected;
+      const isSelected = connector.id === selectedId;
+      const usesProfileCredential = connectorUsesProfile(connector);
+      const subtitle = resolveConnectorListSubtitle(connector);
+      return (
+        <SidebarMenuItem key={connector.id}>
+          <SidebarMenuButton
+            type="button"
+            isActive={isSelected}
+            className={cn(
+              "app-connectors-list-item justify-between",
+              usesProfileCredential ? "min-h-[3.25rem]" : "min-h-11",
+            )}
+            onClick={() => setSelectedId(connector.id)}
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <div
+                className="app-connectors-icon-slot flex h-8 w-8 shrink-0 items-center justify-center"
+                data-active={isSelected ? "true" : undefined}
+              >
+                <ConnectorBrandIcon
+                  connectorType={connector.type}
+                  className="h-5 w-5"
+                />
+              </div>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span
+                  className="app-connectors-list-label truncate text-sm font-medium leading-5 transition-colors"
+                  data-active={isSelected ? "true" : undefined}
+                >
+                  {resolveConnectorLabel(connector)}
+                </span>
+                {usesProfileCredential ? (
+                  <span
+                    className="truncate text-[11px] font-medium leading-4 text-muted-foreground"
+                    title={subtitle}
+                  >
+                    {subtitle}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+            <div className="shrink-0">
+              <span
+                className={statusMeta.className}
+              >
+                {React.createElement(statusMeta.icon, {
+                  className: "h-3.5 w-3.5",
+                })}
+              </span>
+            </div>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      );
+    },
+    [
+      connectorUsesProfile,
+      resolveConnectorLabel,
+      resolveConnectorListSubtitle,
+      selectedId,
+    ],
   );
 
   React.useEffect(() => {
@@ -290,18 +503,24 @@ export function ConnectorsSection() {
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const status =
-    STATUS_META[selected?.status ?? "disconnected"] ?? STATUS_META.disconnected;
+    STATUS_META[selected?.credentialState ?? selected?.status ?? "disconnected"] ??
+    STATUS_META.disconnected;
 
   const isBusy =
     startConnectorConnect.isPending ||
     finishConnectorConnect.isPending ||
     cancelConnectorConnect.isPending ||
+    loginClosing ||
     openConnectorSite.isPending ||
+    openProfilePath.isPending ||
     clearConnector.isPending;
+  const isLoginStarting =
+    startConnectorConnect.isPending || openConnectorSite.isPending;
   const isLoginRunning =
-    startConnectorConnect.isPending ||
+    isLoginStarting ||
     finishConnectorConnect.isPending ||
-    cancelConnectorConnect.isPending;
+    cancelConnectorConnect.isPending ||
+    loginClosing;
   const isOpenRunning = openConnectorSite.isPending;
 
   const resolveLoginError = React.useCallback(
@@ -319,6 +538,22 @@ export function ConnectorsSection() {
       return error instanceof Error
         ? error.message
         : t("settings.connectors.loginError");
+    },
+    [t],
+  );
+
+  const resolveOpenError = React.useCallback(
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("no cookies")) {
+        return t("settings.connectors.noCookies");
+      }
+      if (message.toLowerCase().includes("no supported browser detected")) {
+        return t("settings.connectors.browserMissing");
+      }
+      return error instanceof Error
+        ? error.message
+        : t("settings.connectors.openSiteError");
     },
     [t],
   );
@@ -356,43 +591,104 @@ export function ConnectorsSection() {
   const resetLoginState = React.useCallback(() => {
     setLoginDialogOpen(false);
     setLoginTarget(null);
+    setLoginTargetURL("");
     setLoginSessionId("");
     setLoginResult(null);
     setLoginError("");
+    setLoginDialogMode("connect");
+    setLoginFinalBrowserStatus("");
+    setLoginClosing(false);
   }, []);
 
   const handleDismissLogin = React.useCallback(async () => {
+    if (loginClosing) {
+      return;
+    }
     loginStartTokenRef.current += 1;
-    const sessionId = loginSessionId.trim();
-    resetLoginState();
+    setLoginClosing(true);
+    const pendingStart = loginStartPromiseRef.current;
+    let startedSessionId = "";
+    if (pendingStart) {
+      const result = await pendingStart;
+      startedSessionId = result?.sessionId ?? "";
+    }
+    const sessionId =
+      startedSessionId.trim() || loginSessionIdRef.current.trim();
     if (sessionId) {
       await disposeLoginSession(sessionId);
     }
-  }, [disposeLoginSession, loginSessionId, resetLoginState]);
+    resetLoginState();
+  }, [disposeLoginSession, loginClosing, resetLoginState]);
 
-  const handleConnect = async (connector: Connector) => {
+  const startConnectorBrowserSession = async (
+    connector: Connector,
+    mode: ConnectorDialogMode,
+    targetUrl?: string,
+  ): Promise<StartConnectorConnectResult | null> => {
     const startToken = loginStartTokenRef.current + 1;
+    const normalizedTargetURL = (targetUrl ?? "").trim();
     loginStartTokenRef.current = startToken;
+    setLoginDialogMode(mode);
     setLoginTarget(connector);
+    setLoginTargetURL(normalizedTargetURL);
     setLoginDialogOpen(true);
     setLoginSessionId("");
     setLoginResult(null);
     setLoginError("");
-    try {
-      const result = await startConnectorConnect.mutateAsync({
-        id: connector.id,
+    setLoginFinalBrowserStatus("");
+    setLoginClosing(false);
+    const request = {
+      id: connector.id,
+      ...(normalizedTargetURL ? { targetUrl: normalizedTargetURL } : {}),
+    };
+    const startPromise =
+      mode === "open"
+        ? openConnectorSite.mutateAsync(request)
+        : startConnectorConnect.mutateAsync(request);
+    let guardedStartPromise: Promise<StartConnectorConnectResult | null>;
+    guardedStartPromise = startPromise
+      .then((result) => result)
+      .catch((error) => {
+        if (loginStartTokenRef.current === startToken) {
+          setLoginError(
+            mode === "open" ? resolveOpenError(error) : resolveLoginError(error),
+          );
+        }
+        return null;
+      })
+      .finally(() => {
+        if (loginStartPromiseRef.current === guardedStartPromise) {
+          loginStartPromiseRef.current = null;
+        }
       });
+    loginStartPromiseRef.current = guardedStartPromise;
+    try {
+      const result = await guardedStartPromise;
+      if (!result) {
+        return null;
+      }
       if (loginStartTokenRef.current !== startToken) {
         await disposeLoginSession(result.sessionId);
-        return;
+        return result;
       }
+      setLoginTargetURL(result.targetUrl || normalizedTargetURL);
       setLoginSessionId(result.sessionId);
+      return result;
     } catch (error) {
       if (loginStartTokenRef.current !== startToken) {
-        return;
+        return null;
       }
       setLoginError(resolveLoginError(error));
+      return null;
     }
+  };
+
+  const handleConnect = async (connector: Connector) => {
+    await startConnectorBrowserSession(connector, "connect");
+  };
+
+  const handleOpenProfileSite = async (connector: Connector, targetUrl?: string) => {
+    await startConnectorBrowserSession(connector, "profile", targetUrl);
   };
 
   const handleFinishLogin = async () => {
@@ -410,7 +706,7 @@ export function ConnectorsSection() {
       }
       setLoginResult(result);
       await disposeLoginSession(sessionId);
-      if (!result.saved) {
+      if (!result.saved && result.connector.credentialMode !== "profile") {
         messageBus.publishToast({
           intent: "danger",
           title: t("settings.connectors.loginTitle"),
@@ -433,16 +729,31 @@ export function ConnectorsSection() {
     }
 
     const sessionId = session.sessionId;
+    if (loginDialogMode === "open") {
+      setLoginFinalBrowserStatus(session.browserStatus || session.state);
+      if (session.error) {
+        setLoginError(session.error);
+      }
+      return;
+    }
+    const isProfileSession =
+      session.connector.credentialMode === "profile" ||
+      loginDialogMode === "profile";
     setLoginResult(toLoginResult(session));
+    setLoginFinalBrowserStatus(session.browserStatus || session.state);
     void disposeLoginSession(sessionId);
     setLoginSessionId("");
 
     if (session.state === "completed" && session.saved) {
+      if (isProfileSession) {
+        setLoginError("");
+        return;
+      }
       resetLoginState();
       return;
     }
 
-    if (session.state === "completed") {
+    if (session.state === "completed" && !isProfileSession) {
       setLoginError(t("settings.connectors.noCookiesRead"));
       return;
     }
@@ -457,71 +768,181 @@ export function ConnectorsSection() {
     disposeLoginSession,
     isLoginRunning,
     loginSession.data,
+    loginDialogMode,
     loginSessionId,
     resetLoginState,
     t,
     toLoginResult,
   ]);
 
-  const resolveOpenError = (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.toLowerCase().includes("no cookies")) {
-      return t("settings.connectors.noCookies");
-    }
-    if (message.toLowerCase().includes("no supported browser detected")) {
-      return t("settings.connectors.browserMissing");
-    }
-    return error instanceof Error
-      ? error.message
-      : t("settings.connectors.openSiteError");
-  };
-
   const handleOpenSite = async (connector: Connector) => {
-    try {
-      await openConnectorSite.mutateAsync({ id: connector.id });
-    } catch (error) {
-      messageBus.publishToast({
-        intent: "danger",
-        title: t("settings.connectors.openSite"),
-        description: resolveOpenError(error),
-      });
-    }
+    await startConnectorBrowserSession(connector, "open");
   };
 
   const rowClassName = SETTINGS_ROW_CLASS;
   const loginSessionData = loginSession.data ?? null;
-  const loginBrowserStatus = startConnectorConnect.isPending
+  const loginBrowserStatus = isLoginStarting
     ? "opening"
-    : loginSessionData?.browserStatus || (loginSessionId ? "open" : "not_open");
+    : loginSessionData?.browserStatus ||
+      loginFinalBrowserStatus ||
+      (loginSessionId ? "open" : "not_open");
   const loginConnectionLabel = loginTarget
     ? resolveConnectorLabel(loginTarget)
     : loginSessionData?.connector
       ? resolveConnectorLabel(loginSessionData.connector)
       : "-";
+  const loginConnector = loginSessionData?.connector ?? loginTarget;
+  const loginUsesProfile = loginConnector?.credentialMode === "profile";
+  const loginDisplayTargetURL = (
+    loginSessionData?.targetUrl ||
+    loginTargetURL
+  ).trim();
   const loginStatusRows = [
     {
       label: t("settings.connectors.loginCard.currentConnection"),
       value: loginConnectionLabel,
     },
+    ...(loginDisplayTargetURL
+      ? [
+          {
+            label: t("settings.connectors.loginCard.site"),
+            value: loginDisplayTargetURL,
+          },
+        ]
+      : []),
     {
       label: t("settings.connectors.loginCard.browserStatus"),
       value: t(
         `settings.connectors.browserStatus.${resolveBrowserStatusKey(loginBrowserStatus)}`,
       ),
     },
-    {
-      label: t("settings.connectors.loginCard.currentCookiesCount"),
-      value: String(
-        loginSessionData?.currentCookiesCount ??
-          loginResult?.filteredCookiesCount ??
-          0,
-      ),
-    },
+    ...(loginDialogMode === "open"
+      ? []
+      : [
+          {
+            label: loginUsesProfile
+              ? t("settings.connectors.loginCard.profile")
+              : t("settings.connectors.loginCard.currentCookiesCount"),
+            value: loginUsesProfile
+              ? t("settings.connectors.status.profile")
+              : String(
+                  loginSessionData?.currentCookiesCount ??
+                    loginResult?.filteredCookiesCount ??
+                    0,
+                ),
+          },
+        ]),
   ];
   const selectedLabel = selected ? resolveConnectorLabel(selected) : "";
   const cookiesCount = selected?.cookiesCount ?? selected?.cookies?.length ?? 0;
   const cookiesList = selected?.cookies ?? [];
   const isConnected = (selected?.status ?? "disconnected") === "connected";
+  const usesProfile = selected?.credentialMode === "profile";
+  const hasOpenableCredential = usesProfile || cookiesCount > 0;
+  const profileInfo = selected?.profileInfo ?? null;
+  const profileExists = profileInfo?.exists === true;
+  const profileComponents = profileInfo?.components ?? [];
+  const profileBindings = profileInfo?.bindings ?? [];
+  const profileSites = selected?.profileSites ?? [];
+  const selectedProfileSiteURL = React.useMemo(() => {
+    if (!selected || profileSites.length === 0) {
+      return "";
+    }
+    const storedURL = (profileSiteURLByConnectorId[selected.id] ?? "").trim();
+    if (storedURL && profileSites.some((site) => site.url === storedURL)) {
+      return storedURL;
+    }
+    return profileSites[0]?.url ?? "";
+  }, [profileSiteURLByConnectorId, profileSites, selected]);
+  const profileScopeValues =
+    selected?.domains?.filter(Boolean) ?? [];
+  const activeProfileBrowser =
+    selected?.profileBrowser || profileInfo?.browser || "";
+  const activeProfileBrowserLabel = resolveBrowserLabel(activeProfileBrowser);
+  const formatProfileCountLabel = React.useCallback(
+    (fileCount?: number, directoryCount?: number) =>
+      [
+        fileCount
+          ? t("settings.connectors.detail.profileFiles").replace(
+              "{count}",
+              String(fileCount),
+            )
+          : "",
+        directoryCount
+          ? t("settings.connectors.detail.profileFolders").replace(
+              "{count}",
+              String(directoryCount),
+            )
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    [t],
+  );
+  const profileSizeLabel = formatBytes(profileInfo?.sizeBytes);
+  const clearConfirmUsesProfile =
+    clearConfirmTarget?.credentialMode === "profile";
+  const clearConfirmTargetLabel = clearConfirmTarget
+    ? resolveConnectorLabel(clearConfirmTarget)
+    : "";
+  const clearConfirmTitle = clearConfirmUsesProfile
+    ? t("settings.connectors.profileClearConfirmTitle")
+    : t("settings.connectors.clearConfirmTitle");
+  const clearConfirmDescription = clearConfirmTarget
+    ? formatConnectorTemplate(
+        t(
+          clearConfirmUsesProfile
+            ? "settings.connectors.profileClearConfirmDescription"
+            : "settings.connectors.clearConfirmDescription",
+        ),
+        { name: clearConfirmTargetLabel },
+      )
+    : "";
+
+  const handleProfileSiteChange = (connector: Connector, targetUrl: string) => {
+    setProfileSiteURLByConnectorId((current) => ({
+      ...current,
+      [connector.id]: targetUrl,
+    }));
+  };
+
+  const handleOpenProfileFolder = async () => {
+    const profilePath = (profileInfo?.path || selected?.profilePath || "").trim();
+    if (!profilePath) {
+      return;
+    }
+    try {
+      await openProfilePath.mutateAsync({ path: profilePath });
+    } catch (error) {
+      messageBus.publishToast({
+        intent: "danger",
+        title: t("settings.connectors.detail.profileOpenFolder"),
+        description:
+          error instanceof Error
+            ? error.message
+            : t("settings.connectors.openSiteError"),
+      });
+    }
+  };
+
+  const executeClearConnector = async () => {
+    const connector = clearConfirmTarget;
+    if (!connector || clearConnector.isPending) {
+      return;
+    }
+    setClearConfirmError("");
+    try {
+      await clearConnector.mutateAsync({ id: connector.id });
+      setClearConfirmTarget(null);
+    } catch (error) {
+      setClearConfirmError(
+        resolveConnectorErrorMessage(
+          error,
+          t("settings.connectors.clearError"),
+        ),
+      );
+    }
+  };
 
   return (
     <div className="app-main-page app-main-connectors-page flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
@@ -558,49 +979,18 @@ export function ConnectorsSection() {
             </div>
           ) : (
             <SidebarMenu className="gap-1.5">
-              {sortedItems.map((connector) => {
-                const statusMeta =
-                  STATUS_META[connector.status ?? "disconnected"] ??
-                  STATUS_META.disconnected;
-                const isSelected = connector.id === selectedId;
-                return (
-                  <SidebarMenuItem key={connector.id}>
-                    <SidebarMenuButton
-                      type="button"
-                      isActive={isSelected}
-                      className="app-connectors-list-item min-h-11 justify-between"
-                      onClick={() => setSelectedId(connector.id)}
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div
-                          className="app-connectors-icon-slot flex h-8 w-8 shrink-0 items-center justify-center"
-                          data-active={isSelected ? "true" : undefined}
-                        >
-                          <ConnectorBrandIcon
-                            connectorType={connector.type}
-                            className="h-5 w-5"
-                          />
-                        </div>
-                        <span
-                          className="app-connectors-list-label truncate text-sm font-medium transition-colors"
-                          data-active={isSelected ? "true" : undefined}
-                        >
-                          {resolveConnectorLabel(connector)}
-                        </span>
-                      </div>
-                      <div className="shrink-0">
-                        <span
-                          className={statusMeta.className}
-                        >
-                          {React.createElement(statusMeta.icon, {
-                            className: "h-3.5 w-3.5",
-                          })}
-                        </span>
-                      </div>
-                    </SidebarMenuButton>
+              {connectorListGroups.map((group) => (
+                <React.Fragment key={group.key}>
+                  <SidebarMenuItem>
+                    <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground first:pt-0">
+                      {group.label}
+                    </div>
                   </SidebarMenuItem>
-                );
-              })}
+                  {group.items.map((connector) =>
+                    renderConnectorListItem(connector),
+                  )}
+                </React.Fragment>
+              ))}
             </SidebarMenu>
           )}
         </div>
@@ -671,30 +1061,101 @@ export function ConnectorsSection() {
                   {t("settings.connectors.detail.data")}
                 </div>
                 <div className="flex min-w-0 items-center justify-end gap-2">
-                  <span className="app-connectors-cookie-count">
-                    {cookiesCount}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="compact"
-                    onClick={() => setCookiesDialogOpen(true)}
-                    disabled={cookiesCount === 0}
-                  >
-                    <Eye className="h-4 w-4" />
-                    {t("settings.connectors.viewCookies")}
-                  </Button>
+                  {usesProfile && profileExists ? (
+                    <>
+                      <span className="max-w-[9rem] truncate text-xs font-medium text-muted-foreground">
+                        {profileSizeLabel}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="compact"
+                        onClick={() => setProfileContentDialogOpen(true)}
+                        disabled={
+                          profileComponents.length === 0 &&
+                          profileBindings.length === 0
+                        }
+                      >
+                        <Eye className="h-4 w-4" />
+                        {t("settings.connectors.detail.profileViewContent")}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="compactIcon"
+                        onClick={() => void handleOpenProfileFolder()}
+                        disabled={
+                          openProfilePath.isPending ||
+                          !(profileInfo?.path || selected.profilePath)
+                        }
+                        aria-label={t(
+                          "settings.connectors.detail.profileOpenFolder",
+                        )}
+                        title={t("settings.connectors.detail.profileOpenFolder")}
+                      >
+                        {openProfilePath.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FolderOpen className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </>
+                  ) : !usesProfile && cookiesCount > 0 ? (
+                    <>
+                      <span className="app-connectors-cookie-count">
+                        {cookiesCount}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="compact"
+                        onClick={() => setCookiesDialogOpen(true)}
+                      >
+                        <Eye className="h-4 w-4" />
+                        {t("settings.connectors.viewCookies")}
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {usesProfile
+                        ? t("settings.connectors.status.profile")
+                        : t("settings.connectors.cookiesTitle")}
+                    </span>
+                  )}
                 </div>
               </div>
 
               <SettingsSeparator />
 
+              {usesProfile ? (
+                <>
+                  <div className={rowClassName}>
+                    <div className={SETTINGS_ROW_LABEL_CLASS}>
+                      {t("settings.connectors.detail.profileBrowser")}
+                    </div>
+                    <div className="flex min-w-0 flex-col items-end gap-0.5 text-right">
+                      <span className="max-w-[14rem] truncate text-xs font-medium text-foreground">
+                        {activeProfileBrowserLabel}
+                      </span>
+                      {profileBindings.length > 0 ? (
+                        <span className="text-[11px] font-medium text-muted-foreground">
+                          {t("settings.connectors.detail.profileBindings").replace(
+                            "{count}",
+                            String(profileBindings.length),
+                          )}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <SettingsSeparator />
+                </>
+              ) : null}
+
               <div className={rowClassName}>
                 <div className={SETTINGS_ROW_LABEL_CLASS}>
                   {t("settings.connectors.detail.scope")}
                 </div>
-                <div className="max-w-[60%] text-right text-xs text-muted-foreground">
-                  {selected.domains && selected.domains.length > 0
-                    ? selected.domains.join(", ")
+                <div className="max-w-[60%] break-words text-right text-xs leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+                  {profileScopeValues.length > 0
+                    ? profileScopeValues.join(", ")
                     : "-"}
                 </div>
               </div>
@@ -706,42 +1167,87 @@ export function ConnectorsSection() {
                   {t("settings.connectors.detail.actions")}
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  {usesProfile ? (
+                    <>
+                      {profileSites.length > 0 ? (
+                        <Select
+                          value={selectedProfileSiteURL}
+                          onChange={(event) =>
+                            handleProfileSiteChange(selected, event.target.value)
+                          }
+                          disabled={isBusy}
+                          className="h-8 w-40 max-w-40 min-w-0 truncate whitespace-nowrap px-2"
+                          aria-label={t("settings.connectors.detail.openSiteTarget")}
+                          title={t("settings.connectors.detail.openSiteTarget")}
+                        >
+                          {profileSites.map((site) => (
+                            <option key={site.url} value={site.url}>
+                              {site.label || site.url}
+                            </option>
+                          ))}
+                        </Select>
+                      ) : null}
+                      <Button
+                        variant="outline"
+                        size="compact"
+                        onClick={() =>
+                          handleOpenProfileSite(selected, selectedProfileSiteURL)
+                        }
+                        disabled={isBusy || !hasOpenableCredential}
+                      >
+                        {startConnectorConnect.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ExternalLink className="h-4 w-4" />
+                        )}
+                        {t("settings.connectors.openSite")}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="compact"
+                        onClick={() => handleConnect(selected)}
+                        disabled={isBusy}
+                      >
+                        {isLoginRunning ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Link2 className="h-4 w-4" />
+                        )}
+                        {isConnected
+                          ? t("settings.connectors.reconnect")
+                          : t("settings.connectors.connect")}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="compact"
+                        onClick={() => handleOpenSite(selected)}
+                        disabled={isBusy || !hasOpenableCredential}
+                      >
+                        {isOpenRunning ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <ExternalLink className="h-4 w-4" />
+                        )}
+                        {t("settings.connectors.openSite")}
+                      </Button>
+                    </>
+                  )}
                   <Button
                     variant="outline"
                     size="compact"
-                    onClick={() => handleConnect(selected)}
-                    disabled={isBusy}
-                  >
-                    {isLoginRunning ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Link2 className="h-4 w-4" />
-                    )}
-                    {isConnected
-                      ? t("settings.connectors.reconnect")
-                      : t("settings.connectors.connect")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="compact"
-                    onClick={() => handleOpenSite(selected)}
-                    disabled={isBusy || cookiesCount === 0}
-                  >
-                    {isOpenRunning ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ExternalLink className="h-4 w-4" />
-                    )}
-                    {t("settings.connectors.openSite")}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="compact"
-                    onClick={() => clearConnector.mutate({ id: selected.id })}
+                    onClick={() => {
+                      setClearConfirmError("");
+                      setClearConfirmTarget(selected);
+                    }}
                     disabled={isBusy}
                   >
                     <Trash2 className="h-4 w-4" />
-                    {t("settings.connectors.clear")}
+                    {usesProfile
+                      ? t("settings.connectors.profileClear")
+                      : t("settings.connectors.clear")}
                   </Button>
                 </div>
               </div>
@@ -766,12 +1272,15 @@ export function ConnectorsSection() {
       >
         <DialogContent
           className="grid max-h-[min(32rem,calc(100vh-2rem))] w-[min(32rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-4 overflow-hidden"
+          showCloseButton={false}
           onEscapeKeyDown={(event) => event.preventDefault()}
           onInteractOutside={(event) => event.preventDefault()}
         >
           <DialogHeader className="min-w-0">
             <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-              {t("settings.connectors.loginTitle")}
+              {loginUsesProfile || loginDialogMode === "open"
+                ? t("settings.connectors.openSite")
+                : t("settings.connectors.loginTitle")}
             </DialogTitle>
           </DialogHeader>
           <DialogScrollArea className="min-h-0">
@@ -802,20 +1311,176 @@ export function ConnectorsSection() {
             <Button
               variant="outline"
               onClick={() => void handleDismissLogin()}
-              disabled={isLoginRunning}
+              disabled={loginClosing || finishConnectorConnect.isPending}
             >
-              {t("common.close")}
-            </Button>
-            <Button
-              onClick={() => void handleFinishLogin()}
-              disabled={isLoginRunning || !loginSessionId}
-            >
-              {finishConnectorConnect.isPending ? (
+              {loginClosing || cancelConnectorConnect.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Link2 className="h-4 w-4" />
+                <X className="h-4 w-4" />
               )}
-              {t("settings.connectors.loginFinish")}
+              {t("xiadown.actions.closeBrowser")}
+            </Button>
+            {loginDialogMode !== "open" ? (
+              <Button
+                onClick={() => void handleFinishLogin()}
+                disabled={isLoginRunning || !loginSessionId}
+              >
+                {finishConnectorConnect.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="h-4 w-4" />
+                )}
+                {t("settings.connectors.loginFinish")}
+              </Button>
+            ) : null}
+          </DialogFooter>
+          </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(clearConfirmTarget)}
+        onOpenChange={(open) => {
+          if (clearConnector.isPending) {
+            return;
+          }
+          if (!open) {
+            setClearConfirmTarget(null);
+            setClearConfirmError("");
+          }
+        }}
+      >
+        <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+              {clearConfirmTitle}
+            </DialogTitle>
+            <DialogDescription className="overflow-hidden break-words text-left text-sm leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+              {clearConfirmDescription}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 overflow-hidden">
+            {clearConfirmError ? (
+              <div
+                className="app-dream-status-message overflow-hidden break-words px-3 py-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+                data-intent="danger"
+              >
+                {clearConfirmError}
+              </div>
+            ) : null}
+          </div>
+
+          <DialogFooter className="flex-nowrap justify-between">
+            <DialogClose asChild>
+              <Button variant="outline" disabled={clearConnector.isPending}>
+                {t("common.cancel")}
+              </Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              disabled={!clearConfirmTarget || clearConnector.isPending}
+              onClick={() => void executeClearConnector()}
+            >
+              {clearConnector.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              {clearConfirmUsesProfile
+                ? t("settings.connectors.profileClear")
+                : t("settings.connectors.clear")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={profileContentDialogOpen}
+        onOpenChange={setProfileContentDialogOpen}
+      >
+        <DialogContent className="grid max-h-[min(32rem,calc(100vh-2rem))] w-[min(38rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+              {selectedLabel
+                ? t(
+                    "settings.connectors.detail.profileContentDialogTitle",
+                  ).replace("{name}", selectedLabel)
+                : t("settings.connectors.detail.profileContent")}
+            </DialogTitle>
+          </DialogHeader>
+          <DialogScrollArea className="min-h-0">
+            <div className="grid gap-2">
+              <DialogListCard className="shadow-none">
+                <DialogListCardContent className="p-0">
+                  {profileBindings.length === 0 ? (
+                    <div className="p-4 text-sm text-muted-foreground">
+                      {t("settings.connectors.detail.profileBindingEmpty")}
+                    </div>
+                  ) : (
+                    profileBindings.map((binding) => (
+                      <DialogRow
+                        key={`${binding.browser}-${binding.path || ""}`}
+                        className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs"
+                      >
+                        <span
+                          className="min-w-0 truncate whitespace-nowrap font-medium text-foreground"
+                          title={binding.path || binding.browser}
+                        >
+                          {resolveBrowserLabel(binding.browser)}
+                        </span>
+                        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                          {binding.current
+                            ? t("settings.connectors.detail.profileCurrent")
+                            : binding.exists
+                              ? t("settings.connectors.status.profile")
+                              : t("settings.connectors.status.disconnected")}
+                        </span>
+                        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                          {binding.exists ? formatBytes(binding.sizeBytes) : "-"}
+                        </span>
+                      </DialogRow>
+                    ))
+                  )}
+                </DialogListCardContent>
+              </DialogListCard>
+              <DialogListCard className="shadow-none">
+                <DialogListCardContent className="p-0">
+                  {profileComponents.length === 0 ? (
+                    <div className="p-4 text-sm text-muted-foreground">
+                      {t("settings.connectors.detail.profileContentEmpty")}
+                    </div>
+                  ) : (
+                    profileComponents.map((component) => (
+                      <DialogRow
+                        key={`${component.path || component.name}-${component.kind || ""}`}
+                        className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs"
+                      >
+                        <span
+                          className="min-w-0 truncate whitespace-nowrap font-medium text-foreground"
+                          title={component.path || component.name}
+                        >
+                          {component.name}
+                        </span>
+                        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                          {formatBytes(component.sizeBytes)}
+                        </span>
+                        <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+                          {formatProfileCountLabel(
+                            component.fileCount,
+                            component.directoryCount,
+                          ) || "-"}
+                        </span>
+                      </DialogRow>
+                    ))
+                  )}
+                </DialogListCardContent>
+              </DialogListCard>
+            </div>
+          </DialogScrollArea>
+          <DialogFooter className="shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => setProfileContentDialogOpen(false)}
+            >
+              {t("common.close")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -146,7 +146,7 @@ func (service *PlayerService) metadataPublishStateLocked() metadataPublishState 
 
 func (service *PlayerService) metadataPublishStateChangedLocked(before metadataPublishState) bool {
 	if before.hasCurrentTrack != service.hasCurrentTrack ||
-		before.currentTrack != service.currentTrack ||
+		!trackEqual(before.currentTrack, service.currentTrack) ||
 		before.currentIndex != service.currentIndex ||
 		before.state != service.state ||
 		before.pendingVideoID != service.pendingPlayVideoID {
@@ -297,6 +297,10 @@ func (service *PlayerService) finalRepeatOneSafetyNetIfNeededLocked(ctx context.
 func (service *PlayerService) nextActionsLocked() []transportAction {
 	if len(service.queue) == 0 {
 		return nil
+	}
+	service.alignCurrentIndexToCurrentTrackLocked()
+	if service.shuffleEnabled && len(service.queue) > 1 && service.currentIndex >= len(service.queue)-1 {
+		service.materializeShuffleQueueLocked(service.queue, service.currentIndex, false, false)
 	}
 	index := service.currentIndex + 1
 	if service.currentIndex >= len(service.queue)-1 {

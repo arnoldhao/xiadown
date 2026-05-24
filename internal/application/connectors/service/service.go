@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +26,7 @@ type ConnectorsService struct {
 	mu                  sync.Mutex
 	sessions            map[string]*connectorSession
 	sessionsByConnector map[string]string
-	startBrowser        func(preferredBrowser string, headless bool, userDataDir string) (*browsercdp.Runtime, context.Context, context.CancelFunc, error)
+	startBrowser        func(preferredBrowser string, headless bool, userDataDir string, persistentProfile bool) (*browsercdp.Runtime, context.Context, context.CancelFunc, target.ID, error)
 	readCookies         func(ctx context.Context) ([]appcookies.Record, error)
 	removeAll           func(path string) error
 	newSessionID        func() string
@@ -39,6 +40,11 @@ const (
 )
 
 const (
+	connectorSessionPurposeConnect = "connect"
+	connectorSessionPurposeOpen    = "open"
+)
+
+const (
 	connectorBrowserStatusNotOpen       = "not_open"
 	connectorBrowserStatusOpen          = "open"
 	connectorBrowserStatusTabClosed     = "tab_closed"
@@ -46,16 +52,22 @@ const (
 	connectorBrowserStatusCompleted     = "completed"
 	connectorBrowserStatusFailed        = "failed"
 	connectorBrowserStatusUnknown       = "unknown"
+	connectorDefaultProfileBrowser      = "default"
 )
 
 type connectorSession struct {
 	ID                string
 	ConnectorID       string
 	ConnectorType     connectors.ConnectorType
+	CredentialMode    connectors.CredentialMode
+	Purpose           string
 	Runtime           *browsercdp.Runtime
 	TabCtx            context.Context
 	Cancel            context.CancelFunc
 	UserDataDir       string
+	RemoveUserDataDir bool
+	ProfileBrowser    string
+	TargetURL         string
 	TargetID          target.ID
 	State             string
 	LastCookies       []appcookies.Record
@@ -63,6 +75,7 @@ type connectorSession struct {
 	FinalResult       *dto.FinishConnectorConnectResult
 	FinalError        string
 	ConnectorSnapshot dto.Connector
+	cleanupOnce       sync.Once
 	finalizeOnce      sync.Once
 	finalizeDone      chan struct{}
 }
@@ -117,7 +130,7 @@ func (service *ConnectorsService) EnsureDefaults(ctx context.Context) error {
 		{ID: "connector-youtube", Type: connectors.ConnectorYouTube},
 		{ID: "connector-bilibili", Type: connectors.ConnectorBilibili},
 		{ID: "connector-tiktok", Type: connectors.ConnectorTikTok},
-		{ID: "connector-douyin", Type: connectors.ConnectorDouyin},
+		{ID: "connector-china-private", Type: connectors.ConnectorChinaPrivate},
 		{ID: "connector-instagram", Type: connectors.ConnectorInstagram},
 		{ID: "connector-x", Type: connectors.ConnectorX},
 		{ID: "connector-facebook", Type: connectors.ConnectorFacebook},
@@ -137,6 +150,16 @@ func (service *ConnectorsService) EnsureDefaults(ctx context.Context) error {
 			}
 			continue
 		}
+		normalized, changed, err := service.normalizeConnectorCredential(item)
+		if err != nil {
+			return err
+		}
+		if changed {
+			if err := service.repo.Save(ctx, normalized); err != nil {
+				return err
+			}
+			item = normalized
+		}
 		seen[item.ID] = struct{}{}
 	}
 	for _, item := range defaults {
@@ -145,12 +168,17 @@ func (service *ConnectorsService) EnsureDefaults(ctx context.Context) error {
 		}
 		now := service.now()
 		connector, err := connectors.NewConnector(connectors.ConnectorParams{
-			ID:        item.ID,
-			Type:      string(item.Type),
-			Status:    string(connectors.StatusDisconnected),
-			CreatedAt: &now,
-			UpdatedAt: &now,
+			ID:             item.ID,
+			Type:           string(item.Type),
+			Status:         string(connectors.StatusDisconnected),
+			CredentialMode: string(connectors.DefaultCredentialMode(item.Type)),
+			CreatedAt:      &now,
+			UpdatedAt:      &now,
 		})
+		if err != nil {
+			return err
+		}
+		connector, _, err = service.normalizeConnectorCredential(connector)
 		if err != nil {
 			return err
 		}
@@ -171,9 +199,106 @@ func (service *ConnectorsService) ListConnectors(ctx context.Context) ([]dto.Con
 		if !isSupportedConnectorType(item.Type) {
 			continue
 		}
-		result = append(result, mapConnectorDTO(item))
+		normalized, changed, err := service.normalizeConnectorCredential(item)
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			if err := service.repo.Save(ctx, normalized); err != nil {
+				return nil, err
+			}
+			item = normalized
+		} else {
+			item = normalized
+		}
+		cleaned, cleanedChanged, err := service.clearMissingConnectorProfileBinding(item)
+		if err != nil {
+			return nil, err
+		}
+		if cleanedChanged {
+			if err := service.repo.Save(ctx, cleaned); err != nil {
+				return nil, err
+			}
+			item = cleaned
+		}
+		bound, _, err := service.bindConfiguredConnectorProfileToCurrentBrowser(ctx, item)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, mapConnectorDTO(bound))
 	}
 	return result, nil
+}
+
+func (service *ConnectorsService) EnsureProfileConnector(ctx context.Context, connectorType string) (dto.Connector, error) {
+	targetType := connectors.ConnectorType(strings.TrimSpace(connectorType))
+	if targetType == "" || !isSupportedConnectorType(targetType) {
+		return dto.Connector{}, connectors.ErrInvalidConnector
+	}
+	if connectors.DefaultCredentialMode(targetType) != connectors.CredentialModeProfile {
+		return dto.Connector{}, connectors.ErrInvalidConnector
+	}
+	if err := service.EnsureDefaults(ctx); err != nil {
+		return dto.Connector{}, err
+	}
+	items, err := service.repo.List(ctx)
+	if err != nil {
+		return dto.Connector{}, err
+	}
+	for _, item := range items {
+		if !strings.EqualFold(string(item.Type), string(targetType)) {
+			continue
+		}
+		current := item
+		changed := false
+		if current.CredentialMode != connectors.CredentialModeProfile {
+			now := service.now()
+			current, err = connectors.NewConnector(connectors.ConnectorParams{
+				ID:             current.ID,
+				Type:           string(current.Type),
+				Status:         string(connectors.StatusDisconnected),
+				CredentialMode: string(connectors.CredentialModeProfile),
+				ProfileKey:     current.ProfileKey,
+				ProfilePath:    current.ProfilePath,
+				ProfileBrowser: current.ProfileBrowser,
+				CreatedAt:      &current.CreatedAt,
+				UpdatedAt:      &now,
+			})
+			if err != nil {
+				return dto.Connector{}, err
+			}
+			changed = true
+		}
+		normalized, normalizedChanged, err := service.normalizeConnectorCredential(current)
+		if err != nil {
+			return dto.Connector{}, err
+		}
+		if normalizedChanged {
+			changed = true
+		}
+		bound, boundChanged, err := service.bindConnectorProfileToCurrentBrowser(ctx, normalized)
+		if err != nil {
+			return dto.Connector{}, err
+		}
+		if boundChanged {
+			changed = true
+		}
+		profilePath := strings.TrimSpace(bound.ProfilePath)
+		if profilePath == "" {
+			return dto.Connector{}, connectors.ErrInvalidConnector
+		}
+		if err := os.MkdirAll(profilePath, 0o700); err != nil {
+			return dto.Connector{}, err
+		}
+		_ = os.Chmod(profilePath, 0o700)
+		if changed {
+			if err := service.repo.Save(ctx, bound); err != nil {
+				return dto.Connector{}, err
+			}
+		}
+		return mapConnectorDTO(bound), nil
+	}
+	return dto.Connector{}, connectors.ErrConnectorNotFound
 }
 
 func (service *ConnectorsService) UpsertConnector(ctx context.Context, request dto.UpsertConnectorRequest) (dto.Connector, error) {
@@ -191,6 +316,10 @@ func (service *ConnectorsService) UpsertConnector(ctx context.Context, request d
 	createdAt := (*time.Time)(nil)
 	var lastVerifiedAt *time.Time
 	cookiesJSON := ""
+	credentialMode := strings.TrimSpace(request.CredentialMode)
+	profileKey := ""
+	profilePath := ""
+	profileBrowser := ""
 	if existing, err := service.repo.Get(ctx, id); err == nil {
 		if connectorType == "" {
 			connectorType = string(existing.Type)
@@ -198,9 +327,15 @@ func (service *ConnectorsService) UpsertConnector(ctx context.Context, request d
 		if status == "" {
 			status = string(existing.Status)
 		}
+		if credentialMode == "" {
+			credentialMode = string(existing.CredentialMode)
+		}
 		if cookiesPath == "" {
 			cookiesPath = existing.CookiesPath
 		}
+		profileKey = existing.ProfileKey
+		profilePath = existing.ProfilePath
+		profileBrowser = existing.ProfileBrowser
 		createdAt = &existing.CreatedAt
 		lastVerifiedAt = existing.LastVerifiedAt
 		cookiesJSON = existing.CookiesJSON
@@ -215,12 +350,24 @@ func (service *ConnectorsService) UpsertConnector(ctx context.Context, request d
 		ID:             id,
 		Type:           connectorType,
 		Status:         status,
+		CredentialMode: credentialMode,
 		CookiesPath:    cookiesPath,
 		CookiesJSON:    cookiesJSON,
+		ProfileKey:     profileKey,
+		ProfilePath:    profilePath,
+		ProfileBrowser: profileBrowser,
 		LastVerifiedAt: lastVerifiedAt,
 		CreatedAt:      createdAt,
 		UpdatedAt:      &now,
 	})
+	if err != nil {
+		return dto.Connector{}, err
+	}
+	connector, _, err = service.normalizeConnectorCredential(connector)
+	if err != nil {
+		return dto.Connector{}, err
+	}
+	connector, _, err = service.bindConnectorProfileToCurrentBrowser(ctx, connector)
 	if err != nil {
 		return dto.Connector{}, err
 	}
@@ -241,17 +388,35 @@ func (service *ConnectorsService) ClearConnector(ctx context.Context, request dt
 	if err != nil {
 		return err
 	}
+	connector, _, err = service.normalizeConnectorCredential(connector)
+	if err != nil {
+		return err
+	}
+	clearProfilePath := connectorProfileClearPath(connector)
 	now := service.now()
+	profilePath := connector.ProfilePath
+	profileBrowser := connector.ProfileBrowser
+	if connector.CredentialMode == connectors.CredentialModeProfile {
+		profilePath = ""
+		profileBrowser = ""
+	}
 	updated, err := connectors.NewConnector(connectors.ConnectorParams{
-		ID:          connector.ID,
-		Type:        string(connector.Type),
-		Status:      string(connectors.StatusDisconnected),
-		CookiesJSON: "",
-		CreatedAt:   &connector.CreatedAt,
-		UpdatedAt:   &now,
+		ID:             connector.ID,
+		Type:           string(connector.Type),
+		Status:         string(connectors.StatusDisconnected),
+		CredentialMode: string(connector.CredentialMode),
+		CookiesJSON:    "",
+		ProfileKey:     connector.ProfileKey,
+		ProfilePath:    profilePath,
+		ProfileBrowser: profileBrowser,
+		CreatedAt:      &connector.CreatedAt,
+		UpdatedAt:      &now,
 	})
 	if err != nil {
 		return err
+	}
+	if connector.CredentialMode == connectors.CredentialModeProfile && strings.TrimSpace(clearProfilePath) != "" && service.removeAll != nil {
+		_ = service.removeAll(clearProfilePath)
 	}
 	return service.repo.Save(ctx, updated)
 }
@@ -319,15 +484,331 @@ func (service *ConnectorsService) cleanupSession(session *connectorSession) {
 	if session == nil {
 		return
 	}
-	if session.Cancel != nil {
-		session.Cancel()
+	session.cleanupOnce.Do(func() {
+		if session.Runtime != nil {
+			session.Runtime.Stop()
+		}
+		cancelConnectorSessionContextAsync(session.ID, session.Cancel)
+		if session.RemoveUserDataDir && service.removeAll != nil && strings.TrimSpace(session.UserDataDir) != "" {
+			_ = service.removeAll(session.UserDataDir)
+		}
+	})
+}
+
+func cancelConnectorSessionContextAsync(sessionID string, cancel context.CancelFunc) {
+	if cancel == nil {
+		return
 	}
-	if session.Runtime != nil {
-		session.Runtime.Stop()
+	go func() {
+		defer func() { _ = recover() }()
+		cancel()
+	}()
+}
+
+func (service *ConnectorsService) ShutdownSessions() int {
+	if service == nil {
+		return 0
 	}
-	if service.removeAll != nil && strings.TrimSpace(session.UserDataDir) != "" {
-		_ = service.removeAll(session.UserDataDir)
+	service.mu.Lock()
+	sessions := make([]*connectorSession, 0, len(service.sessions))
+	for sessionID, session := range service.sessions {
+		if session != nil {
+			sessions = append(sessions, session)
+		}
+		delete(service.sessions, sessionID)
 	}
+	service.sessionsByConnector = make(map[string]string)
+	service.mu.Unlock()
+
+	for _, session := range sessions {
+		service.cleanupSession(session)
+	}
+	return len(sessions)
+}
+
+func (service *ConnectorsService) normalizeConnectorCredential(connector connectors.Connector) (connectors.Connector, bool, error) {
+	mode := connector.CredentialMode
+	if mode == "" {
+		mode = connectors.DefaultCredentialMode(connector.Type)
+	}
+	changed := mode != connector.CredentialMode
+	status := connector.Status
+	lastVerifiedAt := connector.LastVerifiedAt
+	profileKey := connector.ProfileKey
+	profilePath := connector.ProfilePath
+	profileBrowser := connector.ProfileBrowser
+	cookiesPath := connector.CookiesPath
+	cookiesJSON := connector.CookiesJSON
+	if mode == connectors.CredentialModeProfile {
+		if connector.CredentialMode != connectors.CredentialModeProfile {
+			if status != connectors.StatusDisconnected || lastVerifiedAt != nil {
+				status = connectors.StatusDisconnected
+				lastVerifiedAt = nil
+				changed = true
+			}
+		}
+		if cookiesPath != "" || cookiesJSON != "" {
+			cookiesPath = ""
+			cookiesJSON = ""
+			changed = true
+		}
+		if strings.TrimSpace(profileKey) == "" {
+			profileKey = defaultConnectorProfileKey(connector)
+			changed = true
+		}
+		if strings.TrimSpace(profilePath) == "" {
+			if strings.TrimSpace(profileBrowser) != "" {
+				profileBrowser = ""
+				changed = true
+			}
+			if status != connectors.StatusDisconnected || lastVerifiedAt != nil {
+				status = connectors.StatusDisconnected
+				lastVerifiedAt = nil
+				changed = true
+			}
+		}
+	} else if mode == connectors.CredentialModeCookies {
+		if profileKey != "" || profilePath != "" || profileBrowser != "" {
+			profileKey = ""
+			profilePath = ""
+			profileBrowser = ""
+			changed = true
+		}
+	}
+	if !changed {
+		return connector, false, nil
+	}
+	updated, err := connectors.NewConnector(connectors.ConnectorParams{
+		ID:             connector.ID,
+		Type:           string(connector.Type),
+		Status:         string(status),
+		CredentialMode: string(mode),
+		CookiesPath:    cookiesPath,
+		CookiesJSON:    cookiesJSON,
+		ProfileKey:     profileKey,
+		ProfilePath:    profilePath,
+		ProfileBrowser: profileBrowser,
+		LastVerifiedAt: lastVerifiedAt,
+		CreatedAt:      &connector.CreatedAt,
+		UpdatedAt:      &connector.UpdatedAt,
+	})
+	if err != nil {
+		return connectors.Connector{}, false, err
+	}
+	return updated, true, nil
+}
+
+func (service *ConnectorsService) clearMissingConnectorProfileBinding(connector connectors.Connector) (connectors.Connector, bool, error) {
+	mode := connector.CredentialMode
+	if mode == "" {
+		mode = connectors.DefaultCredentialMode(connector.Type)
+	}
+	if mode != connectors.CredentialModeProfile || strings.TrimSpace(connector.ProfilePath) == "" || !connectorProfilePathGone(connector.ProfilePath) {
+		return connector, false, nil
+	}
+	updated, err := connectors.NewConnector(connectors.ConnectorParams{
+		ID:             connector.ID,
+		Type:           string(connector.Type),
+		Status:         string(connectors.StatusDisconnected),
+		CredentialMode: string(mode),
+		CookiesPath:    connector.CookiesPath,
+		CookiesJSON:    connector.CookiesJSON,
+		ProfileKey:     connector.ProfileKey,
+		CreatedAt:      &connector.CreatedAt,
+		UpdatedAt:      &connector.UpdatedAt,
+	})
+	if err != nil {
+		return connectors.Connector{}, false, err
+	}
+	return updated, true, nil
+}
+
+func defaultConnectorProfileKey(connector connectors.Connector) string {
+	id := strings.TrimSpace(connector.ID)
+	if id == "" {
+		id = string(connector.Type)
+	}
+	return sanitizeConnectorProfileKey(id)
+}
+
+func defaultConnectorProfileRootPath(profileKey string) (string, error) {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "xiadown", "browser-profiles", "connectors", sanitizeConnectorProfileKey(profileKey)), nil
+}
+
+func defaultConnectorProfilePath(profileKey string, browserID string) (string, error) {
+	root, err := defaultConnectorProfileRootPath(profileKey)
+	if err != nil {
+		return "", err
+	}
+	browserID = sanitizeConnectorProfileKey(firstNonEmptyString(browserID, connectorDefaultProfileBrowser))
+	return filepath.Join(root, browserID), nil
+}
+
+func (service *ConnectorsService) bindConnectorProfileToCurrentBrowser(ctx context.Context, connector connectors.Connector) (connectors.Connector, bool, error) {
+	return bindConnectorProfileToBrowser(connector, service.resolveProfileBrowser(ctx))
+}
+
+func (service *ConnectorsService) bindConfiguredConnectorProfileToCurrentBrowser(ctx context.Context, connector connectors.Connector) (connectors.Connector, bool, error) {
+	mode := connector.CredentialMode
+	if mode == "" {
+		mode = connectors.DefaultCredentialMode(connector.Type)
+	}
+	if mode != connectors.CredentialModeProfile {
+		return connector, false, nil
+	}
+	if strings.TrimSpace(connector.ProfilePath) == "" && strings.TrimSpace(connector.ProfileBrowser) == "" {
+		return connector, false, nil
+	}
+	return service.bindConnectorProfileToCurrentBrowser(ctx, connector)
+}
+
+func (service *ConnectorsService) resolveProfileBrowser(ctx context.Context) string {
+	preferred := service.preferredBrowser(ctx)
+	status := browsercdp.ResolveStatus(preferred, false)
+	if strings.TrimSpace(status.ChosenBrowser) != "" {
+		return strings.TrimSpace(status.ChosenBrowser)
+	}
+	if strings.TrimSpace(preferred) != "" {
+		return sanitizeConnectorProfileKey(preferred)
+	}
+	return connectorDefaultProfileBrowser
+}
+
+func bindConnectorProfileToBrowser(connector connectors.Connector, browserID string) (connectors.Connector, bool, error) {
+	mode := connector.CredentialMode
+	if mode == "" {
+		mode = connectors.DefaultCredentialMode(connector.Type)
+	}
+	if mode != connectors.CredentialModeProfile {
+		return connector, false, nil
+	}
+	browserID = sanitizeConnectorProfileKey(firstNonEmptyString(browserID, connector.ProfileBrowser, connectorDefaultProfileBrowser))
+	profileKey := strings.TrimSpace(connector.ProfileKey)
+	if profileKey == "" {
+		profileKey = defaultConnectorProfileKey(connector)
+	}
+	profilePath := strings.TrimSpace(connector.ProfilePath)
+	if !strings.EqualFold(strings.TrimSpace(connector.ProfileBrowser), browserID) || profilePath == "" {
+		var err error
+		profilePath, err = defaultConnectorProfilePath(profileKey, browserID)
+		if err != nil {
+			return connectors.Connector{}, false, err
+		}
+	}
+	changed := mode != connector.CredentialMode ||
+		profileKey != connector.ProfileKey ||
+		profilePath != connector.ProfilePath ||
+		browserID != connector.ProfileBrowser
+	if !changed {
+		return connector, false, nil
+	}
+	updated, err := connectors.NewConnector(connectors.ConnectorParams{
+		ID:             connector.ID,
+		Type:           string(connector.Type),
+		Status:         string(connector.Status),
+		CredentialMode: string(mode),
+		CookiesPath:    connector.CookiesPath,
+		CookiesJSON:    connector.CookiesJSON,
+		ProfileKey:     profileKey,
+		ProfilePath:    profilePath,
+		ProfileBrowser: browserID,
+		LastVerifiedAt: connector.LastVerifiedAt,
+		CreatedAt:      &connector.CreatedAt,
+		UpdatedAt:      &connector.UpdatedAt,
+	})
+	if err != nil {
+		return connectors.Connector{}, false, err
+	}
+	return updated, true, nil
+}
+
+func sanitizeConnectorProfileKey(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "default"
+	}
+	var builder strings.Builder
+	builder.Grow(len(trimmed))
+	for _, current := range trimmed {
+		switch {
+		case current >= 'a' && current <= 'z',
+			current >= 'A' && current <= 'Z',
+			current >= '0' && current <= '9',
+			current == '-',
+			current == '_',
+			current == '.':
+			builder.WriteRune(current)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	result := strings.Trim(builder.String(), "._-")
+	if result == "" {
+		return "default"
+	}
+	return result
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func connectorProfilePathGone(profilePath string) bool {
+	profilePath = strings.TrimSpace(profilePath)
+	if profilePath == "" {
+		return false
+	}
+	stat, err := os.Stat(profilePath)
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	return !stat.IsDir()
+}
+
+func connectorProfileClearPath(connector connectors.Connector) string {
+	profilePath := strings.TrimSpace(connector.ProfilePath)
+	profileKey := strings.TrimSpace(connector.ProfileKey)
+	if profileKey == "" {
+		profileKey = defaultConnectorProfileKey(connector)
+	}
+	rootPath, err := defaultConnectorProfileRootPath(profileKey)
+	if err != nil {
+		return profilePath
+	}
+	if profilePath == "" || pathContains(rootPath, profilePath) {
+		return rootPath
+	}
+	return profilePath
+}
+
+func pathContains(parent string, child string) bool {
+	parent = strings.TrimSpace(parent)
+	child = strings.TrimSpace(child)
+	if parent == "" || child == "" {
+		return false
+	}
+	parentAbs, err := filepath.Abs(parent)
+	if err != nil {
+		return false
+	}
+	childAbs, err := filepath.Abs(child)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(parentAbs, childAbs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func (service *ConnectorsService) GetConnectorConnectSession(ctx context.Context, request dto.GetConnectorConnectSessionRequest) (dto.ConnectorConnectSession, error) {
@@ -353,6 +834,7 @@ func (service *ConnectorsService) snapshotSession(ctx context.Context, session *
 	snapshotState := session.State
 	snapshotRuntime := session.Runtime
 	snapshotTargetID := session.TargetID
+	snapshotTargetURL := session.TargetURL
 	snapshotLastCookies := append([]appcookies.Record(nil), session.LastCookies...)
 	snapshotLastCookiesAt := session.LastCookiesAt
 	snapshotFinalError := session.FinalError
@@ -369,6 +851,9 @@ func (service *ConnectorsService) snapshotSession(ctx context.Context, session *
 	if snapshotFinalResult != nil {
 		connector = snapshotFinalResult.Connector
 	} else if current, err := service.repo.Get(ctx, snapshotConnectorID); err == nil {
+		if bound, _, bindErr := service.bindConnectorProfileToCurrentBrowser(ctx, current); bindErr == nil {
+			current = bound
+		}
 		connector = mapConnectorDTO(current)
 	}
 	lastCookiesAt := ""
@@ -380,6 +865,7 @@ func (service *ConnectorsService) snapshotSession(ctx context.Context, session *
 		ConnectorID:         snapshotConnectorID,
 		State:               snapshotState,
 		BrowserStatus:       connectorSessionBrowserStatus(snapshotState, snapshotRuntime, snapshotTargetID, snapshotFinalResult, snapshotFinalError),
+		TargetURL:           snapshotTargetURL,
 		CurrentCookiesCount: connectorSessionCookiesCount(snapshotConnectorType, snapshotLastCookies),
 		Error:               snapshotFinalError,
 		LastCookiesAt:       lastCookiesAt,
@@ -445,7 +931,7 @@ func isSupportedConnectorType(connectorType connectors.ConnectorType) bool {
 	case connectors.ConnectorYouTube,
 		connectors.ConnectorBilibili,
 		connectors.ConnectorTikTok,
-		connectors.ConnectorDouyin,
+		connectors.ConnectorChinaPrivate,
 		connectors.ConnectorInstagram,
 		connectors.ConnectorX,
 		connectors.ConnectorFacebook,

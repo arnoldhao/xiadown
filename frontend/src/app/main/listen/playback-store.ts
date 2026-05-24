@@ -125,6 +125,11 @@ function listenOnlineItemStableKey(item: ListenOnlineItem | null | undefined) {
     item.videoId,
     item.title,
     item.channel,
+    (item.artists ?? [])
+      .map((artist) =>
+        [artist.name, artist.browseId ?? "", artist.thumbnailUrl ?? ""].join("\u0002"),
+      )
+      .join("\u0003"),
     item.artistBrowseId ?? "",
     item.durationLabel ?? "",
     String(item.durationSeconds ?? ""),

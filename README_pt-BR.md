@@ -67,6 +67,13 @@ Baixe diretamente o instalador mais recente abaixo. Versões anteriores estão d
 2. `Windows`: execute diretamente o instalador `.exe`, ou descompacte o pacote portátil e abra o app. Se o SmartScreen aparecer na primeira execução, escolha `Mais informações -> Executar assim mesmo`.
 3. O XiaDown abre um fluxo de boas-vindas para configurar idioma, tema, proxy e dependências. Os principais fluxos ficam na tela de boas-vindas e na interface.
 
+## Aviso Legal
+
+- XiaDown é fornecido como uma ferramenta auxiliar de gerenciamento de mídia e download, destinada a aprendizado, pesquisa e salvamento de conteúdo que você esteja autorizado a acessar e usar.
+- Você é responsável por confirmar que qualquer download, armazenamento, conversão ou uso de conteúdo foi autorizado pelo titular dos direitos e está em conformidade com as leis aplicáveis e os termos do site/plataforma de destino.
+- Não use XiaDown para baixar, distribuir, vender ou explorar de qualquer outra forma conteúdo infrator, não autorizado, pago/restrito, privado ou ilegal.
+- Qualquer responsabilidade legal relacionada a direitos autorais, regras de plataforma, contas, rede ou outros assuntos decorrente do uso de XiaDown é do usuário; os mantenedores do projeto não se responsabilizam pela conduta dos usuários nem por suas consequências.
+
 ## Agradecimentos
 
 XiaDown é construído sobre excelentes projetos open source. A experiência de desktop, o processamento de mídia, o armazenamento local, as conexões com navegadores, a música online e a interface frontend dependem dessas bases.

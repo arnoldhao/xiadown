@@ -3,6 +3,7 @@ CassetteTape,
 Loader2,
 Pause,
 Play,
+Radar,
 SkipBack,
 SkipForward,
 X
@@ -17,6 +18,7 @@ getXiaText
 } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import type { CDPBrowserStatus } from "@/shared/contracts/library";
 import { Button } from "@/shared/ui/button";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
 import {
@@ -34,6 +36,35 @@ type ListenMiniPanelVariant = "hush" | "timeline";
 export type ListenNowPlayingPanelSurface = "white" | "dark" | "tray";
 
 export const resolveSidebarSurface = resolveXiaMainSidebarSurface;
+
+function formatTemplate(template: string, params: Record<string, string>) {
+  return Object.entries(params).reduce(
+    (output, [key, value]) => output.split(`{${key}}`).join(value),
+    template,
+  );
+}
+
+function normalizeStatus(value?: string) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function resolveCDPBrowserStatusLabel(
+  text: ReturnType<typeof getXiaText>,
+  status?: string,
+) {
+  switch (normalizeStatus(status)) {
+    case "open":
+      return text.sniffDesk.statusOpen;
+    case "closing":
+      return text.sniffDesk.statusClosing;
+    case "tab_closed":
+      return text.sniffDesk.statusTabClosed;
+    case "browser_closed":
+      return text.sniffDesk.statusClosed;
+    default:
+      return text.common.unknown;
+  }
+}
 
 export type SidebarIconButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
@@ -85,6 +116,125 @@ export const SidebarIconButton = React.forwardRef<
     </Tooltip>
   );
 });
+
+export function CDPBrowserStatusMiniButton(props: {
+  status: CDPBrowserStatus | null | undefined;
+  text: ReturnType<typeof getXiaText>;
+  active?: boolean;
+  stopping?: boolean;
+  onOpenSniffDesk: () => void;
+  onCloseOrphan: (runtimeId: string) => void;
+}) {
+  const status = props.status;
+  if (!status?.active) {
+    return null;
+  }
+  const isOrphan = status.mode === "orphan";
+  const label = isOrphan
+    ? props.text.sniffDesk.cdpOrphan
+    : props.text.sniffDesk.cdpStatus;
+  const actionLabel = isOrphan
+    ? props.text.sniffDesk.cdpClose
+    : props.text.sniffDesk.title;
+  const title =
+    status.title ||
+    status.session?.title ||
+    status.session?.unoptimizedDomain ||
+    label;
+  const currentURL =
+    status.currentUrl || status.session?.currentUrl || status.session?.url || "";
+  const tabText =
+    typeof status.tabCount === "number" && status.tabCount > 0
+      ? formatTemplate(props.text.sniffDesk.tabCount, {
+          count: String(status.tabCount),
+        })
+      : "";
+  const processText =
+    typeof status.processCount === "number" && status.processCount > 0
+      ? formatTemplate(props.text.sniffDesk.cdpProcessCount, {
+          count: String(status.processCount),
+        })
+      : "";
+  const pidText =
+    typeof status.pid === "number" && status.pid > 0
+      ? formatTemplate(props.text.sniffDesk.cdpPid, {
+          pid: String(status.pid),
+        })
+      : "";
+  const browserStatusText = resolveCDPBrowserStatusLabel(
+    props.text,
+    status.browserStatus,
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "app-cdp-status-button app-main-sidebar-action",
+            MAIN_SIDEBAR_ACTION_CLASS,
+            "relative border border-transparent bg-transparent text-sidebar-foreground/72 transition",
+            props.active
+              ? "bg-sidebar-accent text-sidebar-primary shadow-sm"
+              : "hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground",
+            isOrphan && "app-cdp-status-button-orphan",
+          )}
+          data-active={props.active ? "true" : undefined}
+          data-mode={isOrphan ? "orphan" : "resource-sniff"}
+          aria-label={label}
+          disabled={props.stopping}
+          onClick={() => {
+            if (isOrphan && status.runtimeId) {
+              props.onCloseOrphan(status.runtimeId);
+              return;
+            }
+            props.onOpenSniffDesk();
+          }}
+        >
+          {props.stopping ? (
+            <Loader2 className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)] animate-spin" />
+          ) : isOrphan ? (
+            <X className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)]" />
+          ) : (
+            <Radar className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)]" />
+          )}
+          <span className="app-cdp-status-dot pointer-events-none absolute right-2.5 top-2.5 z-[2] h-2 w-2 rounded-full" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="right"
+        multiline
+        className="app-cdp-status-tooltip min-w-[15rem] max-w-[22rem] px-3 py-2 text-left"
+      >
+        <div className="space-y-1.5">
+          <div className="flex min-w-0 items-center justify-between gap-3 text-[11px] font-semibold text-background">
+            <span className="min-w-0 truncate">{label}</span>
+            <span className="min-w-0 max-w-[10rem] truncate text-[10px] text-background/78">
+              {actionLabel}
+            </span>
+          </div>
+          <div className="truncate text-[11px] font-medium text-background/86">
+            {title}
+          </div>
+          {currentURL ? (
+            <div className="line-clamp-2 break-all text-[10px] font-medium text-background/72">
+              {currentURL}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-1.5 text-[10px] text-background/70">
+            <span>{browserStatusText}</span>
+            {tabText ? <span>{tabText}</span> : null}
+            {processText ? <span>{processText}</span> : null}
+            {pidText ? <span>{pidText}</span> : null}
+          </div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function listenStatusLabel(
   status: ListenNowPlayingStatus | null,
@@ -462,7 +612,7 @@ export function ListenNowPlayingHoverPanel(props: {
       data-surface={surface}
       aria-label={`${props.text.listen.nowPlaying}: ${text.title}`}
     >
-      <div className="relative grid h-full min-w-0 grid-cols-2 overflow-hidden rounded-[21px]">
+      <div className="listen-panel-layout relative grid h-full min-w-0 grid-cols-2 overflow-hidden rounded-[21px]">
         <div className="relative min-w-0 overflow-visible">
           <div className="listen-panel-artwork-glow absolute inset-y-[-26px] left-[-30px] w-[calc(100%+118px)] opacity-72 blur-[38px] saturate-[1.55] contrast-[1.12] [mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)] [-webkit-mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)]">
             <ListenNowPlayingPanelArtwork status={props.status} />
@@ -572,6 +722,14 @@ export function ListenNowPlayingMiniPlayer(props: {
     props.status?.canControl && props.status.state !== "loading",
   );
   const isPlaying = props.status?.state === "playing";
+  const toggleLabel =
+    props.status.state === "loading"
+      ? props.text.listen.loading
+      : props.status.state === "error"
+        ? props.text.listen.errorStatus
+        : isPlaying
+          ? props.text.listen.pause
+          : props.text.listen.play;
 
   return (
     <div
@@ -614,9 +772,7 @@ export function ListenNowPlayingMiniPlayer(props: {
           <button
             type="button"
             className="listen-mini-toggle-button flex h-7 w-7 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar-background/90 text-sidebar-foreground shadow-sm transition hover:bg-sidebar-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55"
-            aria-label={
-              isPlaying ? props.text.listen.pause : props.text.listen.play
-            }
+            aria-label={toggleLabel}
             disabled={!canToggle}
             onClick={props.onToggle}
           >

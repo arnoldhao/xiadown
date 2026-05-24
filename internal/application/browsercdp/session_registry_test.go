@@ -1,6 +1,10 @@
 package browsercdp
 
-import "testing"
+import (
+	"testing"
+
+	targetpkg "github.com/chromedp/cdproto/target"
+)
 
 func TestSessionRegistryCloseSessionKeyRemovesSessions(t *testing.T) {
 	t.Parallel()
@@ -64,5 +68,72 @@ func TestSessionRegistryCloseAllRemovesAllSessions(t *testing.T) {
 	}
 	if recreated == first {
 		t.Fatalf("expected session to be recreated after close all")
+	}
+}
+
+func TestSessionTargetDestroyedDetachesManagedTab(t *testing.T) {
+	t.Parallel()
+
+	canceled := false
+	session := &Session{
+		tabs: map[string]*sessionTab{
+			"tab-1": {
+				TargetID: "tab-1",
+				cancel: func() {
+					canceled = true
+				},
+			},
+		},
+		activeTarget:   "tab-1",
+		pendingDialogs: map[string]PendingDialog{"tab-1": {Message: "confirm"}},
+		targetInfos: map[string]*targetpkg.Info{
+			"tab-1": {TargetID: "tab-1", Type: "page", URL: "https://example.test/"},
+		},
+	}
+
+	session.handleBrowserTargetGone("tab-1")
+
+	if !canceled {
+		t.Fatal("expected closed target context to be canceled")
+	}
+	if _, ok := session.tabs["tab-1"]; ok {
+		t.Fatal("expected closed target to be removed from tabs")
+	}
+	if _, ok := session.pendingDialogs["tab-1"]; ok {
+		t.Fatal("expected pending dialog for closed target to be removed")
+	}
+	if _, ok := session.targetInfos["tab-1"]; ok {
+		t.Fatal("expected target metadata for closed target to be removed")
+	}
+	if session.activeTarget != "" {
+		t.Fatalf("expected active target to be cleared, got %q", session.activeTarget)
+	}
+}
+
+func TestSessionTargetInfoChangedRefreshesManagedTabMetadata(t *testing.T) {
+	t.Parallel()
+
+	session := &Session{
+		tabs: map[string]*sessionTab{
+			"tab-1": {TargetID: "tab-1"},
+		},
+		targetInfos: map[string]*targetpkg.Info{},
+	}
+
+	session.handleBrowserTargetInfo(&targetpkg.Info{
+		TargetID: "tab-1",
+		Type:     "page",
+		URL:      "https://example.test/current",
+		Title:    "Current Page",
+	})
+
+	tab := session.tabs["tab-1"]
+	tab.mu.RLock()
+	defer tab.mu.RUnlock()
+	if tab.lastURL != "https://example.test/current" {
+		t.Fatalf("expected tab url to refresh, got %q", tab.lastURL)
+	}
+	if tab.title != "Current Page" {
+		t.Fatalf("expected tab title to refresh, got %q", tab.title)
 	}
 }

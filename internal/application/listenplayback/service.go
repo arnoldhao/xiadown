@@ -3,6 +3,7 @@ package listenplayback
 import (
 	"context"
 	"math"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -197,7 +198,7 @@ func (service *PlayerService) snapshotLocked(ctx context.Context) Snapshot {
 		current = &track
 		if len(queue) > 0 {
 			index := safeQueueIndex(service.currentIndex, len(queue))
-			if queue[index].VideoID == track.VideoID {
+			if tracksReferToSameQueueItem(queue[index], track) {
 				queue[index] = track
 			}
 		}
@@ -366,11 +367,15 @@ func tracksEqual(left []Track, right []Track) bool {
 		return false
 	}
 	for index := range left {
-		if left[index] != right[index] {
+		if !trackEqual(left[index], right[index]) {
 			return false
 		}
 	}
 	return true
+}
+
+func trackEqual(left Track, right Track) bool {
+	return reflect.DeepEqual(left, right)
 }
 
 func safeQueueIndex(index int, length int) int {

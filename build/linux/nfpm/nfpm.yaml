@@ -24,24 +24,24 @@ contents:
   - src: "./build/linux/xiadown.desktop"
     dst: "/usr/share/applications/xiadown.desktop"
 
-# Default dependencies for Debian 12/Ubuntu 22.04+ with WebKit 4.1
+# Default dependencies for Debian/Ubuntu with Wails v3's GTK4/WebKitGTK 6.0 stack
 depends:
-  - libgtk-3-0
-  - libwebkit2gtk-4.1-0
+  - libgtk-4-1
+  - libwebkitgtk-6.0-4
 
-# Distribution-specific overrides for different package formats and WebKit versions
+# Distribution-specific overrides for different package formats and WebKitGTK names
 overrides:
-  # RPM packages for RHEL/CentOS/AlmaLinux/Rocky Linux (WebKit 4.0)
+  # RPM packages for Fedora/openSUSE style package names
   rpm:
     depends:
-      - gtk3
-      - webkit2gtk4.1
+      - gtk4
+      - webkitgtk6.0
   
-  # Arch Linux packages (WebKit 4.1)  
+  # Arch Linux packages
   archlinux:
     depends:
-      - gtk3
-      - webkit2gtk-4.1
+      - gtk4
+      - webkitgtk-6.0
 
 # scripts section to ensure desktop database is updated after install
 scripts:
@@ -55,8 +55,8 @@ scripts:
 # provides:
 #   - bar
 # depends:
-#   - gtk3
-#   - libwebkit2gtk
+#   - gtk4
+#   - webkitgtk-6.0
 # recommends:
 #   - whatever
 # suggests:

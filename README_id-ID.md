@@ -67,6 +67,13 @@ Unduh paket terbaru secara langsung di bawah ini. Versi lama tersedia di [GitHub
 2. `Windows`: jalankan installer `.exe` secara langsung, atau ekstrak paket portabel dan buka aplikasinya. Jika SmartScreen muncul saat pertama kali dibuka, pilih `More info -> Run anyway`.
 3. XiaDown membuka alur onboarding untuk pengaturan bahasa, tema, proxy, dan dependensi. Alur utama berada di onboarding dan UI aplikasi.
 
+## Penafian
+
+- XiaDown disediakan sebagai alat bantu manajemen media dan pengunduhan, untuk pembelajaran, riset, dan penyimpanan konten yang memang berhak Anda akses dan gunakan.
+- Anda bertanggung jawab untuk memastikan setiap pengunduhan, penyimpanan, konversi, atau penggunaan konten telah diizinkan oleh pemegang hak dan mematuhi hukum yang berlaku serta ketentuan situs/platform tujuan.
+- Jangan gunakan XiaDown untuk mengunduh, mendistribusikan, menjual, atau mengeksploitasi konten yang melanggar hak, tidak berizin, berbayar/terbatas, bersifat privat, atau melanggar hukum.
+- Setiap tanggung jawab hukum terkait hak cipta, kebijakan platform, akun, jaringan, atau hal lain yang timbul dari penggunaan XiaDown menjadi tanggung jawab pengguna; pengelola proyek tidak bertanggung jawab atas tindakan pengguna maupun konsekuensinya.
+
 ## Ucapan Terima Kasih
 
 XiaDown dibangun di atas proyek open source yang sangat baik. Pengalaman desktop, pipeline media, penyimpanan lokal, koneksi browser, musik online, dan antarmuka frontend semuanya bergantung pada fondasi ini.

@@ -154,6 +154,21 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		pinyinLyrics = *request.PinyinLyrics
 	}
 
+	resourceSniffScope := current.ResourceSniffScope().String()
+	if request.ResourceSniffScope != nil {
+		resourceSniffScope = *request.ResourceSniffScope
+	}
+
+	resourceSniffMinBytes := current.ResourceSniffMinBytes()
+	if request.ResourceSniffMinBytes != nil {
+		resourceSniffMinBytes = *request.ResourceSniffMinBytes
+	}
+
+	resourceSniffRetain := current.ResourceSniffRetain()
+	if request.ResourceSniffRetain != nil {
+		resourceSniffRetain = *request.ResourceSniffRetain
+	}
+
 	proxyParams := proxySettingsParamsFromDomain(current.Proxy())
 	if request.Proxy != nil {
 		proxyParams = proxySettingsParamsFromDTO(*request.Proxy)
@@ -221,6 +236,9 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		SyncedLyricsEnabled:   &syncedLyricsEnabled,
 		RomanizedLyrics:       &romanizedLyrics,
 		PinyinLyrics:          &pinyinLyrics,
+		ResourceSniffScope:    resourceSniffScope,
+		ResourceSniffMinBytes: resourceSniffMinBytes,
+		ResourceSniffRetain:   resourceSniffRetain,
 		AppearanceConfig:      appearanceConfig,
 	})
 	if err != nil {
@@ -311,6 +329,9 @@ func toDTO(current settings.Settings, effective settings.AppearanceMode, systemT
 		SyncedLyricsEnabled:   current.SyncedLyricsEnabled(),
 		RomanizedLyrics:       current.RomanizedLyrics(),
 		PinyinLyrics:          current.PinyinLyrics(),
+		ResourceSniffScope:    current.ResourceSniffScope().String(),
+		ResourceSniffMinBytes: current.ResourceSniffMinBytes(),
+		ResourceSniffRetain:   current.ResourceSniffRetain(),
 		Proxy:                 toProxyDTO(current.Proxy()),
 		AppearanceConfig:      current.AppearanceConfig(),
 	}

@@ -52,6 +52,48 @@ func TestDefaultBrowserIsNormalized(t *testing.T) {
 	}
 }
 
+func TestResourceSniffSettingsDefaultsAndValidation(t *testing.T) {
+	current := DefaultSettings()
+	if current.ResourceSniffScope() != ResourceSniffScopeDefault {
+		t.Fatalf("expected default resource sniff scope, got %q", current.ResourceSniffScope())
+	}
+	if current.ResourceSniffMinBytes() != DefaultResourceSniffMinBytes {
+		t.Fatalf("expected default resource sniff minimum bytes, got %d", current.ResourceSniffMinBytes())
+	}
+	if current.ResourceSniffRetain() != DefaultResourceSniffRetain {
+		t.Fatalf("expected default resource sniff retain limit, got %d", current.ResourceSniffRetain())
+	}
+
+	updated, err := NewSettings(SettingsParams{
+		Appearance:            AppearanceAuto.String(),
+		ColorScheme:           DefaultColorScheme.String(),
+		Language:              LanguageEnglish.String(),
+		LogLevel:              DefaultLogLevel.String(),
+		MainBounds:            DefaultSettings().MainBounds(),
+		SettingsBounds:        DefaultSettings().SettingsBounds(),
+		MenuBarVisibility:     stringPtr(DefaultMenuBarVisibility.String()),
+		ResourceSniffScope:    ResourceSniffScopeAll.String(),
+		ResourceSniffMinBytes: 64 * 1024,
+		ResourceSniffRetain:   2000,
+	})
+	if err != nil {
+		t.Fatalf("NewSettings() error = %v", err)
+	}
+	if updated.ResourceSniffScope() != ResourceSniffScopeAll {
+		t.Fatalf("expected all resource sniff scope, got %q", updated.ResourceSniffScope())
+	}
+	if updated.ResourceSniffMinBytes() != 64*1024 {
+		t.Fatalf("expected custom resource sniff minimum bytes, got %d", updated.ResourceSniffMinBytes())
+	}
+	if updated.ResourceSniffRetain() != 2000 {
+		t.Fatalf("expected custom resource sniff retain limit, got %d", updated.ResourceSniffRetain())
+	}
+
+	if _, err := ParseResourceSniffScope("everything"); err == nil {
+		t.Fatal("expected invalid resource sniff scope to fail")
+	}
+}
+
 func TestWithAppearanceConfigClonesNestedValues(t *testing.T) {
 	source := map[string]any{
 		"appearance": map[string]any{

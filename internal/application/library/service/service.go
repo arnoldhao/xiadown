@@ -31,6 +31,10 @@ type connectorReader interface {
 	ExportConnectorCookies(ctx context.Context, id string, format connectorsservice.CookiesExportFormat) (string, error)
 }
 
+type connectorProfileInitializer interface {
+	EnsureProfileConnector(ctx context.Context, connectorType string) (connectorsdto.Connector, error)
+}
+
 type iconResolver interface {
 	ResolveDomainIcon(ctx context.Context, domain string) (string, error)
 }
@@ -46,29 +50,34 @@ type Telemetry interface {
 }
 
 type LibraryService struct {
-	libraries       library.LibraryRepository
-	moduleConfig    library.ModuleConfigRepository
-	files           library.FileRepository
-	localTracks     library.ListenLocalTrackRepository
-	operations      library.OperationRepository
-	processes       library.ExternalProcessRepository
-	operationChunks library.OperationChunkRepository
-	histories       library.HistoryRepository
-	workspace       library.WorkspaceStateRepository
-	fileEvents      library.FileEventRepository
-	subtitles       library.SubtitleDocumentRepository
-	presets         library.TranscodePresetRepository
-	settings        settingsReader
-	iconResolver    iconResolver
-	tools           ToolResolver
-	proxyClient     any
-	connectors      connectorReader
-	bus             events.Bus
-	telemetry       Telemetry
-	nowFunc         func() time.Time
-	runMu           sync.Mutex
-	runCancels      map[string]context.CancelFunc
-	runDone         map[string]chan struct{}
+	libraries                library.LibraryRepository
+	moduleConfig             library.ModuleConfigRepository
+	files                    library.FileRepository
+	localTracks              library.ListenLocalTrackRepository
+	operations               library.OperationRepository
+	processes                library.ExternalProcessRepository
+	operationChunks          library.OperationChunkRepository
+	histories                library.HistoryRepository
+	workspace                library.WorkspaceStateRepository
+	fileEvents               library.FileEventRepository
+	subtitles                library.SubtitleDocumentRepository
+	presets                  library.TranscodePresetRepository
+	settings                 settingsReader
+	iconResolver             iconResolver
+	tools                    ToolResolver
+	proxyClient              any
+	connectors               connectorReader
+	bus                      events.Bus
+	telemetry                Telemetry
+	nowFunc                  func() time.Time
+	runMu                    sync.Mutex
+	runCancels               map[string]context.CancelFunc
+	runDone                  map[string]chan struct{}
+	resourceSniffLifecycleMu sync.Mutex
+	resourceSniffMu          sync.Mutex
+	resourceSniffs           map[string]*resourceSniffSession
+	resourcePreviewLeases    map[string]resourceSniffPreviewLease
+	resourceMedia            map[string]resourceMedia
 }
 
 const operationErrorCodeAppInterrupted = "app_interrupted"
@@ -95,27 +104,30 @@ func NewLibraryService(
 	telemetry Telemetry,
 ) *LibraryService {
 	return &LibraryService{
-		libraries:       libraries,
-		moduleConfig:    moduleConfig,
-		files:           files,
-		localTracks:     localTracks,
-		operations:      operations,
-		processes:       processes,
-		operationChunks: operationChunks,
-		histories:       histories,
-		workspace:       workspace,
-		fileEvents:      fileEvents,
-		subtitles:       subtitles,
-		presets:         presets,
-		settings:        settings,
-		iconResolver:    iconResolver,
-		tools:           tools,
-		proxyClient:     proxyClient,
-		connectors:      connectors,
-		bus:             bus,
-		telemetry:       telemetry,
-		runCancels:      make(map[string]context.CancelFunc),
-		runDone:         make(map[string]chan struct{}),
+		libraries:             libraries,
+		moduleConfig:          moduleConfig,
+		files:                 files,
+		localTracks:           localTracks,
+		operations:            operations,
+		processes:             processes,
+		operationChunks:       operationChunks,
+		histories:             histories,
+		workspace:             workspace,
+		fileEvents:            fileEvents,
+		subtitles:             subtitles,
+		presets:               presets,
+		settings:              settings,
+		iconResolver:          iconResolver,
+		tools:                 tools,
+		proxyClient:           proxyClient,
+		connectors:            connectors,
+		bus:                   bus,
+		telemetry:             telemetry,
+		runCancels:            make(map[string]context.CancelFunc),
+		runDone:               make(map[string]chan struct{}),
+		resourceSniffs:        make(map[string]*resourceSniffSession),
+		resourcePreviewLeases: make(map[string]resourceSniffPreviewLease),
+		resourceMedia:         make(map[string]resourceMedia),
 		nowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -276,7 +288,7 @@ func (service *LibraryService) RecoverPendingJobs(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			go service.runYTDLPOperation(context.Background(), item, history, request)
+			go service.runDownloadOperation(context.Background(), item, history, request)
 		case "transcode":
 			request := dto.CreateTranscodeJobRequest{}
 			if err := json.Unmarshal([]byte(item.InputJSON), &request); err != nil {
@@ -631,6 +643,9 @@ func (service *LibraryService) resumeDownloadOperation(ctx context.Context, item
 	if strings.TrimSpace(resumeRequest.URL) == "" {
 		return dto.LibraryOperationDTO{}, fmt.Errorf("download url is required")
 	}
+	if strings.TrimSpace(resumeRequest.ResourceSessionID) != "" || strings.TrimSpace(resumeRequest.ResourceMediaID) != "" {
+		return dto.LibraryOperationDTO{}, resourceRetryUnavailableError()
+	}
 	resumeRequest = withYTDLPOperationLibrary(resumeRequest, item)
 	inputJSON, err := json.Marshal(resumeRequest)
 	if err != nil {
@@ -667,7 +682,7 @@ func (service *LibraryService) resumeDownloadOperation(ctx context.Context, item
 		return dto.LibraryOperationDTO{}, err
 	}
 	operationDTO := toOperationDTO(item)
-	go service.runYTDLPOperation(context.Background(), item, history, resumeRequest)
+	go service.runDownloadOperation(context.Background(), item, history, resumeRequest)
 	return operationDTO, nil
 }
 
@@ -977,11 +992,21 @@ func (service *LibraryService) OpenPath(_ context.Context, request dto.OpenPathR
 }
 
 func (service *LibraryService) CreateYTDLPJob(ctx context.Context, request dto.CreateYTDLPJobRequest) (dto.LibraryOperationDTO, error) {
-	operation, history, _, err := service.createDownloadOperation(ctx, request)
+	resolvedURL, _, err := validateDownloadURL(request.URL)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
-	go service.runYTDLPOperation(context.Background(), operation, history, withYTDLPOperationLibrary(request, operation))
+	request.URL = resolvedURL
+	request, claimedResourceMediaID, err := service.claimResourceMediaForQueuedOperation(request)
+	if err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+	operation, history, _, err := service.createDownloadOperation(ctx, request)
+	if err != nil {
+		service.discardResourceMediaSnapshots(claimedResourceMediaID)
+		return dto.LibraryOperationDTO{}, err
+	}
+	go service.runDownloadOperation(context.Background(), operation, history, withYTDLPOperationLibrary(request, operation))
 	return toOperationDTO(operation), nil
 }
 
@@ -1524,6 +1549,28 @@ func toOperationListItemDTO(item library.LibraryOperation, libraryName string) d
 	}
 }
 
+const (
+	operationDownloadMethodResourceSniff = "resource-sniff"
+	operationDownloadMethodYTDLP         = "yt-dlp"
+)
+
+func resolveOperationDownloadMethod(request dto.CreateYTDLPJobRequest, item library.LibraryOperation) string {
+	if item.Kind != "download" {
+		return ""
+	}
+	if isResourceDownloadRequest(request) ||
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(item.Meta.Platform)), "resource:") {
+		return operationDownloadMethodResourceSniff
+	}
+	return operationDownloadMethodYTDLP
+}
+
+func isResourceDownloadRequest(request dto.CreateYTDLPJobRequest) bool {
+	return strings.TrimSpace(request.ResourceSessionID) != "" ||
+		strings.TrimSpace(request.ResourceMediaID) != "" ||
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(request.Extractor)), "resource:")
+}
+
 func toOperationRequestPreviewDTO(item library.LibraryOperation) *dto.OperationRequestPreviewDTO {
 	switch item.Kind {
 	case "download":
@@ -1532,11 +1579,12 @@ func toOperationRequestPreviewDTO(item library.LibraryOperation) *dto.OperationR
 			return nil
 		}
 		preview := dto.OperationRequestPreviewDTO{
-			URL:          strings.TrimSpace(request.URL),
-			Caller:       strings.TrimSpace(request.Caller),
-			Extractor:    firstNonEmpty(strings.TrimSpace(item.Meta.Platform), strings.TrimSpace(request.Extractor)),
-			Author:       firstNonEmpty(strings.TrimSpace(item.Meta.Uploader), strings.TrimSpace(request.Author)),
-			ThumbnailURL: strings.TrimSpace(request.ThumbnailURL),
+			URL:            strings.TrimSpace(request.URL),
+			Caller:         strings.TrimSpace(request.Caller),
+			Extractor:      firstNonEmpty(strings.TrimSpace(item.Meta.Platform), strings.TrimSpace(request.Extractor)),
+			Author:         firstNonEmpty(strings.TrimSpace(item.Meta.Uploader), strings.TrimSpace(request.Author)),
+			ThumbnailURL:   strings.TrimSpace(request.ThumbnailURL),
+			DownloadMethod: resolveOperationDownloadMethod(request, item),
 		}
 		if preview == (dto.OperationRequestPreviewDTO{}) {
 			return nil

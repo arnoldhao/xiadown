@@ -16,6 +16,7 @@ type ColorScheme string
 type MenuBarVisibility string
 type ProxyMode string
 type ProxyScheme string
+type ResourceSniffScope string
 
 type WindowBounds struct {
 	x      int
@@ -48,6 +49,9 @@ type Settings struct {
 	syncedLyricsEnabled   bool
 	romanizedLyrics       bool
 	pinyinLyrics          bool
+	resourceSniffScope    ResourceSniffScope
+	resourceSniffMinBytes int
+	resourceSniffRetain   int
 	appearanceConfig      map[string]any
 }
 
@@ -75,6 +79,9 @@ type SettingsParams struct {
 	SyncedLyricsEnabled   *bool
 	RomanizedLyrics       *bool
 	PinyinLyrics          *bool
+	ResourceSniffScope    string
+	ResourceSniffMinBytes int
+	ResourceSniffRetain   int
 	AppearanceConfig      map[string]any
 }
 
@@ -159,6 +166,19 @@ const (
 	DefaultSyncedLyricsEnabled = true
 	DefaultRomanizedLyrics     = true
 	DefaultPinyinLyrics        = true
+)
+
+const (
+	ResourceSniffScopeDefault  ResourceSniffScope = "default"
+	ResourceSniffScopeAdvanced ResourceSniffScope = "advanced"
+	ResourceSniffScopeAll      ResourceSniffScope = "all"
+
+	DefaultResourceSniffScope    = ResourceSniffScopeDefault
+	DefaultResourceSniffMinBytes = 8 * 1024
+	DefaultResourceSniffRetain   = 1000
+	MaxResourceSniffMinBytes     = 10 * 1024 * 1024
+	MinResourceSniffRetain       = 100
+	MaxResourceSniffRetain       = 10000
 )
 
 const (
@@ -319,6 +339,30 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		pinyinLyrics = *params.PinyinLyrics
 	}
 
+	resourceSniffScope, err := ParseResourceSniffScope(params.ResourceSniffScope)
+	if err != nil {
+		return Settings{}, err
+	}
+
+	resourceSniffMinBytes := params.ResourceSniffMinBytes
+	if resourceSniffMinBytes < 0 {
+		return Settings{}, fmt.Errorf("%w: resource sniff minimum bytes", ErrInvalidSettings)
+	}
+	if resourceSniffMinBytes == 0 {
+		resourceSniffMinBytes = DefaultResourceSniffMinBytes
+	}
+	if resourceSniffMinBytes > MaxResourceSniffMinBytes {
+		return Settings{}, fmt.Errorf("%w: resource sniff minimum bytes", ErrInvalidSettings)
+	}
+
+	resourceSniffRetain := params.ResourceSniffRetain
+	if resourceSniffRetain <= 0 {
+		resourceSniffRetain = DefaultResourceSniffRetain
+	}
+	if resourceSniffRetain < MinResourceSniffRetain || resourceSniffRetain > MaxResourceSniffRetain {
+		return Settings{}, fmt.Errorf("%w: resource sniff retain limit", ErrInvalidSettings)
+	}
+
 	return Settings{
 		appearance:            appearance,
 		fontFamily:            strings.TrimSpace(params.FontFamily),
@@ -343,6 +387,9 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		syncedLyricsEnabled:   syncedLyricsEnabled,
 		romanizedLyrics:       romanizedLyrics,
 		pinyinLyrics:          pinyinLyrics,
+		resourceSniffScope:    resourceSniffScope,
+		resourceSniffMinBytes: resourceSniffMinBytes,
+		resourceSniffRetain:   resourceSniffRetain,
 		appearanceConfig:      cloneAnyMap(params.AppearanceConfig),
 	}, nil
 }
@@ -374,6 +421,9 @@ func DefaultSettingsWithLanguage(language string) Settings {
 		syncedLyricsEnabled:   DefaultSyncedLyricsEnabled,
 		romanizedLyrics:       DefaultRomanizedLyrics,
 		pinyinLyrics:          DefaultPinyinLyrics,
+		resourceSniffScope:    DefaultResourceSniffScope,
+		resourceSniffMinBytes: DefaultResourceSniffMinBytes,
+		resourceSniffRetain:   DefaultResourceSniffRetain,
 		appearanceConfig:      nil,
 	}
 }
@@ -444,6 +494,19 @@ func ParseMenuBarVisibility(value string) (MenuBarVisibility, error) {
 		return MenuBarVisibility(strings.TrimSpace(value)), nil
 	default:
 		return "", fmt.Errorf("%w: menu bar visibility", ErrInvalidSettings)
+	}
+}
+
+func ParseResourceSniffScope(value string) (ResourceSniffScope, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return DefaultResourceSniffScope, nil
+	}
+	switch ResourceSniffScope(trimmed) {
+	case ResourceSniffScopeDefault, ResourceSniffScopeAdvanced, ResourceSniffScopeAll:
+		return ResourceSniffScope(trimmed), nil
+	default:
+		return "", fmt.Errorf("%w: resource sniff scope", ErrInvalidSettings)
 	}
 }
 
@@ -592,6 +655,11 @@ func (settings Settings) MinimizeToTrayOnStart() bool          { return settings
 func (settings Settings) SyncedLyricsEnabled() bool            { return settings.syncedLyricsEnabled }
 func (settings Settings) RomanizedLyrics() bool                { return settings.romanizedLyrics }
 func (settings Settings) PinyinLyrics() bool                   { return settings.pinyinLyrics }
+func (settings Settings) ResourceSniffScope() ResourceSniffScope {
+	return settings.resourceSniffScope
+}
+func (settings Settings) ResourceSniffMinBytes() int { return settings.resourceSniffMinBytes }
+func (settings Settings) ResourceSniffRetain() int   { return settings.resourceSniffRetain }
 func (settings Settings) AppearanceConfig() map[string]any {
 	return cloneAnyMap(settings.appearanceConfig)
 }
@@ -611,6 +679,7 @@ func (language Language) String() string            { return string(language) }
 func (level LogLevel) String() string               { return string(level) }
 func (scheme ColorScheme) String() string           { return string(scheme) }
 func (visibility MenuBarVisibility) String() string { return string(visibility) }
+func (scope ResourceSniffScope) String() string     { return string(scope) }
 func (mode ProxyMode) String() string               { return string(mode) }
 func (scheme ProxyScheme) String() string           { return string(scheme) }
 

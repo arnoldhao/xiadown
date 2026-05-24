@@ -47,6 +47,10 @@ type DialogScrollAreaProps = React.HTMLAttributes<HTMLElement> & {
 const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
   ({ as: Component = "div", className, children, ...props }, ref) => {
     const scrollAreaRef = React.useRef<HTMLElement | null>(null);
+    const hoverActiveRef = React.useRef(false);
+    const focusActiveRef = React.useRef(false);
+    const scrollingActiveRef = React.useRef(false);
+    const scrollIdleTimeoutRef = React.useRef<number | null>(null);
     const [scrollState, setScrollState] = React.useState({
       atBottom: true,
       atTop: true,
@@ -54,6 +58,15 @@ const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
       scrollable: false,
     });
     const ScrollComponent = Component as React.ElementType;
+
+    const shouldShowScrollbar = React.useCallback(
+      (scrollable: boolean) =>
+        scrollable &&
+        (hoverActiveRef.current ||
+          focusActiveRef.current ||
+          scrollingActiveRef.current),
+      [],
+    );
 
     const setRefs = React.useCallback(
       (node: HTMLElement | null) => {
@@ -81,9 +94,7 @@ const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
         scrollable: maxScrollTop > 1,
       };
       setScrollState((current) => {
-        const nextScrollbarVisible = nextState.scrollable
-          ? current.scrollable && current.scrollbarVisible
-          : false;
+        const nextScrollbarVisible = shouldShowScrollbar(nextState.scrollable);
         return current.atBottom === nextState.atBottom &&
           current.atTop === nextState.atTop &&
           current.scrollable === nextState.scrollable &&
@@ -94,7 +105,7 @@ const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
               scrollbarVisible: nextScrollbarVisible,
             };
       });
-    }, []);
+    }, [shouldShowScrollbar]);
 
     React.useEffect(() => {
       const node = scrollAreaRef.current;
@@ -107,6 +118,38 @@ const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
         window.cancelAnimationFrame(frame);
         frame = window.requestAnimationFrame(updateScrollState);
       };
+      const activateScrollInteraction = () => {
+        scrollingActiveRef.current = true;
+        if (scrollIdleTimeoutRef.current !== null) {
+          window.clearTimeout(scrollIdleTimeoutRef.current);
+        }
+        scrollIdleTimeoutRef.current = window.setTimeout(() => {
+          scrollingActiveRef.current = false;
+          scheduleUpdate();
+        }, 720);
+      };
+      const handleScroll = () => {
+        activateScrollInteraction();
+        scheduleUpdate();
+      };
+      const handlePointerEnter = () => {
+        hoverActiveRef.current = true;
+        scheduleUpdate();
+      };
+      const handlePointerLeave = () => {
+        hoverActiveRef.current = false;
+        scheduleUpdate();
+      };
+      const handleFocusIn = () => {
+        focusActiveRef.current = true;
+        scheduleUpdate();
+      };
+      const handleFocusOut = (event: FocusEvent) => {
+        focusActiveRef.current = Boolean(
+          event.relatedTarget instanceof Node && node.contains(event.relatedTarget),
+        );
+        scheduleUpdate();
+      };
       const resizeObserver =
         typeof ResizeObserver === "undefined"
           ? null
@@ -116,7 +159,11 @@ const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
           ? null
           : new MutationObserver(scheduleUpdate);
 
-      node.addEventListener("scroll", scheduleUpdate, { passive: true });
+      node.addEventListener("scroll", handleScroll, { passive: true });
+      node.addEventListener("pointerenter", handlePointerEnter);
+      node.addEventListener("pointerleave", handlePointerLeave);
+      node.addEventListener("focusin", handleFocusIn);
+      node.addEventListener("focusout", handleFocusOut);
       resizeObserver?.observe(node);
       Array.from(node.children).forEach((child) => resizeObserver?.observe(child));
       mutationObserver?.observe(node, {
@@ -128,32 +175,19 @@ const DialogScrollArea = React.forwardRef<HTMLElement, DialogScrollAreaProps>(
 
       return () => {
         window.cancelAnimationFrame(frame);
-        node.removeEventListener("scroll", scheduleUpdate);
+        if (scrollIdleTimeoutRef.current !== null) {
+          window.clearTimeout(scrollIdleTimeoutRef.current);
+          scrollIdleTimeoutRef.current = null;
+        }
+        node.removeEventListener("scroll", handleScroll);
+        node.removeEventListener("pointerenter", handlePointerEnter);
+        node.removeEventListener("pointerleave", handlePointerLeave);
+        node.removeEventListener("focusin", handleFocusIn);
+        node.removeEventListener("focusout", handleFocusOut);
         resizeObserver?.disconnect();
         mutationObserver?.disconnect();
       };
     }, [updateScrollState]);
-
-    React.useEffect(() => {
-      if (
-        !scrollState.scrollable ||
-        scrollState.scrollbarVisible ||
-        typeof window === "undefined"
-      ) {
-        return;
-      }
-      const timeout = window.setTimeout(() => {
-        setScrollState((current) =>
-          current.scrollable
-            ? {
-                ...current,
-                scrollbarVisible: true,
-              }
-            : current,
-        );
-      }, 170);
-      return () => window.clearTimeout(timeout);
-    }, [scrollState.scrollable, scrollState.scrollbarVisible]);
 
     return (
       <ScrollComponent

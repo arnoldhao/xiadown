@@ -5,6 +5,7 @@ import { Events } from "@wailsio/runtime";
 import { SettingsApp } from "./app/settings";
 import { MainApp } from "./app/main";
 import { TrayMiniPlayerApp } from "./app/main/TrayMiniPlayerApp";
+import { LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY } from "./shared/query/library";
 import { setLatestSettingsQueryData, useSettings } from "./shared/query/settings";
 import { useSettingsStore } from "./shared/store/settings";
 import { detectBrowserLanguage, getLanguage, setLanguage, t } from "./shared/i18n";
@@ -91,6 +92,9 @@ function App() {
       if (next.language) {
         applyAppLanguage(next.language);
       }
+      void queryClient.invalidateQueries({
+        queryKey: LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY,
+      });
     });
 
     const offThemeChanged = Events.On("theme:changed", (event: any) => {

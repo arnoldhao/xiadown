@@ -19,16 +19,16 @@ Palette,
 Pencil,
 RefreshCcw,
 RefreshCw,
+SlidersVertical,
 Sun,
 Twitter,
 Wrench,
-PawPrint,
 } from "lucide-react";
 import * as React from "react";
 
 import { ACCENT_SWATCHES,CORE_DEPENDENCY_ORDER,DependencySettingsItem,InlineSwitch,SYSTEM_THEME_COLOR,TabButton,formatHostPort,normalizeProxy,parseNoProxy,previewFontStack,resetProxyTestState,resolveAccentColor,resolveTabFromSection,resolveThemeColorPreview,resolveThemeColorSelection } from "@/app/settings/settings-helpers";
 import { WindowControls } from "@/components/layout/WindowControls";
-import { PetsSection } from "@/features/settings/pets";
+import { EqualizerSection } from "@/features/settings/equalizer";
 import { getXiaText } from "@/features/xiadown/shared";
 import {
 XIA_THEME_PACKS,
@@ -40,7 +40,7 @@ type XiaAppearanceSettings,
 type XiaSidebarStyle,
 } from "@/shared/styles/xiadown-theme";
 import { cn } from "@/lib/utils";
-import type { BrowserCandidate, ProxySettings } from "@/shared/contracts/settings";
+import type { BrowserCandidate, ProxySettings, ResourceSniffScope } from "@/shared/contracts/settings";
 import { DialogMarkdown } from "@/shared/markdown/dialog-markdown";
 import {
 useDependencies,
@@ -175,6 +175,11 @@ export function SettingsApp() {
   const lyricsTranscriptionAvailable =
     isMac && lyricsTranscriptionAvailability.data === true;
   const [activeTab, setActiveTab] = React.useState<XiaSettingsTabId>("general");
+  const resolveVisibleSettingsTab = React.useCallback(
+    (tab: XiaSettingsTabId) =>
+      isWindows && tab === "equalizer" ? "general" : tab,
+    [isWindows],
+  );
   const [proxyDraft, setProxyDraft] = React.useState<ProxySettings>(() => normalizeProxy(currentSettings?.proxy));
   const [proxyNoProxyText, setProxyNoProxyText] = React.useState("");
   const [appearanceDraft, setAppearanceDraft] = React.useState<XiaAppearanceSettings>(() => readXiaAppearance(currentSettings));
@@ -205,18 +210,26 @@ export function SettingsApp() {
   React.useEffect(() => {
     const pending = consumePendingSettingsTab();
     if (pending) {
-      setActiveTab(pending);
+      setActiveTab(resolveVisibleSettingsTab(pending));
     }
-    const unsubscribe = listenPendingSettingsTab(setActiveTab);
+    const unsubscribe = listenPendingSettingsTab((tab) =>
+      setActiveTab(resolveVisibleSettingsTab(tab)),
+    );
     const offNavigate = Events.On("settings:navigate", (event: any) => {
       const target = typeof (event?.data ?? event) === "string" ? (event?.data ?? event) : "";
-      setActiveTab(resolveTabFromSection(target));
+      setActiveTab(resolveVisibleSettingsTab(resolveTabFromSection(target)));
     });
     return () => {
       unsubscribe();
       offNavigate();
     };
-  }, []);
+  }, [resolveVisibleSettingsTab]);
+
+  React.useEffect(() => {
+    if (activeTab === "equalizer" && isWindows) {
+      setActiveTab("general");
+    }
+  }, [activeTab, isWindows]);
 
   React.useEffect(() => {
     if (serverUpdateInfo) {
@@ -544,10 +557,13 @@ export function SettingsApp() {
   const tabs: Array<{ id: XiaSettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "general", label: text.settings.tabs.general, icon: <Cog className="h-[26px] w-[26px]" /> },
     { id: "appearance", label: text.settings.tabs.appearance, icon: <Palette className="h-[26px] w-[26px]" /> },
-    { id: "pets", label: text.settings.tabs.pets, icon: <PawPrint className="h-[26px] w-[26px]" /> },
+    { id: "equalizer", label: text.settings.tabs.equalizer, icon: <SlidersVertical className="h-[26px] w-[26px]" /> },
     { id: "dependencies", label: text.settings.tabs.dependencies, icon: <Wrench className="h-[26px] w-[26px]" /> },
     { id: "about", label: text.settings.tabs.about, icon: <Info className="h-[26px] w-[26px]" /> },
   ];
+  const visibleTabs = isWindows
+    ? tabs.filter((tab) => tab.id !== "equalizer")
+    : tabs;
   const fontOptions = fontFamilies;
   const selectedFont = fontFamilyDraft.trim();
   const hasSelectedFontInList = selectedFont.length === 0 || fontOptions.includes(selectedFont);
@@ -602,6 +618,35 @@ export function SettingsApp() {
     backgroundColor: "hsl(var(--primary) / 0.13)",
     color: "hsl(var(--primary))",
   };
+  const resourceSniffScopeOptions: Array<{
+    value: ResourceSniffScope;
+    label: string;
+  }> = [
+    {
+      value: "default",
+      label: text.settings.resourceSniffScopeOptions.default,
+    },
+    {
+      value: "advanced",
+      label: text.settings.resourceSniffScopeOptions.advanced,
+    },
+    {
+      value: "all",
+      label: text.settings.resourceSniffScopeOptions.all,
+    },
+  ];
+  const resourceSniffMinBytesOptions = [
+    { value: 8 * 1024, label: text.settings.resourceSniffMinBytesOptions.kb8 },
+    { value: 16 * 1024, label: text.settings.resourceSniffMinBytesOptions.kb16 },
+    { value: 64 * 1024, label: text.settings.resourceSniffMinBytesOptions.kb64 },
+    { value: 256 * 1024, label: text.settings.resourceSniffMinBytesOptions.kb256 },
+  ];
+  const resourceSniffRetainOptions = [
+    { value: 500, label: "500" },
+    { value: 1000, label: "1000" },
+    { value: 2000, label: "2000" },
+    { value: 5000, label: "5000" },
+  ];
   const dreamApps = [
     {
       id: "dreamcreator",
@@ -901,7 +946,7 @@ export function SettingsApp() {
         </div>
 
         <div className="app-dream-tabs-bar -mt-1 flex flex-wrap items-center justify-center px-4 pt-0">
-          {tabs.map((tab) => (
+          {visibleTabs.map((tab) => (
             <TabButton key={tab.id} id={tab.id} label={tab.label} icon={tab.icon} active={activeTab === tab.id} onClick={setActiveTab} />
           ))}
         </div>
@@ -1010,6 +1055,54 @@ export function SettingsApp() {
               </SettingsCompactListCard>
 
               <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.resourceSniffScope}>
+                  <Select
+                    value={currentSettings?.resourceSniffScope ?? "default"}
+                    onChange={(event) => void saveSettingsPatch({ resourceSniffScope: event.target.value as ResourceSniffScope })}
+                    className="w-48"
+                  >
+                    {resourceSniffScopeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.resourceSniffMinBytes}>
+                  <Select
+                    value={String(currentSettings?.resourceSniffMinBytes ?? 8 * 1024)}
+                    onChange={(event) => void saveSettingsPatch({ resourceSniffMinBytes: Number(event.target.value) })}
+                    className="w-48"
+                  >
+                    {resourceSniffMinBytesOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.resourceSniffRetain}>
+                  <Select
+                    value={String(currentSettings?.resourceSniffRetain ?? 1000)}
+                    onChange={(event) => void saveSettingsPatch({ resourceSniffRetain: Number(event.target.value) })}
+                    className="w-48"
+                  >
+                    {resourceSniffRetainOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
                 <SettingsCompactRow label={text.settings.syncedLyrics}>
                   <InlineSwitch
                     checked={currentSettings?.syncedLyricsEnabled !== false}
@@ -1018,25 +1111,29 @@ export function SettingsApp() {
                   />
                 </SettingsCompactRow>
 
-                <SettingsCompactSeparator />
+                {!isWindows ? (
+                  <>
+                    <SettingsCompactSeparator />
 
-                <SettingsCompactRow label={text.settings.romanizedLyrics}>
-                  {renderLyricsTranscriptionSwitch({
-                    checked: currentSettings?.romanizedLyrics !== false,
-                    onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
-                    ariaLabel: text.settings.romanizedLyrics,
-                  })}
-                </SettingsCompactRow>
+                    <SettingsCompactRow label={text.settings.romanizedLyrics}>
+                      {renderLyricsTranscriptionSwitch({
+                        checked: currentSettings?.romanizedLyrics !== false,
+                        onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
+                        ariaLabel: text.settings.romanizedLyrics,
+                      })}
+                    </SettingsCompactRow>
 
-                <SettingsCompactSeparator />
+                    <SettingsCompactSeparator />
 
-                <SettingsCompactRow label={text.settings.pinyinLyrics}>
-                  {renderLyricsTranscriptionSwitch({
-                    checked: currentSettings?.pinyinLyrics !== false,
-                    onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
-                    ariaLabel: text.settings.pinyinLyrics,
-                  })}
-                </SettingsCompactRow>
+                    <SettingsCompactRow label={text.settings.pinyinLyrics}>
+                      {renderLyricsTranscriptionSwitch({
+                        checked: currentSettings?.pinyinLyrics !== false,
+                        onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
+                        ariaLabel: text.settings.pinyinLyrics,
+                      })}
+                    </SettingsCompactRow>
+                  </>
+                ) : null}
               </SettingsCompactListCard>
 
               {proxySettingsCard}
@@ -1341,8 +1438,8 @@ export function SettingsApp() {
             </div>
           ) : null}
 
-          {activeTab === "pets" ? (
-            <PetsSection settings={currentSettings} text={text} saveSettingsPatch={saveSettingsPatch} />
+          {activeTab === "equalizer" && !isWindows ? (
+            <EqualizerSection isMac={isMac} text={text} />
           ) : null}
 
           {activeTab === "dependencies" ? (

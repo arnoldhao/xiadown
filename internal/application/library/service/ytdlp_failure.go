@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"xiadown/internal/application/apperrors"
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/dependencies"
 	"xiadown/internal/domain/library"
@@ -22,19 +23,22 @@ const (
 )
 
 const (
-	ytdlpErrorCodeDependencyMissing = "dependency_missing"
-	ytdlpErrorCodeAuthRequired      = "auth_required"
-	ytdlpErrorCodeRateLimited       = "rate_limited"
-	ytdlpErrorCodeNetworkError      = "network_error"
+	ytdlpErrorCodeDependencyMissing = string(apperrors.CodeDependencyMissing)
+	ytdlpErrorCodeAuthRequired      = string(apperrors.CodeAuthRequired)
+	ytdlpErrorCodeRateLimited       = string(apperrors.CodeRateLimited)
+	ytdlpErrorCodeNetworkError      = string(apperrors.CodeNetworkError)
 	ytdlpErrorCodeOutputMissing     = "output_missing"
 	ytdlpErrorCodeMisconfig         = "misconfig"
-	ytdlpErrorCodeParsing           = "parsing_error"
+	ytdlpErrorCodeParsing           = string(apperrors.CodeParsing)
 	ytdlpErrorCodeExitCode          = "exit_code"
 )
 
 func shouldAutoRetryYTDLP(request dto.CreateYTDLPJobRequest, detail string) bool {
 	mode := strings.ToLower(strings.TrimSpace(request.Mode))
 	if mode != "" && mode != "quick" {
+		return false
+	}
+	if strings.TrimSpace(request.ResourceSessionID) != "" || strings.TrimSpace(request.ResourceMediaID) != "" {
 		return false
 	}
 	if request.RetryCount > 0 {
@@ -80,7 +84,7 @@ func (service *LibraryService) scheduleAutoRetryYTDLP(ctx context.Context, opera
 	if err != nil {
 		return "", false
 	}
-	go service.runYTDLPOperation(context.Background(), newOperation, newHistory, retryRequest)
+	go service.runDownloadOperation(context.Background(), newOperation, newHistory, retryRequest)
 	return newOperation.ID, true
 }
 
@@ -167,6 +171,9 @@ func (service *LibraryService) RetryYTDLPOperation(ctx context.Context, request 
 	if err := json.Unmarshal([]byte(operation.InputJSON), &input); err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
+	if strings.TrimSpace(input.ResourceSessionID) != "" || strings.TrimSpace(input.ResourceMediaID) != "" {
+		return dto.LibraryOperationDTO{}, resourceRetryUnavailableError()
+	}
 	if trimmed := strings.TrimSpace(request.Source); trimmed != "" {
 		input.Source = trimmed
 	}
@@ -183,7 +190,7 @@ func (service *LibraryService) RetryYTDLPOperation(ctx context.Context, request 
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
-	go service.runYTDLPOperation(context.Background(), newOperation, newHistory, input)
+	go service.runDownloadOperation(context.Background(), newOperation, newHistory, input)
 	return toOperationDTO(newOperation), nil
 }
 

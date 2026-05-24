@@ -38,11 +38,17 @@ type FeedbackTokens struct {
 	Remove string `json:"remove,omitempty"`
 }
 
+type TrackArtist struct {
+	Name     string `json:"name"`
+	BrowseID string `json:"browseId,omitempty"`
+}
+
 const (
-	TrackArtistSourceAPILinked   = "api-linked"
-	TrackArtistSourceAPIText     = "api-text"
-	TrackArtistSourceAPIMetadata = "api-metadata"
-	TrackArtistSourceObserved    = "observed"
+	TrackArtistSourceAPILinked         = "api-linked"
+	TrackArtistSourceAPILinkedMultiple = "api-linked-multiple"
+	TrackArtistSourceAPIText           = "api-text"
+	TrackArtistSourceAPIMetadata       = "api-metadata"
+	TrackArtistSourceObserved          = "observed"
 )
 
 type Track struct {
@@ -50,6 +56,7 @@ type Track struct {
 	VideoID                string         `json:"videoId"`
 	Title                  string         `json:"title"`
 	Artist                 string         `json:"artist"`
+	Artists                []TrackArtist  `json:"artists,omitempty"`
 	ArtistBrowseID         string         `json:"artistBrowseId,omitempty"`
 	ArtistSource           string         `json:"artistSource,omitempty"`
 	DurationLabel          string         `json:"durationLabel,omitempty"`

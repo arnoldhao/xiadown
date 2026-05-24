@@ -78,6 +78,29 @@ describe("listen playback storage helpers", () => {
     expect(items[0].videoAvailabilityKnown).toBe(true);
   });
 
+  test("keeps structured artists in persisted online queue items", () => {
+    const items = sanitizeListenOnlineItems([
+      {
+        id: "track",
+        group: "playlist",
+        videoId: "TESTVID007G",
+        title: "Track",
+        channel: "Artist A, Artist B",
+        artists: [
+          { name: "Artist A", browseId: "UCartistA" },
+          { name: "Artist B", browseId: "UCartistB" },
+        ],
+        description: "",
+        durationLabel: "",
+      },
+    ]);
+
+    expect(items[0].artists).toEqual([
+      { name: "Artist A", browseId: "UCartistA", thumbnailUrl: undefined },
+      { name: "Artist B", browseId: "UCartistB", thumbnailUrl: undefined },
+    ]);
+  });
+
   test("drops stale user generated endpoint video-unavailable cache entries", () => {
     const items = sanitizeListenOnlineItems([
       {

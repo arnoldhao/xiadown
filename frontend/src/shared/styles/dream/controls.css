@@ -109,6 +109,11 @@
   grid-template-columns: repeat(2, minmax(max-content, 1fr));
 }
 
+.app-new-task-mode-switch[data-count="1"],
+.app-new-task-download-mode-switch[data-count="1"] {
+  grid-template-columns: repeat(1, minmax(max-content, 1fr));
+}
+
 .app-new-task-mode-switch .app-dream-segment-switch-tab,
 .app-new-task-download-mode-switch .app-dream-segment-switch-tab {
   padding-inline: 0.75rem;
@@ -167,6 +172,11 @@
 .app-dream-segment-switch[data-index="0"] .app-dream-segment-switch-indicator,
 .app-completed-view-switch[data-index="0"] .app-completed-view-switch-indicator {
   border-radius: var(--app-radius-lg) 0 0 var(--app-radius-lg);
+}
+
+.app-dream-segment-switch[data-count="1"] .app-dream-segment-switch-indicator,
+.app-completed-view-switch[data-count="1"] .app-completed-view-switch-indicator {
+  border-radius: var(--app-radius-lg);
 }
 
 .app-dream-segment-switch[data-count="3"][data-index="1"] .app-dream-segment-switch-indicator,
@@ -397,23 +407,23 @@
 .app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
   border-radius: 9999px;
   background: transparent;
-  color: hsl(0 0% 100% / 0.9);
+  color: var(--dream-text-muted);
   box-shadow: none;
 }
 
 .app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):hover {
-  background: hsl(0 0% 100% / 0.15);
-  color: white;
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
 }
 
 .app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):focus-visible {
-  background: hsl(0 0% 100% / 0.12);
-  color: white;
-  box-shadow: inset 0 0 0 1px hsl(0 0% 100% / 0.28);
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
 }
 
 .app-dream-button.app-motion-surface.app-completed-preview-control-button:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):disabled {
   background: transparent;
-  color: hsl(0 0% 100% / 0.32);
+  color: var(--dream-text-soft);
   opacity: 1;
 }

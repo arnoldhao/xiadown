@@ -8,6 +8,10 @@ import type {
 import type { Pet } from "@/shared/contracts/pets";
 import { Button } from "@/shared/ui/button";
 import {
+  pickFunButtonEffect,
+  type FunButtonEffect,
+} from "@/shared/ui/fun-button-effect";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -54,14 +58,6 @@ type RunningSpeedCacheEntry = {
   expiresAt: number;
 };
 
-type RunningNewDownloadEffect =
-  | "water"
-  | "fire"
-  | "cloud"
-  | "sun"
-  | "mist"
-  | "shadow";
-
 type RunningVisualQuality = "full" | "balanced" | "low";
 
 const RUNNING_SPEED_UNIT_MULTIPLIERS: Record<string, number> = {
@@ -86,20 +82,6 @@ const RUNNING_TRANSCODE_SPEED_KINDS = new Set<ParsedRunningSpeed["kind"]>([
   "frames",
   "factor",
 ]);
-const RUNNING_NEW_DOWNLOAD_EFFECTS: RunningNewDownloadEffect[] = [
-  "water",
-  "fire",
-  "cloud",
-  "sun",
-  "mist",
-  "shadow",
-];
-
-function pickRunningNewDownloadEffect(): RunningNewDownloadEffect {
-  const index = Math.floor(Math.random() * RUNNING_NEW_DOWNLOAD_EFFECTS.length);
-  return RUNNING_NEW_DOWNLOAD_EFFECTS[index] ?? "water";
-}
-
 function formatRunningTemplate(
   template: string,
   params: Record<string, string | number>,
@@ -147,7 +129,7 @@ function RunningActionButton(
     label: string;
     icon: React.ReactNode;
     primary?: boolean;
-    effect?: RunningNewDownloadEffect;
+    effect?: FunButtonEffect;
   },
 ) {
   const {
@@ -690,8 +672,8 @@ export function RunningPage(props: RunningPageProps) {
   const [cancelSuppressedIds, setCancelSuppressedIds] = React.useState<
     Set<string>
   >(() => new Set());
-  const [newDownloadEffect] = React.useState<RunningNewDownloadEffect>(() =>
-    pickRunningNewDownloadEffect(),
+  const [newDownloadEffect] = React.useState<FunButtonEffect>(() =>
+    pickFunButtonEffect(),
   );
   const suppressCanceledOperation = React.useCallback((operationId: string) => {
     const trimmed = operationId.trim();

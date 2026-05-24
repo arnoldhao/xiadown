@@ -1,6 +1,6 @@
 import { LISTEN_LIVE_GROUPS } from "@/app/main/listen/catalog";
 import { dedupeLibraryShelves,dedupeOnlineItems,dedupePlaylistItems,isListenLibraryShelfKind,isListenOnlineGroup } from "@/app/main/listen/storage";
-import type { ListenArtistItem,ListenArtistItemDTO,ListenArtistResponseDTO,ListenArtistSubscriptionResponseDTO,ListenCategoryItem,ListenCategoryItemDTO,ListenLibraryResponseDTO,ListenLibraryShelf,ListenLibraryShelfDTO,ListenLiveCatalog,ListenLiveCatalogDTO,ListenLiveGroup,ListenLiveStatus,ListenLiveStatusDTO,ListenLiveStatusResponseDTO,ListenLiveStatusValue,ListenLyricsData,ListenLyricsKind,ListenLyricsResponseDTO,ListenOnlineBrowseSource,ListenOnlineGroup,ListenOnlineItem,ListenPlaylistItem,ListenPlaylistItemDTO,ListenPlaylistLibraryAction,ListenPlaylistLibraryResponseDTO,ListenSearchItemDTO,ListenSearchResponseDTO,ListenTrackFavoriteResponseDTO,ListenTrackResponseDTO } from "@/app/main/listen/types";
+import type { ListenArtistItem,ListenArtistItemDTO,ListenArtistResponseDTO,ListenArtistSubscriptionResponseDTO,ListenCategoryItem,ListenCategoryItemDTO,ListenLibraryResponseDTO,ListenLibraryShelf,ListenLibraryShelfDTO,ListenLiveCatalog,ListenLiveCatalogDTO,ListenLiveGroup,ListenLiveStatus,ListenLiveStatusDTO,ListenLiveStatusResponseDTO,ListenLiveStatusValue,ListenLyricsData,ListenLyricsKind,ListenLyricsResponseDTO,ListenOnlineBrowseSource,ListenOnlineGroup,ListenOnlineItem,ListenPlaylistItem,ListenPlaylistItemDTO,ListenPlaylistLibraryAction,ListenPlaylistLibraryResponseDTO,ListenSearchItemDTO,ListenSearchResponseDTO,ListenTrackArtist,ListenTrackFavoriteResponseDTO,ListenTrackResponseDTO } from "@/app/main/listen/types";
 
 type ListenAPIErrorResponseDTO = {
   error?: {
@@ -837,6 +837,7 @@ export async function fetchListenArtist(
   id: string;
   title: string;
   subtitle: string;
+  thumbnailUrl: string;
   channelId: string;
   isSubscribed: boolean;
   mixPlaylistId: string;
@@ -856,6 +857,7 @@ export async function fetchListenArtist(
       id: artistId,
       title: artistName,
       subtitle: "",
+      thumbnailUrl: "",
       channelId: "",
       isSubscribed: false,
       mixPlaylistId: "",
@@ -920,6 +922,7 @@ export async function fetchListenArtist(
     id: payload.id?.trim() || artistId,
     title: payload.title?.trim() || artistName || artistId,
     subtitle: payload.subtitle?.trim() || "",
+    thumbnailUrl: payload.thumbnailUrl?.trim() || "",
     channelId: payload.channelId?.trim() || "",
     isSubscribed: payload.isSubscribed === true,
     mixPlaylistId: payload.mixPlaylistId?.trim() || "",
@@ -1263,6 +1266,7 @@ export function mapListenRemoteItem(
     videoId: item.videoId,
     title: item.title || item.videoId,
     channel: item.channel || "",
+    artists: normalizeListenTrackArtists(item.artists),
     artistBrowseId: item.artistBrowseId,
     artistSource: item.artistSource,
     description:
@@ -1281,6 +1285,34 @@ export function mapListenRemoteItem(
         }
       : undefined,
   };
+}
+
+function normalizeListenTrackArtists(
+  artists: ListenTrackArtist[] | undefined,
+): ListenTrackArtist[] | undefined {
+  if (!Array.isArray(artists) || artists.length === 0) {
+    return undefined;
+  }
+  const result: ListenTrackArtist[] = [];
+  const seen = new Set<string>();
+  for (const artist of artists) {
+    const name = String(artist.name ?? "").trim();
+    const browseId = String(artist.browseId ?? "").trim();
+    if (!name) {
+      continue;
+    }
+    const key = browseId || name.toLocaleLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push({
+      name,
+      browseId: browseId || undefined,
+      thumbnailUrl: String(artist.thumbnailUrl ?? "").trim() || undefined,
+    });
+  }
+  return result.length > 0 ? result : undefined;
 }
 
 function mapListenLiveCatalog(payload: ListenLiveCatalogDTO): ListenLiveCatalog {

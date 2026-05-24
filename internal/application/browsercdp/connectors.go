@@ -36,6 +36,9 @@ func ResolveConnectorCookiesForURL(ctx context.Context, connectors ConnectorsRea
 		return nil, err
 	}
 	for _, item := range items {
+		if strings.EqualFold(strings.TrimSpace(item.CredentialMode), "profile") {
+			continue
+		}
 		policy, ok := sitepolicy.ForConnectorType(item.Type)
 		if !ok || !sitepolicy.MatchDomains(rawURL, policy.Domains) {
 			continue

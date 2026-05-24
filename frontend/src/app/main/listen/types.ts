@@ -189,6 +189,12 @@ export type ListenArtistItem = {
   thumbnailUrl?: string;
 };
 
+export type ListenTrackArtist = {
+  name: string;
+  browseId?: string;
+  thumbnailUrl?: string;
+};
+
 export type ListenCategoryItem = {
   id: string;
   browseId: string;
@@ -205,6 +211,7 @@ export type ListenOnlineItem = {
   videoId: string;
   title: string;
   channel: string;
+  artists?: ListenTrackArtist[];
   artistBrowseId?: string;
   artistSource?: string;
   description: string;
@@ -253,6 +260,7 @@ export type ListenSearchItemDTO = {
   videoId: string;
   title: string;
   channel: string;
+  artists?: ListenTrackArtist[];
   artistBrowseId?: string;
   artistSource?: string;
   description: string;
@@ -315,6 +323,7 @@ export type ListenArtistResponseDTO = {
   id?: string;
   title?: string;
   subtitle?: string;
+  thumbnailUrl?: string;
   channelId?: string;
   isSubscribed?: boolean;
   mixPlaylistId?: string;

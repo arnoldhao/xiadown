@@ -2,11 +2,13 @@ package listenplayback
 
 import (
 	"context"
+	"strconv"
 )
 
 func (service *PlayerService) PlayQueue(ctx context.Context, tracks []Track, startingAt int, title string) error {
 	defer service.PublishSnapshot(ctx)
 	normalized := normalizeTracks(tracks)
+	normalized = assignUniqueQueueTrackIDs(normalized)
 	if len(normalized) == 0 {
 		return nil
 	}
@@ -76,6 +78,7 @@ func (service *PlayerService) PlayWithRadio(ctx context.Context, track Track, ti
 func (service *PlayerService) PlayRadioQueue(ctx context.Context, tracks []Track, startingAt int, title string) error {
 	defer service.PublishSnapshot(ctx)
 	normalized := normalizeTracks(tracks)
+	normalized = assignUniqueQueueTrackIDs(normalized)
 	if len(normalized) == 0 {
 		return nil
 	}
@@ -117,6 +120,7 @@ func (service *PlayerService) PlayWithMix(ctx context.Context, playlistID string
 		return err
 	}
 	tracks := normalizeTracks(result.Tracks)
+	tracks = assignUniqueQueueTrackIDs(tracks)
 	if len(tracks) == 0 {
 		return nil
 	}
@@ -180,6 +184,11 @@ func (service *PlayerService) Next(ctx context.Context) error {
 			return service.executeActions(ctx, transportAction{kind: "next"})
 		}
 		return nil
+	}
+
+	service.alignCurrentIndexToCurrentTrackLocked()
+	if service.shuffleEnabled && len(service.queue) > 1 && service.currentIndex >= len(service.queue)-1 {
+		service.materializeShuffleQueueLocked(service.queue, service.currentIndex, false, false)
 	}
 
 	if service.currentIndex < len(service.queue)-1 {
@@ -342,6 +351,7 @@ func (service *PlayerService) InsertNextInQueue(ctx context.Context, tracks []Tr
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
+	tracks = assignUniqueIncomingQueueTrackIDs(service.queue, tracks)
 	insertIndex := service.currentIndex + 1
 	if insertIndex > len(service.queue) {
 		insertIndex = len(service.queue)
@@ -360,23 +370,34 @@ func (service *PlayerService) AppendToQueue(ctx context.Context, tracks []Track)
 	}
 	service.mu.Lock()
 	service.recordQueueStateForUndoLocked()
+	tracks = assignUniqueIncomingQueueTrackIDs(service.queue, tracks)
 	service.queue = append(service.queue, tracks...)
 	service.mu.Unlock()
 	service.requestTracksMetadataEnrichment(tracks)
 	service.saveCurrentSession(ctx)
 }
 
-func (service *PlayerService) RemoveFromQueue(ctx context.Context, videoIDs map[string]struct{}) {
+func (service *PlayerService) RemoveFromQueue(ctx context.Context, trackIDs map[string]struct{}, videoIDs map[string]struct{}) {
 	defer service.PublishSnapshot(ctx)
-	if len(videoIDs) == 0 {
+	if len(trackIDs) == 0 && len(videoIDs) == 0 {
 		return
 	}
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
 	nextQueue := service.queue[:0]
+	removeByTrackID := len(trackIDs) > 0
 	for _, track := range service.queue {
-		if _, remove := videoIDs[track.VideoID]; !remove {
+		remove := false
+		if removeByTrackID {
+			_, remove = trackIDs[track.ID]
+			if !remove && track.ID == "" {
+				_, remove = videoIDs[track.VideoID]
+			}
+		} else {
+			_, remove = videoIDs[track.VideoID]
+		}
+		if !remove {
 			nextQueue = append(nextQueue, track)
 		}
 	}
@@ -394,23 +415,19 @@ func (service *PlayerService) ReorderQueue(ctx context.Context, videoIDs []strin
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
-	lookup := make(map[string]Track, len(service.queue))
+	lookup := make(map[string][]Track, len(service.queue))
 	for _, track := range service.queue {
-		lookup[track.VideoID] = track
+		lookup[track.VideoID] = append(lookup[track.VideoID], track)
 	}
 	reordered := make([]Track, 0, len(videoIDs))
-	seen := make(map[string]struct{}, len(videoIDs))
 	for _, videoID := range videoIDs {
 		videoID = normalizedVideoID(videoID)
-		if _, exists := seen[videoID]; exists {
+		tracks := lookup[videoID]
+		if len(tracks) == 0 {
 			continue
 		}
-		track, ok := lookup[videoID]
-		if !ok {
-			continue
-		}
-		reordered = append(reordered, track)
-		seen[videoID] = struct{}{}
+		reordered = append(reordered, tracks[0])
+		lookup[videoID] = tracks[1:]
 	}
 	service.queue = reordered
 	service.realignCurrentIndexLocked()
@@ -490,8 +507,9 @@ func (service *PlayerService) MoveQueueItems(ctx context.Context, source []int, 
 	nextQueue = append(nextQueue, remaining[insertAt:]...)
 	service.queue = nextQueue
 	if hasCurrent {
+		currentKey := queueTrackIdentity(current)
 		for index, track := range service.queue {
-			if track.VideoID == current.VideoID {
+			if queueTrackIdentity(track) == currentKey {
 				service.currentIndex = index
 				break
 			}
@@ -586,10 +604,11 @@ func (service *PlayerService) FetchMoreMixSongsIfNeeded(ctx context.Context) err
 		if _, ok := existing[track.VideoID]; ok {
 			continue
 		}
-		service.queue = append(service.queue, track)
 		existing[track.VideoID] = struct{}{}
 		addedTracks = append(addedTracks, track)
 	}
+	addedTracks = assignUniqueIncomingQueueTrackIDs(service.queue, addedTracks)
+	service.queue = append(service.queue, addedTracks...)
 	service.mixContinuationToken = stringsTrim(result.ContinuationToken)
 	service.mu.Unlock()
 	service.requestTracksMetadataEnrichment(addedTracks)
@@ -724,6 +743,7 @@ func (service *PlayerService) applyRadioQueue(ctx context.Context, seed Track, t
 		}
 		queue = append(queue, track)
 	}
+	queue = assignUniqueQueueTrackIDs(queue)
 	service.mu.Lock()
 	if !service.hasCurrentTrack || service.currentTrack.VideoID != seed.VideoID {
 		service.mu.Unlock()
@@ -756,19 +776,52 @@ func (service *PlayerService) recordQueueStateForUndoLocked() {
 }
 
 func (service *PlayerService) realignCurrentIndexLocked() {
+	service.alignCurrentIndexToCurrentTrackLocked()
+}
+
+func (service *PlayerService) alignCurrentIndexToCurrentTrackLocked() {
 	if len(service.queue) == 0 {
 		service.currentIndex = 0
 		return
 	}
-	if service.hasCurrentTrack {
+	service.currentIndex = safeQueueIndex(service.currentIndex, len(service.queue))
+	if !service.hasCurrentTrack {
+		return
+	}
+	if tracksReferToSameQueueItem(service.queue[service.currentIndex], service.currentTrack) {
+		return
+	}
+	if service.currentTrack.ID != "" {
 		for index, track := range service.queue {
-			if track.VideoID == service.currentTrack.VideoID {
+			if track.ID == service.currentTrack.ID {
 				service.currentIndex = index
 				return
 			}
 		}
 	}
-	service.currentIndex = safeQueueIndex(service.currentIndex, len(service.queue))
+	if service.currentTrack.VideoID == "" {
+		return
+	}
+	match := -1
+	for index, track := range service.queue {
+		if track.VideoID != service.currentTrack.VideoID {
+			continue
+		}
+		if match >= 0 {
+			return
+		}
+		match = index
+	}
+	if match >= 0 {
+		service.currentIndex = match
+	}
+}
+
+func tracksReferToSameQueueItem(left Track, right Track) bool {
+	if left.ID != "" && right.ID != "" {
+		return left.ID == right.ID
+	}
+	return left.VideoID != "" && left.VideoID == right.VideoID
 }
 
 func (service *PlayerService) realignCurrentTrackLocked() {
@@ -791,6 +844,50 @@ func normalizeTracks(tracks []Track) []Track {
 		normalized = append(normalized, track)
 	}
 	return normalized
+}
+
+func assignUniqueQueueTrackIDs(tracks []Track) []Track {
+	return assignUniqueIncomingQueueTrackIDs(nil, tracks)
+}
+
+func assignUniqueIncomingQueueTrackIDs(existing []Track, incoming []Track) []Track {
+	if len(incoming) == 0 {
+		return nil
+	}
+	used := make(map[string]struct{}, len(existing)+len(incoming))
+	for _, track := range existing {
+		trackID := stringsTrim(track.ID)
+		if trackID != "" {
+			used[trackID] = struct{}{}
+		}
+	}
+	assigned := cloneTracks(incoming)
+	for index := range assigned {
+		assigned[index].ID = uniqueQueueTrackID(assigned[index], used)
+	}
+	return assigned
+}
+
+func uniqueQueueTrackID(track Track, used map[string]struct{}) string {
+	base := stringsTrim(track.ID)
+	if base == "" {
+		base = normalizedVideoID(track.VideoID)
+	}
+	if base == "" {
+		base = "track"
+	}
+	candidate := base
+	if _, exists := used[candidate]; !exists {
+		used[candidate] = struct{}{}
+		return candidate
+	}
+	for suffix := 2; ; suffix++ {
+		candidate = base + "#queue-" + strconv.Itoa(suffix)
+		if _, exists := used[candidate]; !exists {
+			used[candidate] = struct{}{}
+			return candidate
+		}
+	}
 }
 
 func shuffleTracks(tracks []Track, random func(limit int) int) {

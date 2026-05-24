@@ -32,6 +32,9 @@ type Settings struct {
 	SyncedLyricsEnabled   bool           `json:"syncedLyricsEnabled"`
 	RomanizedLyrics       bool           `json:"romanizedLyrics"`
 	PinyinLyrics          bool           `json:"pinyinLyrics"`
+	ResourceSniffScope    string         `json:"resourceSniffScope"`
+	ResourceSniffMinBytes int            `json:"resourceSniffMinBytes"`
+	ResourceSniffRetain   int            `json:"resourceSniffRetain"`
 	Proxy                 Proxy          `json:"proxy"`
 	AppearanceConfig      map[string]any `json:"appearanceConfig,omitempty"`
 }
@@ -58,6 +61,9 @@ type UpdateSettingsRequest struct {
 	SyncedLyricsEnabled   *bool          `json:"syncedLyricsEnabled"`
 	RomanizedLyrics       *bool          `json:"romanizedLyrics"`
 	PinyinLyrics          *bool          `json:"pinyinLyrics"`
+	ResourceSniffScope    *string        `json:"resourceSniffScope"`
+	ResourceSniffMinBytes *int           `json:"resourceSniffMinBytes"`
+	ResourceSniffRetain   *int           `json:"resourceSniffRetain"`
 	Proxy                 *Proxy         `json:"proxy"`
 	AppearanceConfig      map[string]any `json:"appearanceConfig,omitempty"`
 }

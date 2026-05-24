@@ -157,6 +157,9 @@ function toSettings(raw: Partial<Settings>): Settings {
     syncedLyricsEnabled: raw.syncedLyricsEnabled !== false,
     romanizedLyrics: raw.romanizedLyrics !== false,
     pinyinLyrics: raw.pinyinLyrics !== false,
+    resourceSniffScope: normalizeResourceSniffScope(raw.resourceSniffScope),
+    resourceSniffMinBytes: normalizeResourceSniffMinBytes(raw.resourceSniffMinBytes),
+    resourceSniffRetain: normalizeResourceSniffRetain(raw.resourceSniffRetain),
     mainBounds: { ...(raw.mainBounds ?? { x: 0, y: 0, width: 0, height: 0 }) },
     settingsBounds: { ...(raw.settingsBounds ?? { x: 0, y: 0, width: 0, height: 0 }) },
     proxy: toProxySettings(BindingsProxy.createFrom(raw.proxy ?? {})),
@@ -242,6 +245,30 @@ function normalizeMenuBarVisibility(value?: string): Settings["menuBarVisibility
     default:
       return "whenRunning";
   }
+}
+
+function normalizeResourceSniffScope(value?: string): Settings["resourceSniffScope"] {
+  switch (value) {
+    case "advanced":
+    case "all":
+      return value;
+    default:
+      return "default";
+  }
+}
+
+function normalizeResourceSniffMinBytes(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 8 * 1024;
+  }
+  return Math.min(Math.round(value), 10 * 1024 * 1024);
+}
+
+function normalizeResourceSniffRetain(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 1000;
+  }
+  return Math.min(Math.max(Math.round(value), 100), 10000);
 }
 
 function normalizeProxyMode(value: string): ProxySettings["mode"] {

@@ -11,12 +11,17 @@ export { getListenErrorCode,getListenErrorMessage };
 
 export type ListenVideoAvailability = "checking" | "available" | "unavailable";
 export type ListenLyricsTrackRequest = Parameters<typeof fetchListenTrackLyrics>[1];
+export type ListenArtistLabelPart =
+  | { kind: "artist"; text: string }
+  | { kind: "separator"; text: string };
 
 const LISTEN_LYRICS_AUTO_RETRY_DELAYS_MS = [700, 1600] as const;
 export const LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO = 16 / 9;
 const LISTEN_INLINE_VIDEO_MIN_ASPECT_RATIO = 9 / 16;
 const LISTEN_INLINE_VIDEO_MAX_ASPECT_RATIO = 21 / 9;
 const LISTEN_RELEASE_YEAR_ARTIST_PATTERN = /^(?:19|20)\d{2}\s*年?$/;
+const LISTEN_ARTIST_SEPARATOR_PATTERN =
+  /(\s*(?:,|，|、|;|；|\|)\s*|\s+\/\s+|\s+(?:&|and|feat\.?|ft\.?|featuring|with|x|×)\s+)/gi;
 
 export const LISTEN_EMPTY_PROGRESS = {
   currentTime: 0,
@@ -46,6 +51,7 @@ export function hasTrustedListenOnlineArtist(
   return (
     Boolean(item.artistBrowseId?.trim()) ||
     item.artistSource === "api-linked" ||
+    item.artistSource === "api-linked-multiple" ||
     item.artistSource === "api-metadata"
   );
 }
@@ -55,6 +61,36 @@ export function resolveTrustedListenOnlineArtistLabel(
   fallback = "",
 ) {
   return hasTrustedListenOnlineArtist(item) ? item.channel.trim() : fallback.trim();
+}
+
+export function splitListenArtistLabel(value: string): ListenArtistLabelPart[] {
+  const label = value.trim();
+  if (!label) {
+    return [];
+  }
+  const parts: ListenArtistLabelPart[] = [];
+  const pattern = new RegExp(LISTEN_ARTIST_SEPARATOR_PATTERN);
+  let previousIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(label)) !== null) {
+    const artist = label.slice(previousIndex, match.index).trim();
+    if (artist) {
+      parts.push({ kind: "artist", text: artist });
+    }
+    if (match[0]) {
+      parts.push({ kind: "separator", text: match[0] });
+    }
+    previousIndex = match.index + match[0].length;
+  }
+  const artist = label.slice(previousIndex).trim();
+  if (artist) {
+    parts.push({ kind: "artist", text: artist });
+  }
+  return parts.length > 0 ? parts : [{ kind: "artist", text: label }];
+}
+
+export function listenArtistCountFromLabelParts(parts: ListenArtistLabelPart[]) {
+  return parts.filter((part) => part.kind === "artist").length;
 }
 
 export function readListenNativeEventURLVideoId(value: string) {

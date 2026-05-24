@@ -86,6 +86,7 @@ func mapYouTubeMusicTrackMetadataToListenItem(metadata youtubemusic.TrackMetadat
 		VideoID:                videoID,
 		Title:                  title,
 		Channel:                channel,
+		Artists:                mapYouTubeMusicTrackArtistsToListenArtistItems(metadata.Artists, "ytmusic-track-artist"),
 		ArtistBrowseID:         strings.TrimSpace(metadata.ArtistBrowseID),
 		ArtistSource:           strings.TrimSpace(metadata.ArtistSource),
 		Description:            "",

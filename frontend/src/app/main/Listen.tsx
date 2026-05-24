@@ -15,7 +15,7 @@ import { hasTrustedListenOnlineArtist,isMissingListenArtistLabel } from "@/app/m
 import { useListenPlaybackStore } from "@/app/main/listen/playback-store";
 import { pushListenForwardSkipIndex,resolveListenQueueNextAction,resolveListenQueuePreviousAction } from "@/app/main/listen/queue";
 import { buildListenHighQualityThumbnailURL,buildListenImageCacheURL,buildYouTubePosterURL,dedupeLibraryShelves,dedupeOnlineItems,dedupePlaylistItems,readListenStorageState,updateListenProgressMap,writeListenStorageState } from "@/app/main/listen/storage";
-import type { ListenArtistBrowseState,ListenArtistItem,ListenCategoryItem,ListenLibraryShelf,ListenLiveGroup,ListenLiveStatus,ListenMode,ListenNativePlayerEvent,ListenNowPlayingStatus,ListenOnlineBrowseDetail,ListenOnlineBrowseSource,ListenOnlineItem,ListenPageProps,ListenPlayMode,ListenPlaybackProgressState,ListenPlayerCommand,ListenPlaylistItem,ListenPlaylistLibraryAction,ListenRemotePlaybackState,ListenSidebarView } from "@/app/main/listen/types";
+import type { ListenArtistBrowseState,ListenArtistItem,ListenCategoryItem,ListenLibraryShelf,ListenLiveGroup,ListenLiveStatus,ListenMode,ListenNativePlayerEvent,ListenNowPlayingStatus,ListenOnlineBrowseDetail,ListenOnlineBrowseSource,ListenOnlineItem,ListenPageProps,ListenPlayMode,ListenPlaybackProgressState,ListenPlayerCommand,ListenPlaylistItem,ListenPlaylistLibraryAction,ListenRemotePlaybackState,ListenSidebarView,ListenTrackArtist } from "@/app/main/listen/types";
 export { ListenLocalPreviewPlayer } from "@/app/main/listen/LocalPreviewPlayer";
 export type { ListenExternalCommand,ListenLocalPreviewTrack,ListenMode,ListenNowPlayingStatus } from "@/app/main/listen/types";
 
@@ -61,6 +61,8 @@ function mergeListenNativeTrackItem(
   const currentArtistTrusted = hasTrustedListenOnlineArtist(current);
   const incomingVideoKnown = incoming.videoAvailabilityKnown === true;
   const currentVideoKnown = current.videoAvailabilityKnown === true;
+  const incomingArtists = normalizeListenTrackArtists(incoming.artists);
+  const currentArtists = normalizeListenTrackArtists(current.artists);
   return {
     ...current,
     videoId,
@@ -73,6 +75,7 @@ function mergeListenNativeTrackItem(
       : currentArtistTrusted
         ? current.channel
         : LISTEN_UNKNOWN_ARTIST,
+    artists: incomingArtists ?? currentArtists,
     artistBrowseId: incoming.artistBrowseId || current.artistBrowseId,
     artistSource: incomingArtistTrusted
       ? incoming.artistSource || (incoming.artistBrowseId ? "api-linked" : undefined)
@@ -90,6 +93,34 @@ function mergeListenNativeTrackItem(
     videoAvailabilityKnown:
       incomingVideoKnown || currentVideoKnown ? true : undefined,
   };
+}
+
+function normalizeListenTrackArtists(
+  artists: ListenTrackArtist[] | undefined,
+): ListenTrackArtist[] | undefined {
+  if (!Array.isArray(artists) || artists.length === 0) {
+    return undefined;
+  }
+  const result: ListenTrackArtist[] = [];
+  const seen = new Set<string>();
+  for (const artist of artists) {
+    const name = artist.name.trim();
+    const browseId = artist.browseId?.trim() ?? "";
+    if (!name) {
+      continue;
+    }
+    const key = browseId || name.toLocaleLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push({
+      name,
+      browseId: browseId || undefined,
+      thumbnailUrl: artist.thumbnailUrl?.trim() || undefined,
+    });
+  }
+  return result.length > 0 ? result : undefined;
 }
 
 const LISTEN_REMOTE_PLAYBACK_STATES: ListenRemotePlaybackState[] = [
@@ -850,6 +881,7 @@ export function ListenPage(props: ListenPageProps) {
                   id: payload.id || current.id,
                   title: payload.title || current.title,
                   subtitle: payload.subtitle,
+                  thumbnailUrl: payload.thumbnailUrl || current.thumbnailUrl,
                   channelId: payload.channelId,
                   isSubscribed: payload.isSubscribed,
                   mixPlaylistId: payload.mixPlaylistId,
@@ -1501,11 +1533,15 @@ export function ListenPage(props: ListenPageProps) {
       : props.controlCommand?.command === "play" &&
         props.controlCommand.id === handledExternalCommandRef.current;
   const listenNowPlayingStatus = React.useMemo<ListenNowPlayingStatus>(() => {
+    const onlineHasPlayableBuffer =
+      onlinePlaying &&
+      (playbackMode === "hush" ||
+        onlineProgress.currentTime > 0.15 ||
+        onlineProgress.bufferedTime > 0.15);
     const onlineLoading =
       playbackMode !== "linger" &&
-      onlineState === "loading" &&
-      !onlinePlaying &&
-      onlinePlayerCommand?.command === "play";
+      (onlineState === "loading" ||
+        (onlineState === "buffering" && !onlineHasPlayableBuffer));
     const localLoading =
       playbackMode === "linger" && externalPlayRequested && !localPlaying;
     const hasVisibleSession =
@@ -2808,11 +2844,14 @@ export function ListenPage(props: ListenPageProps) {
 
   const selectOnlineQueueTrack = React.useCallback(
     (item: ListenOnlineItem) => {
-      const queueIndex = onlinePlaybackQueue.findIndex(
-        (queueItem) =>
-          queueItem.id === item.id ||
-          (!!item.videoId && queueItem.videoId === item.videoId),
+      let queueIndex = onlinePlaybackQueue.findIndex(
+        (queueItem) => queueItem.id === item.id,
       );
+      if (queueIndex < 0 && item.videoId) {
+        queueIndex = onlinePlaybackQueue.findIndex(
+          (queueItem) => queueItem.videoId === item.videoId,
+        );
+      }
       const queueItems = queueIndex >= 0 ? onlinePlaybackQueue : [item];
       runOnlinePlaybackCommand(
         () =>
@@ -2848,7 +2887,7 @@ export function ListenPage(props: ListenPageProps) {
         return;
       }
       runOnlinePlaybackCommand(() =>
-        callListenPlaybackRemoveFromQueue([item.videoId]),
+        callListenPlaybackRemoveFromQueue([item]),
       );
     },
     [runOnlinePlaybackCommand],
@@ -2884,17 +2923,25 @@ export function ListenPage(props: ListenPageProps) {
       if (!artistName) {
         return;
       }
+      const artistBrowseId = item.artistBrowseId?.trim() ?? "";
+      const artist = item.artists?.find((candidate) => {
+        const candidateBrowseId = candidate.browseId?.trim() ?? "";
+        return (
+          (artistBrowseId && candidateBrowseId === artistBrowseId) ||
+          candidate.name.trim() === artistName
+        );
+      });
       setListOpen(true);
       setMode("muse");
       setSidebarView("browse");
       setBrowsePlaylistId("");
       setQuery("");
       setArtistBrowsePage({
-        id: item.artistBrowseId?.trim() ?? "",
+        id: artistBrowseId,
         name: artistName,
         title: artistName,
         subtitle: "",
-        thumbnailUrl: item.thumbnailUrl,
+        thumbnailUrl: artist?.thumbnailUrl,
         channelId: "",
         isSubscribed: false,
         mixPlaylistId: "",

@@ -5,6 +5,7 @@ import type {
   ListenOnlineQueueState,
   ListenPlayMode,
   ListenRemotePlaybackState,
+  ListenTrackArtist,
 } from "@/app/main/listen/types";
 
 export type ListenPlaybackRepeatMode = "off" | "all" | "one";
@@ -14,6 +15,7 @@ export type ListenPlaybackTrack = {
   videoId: string;
   title: string;
   artist: string;
+  artists?: ListenTrackArtist[];
   artistBrowseId?: string;
   artistSource?: string;
   durationLabel?: string;
@@ -134,6 +136,7 @@ export function listenPlaybackTrackFromOnlineItem(
     videoId: item.videoId,
     title: item.title,
     artist: item.channel,
+    artists: item.artists,
     artistBrowseId: item.artistBrowseId,
     artistSource: item.artistSource || (item.artistBrowseId ? "api-linked" : undefined),
     durationLabel: item.durationLabel,
@@ -155,6 +158,7 @@ export function listenOnlineItemFromPlaybackTrack(
     videoId: track.videoId,
     title: track.title || track.videoId,
     channel: track.artist || "YouTube Music",
+    artists: track.artists,
     artistBrowseId: track.artistBrowseId,
     artistSource: track.artistSource,
     description: "",
@@ -326,9 +330,10 @@ export async function callListenPlaybackClearQueueEntirely() {
   return callListenPlaybackSnapshotByName("ClearQueueEntirely");
 }
 
-export async function callListenPlaybackRemoveFromQueue(videoIds: string[]) {
+export async function callListenPlaybackRemoveFromQueue(items: ListenOnlineItem[]) {
   return callListenPlaybackSnapshotByName("RemoveFromQueue", {
-    videoIds,
+    trackIds: items.map((item) => item.id).filter(Boolean),
+    videoIds: items.map((item) => item.videoId).filter(Boolean),
   });
 }
 

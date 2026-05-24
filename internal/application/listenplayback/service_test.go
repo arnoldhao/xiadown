@@ -274,6 +274,43 @@ func TestPlayWithMixShufflesFetchedQueueBeforePlayback(t *testing.T) {
 	}
 }
 
+func TestNextAtMixQueueEndFetchesContinuation(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := NewPlayerService(
+		transport,
+		WithLibraryClient(fakeLibraryClient{
+			mixQueueResult: MixQueueResult{
+				Tracks:            []Track{{ID: "one", VideoID: "video-one", Title: "One"}},
+				ContinuationToken: "next",
+			},
+			continuationQueue: MixQueueResult{
+				Tracks: []Track{{ID: "two", VideoID: "video-two", Title: "Two"}},
+			},
+		}),
+		WithRandomIndex(func(int) int { return 0 }),
+	)
+	service.ConfirmPlaybackStarted()
+	if err := service.PlayWithMix(ctx, "mix-playlist", "", "Mix"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.Next(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected next to advance into fetched continuation, got index %d", index)
+	}
+	if len(queue) != 2 {
+		t.Fatalf("expected continuation track to be appended, got queue length %d", len(queue))
+	}
+	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-two" {
+		t.Fatalf("expected continuation track to load, got %q", got)
+	}
+}
+
 func TestPlayRadioQueueKeepsRadioKindAndStartsAtRequestedIndex(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
@@ -505,6 +542,132 @@ func TestNextWithShuffleAndRepeatOneFollowsMaterializedQueue(t *testing.T) {
 	}
 	if got := transport.loads[len(transport.loads)-1].videoID; got != queue[1].VideoID {
 		t.Fatalf("expected next load to follow visible queue, got %q want %q", got, queue[1].VideoID)
+	}
+}
+
+func TestNextWithShuffleAtQueueEndRematerializesAroundCurrentTrack(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks(), 2, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	service.shuffleEnabled = true
+	service.appInitiatedPlayback = false
+	service.mu.Unlock()
+
+	if err := service.Next(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected next to advance into a rematerialized shuffle queue, got index %d", index)
+	}
+	if got := queue[0].VideoID; got != "video-three" {
+		t.Fatalf("expected current track to lead rematerialized queue, got %q", got)
+	}
+	if got := transport.loads[len(transport.loads)-1].videoID; got != queue[index].VideoID {
+		t.Fatalf("expected loaded track to follow rematerialized queue, got %q want %q", got, queue[index].VideoID)
+	}
+	if transport.loads[len(transport.loads)-1].videoID == "video-three" {
+		t.Fatal("expected shuffle next to leave the queue-end current track")
+	}
+}
+
+func TestNearEndShuffleAtQueueEndRematerializesAroundCurrentTrack(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks(), 2, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	service.shuffleEnabled = true
+	service.appInitiatedPlayback = false
+	service.mu.Unlock()
+	if err := service.UpdatePlaybackState(ctx, true, 199, 200); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-one",
+		Title:           "One",
+		Artist:          "Artist",
+		TrackChanged:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected near-end shuffle recovery to advance into rematerialized queue, got index %d", index)
+	}
+	if got := queue[0].VideoID; got != "video-three" {
+		t.Fatalf("expected current track to lead rematerialized queue, got %q", got)
+	}
+	if got := transport.loads[len(transport.loads)-1].videoID; got != queue[index].VideoID {
+		t.Fatalf("expected near-end recovery load to follow rematerialized queue, got %q want %q", got, queue[index].VideoID)
+	}
+	if transport.loads[len(transport.loads)-1].videoID == "video-three" {
+		t.Fatal("expected near-end shuffle recovery to leave the queue-end current track")
+	}
+}
+
+func TestNextPreservesCurrentDuplicateQueueEntry(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	tracks := []Track{
+		{ID: "first", VideoID: "video-one", Title: "One"},
+		{ID: "repeat", VideoID: "video-one", Title: "One Again"},
+		{ID: "second", VideoID: "video-two", Title: "Two"},
+	}
+
+	if err := service.PlayQueue(ctx, tracks, 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Next(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 2 {
+		t.Fatalf("expected duplicate current entry to advance from index 1 to 2, got %d", index)
+	}
+	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-two" {
+		t.Fatalf("expected next track video-two, got %q", got)
+	}
+}
+
+func TestNextRealignsDuplicateQueueEntryByTrackID(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	tracks := []Track{
+		{ID: "first", VideoID: "video-one", Title: "One"},
+		{ID: "repeat", VideoID: "video-one", Title: "One Again"},
+		{ID: "second", VideoID: "video-two", Title: "Two"},
+	}
+
+	if err := service.PlayQueue(ctx, tracks, 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	service.currentIndex = 0
+	service.mu.Unlock()
+	if err := service.Next(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 2 {
+		t.Fatalf("expected stale duplicate index to realign to current track before next, got %d", index)
+	}
+	if got := transport.loads[len(transport.loads)-1].videoID; got != "video-two" {
+		t.Fatalf("expected next track video-two, got %q", got)
 	}
 }
 
@@ -1067,6 +1230,7 @@ func TestPlayQueueEnrichesUpNextArtistFromLibraryMetadata(t *testing.T) {
 					VideoID:      "video-two",
 					Title:        "Two",
 					Artist:       "Resolved Artist",
+					Artists:      []TrackArtist{{Name: "Resolved Artist", BrowseID: "UCresolved"}},
 					ArtistSource: TrackArtistSourceAPIMetadata,
 				},
 			},
@@ -1081,6 +1245,9 @@ func TestPlayQueueEnrichesUpNextArtistFromLibraryMetadata(t *testing.T) {
 	track := waitForQueueTrackArtist(t, service, "video-two", "Resolved Artist")
 	if track.ArtistSource != TrackArtistSourceAPIMetadata {
 		t.Fatalf("expected enriched queue artist to come from API metadata, got %#v", track)
+	}
+	if len(track.Artists) != 1 || track.Artists[0].BrowseID != "UCresolved" {
+		t.Fatalf("expected enriched queue structured artists, got %#v", track)
 	}
 }
 
@@ -1238,6 +1405,171 @@ func TestMoveQueueItemsMaintainsCurrentTrackAndBlocksMovingCurrent(t *testing.T)
 	}
 }
 
+func TestRemoveFromQueueUsesTrackIDForDuplicateEntries(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	tracks := []Track{
+		{ID: "first", VideoID: "video-one", Title: "One"},
+		{ID: "repeat", VideoID: "video-one", Title: "One Again"},
+		{ID: "second", VideoID: "video-two", Title: "Two"},
+	}
+
+	if err := service.PlayQueue(ctx, tracks, 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.RemoveFromQueue(ctx, map[string]struct{}{"first": {}}, map[string]struct{}{"video-one": {}})
+
+	queue, index := service.Queue()
+	if len(queue) != 2 {
+		t.Fatalf("expected only one duplicate queue entry to be removed, got %d", len(queue))
+	}
+	if got := []string{queue[0].ID, queue[1].ID}; got[0] != "repeat" || got[1] != "second" {
+		t.Fatalf("expected queue [repeat second], got %v", got)
+	}
+	if index != 0 {
+		t.Fatalf("expected current duplicate entry to realign to index 0, got %d", index)
+	}
+}
+
+func TestPlayQueueAssignsUniqueIDsForDuplicateQueueRows(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	tracks := []Track{
+		{ID: "song", VideoID: "video-one", Title: "One"},
+		{ID: "song", VideoID: "video-one", Title: "One Again"},
+		{ID: "other", VideoID: "video-two", Title: "Two"},
+	}
+
+	if err := service.PlayQueue(ctx, tracks, 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	queue, index := service.Queue()
+	if len(queue) != 3 {
+		t.Fatalf("expected duplicate queue rows to be preserved, got %d", len(queue))
+	}
+	if queue[0].ID == queue[1].ID {
+		t.Fatalf("expected duplicate queue rows to have unique IDs, got %q", queue[0].ID)
+	}
+	if index != 1 {
+		t.Fatalf("expected selected duplicate to remain current, got index %d", index)
+	}
+
+	service.RemoveFromQueue(ctx, map[string]struct{}{queue[0].ID: {}}, map[string]struct{}{queue[0].VideoID: {}})
+	queue, index = service.Queue()
+	if len(queue) != 2 {
+		t.Fatalf("expected removing one duplicate row to leave two queue rows, got %d", len(queue))
+	}
+	if queue[0].ID == "song" || queue[0].VideoID != "video-one" {
+		t.Fatalf("expected remaining duplicate row to stay in queue, got %#v", queue[0])
+	}
+	if index != 0 {
+		t.Fatalf("expected current duplicate row to realign to index 0, got %d", index)
+	}
+}
+
+func TestAppendToQueueAssignsUniqueIDAgainstExistingQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueue(ctx, []Track{{ID: "song", VideoID: "video-one", Title: "One"}}, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.AppendToQueue(ctx, []Track{{ID: "song", VideoID: "video-one", Title: "One Again"}})
+
+	queue, _ := service.Queue()
+	if len(queue) != 2 {
+		t.Fatalf("expected duplicate append to preserve both queue rows, got %d", len(queue))
+	}
+	if queue[0].ID == queue[1].ID {
+		t.Fatalf("expected appended duplicate to receive a unique queue ID, got %q", queue[0].ID)
+	}
+}
+
+func TestMergeTrackMetadataPreservesQueueEntryIDs(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	tracks := []Track{
+		{ID: "song", VideoID: "video-one", Title: "video-one", Artist: "YouTube Music"},
+		{ID: "song", VideoID: "video-one", Title: "video-one", Artist: "YouTube Music"},
+	}
+
+	if err := service.PlayQueue(ctx, tracks, 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := service.Queue()
+	service.MergeTrackMetadata(ctx, Track{
+		ID:           "video-one",
+		VideoID:      "video-one",
+		Title:        "Resolved One",
+		Artist:       "Resolved Artist",
+		ThumbnailURL: "https://example.test/one.jpg",
+	})
+
+	after, _ := service.Queue()
+	if after[0].ID != before[0].ID || after[1].ID != before[1].ID {
+		t.Fatalf("expected metadata merge to preserve queue IDs, before=%v after=%v", []string{before[0].ID, before[1].ID}, []string{after[0].ID, after[1].ID})
+	}
+	if after[0].Title != "Resolved One" || after[1].Title != "Resolved One" {
+		t.Fatalf("expected metadata to update duplicate queue rows, got %#v", after)
+	}
+}
+
+func TestMoveQueueItemsPreservesCurrentDuplicateQueueEntry(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	tracks := []Track{
+		{ID: "first", VideoID: "video-one", Title: "One"},
+		{ID: "repeat", VideoID: "video-one", Title: "One Again"},
+		{ID: "second", VideoID: "video-two", Title: "Two"},
+	}
+
+	if err := service.PlayQueue(ctx, tracks, 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.MoveQueueItems(ctx, []int{2}, 0)
+
+	queue, index := service.Queue()
+	if got := []string{queue[0].ID, queue[1].ID, queue[2].ID}; got[0] != "second" || got[1] != "first" || got[2] != "repeat" {
+		t.Fatalf("expected moved queue [second first repeat], got %v", got)
+	}
+	if index != 2 {
+		t.Fatalf("expected duplicate current track to remain at index 2, got %d", index)
+	}
+}
+
+func TestReorderQueuePreservesDuplicateVideoIDs(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	tracks := []Track{
+		{ID: "first", VideoID: "video-one", Title: "One"},
+		{ID: "repeat", VideoID: "video-one", Title: "One Again"},
+		{ID: "second", VideoID: "video-two", Title: "Two"},
+	}
+
+	if err := service.PlayQueue(ctx, tracks, 1, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	service.ReorderQueue(ctx, []string{"video-two", "video-one", "video-one"})
+
+	queue, index := service.Queue()
+	if len(queue) != 3 {
+		t.Fatalf("expected duplicate queue entries to be preserved, got %d", len(queue))
+	}
+	if got := []string{queue[0].ID, queue[1].ID, queue[2].ID}; got[0] != "second" || got[1] != "first" || got[2] != "repeat" {
+		t.Fatalf("expected reordered queue [second first repeat], got %v", got)
+	}
+	if index != 2 {
+		t.Fatalf("expected current duplicate entry to realign to index 2, got %d", index)
+	}
+}
+
 func TestRestoredPlaybackSessionSeeksThenAutoResumes(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
@@ -1267,13 +1599,13 @@ func TestRestoredPlaybackSessionSeeksThenAutoResumes(t *testing.T) {
 	}
 }
 
-func TestRestorePlaybackSessionPrefersPersistedCurrentVideoID(t *testing.T) {
+func TestRestorePlaybackSessionUsesCurrentVideoIDWhenSavedIndexInvalid(t *testing.T) {
 	ctx := context.Background()
 	store := &fakeSessionStore{
 		ok: true,
 		session: RestoredPlaybackSession{
 			Queue:          makeTracks(),
-			CurrentIndex:   0,
+			CurrentIndex:   99,
 			CurrentVideoID: "video-three",
 			Progress:       12,
 			Duration:       200,
@@ -1300,6 +1632,45 @@ func TestRestorePlaybackSessionPrefersPersistedCurrentVideoID(t *testing.T) {
 	track, ok := service.CurrentTrack()
 	if !ok || track.VideoID != "video-three" {
 		t.Fatalf("expected restored current track video-three, got %#v", track)
+	}
+}
+
+func TestRestorePlaybackSessionKeepsDuplicateQueueIndex(t *testing.T) {
+	ctx := context.Background()
+	store := &fakeSessionStore{
+		ok: true,
+		session: RestoredPlaybackSession{
+			Queue: []Track{
+				{ID: "song", VideoID: "video-one", Title: "One"},
+				{ID: "song", VideoID: "video-one", Title: "One Again"},
+				{ID: "other", VideoID: "video-two", Title: "Two"},
+			},
+			QueueKind:      QueueKindPlaylist,
+			CurrentIndex:   1,
+			CurrentVideoID: "video-one",
+			Volume:         1,
+		},
+	}
+	service := NewPlayerService(&fakeTransport{}, WithSessionStore(store))
+
+	restored, err := service.RestorePlaybackSession(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !restored {
+		t.Fatal("expected playback session to restore")
+	}
+
+	queue, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected valid saved index to win over duplicate video id, got %d", index)
+	}
+	if queue[0].ID == queue[1].ID {
+		t.Fatalf("expected restored duplicate queue rows to receive unique IDs, got %q", queue[0].ID)
+	}
+	track, ok := service.CurrentTrack()
+	if !ok || track.ID != queue[1].ID {
+		t.Fatalf("expected current track to keep restored queue entry ID, track=%#v queue=%#v", track, queue)
 	}
 }
 

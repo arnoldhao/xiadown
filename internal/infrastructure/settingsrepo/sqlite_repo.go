@@ -63,6 +63,10 @@ func (repo *SQLiteSettingsRepository) Get(ctx context.Context) (settings.Setting
 	syncedLyricsEnabled := boolOrDefault(row.SyncedLyricsEnabled, settings.DefaultSyncedLyricsEnabled)
 	romanizedLyrics := boolOrDefault(row.RomanizedLyrics, settings.DefaultRomanizedLyrics)
 	pinyinLyrics := boolOrDefault(row.PinyinLyrics, settings.DefaultPinyinLyrics)
+	resourceSniffScope := stringOrEmpty(row.ResourceSniffScope)
+	if resourceSniffScope == "" {
+		resourceSniffScope = settings.DefaultResourceSniffScope.String()
+	}
 
 	var lastTestedAt *time.Time
 	if row.ProxyTestedAt.Valid {
@@ -112,6 +116,9 @@ func (repo *SQLiteSettingsRepository) Get(ctx context.Context) (settings.Setting
 		SyncedLyricsEnabled:   &syncedLyricsEnabled,
 		RomanizedLyrics:       &romanizedLyrics,
 		PinyinLyrics:          &pinyinLyrics,
+		ResourceSniffScope:    resourceSniffScope,
+		ResourceSniffMinBytes: clampResourceSniffMinBytes(row.ResourceSniffMinBytes),
+		ResourceSniffRetain:   clampResourceSniffRetain(row.ResourceSniffRetain),
 		AppearanceConfig:      parseAnyMap(row.AppearanceConfigJSON),
 	})
 }
@@ -139,6 +146,9 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		SyncedLyricsEnabled:   nullBool(current.SyncedLyricsEnabled()),
 		RomanizedLyrics:       nullBool(current.RomanizedLyrics()),
 		PinyinLyrics:          nullBool(current.PinyinLyrics()),
+		ResourceSniffScope:    nullString(current.ResourceSniffScope().String()),
+		ResourceSniffMinBytes: nullInt64(current.ResourceSniffMinBytes()),
+		ResourceSniffRetain:   nullInt64(current.ResourceSniffRetain()),
 		AppearanceConfigJSON:  jsonAnyMap(current.AppearanceConfig()),
 		MainX:                 nullInt64(current.MainBounds().X()),
 		MainY:                 nullInt64(current.MainBounds().Y()),
@@ -183,6 +193,9 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		Set("synced_lyrics_enabled = EXCLUDED.synced_lyrics_enabled").
 		Set("romanized_lyrics = EXCLUDED.romanized_lyrics").
 		Set("pinyin_lyrics = EXCLUDED.pinyin_lyrics").
+		Set("resource_sniff_scope = EXCLUDED.resource_sniff_scope").
+		Set("resource_sniff_min_bytes = EXCLUDED.resource_sniff_min_bytes").
+		Set("resource_sniff_retain = EXCLUDED.resource_sniff_retain").
 		Set("appearance_config_json = EXCLUDED.appearance_config_json").
 		Set("main_x = EXCLUDED.main_x").
 		Set("main_y = EXCLUDED.main_y").
@@ -283,6 +296,34 @@ func clampPositiveOrDefault(value sql.NullInt64, fallback int) int {
 	val := int(value.Int64)
 	if val <= 0 {
 		return fallback
+	}
+	return val
+}
+
+func clampResourceSniffMinBytes(value sql.NullInt64) int {
+	if !value.Valid {
+		return settings.DefaultResourceSniffMinBytes
+	}
+	val := int(value.Int64)
+	if val <= 0 {
+		return settings.DefaultResourceSniffMinBytes
+	}
+	if val > settings.MaxResourceSniffMinBytes {
+		return settings.MaxResourceSniffMinBytes
+	}
+	return val
+}
+
+func clampResourceSniffRetain(value sql.NullInt64) int {
+	if !value.Valid {
+		return settings.DefaultResourceSniffRetain
+	}
+	val := int(value.Int64)
+	if val < settings.MinResourceSniffRetain {
+		return settings.MinResourceSniffRetain
+	}
+	if val > settings.MaxResourceSniffRetain {
+		return settings.MaxResourceSniffRetain
 	}
 	return val
 }

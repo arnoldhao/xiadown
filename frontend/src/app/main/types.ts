@@ -1,6 +1,12 @@
 import type { LibraryDTO,LibraryMediaInfoDTO,OperationListItemDTO } from "@/shared/contracts/library";
 
-export type MainViewId = "running" | "completed" | "listen" | "connections" | "petsGallery";
+export type MainViewId =
+  | "running"
+  | "completed"
+  | "listen"
+  | "connections"
+  | "petsGallery"
+  | "sniffDesk";
 export type CompletedViewMode = "tasks" | "files";
 export type CompletedContextMenuTarget =
   | { kind: "task"; id: string; x: number; y: number }
@@ -63,7 +69,7 @@ export type NewTaskDialogTranscodeSource = {
   author?: string;
 };
 export type DownloadDialogStep = "input" | "config";
-export type DownloadDialogTab = "quick" | "custom";
+export type DownloadDialogTab = "quick" | "custom" | "sniff";
 export type DownloadQuality = "best" | "audio";
 export type SourceMediaType = "video" | "audio";
 export type SelectOption = {
