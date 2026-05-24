@@ -140,13 +140,13 @@ jobs:
           echo "Binary build metadata:"
           otool -l bin/xiadown | grep -A3 -B1 LC_BUILD_VERSION
           echo "Bundle minimum OS version:"
-          plutil -p bin/xiadown.app/Contents/Info.plist | grep LSMinimumSystemVersion
+          plutil -p bin/XiaDown.app/Contents/Info.plist | grep LSMinimumSystemVersion
 
       - name: Prepare zip artifact
         run: |
           mkdir -p dist
           ditto -c -k --sequesterRsrc --keepParent \
-            bin/xiadown.app \
+            bin/XiaDown.app \
             dist/xiadown-macos-${{ matrix.artifact_suffix }}-${VERSION}.zip
 
       - name: SHA256
