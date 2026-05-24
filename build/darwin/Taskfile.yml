@@ -178,6 +178,7 @@ tasks:
     summary: Ad-hoc signs the app bundle (macOS only)
     internal: true
     cmds:
+      - task: ensure:entitlements
       - codesign --force --deep --sign - {{if .ENTITLEMENTS}}--entitlements "{{.ENTITLEMENTS}}"{{end}} "{{.BIN_DIR}}/{{.APP_NAME}}.app"
 
   codesign:skip:
@@ -196,12 +197,36 @@ tasks:
       - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - go run ./build/tools/render_metadata darwin-plist --input build/darwin/Info.dev.plist --output "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Info.plist" --version "{{.EFFECTIVE_APP_VERSION}}"
+      - task: ensure:entitlements
       - codesign --force --deep --sign - {{if .ENTITLEMENTS}}--entitlements "{{.ENTITLEMENTS}}"{{end}} "{{.BIN_DIR}}/{{.APP_NAME}}.app"
       - '{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS/{{.APP_NAME}}'
     vars:
       APP_VERSION:
         sh: 'printf %s "${APP_VERSION:-}"'
       EFFECTIVE_APP_VERSION: '{{if .APP_VERSION}}{{.APP_VERSION}}{{else}}dev{{end}}'
+
+  ensure:entitlements:
+    summary: Ensures the macOS entitlements plist exists after Wails regenerates build assets
+    internal: true
+    cmds:
+      - |
+        if [ -z "{{.ENTITLEMENTS}}" ]; then
+          exit 0
+        fi
+        if [ ! -f "{{.ENTITLEMENTS}}" ]; then
+          mkdir -p "$(dirname "{{.ENTITLEMENTS}}")"
+          cat > "{{.ENTITLEMENTS}}" <<'PLIST'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>com.apple.security.device.audio-input</key>
+          <true/>
+        </dict>
+        </plist>
+        PLIST
+        fi
+        plutil -lint "{{.ENTITLEMENTS}}" >/dev/null
 
   sign:
     summary: Signs the application bundle with Developer ID
