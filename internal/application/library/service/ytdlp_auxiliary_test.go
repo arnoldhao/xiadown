@@ -212,6 +212,33 @@ func TestOperationDTOsExposeExistingThumbnailPreviewPath(t *testing.T) {
 	if listItem.Request == nil || listItem.Request.URL != "https://example.com/watch?v=episode" {
 		t.Fatalf("expected list operation request URL to be exposed, got %+v", listItem.Request)
 	}
+	if listItem.Request.DownloadMethod != operationDownloadMethodYTDLP {
+		t.Fatalf("expected yt-dlp download method, got %q", listItem.Request.DownloadMethod)
+	}
+}
+
+func TestOperationListItemDTOExposesResourceSniffDownloadMethod(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	operation := library.LibraryOperation{
+		ID:          "op-resource",
+		LibraryID:   "lib-1",
+		Kind:        "download",
+		Status:      library.OperationStatusFailed,
+		DisplayName: "Sniffed episode",
+		InputJSON:   `{"url":"https://www.douyin.com/video/123","resourceMediaId":"media-1"}`,
+		OutputJSON:  "{}",
+		CreatedAt:   now,
+	}
+
+	listItem := toOperationListItemDTO(operation, "Library")
+	if listItem.Request == nil {
+		t.Fatalf("expected list operation request preview")
+	}
+	if listItem.Request.DownloadMethod != operationDownloadMethodResourceSniff {
+		t.Fatalf("expected resource sniff download method, got %q", listItem.Request.DownloadMethod)
+	}
 }
 
 func TestOperationListItemDTOExposesTranscodeRequestPreview(t *testing.T) {
@@ -720,5 +747,105 @@ func TestPrefetchedYTDLPThumbnailCanBePromotedToFinalOutputPath(t *testing.T) {
 	}
 	if _, err := os.Stat(prefetchedPath); !os.IsNotExist(err) {
 		t.Fatalf("expected prefetched thumbnail to be moved away, stat err=%v", err)
+	}
+}
+
+func TestCollectDownloadedThumbnailPathsPublishesPreviewAndPromotesFinalPath(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "image/png")
+		_, _ = writer.Write([]byte("fake-png"))
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	outputPath := filepath.Join(tempDir, "resource", "douyin.com", "episode.mp4")
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		t.Fatalf("mkdir output dir: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write output file: %v", err)
+	}
+
+	now := time.Date(2026, 4, 2, 9, 0, 0, 0, time.UTC)
+	operation := library.LibraryOperation{
+		ID:          "op-1",
+		LibraryID:   "lib-1",
+		Kind:        "download",
+		Status:      library.OperationStatusRunning,
+		DisplayName: "Episode",
+		OutputJSON:  "{}",
+		CreatedAt:   now,
+	}
+	operationRepo := &retryOperationRepo{
+		items: map[string]library.LibraryOperation{operation.ID: operation},
+	}
+	service := &LibraryService{operations: operationRepo}
+	reporter := newYTDLPProgressReporter(service, &operation)
+	request := dto.CreateYTDLPJobRequest{
+		ThumbnailURL:   server.URL + "/thumb",
+		WriteThumbnail: true,
+	}
+	prefetch := &ytdlpThumbnailPrefetch{}
+	defer prefetch.Cleanup()
+
+	prefetch.StartForOutputPath(
+		context.Background(),
+		service,
+		request,
+		outputPath,
+		operation.ID,
+		reporter.publishThumbnailPreviewPath,
+	)
+
+	previewPath := ""
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		storedOperation, err := operationRepo.Get(context.Background(), operation.ID)
+		if err != nil {
+			t.Fatalf("get stored operation: %v", err)
+		}
+		previewPath = extractOperationThumbnailPreviewPath(storedOperation.OutputJSON)
+		if previewPath != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if previewPath == "" {
+		t.Fatal("expected preview path to be published before thumbnail promotion")
+	}
+	if !strings.Contains(previewPath, string(filepath.Separator)+".thumbnail-prefetch"+string(filepath.Separator)) {
+		t.Fatalf("expected temporary preview path, got %q", previewPath)
+	}
+
+	thumbnailPaths, warnings := service.collectDownloadedThumbnailPaths(
+		context.Background(),
+		reporter,
+		operation,
+		request,
+		outputPath,
+		prefetch,
+	)
+	if len(warnings) > 0 {
+		t.Fatalf("expected no thumbnail warnings, got %#v", warnings)
+	}
+	if len(thumbnailPaths) != 1 {
+		t.Fatalf("expected 1 thumbnail path, got %#v", thumbnailPaths)
+	}
+	finalPath := thumbnailPaths[0]
+	if !strings.HasSuffix(finalPath, filepath.Join("thumbnails", "episode-thumbnail.png")) {
+		t.Fatalf("unexpected promoted thumbnail path: %q", finalPath)
+	}
+	if _, err := os.Stat(finalPath); err != nil {
+		t.Fatalf("expected promoted thumbnail to exist: %v", err)
+	}
+
+	storedOperation, err := operationRepo.Get(context.Background(), operation.ID)
+	if err != nil {
+		t.Fatalf("get stored operation: %v", err)
+	}
+	if got := extractOperationThumbnailPreviewPath(storedOperation.OutputJSON); got != finalPath {
+		t.Fatalf("expected stored preview path %q after promotion, got %q", finalPath, got)
 	}
 }

@@ -44,6 +44,26 @@ func waitForReusablePageTarget(runtime *Runtime, timeout time.Duration) (string,
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
+	if manager := runtime.TargetManager(); manager != nil {
+		if targetID := strings.TrimSpace(pickReusableTargetID(manager.ListPageTargets())); targetID != "" {
+			return targetID, nil
+		}
+		waitCtx, cancel := context.WithTimeout(runtime.BrowserContext(), timeout)
+		defer cancel()
+		info, err := manager.WaitPageTarget(waitCtx, func(info *targetpkg.Info) bool {
+			return isPageTargetInfo(info)
+		})
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return "", nil
+			}
+			return "", err
+		}
+		if info == nil {
+			return "", nil
+		}
+		return strings.TrimSpace(string(info.TargetID)), nil
+	}
 
 	deadline := time.Now().Add(timeout)
 	for {
@@ -80,6 +100,9 @@ func createPageTarget(runtime *Runtime, timeout time.Duration, newWindow bool) (
 	targetID := strings.TrimSpace(string(createdTargetID))
 	if targetID == "" {
 		return "", errors.New("create target returned empty target id")
+	}
+	if manager := runtime.TargetManager(); manager != nil {
+		manager.RememberPageTargetID(targetID)
 	}
 	return targetID, nil
 }

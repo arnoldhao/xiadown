@@ -1,7 +1,7 @@
 import { CheckCircle2, CircleSlash, Clock3, Copy, FileCog, FolderOpen, Loader2, RotateCcw, XCircle } from "lucide-react";
 import * as React from "react";
 
-import { CompletedVidstackPreview } from "@/app/main/CompletedVidstackPreview";
+import { MediaPreviewDialog, MediaPreviewSurface } from "@/app/media";
 import { ListenLocalPreviewPlayer } from "@/app/main/Listen";
 import { ConnectorBrandIcon } from "@/features/settings/connectors";
 import { getXiaText } from "@/features/xiadown/shared";
@@ -19,7 +19,7 @@ import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { formatBytes } from "@/shared/utils/formatBytes";
 
-import { canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { COMPLETED_TEXT_PREVIEW_MAX_BYTES,canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatLocalDateTime,formatRelativeTime,isCompletedPreviewTooLarge,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import type { CompletedFileEntry,CompletedPreviewGroupKind,CompletedTaskEntry } from "@/app/main/types";
 
 const TASK_DETAIL_GROUP_ORDER: CompletedPreviewGroupKind[] = [
@@ -85,6 +85,57 @@ function formatTaskDTOValue(value: unknown): string {
   }
   const serialized = JSON.stringify(value);
   return serialized && serialized.length > 0 ? serialized : "-";
+}
+
+function formatTaskDTODateTimeValue(value?: string): string {
+  return formatTaskDTOValue(formatLocalDateTime(value) || value);
+}
+
+class PreviewTooLargeError extends Error {
+  constructor() {
+    super("preview is too large");
+    this.name = "PreviewTooLargeError";
+  }
+}
+
+async function readLimitedPreviewText(response: Response, maxBytes: number) {
+  const contentLength = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new PreviewTooLargeError();
+  }
+  if (!response.body) {
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > maxBytes) {
+      throw new PreviewTooLargeError();
+    }
+    return new TextDecoder().decode(buffer);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        throw new PreviewTooLargeError();
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore cancellation races after fetch aborts.
+    }
+    throw error;
+  }
 }
 
 function buildTaskDTOInfoRows(
@@ -173,11 +224,11 @@ function buildTaskDTOInfoRows(
       label: labels.publishTime,
       value: formatTaskDTOValue(operation.publishTime),
     },
-    { label: labels.startedAt, value: formatTaskDTOValue(operation.startedAt) },
-    { label: labels.finishedAt, value: formatTaskDTOValue(operation.finishedAt) },
+    { label: labels.startedAt, value: formatTaskDTODateTimeValue(operation.startedAt) },
+    { label: labels.finishedAt, value: formatTaskDTODateTimeValue(operation.finishedAt) },
     {
       label: labels.createdAt,
-      value: formatTaskDTOValue(operation.createdAt),
+      value: formatTaskDTODateTimeValue(operation.createdAt),
       always: true,
     },
   ].filter((row) => row.always || row.value !== "-");
@@ -231,6 +282,14 @@ export function CompletedFileInfoSegmentGroup(props: {
   const footerItems = props.file
     ? resolveCompletedFileDetailFooterItems(props.file, props.text)
     : [];
+  const footerInfoValue =
+    footerItems.length > 0
+      ? footerItems.map((item) => item.value).join(" · ")
+      : props.text.completed.noSelectedFile;
+  const footerInfoTooltip =
+    footerItems.length > 0
+      ? footerItems.map((item) => `${item.label} ${item.value}`).join("\n")
+      : "";
   const canTranscode =
     Boolean(props.file && path && props.onTranscodeFile) &&
     (previewKind === "video" || previewKind === "audio");
@@ -278,32 +337,22 @@ export function CompletedFileInfoSegmentGroup(props: {
     <div className={cn("flex justify-center", props.className)}>
       <div className="app-completed-detail-meta-bar flex max-w-full min-w-0 items-center overflow-hidden">
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-          {footerItems.length > 0 ? (
-            footerItems.map((item, index) => (
-              <DetailValueTooltip
-                key={`${props.file?.id ?? "empty"}-footer-${index}`}
-                label={item.label}
-                value={item.value}
-              >
-                <span
-                  className={cn(
-                    "app-completed-detail-meta-cell inline-flex h-[var(--app-control-height-compact)] min-w-0 flex-[1_1_auto] items-center px-2.5 text-xs font-medium",
-                    index > 0 && "border-l border-border/70",
-                  )}
-                >
-                  <span className="truncate">{item.value}</span>
-                </span>
-              </DetailValueTooltip>
-            ))
-          ) : (
-            <DetailValueTooltip label={props.text.completed.info}>
+          <Tooltip>
+            <TooltipTrigger asChild>
               <span className="app-completed-detail-meta-cell inline-flex h-[var(--app-control-height-compact)] min-w-0 flex-1 items-center px-2.5 text-xs font-medium">
-                <span className="truncate">
-                  {props.text.completed.noSelectedFile}
-                </span>
+                <span className="truncate">{footerInfoValue}</span>
               </span>
-            </DetailValueTooltip>
-          )}
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              multiline={footerItems.length > 0}
+              className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+            >
+              {footerItems.length > 0
+                ? footerInfoTooltip
+                : props.text.completed.info}
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {(previewKind === "video" || previewKind === "audio") &&
@@ -380,12 +429,19 @@ export function SelectionCheckbox(props: { checked: boolean; className?: string 
 export function CompletedSubtitlePreview(props: {
   file: CompletedFileEntry;
   emptyLabel: string;
+  tooLargeLabel: string;
 }) {
   const [content, setContent] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
 
   React.useEffect(() => {
+    if (isCompletedPreviewTooLarge(props.file)) {
+      setContent("");
+      setLoading(false);
+      setError(props.tooLargeLabel);
+      return;
+    }
     if (!props.file.previewURL) {
       setContent("");
       setLoading(false);
@@ -401,7 +457,10 @@ export function CompletedSubtitlePreview(props: {
         if (!response.ok) {
           throw new Error(`subtitle preview ${response.status}`);
         }
-        const text = await response.text();
+        const text = await readLimitedPreviewText(
+          response,
+          COMPLETED_TEXT_PREVIEW_MAX_BYTES,
+        );
         setContent(text);
       })
       .catch((error: unknown) => {
@@ -409,7 +468,11 @@ export function CompletedSubtitlePreview(props: {
           return;
         }
         setContent("");
-        setError(resolveUnknownErrorMessage(error, props.emptyLabel));
+        setError(
+          error instanceof PreviewTooLargeError
+            ? props.tooLargeLabel
+            : resolveUnknownErrorMessage(error, props.emptyLabel),
+        );
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -418,7 +481,7 @@ export function CompletedSubtitlePreview(props: {
       });
 
     return () => controller.abort();
-  }, [props.emptyLabel, props.file.id, props.file.previewURL]);
+  }, [props.emptyLabel, props.file, props.file.id, props.file.previewURL, props.tooLargeLabel]);
 
   return (
     <div className="app-completed-preview-text-shell h-full w-full overflow-hidden">
@@ -444,6 +507,8 @@ export function CompletedPreviewSurface(props: {
   appName: string;
   pet?: Pet | null;
   petImageURL?: string;
+  onPreviewPresentationModeChange?: (active: boolean) => void;
+  onOpenPreviewDialog?: (file: CompletedFileEntry) => void;
 }) {
   if (!props.file) {
     return (
@@ -459,7 +524,10 @@ export function CompletedPreviewSurface(props: {
     );
   }
 
+  const text = getXiaText(getLanguage());
+  const previewLabels = text.completed;
   const previewKind = resolveCompletedPreviewKind(props.file);
+  const previewTooLarge = isCompletedPreviewTooLarge(props.file);
   if (!canPreviewCompletedFile(props.file)) {
     return (
       <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
@@ -468,15 +536,19 @@ export function CompletedPreviewSurface(props: {
           alt={props.appName}
           className="app-completed-preview-icon h-14 w-14"
         />
-        <div className="text-sm">{props.emptyLabel}</div>
+        <div className="text-sm">
+          {previewTooLarge ? text.completed.previewTooLarge : props.emptyLabel}
+        </div>
       </div>
     );
   }
 
   if (previewKind === "video" && props.file.previewURL) {
     return (
-      <CompletedVidstackPreview
-        text={getXiaText(getLanguage())}
+      <MediaPreviewSurface
+        kind="video"
+        labels={previewLabels}
+        className="h-full"
         mediaUrl={props.file.previewURL}
         title={props.file.name}
         persistKey={props.file.id || props.file.path || props.file.previewURL}
@@ -484,44 +556,82 @@ export function CompletedPreviewSurface(props: {
           props.file.coverURL || props.coverURL || DEFAULT_COVER_IMAGE_URL
         }
         durationMs={props.file.media?.durationMs}
+        onPresentationModeChange={props.onPreviewPresentationModeChange}
       />
     );
   }
 
   if (previewKind === "audio" && props.file.previewURL) {
     return (
-      <ListenLocalPreviewPlayer
-        track={{
-          id: props.file.id,
-          title: props.file.title || props.file.name,
-          author: props.file.author || props.file.libraryName,
-          path: props.file.path,
-          previewURL: props.file.previewURL,
-          coverURL: props.file.coverURL || props.coverURL,
-        }}
-        text={getXiaText(getLanguage())}
-        persistKey={props.file.id || props.file.path || props.file.previewURL}
+      <MediaPreviewSurface
+        kind="audio"
+        labels={previewLabels}
+        className="h-full"
+        audioPreview={
+          <ListenLocalPreviewPlayer
+            track={{
+              id: props.file.id,
+              title: props.file.title || props.file.name,
+              author: props.file.author || props.file.libraryName,
+              path: props.file.path,
+              previewURL: props.file.previewURL,
+              coverURL: props.file.coverURL || props.coverURL,
+            }}
+            text={text}
+            persistKey={props.file.id || props.file.path || props.file.previewURL}
+          />
+        }
       />
     );
   }
 
   if (previewKind === "image") {
+    const file = props.file;
+    const previewSurface = (
+      <MediaPreviewSurface
+        kind="image"
+        labels={previewLabels}
+        className="h-full"
+        mediaUrl={resolveCompletedImagePreviewURL(file)}
+        title={file.name}
+        imageAlt={file.name}
+      />
+    );
+    if (!props.onOpenPreviewDialog) {
+      return previewSurface;
+    }
     return (
-      <div className="flex h-full min-h-[16rem] items-center justify-center">
-        <img
-          src={resolveCompletedImagePreviewURL(props.file)}
-          alt={props.file.name}
-          className="app-completed-preview-image max-h-full w-full object-contain"
-        />
-      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="block h-full w-full cursor-zoom-in appearance-none border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={file.name || text.completed.fileDetail}
+            onClick={() => props.onOpenPreviewDialog?.(file)}
+          >
+            {previewSurface}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {file.name || text.completed.fileDetail}
+        </TooltipContent>
+      </Tooltip>
     );
   }
 
   if (previewKind === "subtitle") {
     return (
-      <CompletedSubtitlePreview
-        file={props.file}
-        emptyLabel={props.emptyLabel}
+      <MediaPreviewSurface
+        kind="subtitle"
+        labels={previewLabels}
+        className="h-full"
+        subtitlePreview={
+          <CompletedSubtitlePreview
+            file={props.file}
+            emptyLabel={props.emptyLabel}
+            tooLargeLabel={text.completed.previewTooLarge}
+          />
+        }
       />
     );
   }
@@ -535,6 +645,37 @@ export function CompletedPreviewSurface(props: {
       />
       <div className="text-sm">{props.emptyLabel}</div>
     </div>
+  );
+}
+
+function CompletedImagePreviewDialog(props: {
+  file: CompletedFileEntry | null;
+  open: boolean;
+  text: ReturnType<typeof getXiaText>;
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (
+    !props.file ||
+    resolveCompletedPreviewKind(props.file) !== "image" ||
+    !canPreviewCompletedFile(props.file)
+  ) {
+    return null;
+  }
+
+  const mediaUrl = resolveCompletedImagePreviewURL(props.file);
+  return (
+    <MediaPreviewDialog
+      open={props.open && Boolean(mediaUrl)}
+      onOpenChange={props.onOpenChange}
+      dialogTitle={props.file.name || props.text.completed.fileDetail}
+      description={props.file.path || props.file.libraryName || ""}
+      labels={props.text.completed}
+      kind="image"
+      mediaUrl={mediaUrl}
+      title={props.file.name}
+      imageAlt={props.file.name}
+      closeLabel={props.text.actions.close}
+    />
   );
 }
 
@@ -577,7 +718,7 @@ function buildFileDetailInfoRows(
     },
     {
       label: text.completed.updatedAt,
-      value: formatTaskDTOValue(file.updatedAt),
+      value: formatTaskDTODateTimeValue(file.updatedAt),
       always: true,
     },
   ].filter((row) => row.always || row.value !== "-");
@@ -607,6 +748,22 @@ function resolveCompletedTaskHeaderStatusIconTone(status?: string) {
     default:
       return "app-completed-status-icon-muted";
   }
+}
+
+function isResourceSniffDownloadOperation(operation: OperationListItemDTO) {
+  const downloadMethod = (operation.request?.downloadMethod ?? "")
+    .trim()
+    .toLowerCase();
+  if (
+    downloadMethod === "resource-sniff" ||
+    downloadMethod === "resource_sniff" ||
+    downloadMethod === "sniff"
+  ) {
+    return true;
+  }
+  return [operation.request?.extractor, operation.platform].some((value) =>
+    (value ?? "").trim().toLowerCase().startsWith("resource:"),
+  );
 }
 
 function useCompletedTaskDetailFileGroups(
@@ -799,9 +956,13 @@ export function CompletedTaskDetailHeaderMeta(props: {
     : props.text.common.unknown;
   const taskStatus = (props.task.operation.status ?? "").trim().toLowerCase();
   const taskKind = (props.task.operation.kind ?? "").trim().toLowerCase();
+  const isResourceSniffDownload =
+    taskKind === "download" &&
+    isResourceSniffDownloadOperation(props.task.operation);
   const canResumeTask =
     (taskStatus === "failed" || taskStatus === "canceled") &&
-    (taskKind === "download" || taskKind === "transcode");
+    (taskKind === "download" || taskKind === "transcode") &&
+    !isResourceSniffDownload;
   const StatusIcon = resolveCompletedTaskHeaderStatusIcon(
     props.task.operation.status,
   );
@@ -1066,35 +1227,60 @@ export function CompletedTaskDetailHeader(props: {
     <>
       <div className="app-completed-inline-detail-header grid shrink-0 gap-3 border-b border-border/60 px-4 py-3">
         <div className="flex min-w-0 gap-2">
-          <button
-            type="button"
-            className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
-            aria-label={props.text.completed.openTaskDto}
-            onClick={openTaskInfoDialog}
-          >
-            {props.coverURL ? (
-              <img
-                src={props.coverURL}
-                alt=""
-                aria-hidden="true"
-                className="h-full w-full object-cover"
-                loading="lazy"
-                decoding="async"
-                draggable={false}
-              />
-            ) : (
-              props.fallbackIcon
-            )}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
+                aria-label={props.text.completed.openTaskDto}
+                onClick={openTaskInfoDialog}
+              >
+                {props.coverURL ? (
+                  <img
+                    src={props.coverURL}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                    draggable={false}
+                  />
+                ) : (
+                  props.fallbackIcon
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {props.text.completed.openTaskDto}
+            </TooltipContent>
+          </Tooltip>
           <div className="min-w-0 flex-1">
-            <button
-              type="button"
-              className="app-completed-detail-title-button overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition focus-visible:outline-none [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
-              title={props.title}
-              onClick={openTaskInfoDialog}
-            >
-              {props.title}
-            </button>
+            <div className="app-completed-detail-title-shell relative">
+              <div
+                className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+                aria-hidden="true"
+              >
+                {props.title}
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
+                    aria-label={props.title}
+                    onClick={openTaskInfoDialog}
+                  />
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="start"
+                  multiline
+                  className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+                >
+                  {props.title}
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <CompletedTaskDetailHeaderMeta
               text={props.text}
               task={props.task}
@@ -1138,35 +1324,60 @@ export function CompletedFileDetailHeader(props: {
   return (
     <>
       <div className="app-completed-inline-detail-header flex shrink-0 gap-2 border-b border-border/60 px-4 py-3">
-        <button
-          type="button"
-          className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
-          aria-label={props.text.completed.fileDetail}
-          onClick={openFileInfoDialog}
-        >
-          {props.coverURL ? (
-            <img
-              src={props.coverURL}
-              alt=""
-              aria-hidden="true"
-              className="h-full w-full object-cover"
-              loading="lazy"
-              decoding="async"
-              draggable={false}
-            />
-          ) : (
-            props.fallbackIcon
-          )}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
+              aria-label={props.text.completed.fileDetail}
+              onClick={openFileInfoDialog}
+            >
+              {props.coverURL ? (
+                <img
+                  src={props.coverURL}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                />
+              ) : (
+                props.fallbackIcon
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {props.text.completed.fileDetail}
+          </TooltipContent>
+        </Tooltip>
         <div className="min-w-0 flex-1">
-          <button
-            type="button"
-            className="app-completed-detail-title-button overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition focus-visible:outline-none [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
-            title={props.title}
-            onClick={openFileInfoDialog}
-          >
-            {props.title}
-          </button>
+          <div className="app-completed-detail-title-shell relative">
+            <div
+              className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+              aria-hidden="true"
+            >
+              {props.title}
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
+                  aria-label={props.title}
+                  onClick={openFileInfoDialog}
+                />
+              </TooltipTrigger>
+              <TooltipContent
+                side="top"
+                align="start"
+                multiline
+                className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+              >
+                {props.title}
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <CompletedFileDetailHeaderMeta
             text={props.text}
             file={props.file}
@@ -1192,6 +1403,7 @@ export function CompletedTaskDetailContent(props: {
   task: CompletedTaskEntry;
   selectedPreviewFileId: string;
   onTranscodeFile?: (file: CompletedFileEntry) => void;
+  onPreviewPresentationModeChange?: (active: boolean) => void;
   pet: Pet | null;
   petImageURL: string;
 }) {
@@ -1199,6 +1411,11 @@ export function CompletedTaskDetailContent(props: {
     props.task,
     props.selectedPreviewFileId,
   );
+  const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    setPreviewDialogOpen(false);
+  }, [selectedFile?.id]);
 
   return (
     <>
@@ -1215,6 +1432,10 @@ export function CompletedTaskDetailContent(props: {
             appName={props.appName}
             pet={props.pet}
             petImageURL={props.petImageURL}
+            onPreviewPresentationModeChange={
+              props.onPreviewPresentationModeChange
+            }
+            onOpenPreviewDialog={() => setPreviewDialogOpen(true)}
           />
         </div>
 
@@ -1226,6 +1447,12 @@ export function CompletedTaskDetailContent(props: {
           />
         </div>
       </div>
+      <CompletedImagePreviewDialog
+        file={selectedFile}
+        open={previewDialogOpen}
+        text={props.text}
+        onOpenChange={setPreviewDialogOpen}
+      />
     </>
   );
 }
@@ -1235,24 +1462,43 @@ export function CompletedFileDetailContent(props: {
   appName: string;
   file: CompletedFileEntry;
   onTranscodeFile?: (file: CompletedFileEntry) => void;
+  onPreviewPresentationModeChange?: (active: boolean) => void;
 }) {
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-hidden px-4 py-4">
-        <CompletedPreviewSurface
-          file={props.file}
-          emptyLabel={props.text.completed.noPreview}
-          appName={props.appName}
-        />
-      </div>
+  const [previewDialogOpen, setPreviewDialogOpen] = React.useState(false);
 
-      <div className="app-completed-detail-footer shrink-0 border-t border-border/60 px-4 pt-2.5 pb-3">
-        <CompletedFileInfoSegmentGroup
-          file={props.file}
-          text={props.text}
-          onTranscodeFile={props.onTranscodeFile}
-        />
+  React.useEffect(() => {
+    setPreviewDialogOpen(false);
+  }, [props.file.id]);
+
+  return (
+    <>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1 overflow-hidden px-4 py-4">
+          <CompletedPreviewSurface
+            file={props.file}
+            emptyLabel={props.text.completed.noPreview}
+            appName={props.appName}
+            onPreviewPresentationModeChange={
+              props.onPreviewPresentationModeChange
+            }
+            onOpenPreviewDialog={() => setPreviewDialogOpen(true)}
+          />
+        </div>
+
+        <div className="app-completed-detail-footer shrink-0 border-t border-border/60 px-4 pt-2.5 pb-3">
+          <CompletedFileInfoSegmentGroup
+            file={props.file}
+            text={props.text}
+            onTranscodeFile={props.onTranscodeFile}
+          />
+        </div>
       </div>
-    </div>
+      <CompletedImagePreviewDialog
+        file={props.file}
+        open={previewDialogOpen}
+        text={props.text}
+        onOpenChange={setPreviewDialogOpen}
+      />
+    </>
   );
 }

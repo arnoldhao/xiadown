@@ -66,19 +66,23 @@ export const PET_GALLERY_CONTEXT_MENU_ICON_SLOT_CLASS_NAME =
 export const PET_METADATA_TEXTAREA_CLASS =
   "min-h-[5rem] w-full rounded-lg border border-input bg-background px-2.5 py-2 text-xs shadow-sm outline-none transition";
 
-export const COMPLETED_PREVIEW_SHELL_CLASS =
-  "flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border border-border/70 bg-[#0b1118] text-white shadow-[0_20px_60px_-36px_rgba(15,23,42,0.65)]";
-export const COMPLETED_PREVIEW_CONTROL_BUTTON_CLASS =
+export const VIDSTACK_PREVIEW_SHELL_CLASS =
+  "app-completed-preview-shell flex h-full min-h-0 flex-col overflow-hidden";
+export const VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS =
   "app-completed-preview-control-button rounded-full";
-export const COMPLETED_PREVIEW_CONTROL_RANGE_CLASS =
-  "h-0.5 cursor-pointer accent-primary";
-export const COMPLETED_PREVIEW_VOLUME_RANGE_CLASS = [
-  COMPLETED_PREVIEW_CONTROL_RANGE_CLASS,
-  "ml-0 w-0 min-w-0 opacity-0 transition-[margin,width,opacity] duration-150 ease-out",
-  "pointer-events-none group-hover/volume:ml-1.5 group-hover/volume:w-14 group-hover/volume:opacity-100 group-hover/volume:pointer-events-auto",
-  "group-focus-within/volume:ml-1.5 group-focus-within/volume:w-14 group-focus-within/volume:opacity-100 group-focus-within/volume:pointer-events-auto",
-  "sm:group-hover/volume:w-16 sm:group-focus-within/volume:w-16",
+export const VIDSTACK_PREVIEW_CONTROL_RANGE_CLASS =
+  "app-completed-preview-range h-6 cursor-pointer accent-primary";
+export const VIDSTACK_PREVIEW_VOLUME_RANGE_CLASS = [
+  VIDSTACK_PREVIEW_CONTROL_RANGE_CLASS,
+  "w-[6.5rem] -rotate-90",
 ].join(" ");
+export const COMPLETED_PREVIEW_SHELL_CLASS = VIDSTACK_PREVIEW_SHELL_CLASS;
+export const COMPLETED_PREVIEW_CONTROL_BUTTON_CLASS =
+  VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS;
+export const COMPLETED_PREVIEW_CONTROL_RANGE_CLASS =
+  VIDSTACK_PREVIEW_CONTROL_RANGE_CLASS;
+export const COMPLETED_PREVIEW_VOLUME_RANGE_CLASS =
+  VIDSTACK_PREVIEW_VOLUME_RANGE_CLASS;
 
 export const PET_DISPLAY_GLOW_STYLE: React.CSSProperties = {
   backgroundImage: [

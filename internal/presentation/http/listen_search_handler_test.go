@@ -26,6 +26,7 @@ type fakeListenMusicClient struct {
 	libraryArtists         []youtubemusic.Artist
 	libraryArtistsErr      error
 	artistPage             youtubemusic.ArtistPage
+	artistPageFunc         func(context.Context, string, int) (youtubemusic.ArtistPage, error)
 	playlistPage           youtubemusic.TrackListPage
 	playlistTracks         []youtubemusic.Track
 	libraryPlaylists       []youtubemusic.Playlist
@@ -95,7 +96,10 @@ func (client fakeListenMusicClient) BrowseShelvesPage(ctx context.Context, brows
 	return youtubemusic.BrowsePage{Shelves: client.homeShelves}, nil
 }
 
-func (client fakeListenMusicClient) ArtistPage(context.Context, string, int) (youtubemusic.ArtistPage, error) {
+func (client fakeListenMusicClient) ArtistPage(ctx context.Context, browseID string, limit int) (youtubemusic.ArtistPage, error) {
+	if client.artistPageFunc != nil {
+		return client.artistPageFunc(ctx, browseID, limit)
+	}
 	return client.artistPage, nil
 }
 
@@ -192,6 +196,7 @@ func TestListenSearchHandlerPrefersYouTubeMusic(t *testing.T) {
 		VideoID:        "TESTVID007G",
 		Title:          "Lofi Mix",
 		Channel:        "Super Lofi World",
+		Artists:        []youtubemusic.TrackArtist{{Name: "Super Lofi World", BrowseID: "UCsuperlofi"}},
 		ArtistBrowseID: "UCsuperlofi",
 		DurationLabel:  "3:21",
 		ThumbnailURL:   "https://lh3.googleusercontent.com/cover",
@@ -208,6 +213,9 @@ func TestListenSearchHandlerPrefersYouTubeMusic(t *testing.T) {
 	body := recorder.Body.String()
 	if !strings.Contains(body, `"id":"ytmusic-search-TESTVID007G"`) || !strings.Contains(body, `"artistBrowseId":"UCsuperlofi"`) || !strings.Contains(body, `"thumbnailUrl":"https://lh3.googleusercontent.com/cover"`) {
 		t.Fatalf("unexpected body: %s", body)
+	}
+	if !strings.Contains(body, `"artists":[`) || !strings.Contains(body, `"browseId":"UCsuperlofi"`) {
+		t.Fatalf("expected structured track artists in body: %s", body)
 	}
 	if !strings.Contains(body, `"musicVideoType":"MUSIC_VIDEO_TYPE_ATV"`) {
 		t.Fatalf("unexpected body: %s", body)
@@ -367,6 +375,7 @@ func TestListenArtistHandlerServesArtistBrowse(t *testing.T) {
 		ID:            "UCsuperlofi",
 		Title:         "Super Lofi World",
 		Subtitle:      "1.2M monthly listeners",
+		ThumbnailURL:  "https://lh3.googleusercontent.com/artist",
 		ChannelID:     "UCsuperlofi",
 		IsSubscribed:  true,
 		MixPlaylistID: "RDARTISTsuperlofi",
@@ -398,7 +407,59 @@ func TestListenArtistHandlerServesArtistBrowse(t *testing.T) {
 		t.Fatalf("expected 200, got %d", recorder.Result().StatusCode)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, `"title":"Super Lofi World"`) || !strings.Contains(body, `"subtitle":"1.2M monthly listeners"`) || !strings.Contains(body, `"channelId":"UCsuperlofi"`) || !strings.Contains(body, `"isSubscribed":true`) || !strings.Contains(body, `"mixPlaylistId":"RDARTISTsuperlofi"`) || !strings.Contains(body, `"id":"ytmusic-artist-TESTVID007G"`) || !strings.Contains(body, `"shelves"`) || !strings.Contains(body, `"Top songs"`) || !strings.Contains(body, `"hasVideo":true`) {
+	if !strings.Contains(body, `"title":"Super Lofi World"`) || !strings.Contains(body, `"subtitle":"1.2M monthly listeners"`) || !strings.Contains(body, `"thumbnailUrl":"https://lh3.googleusercontent.com/artist"`) || !strings.Contains(body, `"channelId":"UCsuperlofi"`) || !strings.Contains(body, `"isSubscribed":true`) || !strings.Contains(body, `"mixPlaylistId":"RDARTISTsuperlofi"`) || !strings.Contains(body, `"id":"ytmusic-artist-TESTVID007G"`) || !strings.Contains(body, `"shelves"`) || !strings.Contains(body, `"Top songs"`) || !strings.Contains(body, `"hasVideo":true`) {
+		t.Fatalf("unexpected body: %s", body)
+	}
+}
+
+func TestListenArtistHandlerResolvesNameOnlyArtistBrowse(t *testing.T) {
+	var gotBrowseID string
+	handler := NewListenArtistHandler(fakeListenMusicClient{
+		searchArtists: []youtubemusic.Artist{{
+			ID:           "UCsecond",
+			Name:         "Second Artist",
+			ThumbnailURL: "https://lh3.googleusercontent.com/search-artist",
+		}},
+		artistPageFunc: func(_ context.Context, browseID string, _ int) (youtubemusic.ArtistPage, error) {
+			gotBrowseID = browseID
+			return youtubemusic.ArtistPage{
+				ID:           browseID,
+				Title:        "Second Artist",
+				ThumbnailURL: "https://lh3.googleusercontent.com/artist-page",
+				Tracks: []youtubemusic.Track{{
+					VideoID: "TESTVID008H",
+					Title:   "Second Song",
+					Channel: "Second Artist",
+				}},
+				Shelves: []youtubemusic.Shelf{{
+					ID:    "Top songs::tracks::TESTVID008H",
+					Title: "Top songs",
+					Kind:  youtubemusic.ShelfTracks,
+					Tracks: []youtubemusic.Track{{
+						VideoID: "TESTVID008H",
+						Title:   "Second Song",
+						Channel: "Second Artist",
+					}},
+				}},
+			}, nil
+		},
+	})
+	request := httptest.NewRequest("GET", "/api/listen/artist?name=Second+Artist", nil)
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Result().StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", recorder.Result().StatusCode)
+	}
+	if gotBrowseID != "UCsecond" {
+		t.Fatalf("expected artist browse id resolution, got %q", gotBrowseID)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"id":"UCsecond"`) ||
+		!strings.Contains(body, `"thumbnailUrl":"https://lh3.googleusercontent.com/artist-page"`) ||
+		!strings.Contains(body, `"Top songs"`) ||
+		!strings.Contains(body, `"id":"ytmusic-artist-TESTVID008H"`) {
 		t.Fatalf("unexpected body: %s", body)
 	}
 }

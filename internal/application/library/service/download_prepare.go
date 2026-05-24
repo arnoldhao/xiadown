@@ -1,0 +1,390 @@
+package service
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"net/url"
+	"regexp"
+	"strings"
+
+	"golang.org/x/net/publicsuffix"
+
+	connectorsdto "xiadown/internal/application/connectors/dto"
+	"xiadown/internal/application/library/dto"
+	"xiadown/internal/domain/connectors"
+)
+
+func (service *LibraryService) PrepareYTDLPDownload(ctx context.Context, request dto.PrepareYTDLPDownloadRequest) (dto.PrepareYTDLPDownloadResponse, error) {
+	resolvedURL, domain, err := validateDownloadURL(request.URL)
+	if err != nil {
+		return dto.PrepareYTDLPDownloadResponse{}, err
+	}
+
+	connectorAvailability := service.resolveConnectorAvailability(ctx, domain)
+	icon := ""
+	if domain != "" && service.iconResolver != nil {
+		if resolver, ok := service.iconResolver.(interface {
+			ResolveDomainIconCached(context.Context, string) (string, bool)
+		}); ok {
+			if resolved, hit := resolver.ResolveDomainIconCached(ctx, domain); hit {
+				icon = resolved
+			}
+		} else if resolved, err := service.iconResolver.ResolveDomainIcon(ctx, domain); err == nil {
+			icon = resolved
+		}
+	}
+
+	return dto.PrepareYTDLPDownloadResponse{
+		URL:                      resolvedURL,
+		Domain:                   domain,
+		Icon:                     icon,
+		ConnectorID:              connectorAvailability.ID,
+		ConnectorAvailable:       connectorAvailability.Available,
+		ConnectorCredentialMode:  connectorAvailability.CredentialMode,
+		ConnectorCredentialState: connectorAvailability.CredentialState,
+	}, nil
+}
+
+func (service *LibraryService) ResolveDomainIcon(ctx context.Context, request dto.ResolveDomainIconRequest) (dto.ResolveDomainIconResponse, error) {
+	if service.iconResolver == nil {
+		return dto.ResolveDomainIconResponse{}, nil
+	}
+	domain := strings.TrimSpace(request.Domain)
+	if domain == "" {
+		domain = extractRegistrableDomain(request.URL)
+	}
+	if domain == "" {
+		return dto.ResolveDomainIconResponse{}, nil
+	}
+	icon, err := service.iconResolver.ResolveDomainIcon(ctx, domain)
+	if err != nil {
+		return dto.ResolveDomainIconResponse{Domain: domain}, nil
+	}
+	return dto.ResolveDomainIconResponse{Domain: domain, Icon: icon}, nil
+}
+
+func (service *LibraryService) ListTranscodePresetsForDownload(ctx context.Context, request dto.ListTranscodePresetsForDownloadRequest) ([]dto.TranscodePreset, error) {
+	presets, err := service.ListTranscodePresets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(request.MediaType))
+	if mediaType == "" {
+		return presets, nil
+	}
+	filtered := make([]dto.TranscodePreset, 0, len(presets))
+	for _, preset := range presets {
+		outputType := strings.ToLower(strings.TrimSpace(preset.OutputType))
+		switch mediaType {
+		case "audio":
+			if outputType == "audio" {
+				filtered = append(filtered, preset)
+			}
+		case "video":
+			if outputType != "audio" {
+				filtered = append(filtered, preset)
+			}
+		default:
+			filtered = append(filtered, preset)
+		}
+	}
+	return filtered, nil
+}
+
+func validateDownloadURL(rawURL string) (string, string, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return "", "", fmt.Errorf("url is required")
+	}
+
+	if resolvedURL, domain, ok := normalizeDownloadURLWithDomain(trimmed); ok {
+		return resolvedURL, domain, nil
+	}
+
+	if resolvedURL, domain, ok := normalizeKnownVideoSuffix(trimmed); ok {
+		return resolvedURL, domain, nil
+	}
+
+	return "", "", fmt.Errorf("invalid url or unsupported video path")
+}
+
+func normalizeDownloadURLWithDomain(rawURL string) (string, string, bool) {
+	for _, candidate := range downloadURLCandidates(rawURL) {
+		parsed, err := url.Parse(candidate)
+		if err != nil {
+			continue
+		}
+		scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+		if scheme != "http" && scheme != "https" {
+			continue
+		}
+		domain, ok := validRegistrableDomain(parsed.Hostname())
+		if !ok {
+			continue
+		}
+		parsed.Scheme = scheme
+		return parsed.String(), domain, true
+	}
+	return "", "", false
+}
+
+func downloadURLCandidates(rawURL string) []string {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "//") {
+		return []string{"https:" + trimmed}
+	}
+	parsed, err := url.Parse(trimmed)
+	if err == nil && strings.TrimSpace(parsed.Scheme) != "" {
+		if strings.Contains(trimmed, "://") {
+			return []string{trimmed}
+		}
+		return []string{trimmed, "https://" + strings.TrimLeft(trimmed, "/")}
+	}
+	if err == nil && strings.TrimSpace(parsed.Host) != "" {
+		parsed.Scheme = "https"
+		return []string{parsed.String()}
+	}
+	return []string{"https://" + strings.TrimLeft(trimmed, "/")}
+}
+
+func validRegistrableDomain(host string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if normalized == "" || strings.ContainsAny(normalized, " \t\r\n/\\") {
+		return "", false
+	}
+	if ip := net.ParseIP(normalized); ip != nil {
+		return normalized, true
+	}
+	if !isDNSHostname(normalized) {
+		return "", false
+	}
+	registrable, err := publicsuffix.EffectiveTLDPlusOne(normalized)
+	if err != nil || strings.TrimSpace(registrable) == "" {
+		return "", false
+	}
+	return registrable, true
+}
+
+func isDNSHostname(host string) bool {
+	if len(host) > 253 {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for _, char := range label {
+			if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+var (
+	youtubeIDPattern          = regexp.MustCompile(`^[0-9A-Za-z_-]{11}$`)
+	bilibiliVideoIDPattern    = regexp.MustCompile(`(?i)^(?:av\d+|bv[^/?#&]+)$`)
+	bilibiliVideoPathPattern  = regexp.MustCompile(`(?i)^video/(?:av\d+|bv[^/?#&]+)(?:[/?#].*)?$`)
+	bilibiliFestivalPathMatch = regexp.MustCompile(`(?i)^festival/[^/?#]+(?:[/?#].*)?$`)
+)
+
+func normalizeKnownVideoSuffix(rawURL string) (string, string, bool) {
+	if resolvedURL, ok := normalizeYouTubeVideoSuffix(rawURL); ok {
+		return resolvedURL, "youtube.com", true
+	}
+	if resolvedURL, ok := normalizeBilibiliVideoSuffix(rawURL); ok {
+		return resolvedURL, "bilibili.com", true
+	}
+	return "", "", false
+}
+
+func normalizeYouTubeVideoSuffix(rawURL string) (string, bool) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return "", false
+	}
+	if youtubeIDPattern.MatchString(trimmed) {
+		return "https://www.youtube.com/watch?v=" + trimmed, true
+	}
+
+	suffix := strings.TrimLeft(trimmed, "/")
+	switch {
+	case strings.HasPrefix(suffix, "?"):
+		suffix = "watch" + suffix
+	case strings.HasPrefix(strings.ToLower(suffix), "v="):
+		suffix = "watch?" + suffix
+	case strings.HasPrefix(suffix, "#!?"):
+		suffix = "watch?" + strings.TrimPrefix(suffix, "#!?")
+	case strings.HasPrefix(suffix, "#!"):
+		suffix = strings.TrimPrefix(suffix, "#!")
+	}
+
+	candidate := "https://www.youtube.com/" + suffix
+	parsed, err := url.Parse(candidate)
+	if err != nil {
+		return "", false
+	}
+	path := strings.Trim(strings.ToLower(parsed.EscapedPath()), "/")
+	switch path {
+	case "watch", "watch.php", "watch_popup", "watch_popup.php", "movie", "movie.php":
+		if id := firstYouTubeVideoID(parsed.Query()["v"]); id != "" {
+			return parsed.String(), true
+		}
+	case "v", "embed", "e", "shorts", "live":
+		return "", false
+	default:
+		for _, prefix := range []string{"v/", "embed/", "e/", "shorts/", "live/"} {
+			if !strings.HasPrefix(path, prefix) {
+				continue
+			}
+			id := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+			if youtubeIDPattern.MatchString(id) {
+				return parsed.String(), true
+			}
+			return "", false
+		}
+	}
+	return "", false
+}
+
+func firstYouTubeVideoID(values []string) string {
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if youtubeIDPattern.MatchString(trimmed) {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func normalizeBilibiliVideoSuffix(rawURL string) (string, bool) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return "", false
+	}
+	suffix := strings.TrimLeft(trimmed, "/")
+	if bilibiliVideoIDPattern.MatchString(suffix) {
+		return "https://www.bilibili.com/video/" + suffix, true
+	}
+	if bilibiliVideoPathPattern.MatchString(suffix) {
+		return "https://www.bilibili.com/" + suffix, true
+	}
+	if !bilibiliFestivalPathMatch.MatchString(suffix) {
+		return "", false
+	}
+	candidate := "https://www.bilibili.com/" + suffix
+	parsed, err := url.Parse(candidate)
+	if err != nil {
+		return "", false
+	}
+	if bilibiliVideoIDPattern.MatchString(strings.TrimSpace(parsed.Query().Get("bvid"))) {
+		return parsed.String(), true
+	}
+	return "", false
+}
+
+type connectorAvailability struct {
+	ID              string
+	Available       bool
+	CredentialMode  string
+	CredentialState string
+}
+
+func (service *LibraryService) resolveConnectorAvailability(ctx context.Context, domain string) connectorAvailability {
+	if service.connectors == nil {
+		return connectorAvailability{}
+	}
+	connectorType := connectorTypeForDomain(domain)
+	if connectorType == "" {
+		return connectorAvailability{}
+	}
+	items, err := service.connectors.ListConnectors(ctx)
+	if err != nil {
+		return connectorAvailability{}
+	}
+	for _, item := range items {
+		if strings.EqualFold(item.Type, string(connectorType)) {
+			mode := strings.TrimSpace(item.CredentialMode)
+			if mode == "" {
+				mode = string(connectors.DefaultCredentialMode(connectorType))
+			}
+			available := false
+			state := strings.TrimSpace(item.CredentialState)
+			if strings.EqualFold(mode, string(connectors.CredentialModeProfile)) {
+				available = resourceProfileConnectorReady(item)
+				if state == "" {
+					if available {
+						state = "profile"
+					} else {
+						state = string(connectors.StatusDisconnected)
+					}
+				}
+			} else {
+				if state == "" {
+					state = strings.TrimSpace(item.Status)
+				}
+				available = strings.EqualFold(item.Status, string(connectors.StatusConnected)) && item.CookiesCount > 0
+			}
+			return connectorAvailability{
+				ID:              item.ID,
+				Available:       available,
+				CredentialMode:  mode,
+				CredentialState: state,
+			}
+		}
+	}
+	return connectorAvailability{}
+}
+
+func resourceProfileConnectorReady(item connectorsdto.Connector) bool {
+	if strings.TrimSpace(item.ProfilePath) == "" {
+		return false
+	}
+	state := strings.TrimSpace(item.CredentialState)
+	if state != "" {
+		return strings.EqualFold(state, "profile") ||
+			strings.EqualFold(state, string(connectors.StatusConnected))
+	}
+	// Older connector readers may not populate CredentialState.
+	return true
+}
+
+func connectorTypeForDomain(domain string) connectors.ConnectorType {
+	normalized := strings.ToLower(strings.TrimSpace(domain))
+	switch normalized {
+	case "youtube.com", "youtu.be", "youtube-nocookie.com":
+		return connectors.ConnectorYouTube
+	case "bilibili.com", "b23.tv":
+		return connectors.ConnectorBilibili
+	case "tiktok.com", "tiktokv.com", "vm.tiktok.com":
+		return connectors.ConnectorTikTok
+	case "douyin.com", "iesdouyin.com",
+		"xiaohongshu.com", "rednote.com", "xhs.cn",
+		"xhslink.com", "xhslink.cn", "xhsurl.com", "rl.ink":
+		return connectors.ConnectorChinaPrivate
+	case "instagram.com":
+		return connectors.ConnectorInstagram
+	case "x.com", "twitter.com":
+		return connectors.ConnectorX
+	case "facebook.com", "fb.watch":
+		return connectors.ConnectorFacebook
+	case "vimeo.com", "player.vimeo.com":
+		return connectors.ConnectorVimeo
+	case "twitch.tv", "clips.twitch.tv":
+		return connectors.ConnectorTwitch
+	case "nicovideo.jp", "nico.ms", "nicovideo.cdn.nimg.jp":
+		return connectors.ConnectorNiconico
+	default:
+		return ""
+	}
+}

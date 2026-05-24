@@ -45,20 +45,21 @@ type ListenSearchResponse struct {
 }
 
 type ListenSearchItem struct {
-	ID                     string `json:"id"`
-	Group                  string `json:"group"`
-	VideoID                string `json:"videoId"`
-	Title                  string `json:"title"`
-	Channel                string `json:"channel"`
-	ArtistBrowseID         string `json:"artistBrowseId,omitempty"`
-	ArtistSource           string `json:"artistSource,omitempty"`
-	Description            string `json:"description"`
-	DurationLabel          string `json:"durationLabel"`
-	PlayCountLabel         string `json:"playCountLabel,omitempty"`
-	ThumbnailURL           string `json:"thumbnailUrl,omitempty"`
-	MusicVideoType         string `json:"musicVideoType,omitempty"`
-	HasVideo               bool   `json:"hasVideo,omitempty"`
-	VideoAvailabilityKnown bool   `json:"videoAvailabilityKnown,omitempty"`
+	ID                     string             `json:"id"`
+	Group                  string             `json:"group"`
+	VideoID                string             `json:"videoId"`
+	Title                  string             `json:"title"`
+	Channel                string             `json:"channel"`
+	Artists                []ListenArtistItem `json:"artists,omitempty"`
+	ArtistBrowseID         string             `json:"artistBrowseId,omitempty"`
+	ArtistSource           string             `json:"artistSource,omitempty"`
+	Description            string             `json:"description"`
+	DurationLabel          string             `json:"durationLabel"`
+	PlayCountLabel         string             `json:"playCountLabel,omitempty"`
+	ThumbnailURL           string             `json:"thumbnailUrl,omitempty"`
+	MusicVideoType         string             `json:"musicVideoType,omitempty"`
+	HasVideo               bool               `json:"hasVideo,omitempty"`
+	VideoAvailabilityKnown bool               `json:"videoAvailabilityKnown,omitempty"`
 }
 
 type ListenArtistItem struct {
@@ -199,6 +200,7 @@ func mapYouTubeMusicTracksToListenItems(tracks []youtubemusic.Track, prefix stri
 			VideoID:                videoID,
 			Title:                  title,
 			Channel:                channel,
+			Artists:                mapYouTubeMusicTrackArtistsToListenArtistItems(track.Artists, idPrefix+"-artist"),
 			ArtistBrowseID:         strings.TrimSpace(track.ArtistBrowseID),
 			ArtistSource:           strings.TrimSpace(track.ArtistSource),
 			Description:            strings.TrimSpace(track.RawDescription),
@@ -208,6 +210,33 @@ func mapYouTubeMusicTracksToListenItems(tracks []youtubemusic.Track, prefix stri
 			MusicVideoType:         musicVideoType,
 			HasVideo:               hasVideo,
 			VideoAvailabilityKnown: videoAvailabilityKnown,
+		})
+	}
+	return items
+}
+
+func mapYouTubeMusicTrackArtistsToListenArtistItems(artists []youtubemusic.TrackArtist, prefix string) []ListenArtistItem {
+	items := make([]ListenArtistItem, 0, len(artists))
+	seen := make(map[string]struct{}, len(artists))
+	for _, artist := range artists {
+		name := strings.TrimSpace(artist.Name)
+		browseID := strings.TrimSpace(artist.BrowseID)
+		if name == "" || browseID == "" {
+			continue
+		}
+		if _, ok := seen[browseID]; ok {
+			continue
+		}
+		seen[browseID] = struct{}{}
+		itemPrefix := strings.TrimSpace(prefix)
+		if itemPrefix == "" {
+			itemPrefix = "ytmusic-track-artist"
+		}
+		items = append(items, ListenArtistItem{
+			ID:       itemPrefix + "-" + browseID,
+			BrowseID: browseID,
+			Name:     name,
+			Subtitle: "YouTube Music",
 		})
 	}
 	return items

@@ -115,9 +115,15 @@ export function useCancelConnectorConnect() {
 }
 
 export function useOpenConnectorSite() {
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (request: OpenConnectorSiteRequest): Promise<void> => {
-      await OpenConnectorSiteBinding(BindingsOpenConnectorSiteRequest.createFrom(request));
+    mutationFn: async (request: OpenConnectorSiteRequest): Promise<StartConnectorConnectResult> => {
+      return toStartConnectorConnectResult(
+        await OpenConnectorSiteBinding(BindingsOpenConnectorSiteRequest.createFrom(request))
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CONNECTORS_QUERY_KEY });
     },
   });
 }
@@ -139,7 +145,19 @@ export function useConnectorConnectSession(request: GetConnectorConnectSessionRe
 function toConnector(raw: BindingsConnector): Connector {
   return {
     ...raw,
-    cookies: raw.cookies.map((item) => ({ ...item })),
+    cookies: (raw.cookies ?? []).map((item) => ({ ...item })),
+    profileSites: (raw.profileSites ?? []).map((item) => ({ ...item })),
+    profileInfo: raw.profileInfo
+      ? {
+          ...raw.profileInfo,
+          components: (raw.profileInfo.components ?? []).map((item) => ({
+            ...item,
+          })),
+          bindings: (raw.profileInfo.bindings ?? []).map((item) => ({
+            ...item,
+          })),
+        }
+      : undefined,
   };
 }
 

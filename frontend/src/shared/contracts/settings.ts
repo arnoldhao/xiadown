@@ -7,6 +7,7 @@ export type ProxyMode = "none" | "system" | "manual";
 export type ProxyScheme = "http" | "https" | "socks5";
 export type SystemProxySource = "system" | "vpn";
 export type MenuBarVisibility = "always" | "whenRunning" | "never";
+export type ResourceSniffScope = "default" | "advanced" | "all";
 
 export interface WindowBounds {
   x: number;
@@ -61,6 +62,9 @@ export interface Settings {
   syncedLyricsEnabled: boolean;
   romanizedLyrics: boolean;
   pinyinLyrics: boolean;
+  resourceSniffScope: ResourceSniffScope;
+  resourceSniffMinBytes: number;
+  resourceSniffRetain: number;
   mainBounds: WindowBounds;
   settingsBounds: WindowBounds;
   proxy: Proxy;
@@ -88,6 +92,9 @@ export interface UpdateSettingsRequest {
   syncedLyricsEnabled?: boolean;
   romanizedLyrics?: boolean;
   pinyinLyrics?: boolean;
+  resourceSniffScope?: ResourceSniffScope;
+  resourceSniffMinBytes?: number;
+  resourceSniffRetain?: number;
   mainBounds?: WindowBounds;
   settingsBounds?: WindowBounds;
   proxy?: Proxy;

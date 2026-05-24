@@ -65,6 +65,9 @@ type Session struct {
 
 	pendingDialogs map[string]PendingDialog
 	cookieSync     map[string]string
+
+	targetWatcher *PageTargetWatcher
+	targetInfos   map[string]*targetpkg.Info
 }
 
 type sessionTab struct {
@@ -364,6 +367,7 @@ func (registry *SessionRegistry) GetOrCreate(sessionKey string, profileName stri
 			tabs:           map[string]*sessionTab{},
 			pendingDialogs: map[string]PendingDialog{},
 			cookieSync:     map[string]string{},
+			targetInfos:    map[string]*targetpkg.Info{},
 		}
 		bucket[profileName] = session
 		return session
@@ -1058,6 +1062,19 @@ func (session *Session) optionsSnapshot() SessionOptions {
 	return session.options
 }
 
+func (session *Session) runtimeTargetManager() *PageTargetManager {
+	if session == nil {
+		return nil
+	}
+	session.mu.Lock()
+	runtime := session.runtime
+	session.mu.Unlock()
+	if runtime == nil {
+		return nil
+	}
+	return runtime.TargetManager()
+}
+
 func (session *Session) ensureStarted() error {
 	session.mu.Lock()
 	if session.runtime != nil && session.runtime.Status().Ready {
@@ -1084,13 +1101,16 @@ func (session *Session) ensureStarted() error {
 		return nil
 	}
 	session.runtime = runtime
+	session.targetInfos = map[string]*targetpkg.Info{}
 	session.mu.Unlock()
+	session.startTargetLifecycle(runtime)
 	return nil
 }
 
 func (session *Session) stop() {
 	session.mu.Lock()
 	runtime := session.runtime
+	targetWatcher := session.targetWatcher
 	tabs := make([]*sessionTab, 0, len(session.tabs))
 	for _, tab := range session.tabs {
 		tabs = append(tabs, tab)
@@ -1100,8 +1120,13 @@ func (session *Session) stop() {
 	session.activeTarget = ""
 	session.pendingDialogs = map[string]PendingDialog{}
 	session.cookieSync = map[string]string{}
+	session.targetWatcher = nil
+	session.targetInfos = map[string]*targetpkg.Info{}
 	session.mu.Unlock()
 
+	if targetWatcher != nil {
+		targetWatcher.Stop()
+	}
 	for _, tab := range tabs {
 		cancelTabContexts(tab)
 	}
@@ -1161,6 +1186,9 @@ func (session *Session) createBlankTarget() (string, error) {
 	targetID := strings.TrimSpace(string(createdTargetID))
 	if targetID == "" {
 		return "", errors.New("create target returned empty target id")
+	}
+	if manager := session.runtimeTargetManager(); manager != nil {
+		manager.RememberPageTargetID(targetID)
 	}
 	return targetID, nil
 }
@@ -1252,6 +1280,9 @@ func (session *Session) attachTargetAsTab(targetID string, createNew bool) (*ses
 		cancel()
 		return nil, wrapRuntimeHangError(err)
 	}
+	if manager := runtime.TargetManager(); manager != nil {
+		manager.RememberPageTargetID(tab.TargetID)
+	}
 	activateCtx, activateCancel, activateErr := session.newBrowserExecutorContext(5 * time.Second)
 	if activateErr == nil {
 		_ = targetpkg.ActivateTarget(targetpkg.ID(tab.TargetID)).Do(activateCtx)
@@ -1284,6 +1315,177 @@ func (session *Session) attachTab(tab *sessionTab) error {
 		}
 	})
 	return nil
+}
+
+func (session *Session) startTargetLifecycle(runtime *Runtime) {
+	if session == nil || runtime == nil {
+		return
+	}
+	watcher, err := WatchPageTargets(runtime, func(event TargetEvent) {
+		if !session.isCurrentRuntime(runtime) {
+			return
+		}
+		switch event.Kind {
+		case TargetEventCreated, TargetEventInfoChanged:
+			session.handleBrowserTargetInfo(event.Info)
+		case TargetEventDestroyed, TargetEventCrashed:
+			session.handleBrowserTargetGone(event.TargetID)
+		case TargetEventDetached:
+			targetID := strings.TrimSpace(event.TargetID)
+			if targetID == "" || runtime.TargetManager() == nil || !runtime.TargetManager().PageTargetExists(targetID) {
+				session.handleBrowserTargetGone(targetID)
+			}
+		}
+	})
+	if err != nil {
+		zap.L().Debug("browser target lifecycle watch failed", append(session.logFields(), zap.Error(err))...)
+		return
+	}
+	session.mu.Lock()
+	previousWatcher := session.targetWatcher
+	session.targetWatcher = watcher
+	if session.targetInfos == nil {
+		session.targetInfos = map[string]*targetpkg.Info{}
+	}
+	session.mu.Unlock()
+	if previousWatcher != nil {
+		previousWatcher.Stop()
+	}
+}
+
+func (session *Session) isCurrentRuntime(runtime *Runtime) bool {
+	if session == nil || runtime == nil {
+		return false
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	return session.runtime == runtime
+}
+
+func (session *Session) handleBrowserTargetInfo(info *targetpkg.Info) {
+	if session == nil || info == nil || info.Type != "page" {
+		return
+	}
+	targetID := strings.TrimSpace(string(info.TargetID))
+	if targetID == "" {
+		return
+	}
+	cloned := cloneTargetInfo(info)
+	var tab *sessionTab
+	session.mu.Lock()
+	if session.targetInfos == nil {
+		session.targetInfos = map[string]*targetpkg.Info{}
+	}
+	session.targetInfos[targetID] = cloned
+	tab = session.tabs[targetID]
+	session.mu.Unlock()
+	updateSessionTabTargetInfo(tab, cloned)
+}
+
+func (session *Session) handleBrowserTargetGone(targetID string) {
+	if session == nil {
+		return
+	}
+	tab := session.detachTabRecord(targetID)
+	if tab != nil {
+		cancelTabContexts(tab)
+	}
+}
+
+func (session *Session) syncManagedTabs(timeout time.Duration) {
+	if session == nil {
+		return
+	}
+	session.mu.Lock()
+	hasRuntime := session.runtime != nil && session.runtime.Status().Ready
+	hasTabs := len(session.tabs) > 0
+	session.mu.Unlock()
+	if !hasRuntime || !hasTabs {
+		return
+	}
+	infos, err := session.browserPageTargets(timeout)
+	if err != nil {
+		zap.L().Debug("browser managed tab sync failed", append(session.logFields(), zap.Error(err))...)
+		return
+	}
+	session.reconcileBrowserTargetMap(infos)
+}
+
+func (session *Session) reconcileBrowserTargetMap(targets map[string]*targetpkg.Info) {
+	if session == nil {
+		return
+	}
+	type tabInfoUpdate struct {
+		tab  *sessionTab
+		info *targetpkg.Info
+	}
+	updates := make([]tabInfoUpdate, 0, len(targets))
+	cancelTabs := make([]*sessionTab, 0)
+
+	session.mu.Lock()
+	if session.targetInfos == nil {
+		session.targetInfos = map[string]*targetpkg.Info{}
+	}
+	for targetID, info := range targets {
+		if strings.TrimSpace(targetID) == "" || info == nil {
+			continue
+		}
+		cloned := cloneTargetInfo(info)
+		session.targetInfos[targetID] = cloned
+		if tab := session.tabs[targetID]; tab != nil {
+			updates = append(updates, tabInfoUpdate{tab: tab, info: cloned})
+		}
+	}
+	for targetID, tab := range session.tabs {
+		if _, ok := targets[targetID]; ok {
+			continue
+		}
+		delete(session.tabs, targetID)
+		delete(session.pendingDialogs, targetID)
+		delete(session.targetInfos, targetID)
+		if session.activeTarget == targetID {
+			session.activeTarget = ""
+		}
+		if tab != nil {
+			cancelTabs = append(cancelTabs, tab)
+		}
+	}
+	if session.activeTarget == "" {
+		session.activeTarget = firstSessionTabIDLocked(session)
+	}
+	session.mu.Unlock()
+
+	for _, update := range updates {
+		updateSessionTabTargetInfo(update.tab, update.info)
+	}
+	for _, tab := range cancelTabs {
+		cancelTabContexts(tab)
+	}
+}
+
+func cloneTargetInfo(info *targetpkg.Info) *targetpkg.Info {
+	if info == nil {
+		return nil
+	}
+	cloned := *info
+	return &cloned
+}
+
+func updateSessionTabTargetInfo(tab *sessionTab, info *targetpkg.Info) {
+	if tab == nil || info == nil {
+		return
+	}
+	currentURL := strings.TrimSpace(info.URL)
+	title := strings.TrimSpace(info.Title)
+	tab.mu.Lock()
+	currentURL = preferredPageURL(currentURL, tab.lastURL)
+	if currentURL != "" {
+		tab.lastURL = currentURL
+	}
+	if title != "" {
+		tab.title = title
+	}
+	tab.mu.Unlock()
 }
 
 func (session *Session) enableRequestInterception(tab *sessionTab) error {
@@ -1357,6 +1559,7 @@ func (session *Session) handlePausedRequest(tab *sessionTab, event *fetch.EventR
 }
 
 func (session *Session) resolveTab(targetID string, allowActive bool) (*sessionTab, error) {
+	session.syncManagedTabs(750 * time.Millisecond)
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	targetID = strings.TrimSpace(targetID)
@@ -1403,24 +1606,42 @@ func (session *Session) closeTab(targetID string, timeout time.Duration) (Action
 }
 
 func (session *Session) detachTab(targetID string) {
+	_ = session.detachTabRecord(targetID)
+}
+
+func (session *Session) detachTabRecord(targetID string) *sessionTab {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	targetID = strings.TrimSpace(targetID)
 	if targetID == "" {
-		return
+		return nil
 	}
+	tab := session.tabs[targetID]
 	delete(session.tabs, targetID)
 	delete(session.pendingDialogs, targetID)
+	delete(session.targetInfos, targetID)
 	if session.activeTarget == targetID {
-		session.activeTarget = ""
-		for _, tab := range session.tabs {
-			session.activeTarget = tab.TargetID
-			break
+		session.activeTarget = firstSessionTabIDLocked(session)
+	}
+	return tab
+}
+
+func firstSessionTabIDLocked(session *Session) string {
+	if session == nil {
+		return ""
+	}
+	for _, tab := range session.tabs {
+		if tab != nil && strings.TrimSpace(tab.TargetID) != "" {
+			return strings.TrimSpace(tab.TargetID)
 		}
 	}
+	return ""
 }
 
 func (session *Session) browserPageTargets(timeout time.Duration) (map[string]*targetpkg.Info, error) {
+	if manager := session.runtimeTargetManager(); manager != nil {
+		return manager.PageTargetMap(), nil
+	}
 	execCtx, cancel, err := session.newBrowserExecutorContext(timeout)
 	if err != nil {
 		return nil, err
@@ -2065,6 +2286,12 @@ func (session *Session) browserTargetInfo(targetID string, timeout time.Duration
 	if targetID == "" {
 		return nil
 	}
+	if manager := session.runtimeTargetManager(); manager != nil {
+		if info, ok := manager.PageTargetInfo(targetID); ok {
+			return info
+		}
+		return nil
+	}
 	targets, err := session.browserPageTargets(timeout)
 	if err != nil {
 		return nil
@@ -2098,6 +2325,9 @@ func (session *Session) observeActionNavigation(tab *sessionTab, before map[stri
 		return tab, false, nil
 	}
 	timeout = normalizeTimeout(timeout, 5*time.Second)
+	if manager := session.runtimeTargetManager(); manager != nil {
+		return session.observeActionNavigationWithManager(manager, tab, before, previousURL, timeout)
+	}
 	deadline := time.Now().Add(timeout)
 	for {
 		if err := consumeBlockedRequestError(tab); err != nil {
@@ -2197,6 +2427,87 @@ func (session *Session) observeActionNavigation(tab *sessionTab, before map[stri
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
+}
+
+func (session *Session) observeActionNavigationWithManager(manager *PageTargetManager, tab *sessionTab, before map[string]*targetpkg.Info, previousURL string, timeout time.Duration) (*sessionTab, bool, error) {
+	if manager == nil || tab == nil {
+		return tab, false, nil
+	}
+	if err := consumeBlockedRequestError(tab); err != nil {
+		return tab, false, err
+	}
+	session.mu.Lock()
+	runtime := session.runtime
+	session.mu.Unlock()
+	baseCtx := context.Background()
+	if runtime != nil && runtime.BrowserContext() != nil {
+		baseCtx = runtime.BrowserContext()
+	}
+	waitCtx, cancel := context.WithTimeout(baseCtx, timeout)
+	defer cancel()
+	info, err := manager.WaitPageTarget(waitCtx, func(info *targetpkg.Info) bool {
+		if info == nil {
+			return false
+		}
+		targetID := strings.TrimSpace(string(info.TargetID))
+		if targetID == "" {
+			return false
+		}
+		if targetID == tab.TargetID {
+			return shouldTreatNavigationAsComplete(info.URL, previousURL, "")
+		}
+		if _, existed := before[targetID]; existed {
+			return false
+		}
+		return shouldTreatNavigationAsComplete(info.URL, previousURL, "")
+	})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			if blockedErr := consumeBlockedRequestError(tab); blockedErr != nil {
+				return tab, false, blockedErr
+			}
+			return tab, false, nil
+		}
+		return tab, false, err
+	}
+	if info == nil {
+		return tab, false, nil
+	}
+	targetID := strings.TrimSpace(string(info.TargetID))
+	currentURL := strings.TrimSpace(info.URL)
+	currentTitle := strings.TrimSpace(info.Title)
+	if err := session.assertObservedURLAllowed(currentURL); err != nil {
+		return tab, false, err
+	}
+	if targetID == tab.TargetID {
+		tab.mu.Lock()
+		tab.lastURL = currentURL
+		if currentTitle != "" {
+			tab.title = currentTitle
+		}
+		tab.mu.Unlock()
+		rebound := session.rebindTabAfterNavigation(tab, currentURL)
+		if rebound != nil {
+			tab = rebound
+		}
+		storeNavigation(tab, currentURL)
+		return tab, true, nil
+	}
+	rebound, attachErr := session.attachTargetAsTab(targetID, false)
+	if attachErr != nil || rebound == nil {
+		return tab, false, attachErr
+	}
+	rebound.mu.Lock()
+	rebound.lastURL = currentURL
+	if currentTitle != "" {
+		rebound.title = currentTitle
+	}
+	rebound.mu.Unlock()
+	if rebound.TargetID != tab.TargetID {
+		session.detachTab(tab.TargetID)
+	}
+	storeNavigation(rebound, currentURL)
+	return rebound, true, nil
 }
 
 func mapTargetInfos(targets map[string]*targetpkg.Info) []*targetpkg.Info {

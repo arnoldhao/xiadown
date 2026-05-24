@@ -71,6 +71,28 @@ func TestResolveConnectorCookiesForURL_ReturnsNilWhenNoMatch(t *testing.T) {
 	}
 }
 
+func TestResolveConnectorCookiesForURL_SkipsProfileConnectors(t *testing.T) {
+	t.Parallel()
+
+	cookies, err := ResolveConnectorCookiesForURL(context.Background(), connectorsReaderStub{
+		items: []connectorsdto.Connector{
+			{
+				Type:           "china_private",
+				CredentialMode: "profile",
+				Cookies: []connectorsdto.ConnectorCookie{
+					{Name: "sessionid", Value: "stale", Domain: ".douyin.com", Path: "/"},
+				},
+			},
+		},
+	}, "https://www.douyin.com/video/123")
+	if err != nil {
+		t.Fatalf("resolve cookies: %v", err)
+	}
+	if len(cookies) != 0 {
+		t.Fatalf("expected profile connector cookies to be ignored, got %#v", cookies)
+	}
+}
+
 func TestResolveConnectorCookiesForURL_PropagatesReaderError(t *testing.T) {
 	t.Parallel()
 

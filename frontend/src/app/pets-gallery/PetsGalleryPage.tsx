@@ -14,6 +14,7 @@ import {
   PawPrint,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -57,6 +58,10 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
+import {
+  pickFunButtonEffect,
+  type FunButtonEffect,
+} from "@/shared/ui/fun-button-effect";
 import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -90,31 +95,10 @@ type PetContextMenuTarget = {
   y: number;
 };
 
-type PetGalleryImportEffect =
-  | "water"
-  | "fire"
-  | "cloud"
-  | "sun"
-  | "mist"
-  | "shadow";
-
 const PET_GALLERY_INITIAL_LIMIT = 48;
 const PET_GALLERY_PAGE_SIZE = 24;
-const PET_GALLERY_IMPORT_EFFECTS: PetGalleryImportEffect[] = [
-  "water",
-  "fire",
-  "cloud",
-  "sun",
-  "mist",
-  "shadow",
-];
 
 type XiaText = ReturnType<typeof getXiaText>;
-
-function pickPetGalleryImportEffect(): PetGalleryImportEffect {
-  const index = Math.floor(Math.random() * PET_GALLERY_IMPORT_EFFECTS.length);
-  return PET_GALLERY_IMPORT_EFFECTS[index] ?? "water";
-}
 
 export function PetsGalleryPage(props: {
   text: XiaText;
@@ -136,8 +120,8 @@ export function PetsGalleryPage(props: {
   const [deleteConfirmError, setDeleteConfirmError] = React.useState("");
   const [galleryLimit, setGalleryLimit] = React.useState(PET_GALLERY_INITIAL_LIMIT);
   const [animation, setAnimation] = React.useState<PetAnimation>("running");
-  const [importEffect] = React.useState<PetGalleryImportEffect>(() =>
-    pickPetGalleryImportEffect(),
+  const [importEffect] = React.useState<FunButtonEffect>(() =>
+    pickFunButtonEffect(),
   );
   const pets = petsQuery.data ?? [];
   const readyPets = React.useMemo(() => pets.filter((pet) => pet.status === "ready"), [pets]);
@@ -768,6 +752,9 @@ function PetImportDialog(props: {
   const [localDraft, setLocalDraft] = React.useState<PetImportDraft | null>(null);
   const [localError, setLocalError] = React.useState("");
   const [importedLocalPets, setImportedLocalPets] = React.useState<Pet[]>([]);
+  const [closingImport, setClosingImport] = React.useState(false);
+  const onlineSessionIdRef = React.useRef("");
+  const onlineStartPromiseRef = React.useRef<Promise<OnlinePetImportSession | null> | null>(null);
 
   const sessionQuery = useOnlinePetImportSession(
     { sessionId },
@@ -794,6 +781,10 @@ function PetImportDialog(props: {
   }, [sessionQuery.data]);
 
   React.useEffect(() => {
+    onlineSessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  React.useEffect(() => {
     if (!props.open) {
       setMode("online");
       setSiteId("codex-pets-net");
@@ -803,6 +794,7 @@ function PetImportDialog(props: {
       setLocalDraft(null);
       setLocalError("");
       setImportedLocalPets([]);
+      setClosingImport(false);
     }
   }, [props.open]);
 
@@ -852,47 +844,71 @@ function PetImportDialog(props: {
   }, [importPet, localDraft, text, text.petGallery.importSucceeded]);
 
   const handleBrowseOnline = React.useCallback(async () => {
-    try {
-      const session = await startOnlineImport.mutateAsync({ siteId });
+    let startPromise: Promise<OnlinePetImportSession | null>;
+    startPromise = startOnlineImport
+      .mutateAsync({ siteId })
+      .then((session) => {
+        setSessionId(session.sessionId);
+        setSessionSnapshot(session);
+        return session;
+      })
+      .catch((error) => {
+        messageBus.publishToast({
+          intent: "danger",
+          title: text.petGallery.importFailedTitle,
+          description: resolvePetError(error, text),
+        });
+        return null;
+      })
+      .finally(() => {
+        if (onlineStartPromiseRef.current === startPromise) {
+          onlineStartPromiseRef.current = null;
+        }
+      });
+    onlineStartPromiseRef.current = startPromise;
+    const session = await startPromise;
+    if (session) {
       setSessionId(session.sessionId);
       setSessionSnapshot(session);
-    } catch (error) {
-      messageBus.publishToast({
-        intent: "danger",
-        title: text.petGallery.importFailedTitle,
-        description: resolvePetError(error, text),
-      });
     }
   }, [siteId, startOnlineImport, text, text.petGallery.importFailedTitle]);
 
   const handleCompleteImport = React.useCallback(async () => {
-    if (startOnlineImport.isPending || importPet.isPending || inspectPet.isPending) {
+    if (closingImport || importPet.isPending || inspectPet.isPending) {
       return;
     }
-    const currentSessionId = sessionId.trim();
-    if (currentSessionId) {
-      try {
-        await finishOnlineImport.mutateAsync({ sessionId: currentSessionId });
-      } catch (error) {
-        const details = parsePetError(error);
-        if (details.code !== "pet_online_session_not_found") {
-          messageBus.publishToast({
-            intent: "danger",
-            title: text.petGallery.importFailedTitle,
-            description: resolvePetErrorDetails(details, text),
-          });
-          return;
+    setClosingImport(true);
+    try {
+      const pendingStart = onlineStartPromiseRef.current;
+      const startedSession = pendingStart ? await pendingStart : null;
+      const currentSessionId =
+        startedSession?.sessionId?.trim() || onlineSessionIdRef.current.trim();
+      if (currentSessionId) {
+        try {
+          await finishOnlineImport.mutateAsync({ sessionId: currentSessionId });
+        } catch (error) {
+          const details = parsePetError(error);
+          if (details.code !== "pet_online_session_not_found") {
+            messageBus.publishToast({
+              intent: "danger",
+              title: text.petGallery.importFailedTitle,
+              description: resolvePetErrorDetails(details, text),
+            });
+            setClosingImport(false);
+            return;
+          }
         }
       }
+      props.onOpenChange(false);
+    } catch {
+      setClosingImport(false);
     }
-    props.onOpenChange(false);
   }, [
+    closingImport,
     finishOnlineImport,
     importPet.isPending,
     inspectPet.isPending,
     props,
-    sessionId,
-    startOnlineImport.isPending,
     text,
     text.petGallery.importFailedTitle,
   ]);
@@ -911,10 +927,15 @@ function PetImportDialog(props: {
   const selectedSiteLabel = resolvePetImportSiteLabel(text, siteId);
   const localReady = localDraft?.status === "ready";
   const finishPending =
+    closingImport ||
     finishOnlineImport.isPending ||
-    startOnlineImport.isPending ||
     inspectPet.isPending ||
     importPet.isPending;
+  const finishBusyIcon =
+    closingImport || finishOnlineImport.isPending || startOnlineImport.isPending;
+  const hasOnlineBrowserSession =
+    mode === "online" &&
+    (closingImport || startOnlineImport.isPending || sessionId.trim().length > 0);
 
   return (
     <Dialog open={props.open} onOpenChange={handleOpenChange}>
@@ -1076,8 +1097,14 @@ function PetImportDialog(props: {
 
         <DialogFooter>
           <Button type="button" variant="default" onClick={() => void handleCompleteImport()} disabled={finishPending}>
-            {finishPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            {dialogText.finish}
+            {finishBusyIcon ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : hasOnlineBrowserSession ? (
+              <X className="h-4 w-4" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            {hasOnlineBrowserSession ? text.actions.closeBrowser : dialogText.finish}
           </Button>
         </DialogFooter>
       </DialogContent>

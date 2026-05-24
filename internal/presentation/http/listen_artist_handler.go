@@ -18,6 +18,7 @@ const (
 type listenYouTubeMusicArtistClient interface {
 	ArtistPage(ctx context.Context, browseID string, limit int) (youtubemusic.ArtistPage, error)
 	BrowseShelvesPage(ctx context.Context, browseID string, params string, continuation string, sectionLimit int, itemLimit int) (youtubemusic.BrowsePage, error)
+	SearchArtists(ctx context.Context, query string, limit int) ([]youtubemusic.Artist, error)
 	SearchSongs(ctx context.Context, query string, limit int) ([]youtubemusic.Track, error)
 	SubscribeArtist(ctx context.Context, channelID string) error
 	UnsubscribeArtist(ctx context.Context, channelID string) error
@@ -31,6 +32,7 @@ type ListenArtistResponse struct {
 	ID            string               `json:"id"`
 	Title         string               `json:"title"`
 	Subtitle      string               `json:"subtitle,omitempty"`
+	ThumbnailURL  string               `json:"thumbnailUrl,omitempty"`
 	ChannelID     string               `json:"channelId,omitempty"`
 	IsSubscribed  bool                 `json:"isSubscribed,omitempty"`
 	MixPlaylistID string               `json:"mixPlaylistId,omitempty"`
@@ -131,6 +133,7 @@ func (handler *ListenArtistHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 				ID:            page.ID,
 				Title:         firstNonEmptyString(page.Title, artistName, page.ID),
 				Subtitle:      page.Subtitle,
+				ThumbnailURL:  page.ThumbnailURL,
 				ChannelID:     page.ChannelID,
 				IsSubscribed:  page.IsSubscribed,
 				MixPlaylistID: page.MixPlaylistID,
@@ -153,6 +156,29 @@ func (handler *ListenArtistHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 			Title:   browseID,
 			Items:   []ListenSearchItem{},
 			Shelves: []ListenLibraryShelf{},
+		})
+		return
+	}
+
+	if page, ok, err := handler.resolveArtistPageByName(ctx, artistName); ok || err != nil {
+		if err != nil {
+			writeListenYouTubeMusicUnavailable(w, r, err, "YouTube Music artist unavailable.", "artist")
+			return
+		}
+		page.Tracks = enrichListenTrackDurations(ctx, handler.ytMusic, page.Tracks)
+		page.Shelves = enrichListenShelfTrackDurations(ctx, handler.ytMusic, page.Shelves)
+		writeListenArtistJSON(w, r, ListenArtistResponse{
+			ID:            page.ID,
+			Title:         firstNonEmptyString(page.Title, artistName, page.ID),
+			Subtitle:      page.Subtitle,
+			ThumbnailURL:  page.ThumbnailURL,
+			ChannelID:     page.ChannelID,
+			IsSubscribed:  page.IsSubscribed,
+			MixPlaylistID: page.MixPlaylistID,
+			MixVideoID:    page.MixVideoID,
+			Items:         mapYouTubeMusicTracksToListenItems(page.Tracks, "ytmusic-artist"),
+			Shelves:       mapYouTubeMusicShelvesToListenShelvesWithPrefixes(page.Shelves, "ytmusic-artist", "ytmusic-artist-playlist"),
+			Continuation:  page.Continuation,
 		})
 		return
 	}
@@ -222,6 +248,62 @@ func writeListenArtistJSON(w http.ResponseWriter, r *http.Request, response List
 		return
 	}
 	_ = json.NewEncoder(w).Encode(response)
+}
+
+func (handler *ListenArtistHandler) resolveArtistPageByName(ctx context.Context, artistName string) (youtubemusic.ArtistPage, bool, error) {
+	name := strings.TrimSpace(artistName)
+	if len([]rune(name)) < 2 {
+		return youtubemusic.ArtistPage{}, false, nil
+	}
+	artists, err := handler.ytMusic.SearchArtists(ctx, name, listenSearchArtistLimit)
+	if err != nil {
+		return youtubemusic.ArtistPage{}, false, nil
+	}
+	artist, ok := bestListenArtistSearchMatch(artists, name)
+	if !ok {
+		return youtubemusic.ArtistPage{}, false, nil
+	}
+	page, err := handler.ytMusic.ArtistPage(ctx, artist.ID, listenArtistLimit)
+	if err != nil {
+		return youtubemusic.ArtistPage{}, true, err
+	}
+	if len(page.Tracks) == 0 && len(page.Shelves) == 0 {
+		return youtubemusic.ArtistPage{}, false, nil
+	}
+	if strings.TrimSpace(page.ID) == "" {
+		page.ID = strings.TrimSpace(artist.ID)
+	}
+	if strings.TrimSpace(page.Title) == "" {
+		page.Title = strings.TrimSpace(artist.Name)
+	}
+	if strings.TrimSpace(page.ThumbnailURL) == "" {
+		page.ThumbnailURL = strings.TrimSpace(artist.ThumbnailURL)
+	}
+	return page, true, nil
+}
+
+func bestListenArtistSearchMatch(artists []youtubemusic.Artist, artistName string) (youtubemusic.Artist, bool) {
+	normalizedName := normalizeListenArtistMatchName(artistName)
+	var first youtubemusic.Artist
+	for _, artist := range artists {
+		if strings.TrimSpace(artist.ID) == "" {
+			continue
+		}
+		if strings.TrimSpace(first.ID) == "" {
+			first = artist
+		}
+		if normalizedName != "" && normalizeListenArtistMatchName(artist.Name) == normalizedName {
+			return artist, true
+		}
+	}
+	if strings.TrimSpace(first.ID) == "" {
+		return youtubemusic.Artist{}, false
+	}
+	return first, true
+}
+
+func normalizeListenArtistMatchName(value string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(value)), " "))
 }
 
 func tracksFromListenShelves(shelves []youtubemusic.Shelf) []youtubemusic.Track {

@@ -29,6 +29,46 @@ func TestForConnectorTypeYouTubeDomainsIncludeShortURL(t *testing.T) {
 	}
 }
 
+func TestForConnectorTypeChinaPrivateUsesProfileScope(t *testing.T) {
+	t.Parallel()
+
+	policy, ok := ForConnectorType("china_private")
+	if !ok {
+		t.Fatalf("expected china private connector policy")
+	}
+	for _, rawURL := range []string{
+		"https://www.douyin.com/video/123",
+		"https://v.douyin.com/example/",
+		"https://www.iesdouyin.com/share/video/123/",
+		"https://www.xiaohongshu.com/explore/123",
+		"https://www.rednote.com/explore/123",
+		"https://xhslink.com/a/example",
+		"https://xhslink.cn/a/example",
+		"http://xhsurl.com/example",
+		"http://xhs.cn/example",
+		"https://rl.ink/example",
+	} {
+		if !MatchDomains(rawURL, policy.Domains) {
+			t.Fatalf("expected china private profile policy to match %s", rawURL)
+		}
+	}
+	sites := ProfileSitesForConnector("china_private")
+	if len(sites) != 2 {
+		t.Fatalf("expected two profile sites, got %#v", sites)
+	}
+	if sites[0].URL != "https://www.douyin.com/" ||
+		sites[1].URL != "https://www.xiaohongshu.com/explore" {
+		t.Fatalf("unexpected profile sites: %#v", sites)
+	}
+	if sites[0].Label != "douyin.com" ||
+		sites[1].Label != "xiaohongshu.com" {
+		t.Fatalf("unexpected profile site labels: %#v", sites)
+	}
+	if MatchDomains("https://verify.snssdk.com/captcha/reportFrontend", policy.Domains) {
+		t.Fatal("expected china private profile policy not to include verification hosts")
+	}
+}
+
 func TestForURLMatchesNewBuiltinSites(t *testing.T) {
 	t.Parallel()
 
@@ -36,7 +76,11 @@ func TestForURLMatchesNewBuiltinSites(t *testing.T) {
 		"https://www.youtube.com/watch?v=test":         "youtube",
 		"https://www.bilibili.com/video/BV1xx411c7mD/": "bilibili",
 		"https://www.tiktok.com/@creator/video/123":    "tiktok",
-		"https://www.douyin.com/video/123":             "douyin",
+		"https://www.douyin.com/video/123":             "china_private",
+		"https://www.iesdouyin.com/share/video/123/":   "china_private",
+		"https://www.xiaohongshu.com/explore/123":      "china_private",
+		"https://www.rednote.com/explore/123":          "china_private",
+		"https://xhslink.com/a/example":                "china_private",
 		"https://www.instagram.com/reel/abc/":          "instagram",
 		"https://x.com/example/status/1":               "x",
 		"https://www.facebook.com/watch/?v=123":        "facebook",

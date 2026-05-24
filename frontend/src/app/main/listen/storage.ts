@@ -2,7 +2,7 @@ import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 
 import { LISTEN_STORAGE_KEY } from "@/app/main/listen/catalog";
 import { clampVolume } from "@/app/main/listen/local-library";
-import type { ListenLibraryShelf,ListenLibraryShelfKind,ListenLivePlaybackKind,ListenMode,ListenOnlineGroup,ListenOnlineItem,ListenOnlineQueueKind,ListenOnlineQueueState,ListenPlayMode,ListenPlaylistItem,ListenStorageState } from "@/app/main/listen/types";
+import type { ListenLibraryShelf,ListenLibraryShelfKind,ListenLivePlaybackKind,ListenMode,ListenOnlineGroup,ListenOnlineItem,ListenOnlineQueueKind,ListenOnlineQueueState,ListenPlayMode,ListenPlaylistItem,ListenStorageState,ListenTrackArtist } from "@/app/main/listen/types";
 import { doesListenThumbnailSuggestVideoContent,hasListenMusicVideoContent,isListenMusicVideoKnownNoVideo } from "@/app/main/listen/video-types";
 
 const LISTEN_IMAGE_CACHE_AVATAR_SIZE = 96;
@@ -246,6 +246,36 @@ export function sanitizeListenProgressMap(value: unknown) {
   return result;
 }
 
+function sanitizeListenTrackArtists(value: unknown): ListenTrackArtist[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const artists: ListenTrackArtist[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const record = raw as Record<string, unknown>;
+    const name = String(record.name ?? "").trim();
+    const browseId = String(record.browseId ?? "").trim();
+    if (!name) {
+      continue;
+    }
+    const key = browseId || name.toLocaleLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    artists.push({
+      name,
+      browseId: browseId || undefined,
+      thumbnailUrl: normalizeListenImageSourceURL(String(record.thumbnailUrl ?? "")) || undefined,
+    });
+  }
+  return artists.length > 0 ? artists : undefined;
+}
+
 export function sanitizeListenOnlineItems(value: unknown): ListenOnlineItem[] {
   if (!Array.isArray(value)) {
     return [];
@@ -299,6 +329,7 @@ export function sanitizeListenOnlineItems(value: unknown): ListenOnlineItem[] {
           videoId,
           title: String(record.title ?? "").trim() || videoId,
           channel: String(record.channel ?? "").trim(),
+          artists: sanitizeListenTrackArtists(record.artists),
           artistBrowseId:
             String(record.artistBrowseId ?? "").trim() || undefined,
           description: String(record.description ?? "").trim(),

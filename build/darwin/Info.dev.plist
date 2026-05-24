@@ -25,6 +25,10 @@
             <string>true</string>
         <key>NSHumanReadableCopyright</key>
             <string>© 2026, Arnold HAO</string>
+        <key>NSAudioCaptureUsageDescription</key>
+            <string>XiaDown processes its Listen audio output through a built-in equalizer. This permission only covers XiaDown playback.</string>
+        <key>NSScreenCaptureUsageDescription</key>
+            <string>XiaDown taps its own audio output so the built-in equalizer can apply effects. No screen content is recorded.</string>
         <key>NSAppTransportSecurity</key>
         <dict>
             <key>NSAllowsLocalNetworking</key>

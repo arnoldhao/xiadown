@@ -88,7 +88,8 @@ func (transport listenPlaybackTransport) CurrentVideoID(context.Context) string 
 }
 
 type listenPlaybackLibraryClient interface {
-	PlaylistPage(ctx context.Context, playlistID string, continuation string, limit int) (youtubemusic.TrackListPage, error)
+	MixQueue(ctx context.Context, playlistID string, startVideoID string, limit int) (youtubemusic.RadioQueuePage, error)
+	MixQueueContinuation(ctx context.Context, continuation string, limit int) (youtubemusic.RadioQueuePage, error)
 	Radio(ctx context.Context, videoID string, limit int) ([]youtubemusic.Track, error)
 	TrackMetadata(ctx context.Context, videoID string) (youtubemusic.TrackMetadata, error)
 }
@@ -116,7 +117,7 @@ func (adapter listenPlaybackLibraryAdapter) MixQueue(ctx context.Context, playli
 	if adapter.client == nil {
 		return listenplayback.MixQueueResult{}, nil
 	}
-	page, err := adapter.client.PlaylistPage(ctx, playlistID, "", listenMixQueueLimit)
+	page, err := adapter.client.MixQueue(ctx, playlistID, startVideoID, listenMixQueueLimit)
 	if err != nil {
 		return listenplayback.MixQueueResult{}, err
 	}
@@ -134,7 +135,7 @@ func (adapter listenPlaybackLibraryAdapter) MixQueueContinuation(ctx context.Con
 	if adapter.client == nil {
 		return listenplayback.MixQueueResult{}, nil
 	}
-	page, err := adapter.client.PlaylistPage(ctx, "", continuation, listenMixQueueLimit)
+	page, err := adapter.client.MixQueueContinuation(ctx, continuation, listenMixQueueLimit)
 	if err != nil {
 		return listenplayback.MixQueueResult{}, err
 	}
@@ -177,6 +178,7 @@ func listenPlaybackTrackFromYouTubeMusic(track youtubemusic.Track) listenplaybac
 		VideoID:                videoID,
 		Title:                  strings.TrimSpace(track.Title),
 		Artist:                 strings.TrimSpace(track.Channel),
+		Artists:                listenPlaybackTrackArtistsFromYouTubeMusic(track.Artists),
 		ArtistBrowseID:         strings.TrimSpace(track.ArtistBrowseID),
 		ArtistSource:           strings.TrimSpace(track.ArtistSource),
 		DurationLabel:          strings.TrimSpace(track.DurationLabel),
@@ -185,6 +187,34 @@ func listenPlaybackTrackFromYouTubeMusic(track youtubemusic.Track) listenplaybac
 		HasVideo:               hasVideo,
 		VideoAvailabilityKnown: videoAvailabilityKnown,
 	}
+}
+
+func listenPlaybackTrackArtistsFromYouTubeMusic(artists []youtubemusic.TrackArtist) []listenplayback.TrackArtist {
+	result := make([]listenplayback.TrackArtist, 0, len(artists))
+	seen := make(map[string]struct{}, len(artists))
+	for _, artist := range artists {
+		name := strings.TrimSpace(artist.Name)
+		browseID := strings.TrimSpace(artist.BrowseID)
+		if name == "" {
+			continue
+		}
+		key := browseID
+		if key == "" {
+			key = strings.ToLower(name)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, listenplayback.TrackArtist{
+			Name:     name,
+			BrowseID: browseID,
+		})
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func listenPlaybackTrackFromPlayRequest(request ListenPlayerPlayRequest) listenplayback.Track {
@@ -215,6 +245,7 @@ func listenPlaybackTrackFromMetadata(metadata youtubemusic.TrackMetadata, fallba
 		VideoID:                videoID,
 		Title:                  strings.TrimSpace(metadata.Title),
 		Artist:                 strings.TrimSpace(metadata.Channel),
+		Artists:                listenPlaybackTrackArtistsFromYouTubeMusic(metadata.Artists),
 		ArtistBrowseID:         strings.TrimSpace(metadata.ArtistBrowseID),
 		ArtistSource:           listenPlaybackMetadataArtistSource(metadata),
 		DurationLabel:          strings.TrimSpace(metadata.DurationLabel),
@@ -230,15 +261,17 @@ func listenPlaybackMetadataArtistSource(metadata youtubemusic.TrackMetadata) str
 	if strings.TrimSpace(metadata.Channel) == "" {
 		return ""
 	}
-	if strings.TrimSpace(metadata.ArtistBrowseID) != "" {
-		return listenplayback.TrackArtistSourceAPILinked
-	}
 	switch strings.TrimSpace(metadata.ArtistSource) {
 	case "api-linked":
 		return listenplayback.TrackArtistSourceAPILinked
+	case "api-linked-multiple":
+		return listenplayback.TrackArtistSourceAPILinkedMultiple
 	case "api-text":
 		return listenplayback.TrackArtistSourceAPIMetadata
 	default:
+		if strings.TrimSpace(metadata.ArtistBrowseID) != "" {
+			return listenplayback.TrackArtistSourceAPILinked
+		}
 		return strings.TrimSpace(metadata.ArtistSource)
 	}
 }

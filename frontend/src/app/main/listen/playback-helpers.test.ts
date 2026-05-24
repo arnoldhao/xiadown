@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { hasTrustedListenOnlineArtist,resolveListenTrackVideoAvailability,resolveTrustedListenOnlineArtistLabel } from "@/app/main/listen/playback-helpers";
+import { hasTrustedListenOnlineArtist,listenArtistCountFromLabelParts,resolveListenTrackVideoAvailability,resolveTrustedListenOnlineArtistLabel,splitListenArtistLabel } from "@/app/main/listen/playback-helpers";
 import type { ListenOnlineItem } from "@/app/main/listen/types";
 
 function item(overrides: Partial<ListenOnlineItem>): ListenOnlineItem {
@@ -105,6 +105,17 @@ describe("listen playback artist provenance", () => {
     expect(resolveTrustedListenOnlineArtistLabel(track)).toBe("Resolved Artist");
   });
 
+  test("trusts linked multi-artist labels", () => {
+    const track = item({
+      channel: "Artist A, Artist B",
+      artistBrowseId: "UCfirst",
+      artistSource: "api-linked-multiple",
+    });
+
+    expect(hasTrustedListenOnlineArtist(track)).toBe(true);
+    expect(resolveTrustedListenOnlineArtistLabel(track)).toBe("Artist A, Artist B");
+  });
+
   test("trusts artists resolved by backend track metadata", () => {
     const track = item({
       channel: "Accusefive",
@@ -113,5 +124,18 @@ describe("listen playback artist provenance", () => {
 
     expect(hasTrustedListenOnlineArtist(track)).toBe(true);
     expect(resolveTrustedListenOnlineArtistLabel(track)).toBe("Accusefive");
+  });
+
+  test("splits multi-artist labels without losing separators", () => {
+    const parts = splitListenArtistLabel("Artist A、Artist B feat. Artist C");
+
+    expect(parts).toEqual([
+      { kind: "artist", text: "Artist A" },
+      { kind: "separator", text: "、" },
+      { kind: "artist", text: "Artist B" },
+      { kind: "separator", text: " feat. " },
+      { kind: "artist", text: "Artist C" },
+    ]);
+    expect(listenArtistCountFromLabelParts(parts)).toBe(3);
   });
 });

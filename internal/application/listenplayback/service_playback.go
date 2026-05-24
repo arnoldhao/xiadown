@@ -338,6 +338,7 @@ func normalizeTrack(track Track) Track {
 	track.VideoID = normalizedVideoID(track.VideoID)
 	track.Title = stringsTrim(track.Title)
 	track.Artist = stringsTrim(track.Artist)
+	track.Artists = normalizeTrackArtists(track.Artists)
 	track.ArtistBrowseID = stringsTrim(track.ArtistBrowseID)
 	track.ArtistSource = stringsTrim(track.ArtistSource)
 	track.DurationLabel = stringsTrim(track.DurationLabel)
@@ -351,6 +352,34 @@ func normalizeTrack(track Track) Track {
 		track.Title = track.VideoID
 	}
 	return normalizeTrackVideoAvailability(track)
+}
+
+func normalizeTrackArtists(artists []TrackArtist) []TrackArtist {
+	if len(artists) == 0 {
+		return nil
+	}
+	normalized := make([]TrackArtist, 0, len(artists))
+	seen := make(map[string]struct{}, len(artists))
+	for _, artist := range artists {
+		name := stringsTrim(artist.Name)
+		browseID := stringsTrim(artist.BrowseID)
+		if name == "" {
+			continue
+		}
+		key := browseID
+		if key == "" {
+			key = strings.ToLower(name)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, TrackArtist{Name: name, BrowseID: browseID})
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
 }
 
 func stringsTrim(value string) string {

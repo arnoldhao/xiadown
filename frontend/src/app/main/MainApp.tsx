@@ -5,6 +5,7 @@ CheckCircle2,
 FolderOpen,
 Link2,
 Plus,
+Radar,
 RefreshCcw,
 Settings2,
 PawPrint,
@@ -24,6 +25,7 @@ setPendingSettingsTab,
 type XiaSettingsTabId,
 } from "@/app/settings/sectionStorage";
 import { PetsGalleryPage,type PetsGalleryNavigation } from "@/app/pets-gallery";
+import { SniffDeskPage } from "@/app/sniff-desk";
 import {
 ConnectorsSection
 } from "@/features/settings/connectors";
@@ -45,7 +47,9 @@ useDependencyUpdates
 import {
 useListLibraries,
 useListOperations,
-useOpenLibraryPath
+useOpenLibraryPath,
+useCDPBrowserStatus,
+useStopCDPBrowserRuntime
 } from "@/shared/query/library";
 import { useHttpBaseURL } from "@/shared/query/runtime";
 import {
@@ -95,7 +99,7 @@ LISTEN_TRAY_COMMAND_EVENT,
 import { formatVersionBadge,normalizeDependencyVersion,resolveCompletedStatusLabel } from "@/app/main/helpers";
 import { CORE_DEPENDENCIES,MAIN_SIDEBAR_ACTION_CLASS,MAIN_SIDEBAR_ICON_CLASS,SETUP_STORAGE_KEY,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME,useSetupState } from "@/app/main/main-constants";
 import { NewTaskDialog } from "@/app/main/NewTaskDialog";
-import { ListenNowPlayingMiniPlayer,resolveSidebarSurface,SidebarIconButton } from "@/app/main/sidebar";
+import { CDPBrowserStatusMiniButton,ListenNowPlayingMiniPlayer,resolveSidebarSurface,SidebarIconButton } from "@/app/main/sidebar";
 import type { CompletedFileEntry,MainViewId,NewTaskDialogMode,NewTaskDialogTranscodeSource } from "@/app/main/types";
 import {
 WELCOME_DEBUG_EVENT,
@@ -195,6 +199,8 @@ export function MainApp() {
     limit: 300,
   });
   const openPath = useOpenLibraryPath();
+  const cdpStatusQuery = useCDPBrowserStatus(true);
+  const stopCDPBrowserRuntime = useStopCDPBrowserRuntime();
   const [setupState, setSetupState] = useSetupState();
   const [debugWelcomeOpen, setDebugWelcomeOpen] = React.useState(false);
   const [activeView, setActiveView] = React.useState<MainViewId>("running");
@@ -216,10 +222,25 @@ export function MainApp() {
   const notifiedOperationIdsRef = React.useRef<Set<string>>(new Set());
 
   const text = getXiaText(settings?.language);
+  const cdpStatus = cdpStatusQuery.data ?? null;
   const appearance = readXiaAppearance(settings);
   const theme = resolveThemePack(appearance.themePackId);
   const isWindows = System.IsWindows();
   const welcomeOpen = !setupState.completed || debugWelcomeOpen;
+  const closeOrphanCDPBrowser = React.useCallback(
+    async (runtimeId: string) => {
+      try {
+        await stopCDPBrowserRuntime.mutateAsync({ runtimeId });
+      } catch (error) {
+        messageBus.publishToast({
+          intent: "danger",
+          title: text.sniffDesk.cdpClose,
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [stopCDPBrowserRuntime, text.sniffDesk],
+  );
   const runningOperations = runningQuery.data ?? [];
   const terminalOperations = terminalQuery.data ?? [];
   const libraries = librariesQuery.data ?? [];
@@ -673,6 +694,15 @@ export function MainApp() {
         </div>
 
         <div className="app-main-sidebar-dock flex flex-col items-center gap-3">
+          <CDPBrowserStatusMiniButton
+            status={cdpStatus}
+            text={text}
+            active={activeView === "sniffDesk"}
+            stopping={stopCDPBrowserRuntime.isPending}
+            onOpenSniffDesk={() => setActiveView("sniffDesk")}
+            onCloseOrphan={(runtimeId) => void closeOrphanCDPBrowser(runtimeId)}
+          />
+
           <ListenNowPlayingMiniPlayer
             status={listenNowPlaying}
             text={text}
@@ -742,6 +772,17 @@ export function MainApp() {
                   </div>
                   <span className="truncate font-medium text-foreground">
                     {text.petGallery.title}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
+                  onSelect={() => setActiveView("sniffDesk")}
+                >
+                  <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
+                    <Radar className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <span className="truncate font-medium text-foreground">
+                    {text.sniffDesk.title}
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -822,7 +863,8 @@ export function MainApp() {
             activeView === "connections" ||
               activeView === "completed" ||
               activeView === "listen" ||
-              activeView === "petsGallery"
+              activeView === "petsGallery" ||
+              activeView === "sniffDesk"
               ? "flex overflow-hidden"
               : "overflow-auto px-5 pb-5",
           )}
@@ -862,6 +904,14 @@ export function MainApp() {
               settings={settings}
               navigation={petsGalleryNavigation}
             />
+          ) : activeView === "sniffDesk" ? (
+            <SniffDeskPage
+              text={text}
+              active={activeView === "sniffDesk"}
+              pet={activePet}
+              petImageURL={activePetImageURL}
+              httpBaseURL={httpBaseURL}
+            />
           ) : null}
           <ListenPage
             active={activeView === "listen"}
@@ -899,6 +949,8 @@ export function MainApp() {
         initialUrl={prefilledDownloadURL}
         initialTranscodeSource={prefilledTranscodeSource}
         settings={settings}
+        onOpenConnections={() => setActiveView("connections")}
+        onOpenSniffDesk={() => setActiveView("sniffDesk")}
       />
     </div>
   );

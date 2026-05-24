@@ -65,7 +65,7 @@ func (service *PlayerService) applyRestoredPlaybackSession(
 	progress float64,
 	duration float64,
 ) {
-	tracks := normalizeTracks(queue)
+	tracks := assignUniqueQueueTrackIDs(normalizeTracks(queue))
 	if len(tracks) == 0 {
 		return
 	}

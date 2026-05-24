@@ -67,6 +67,13 @@ Download the latest installer directly below. Older releases are available on [G
 2. `Windows`: run the `.exe` installer directly, or unzip the portable package and launch it. If SmartScreen appears on first launch, choose `More info -> Run anyway`.
 3. XiaDown opens an onboarding flow for language, theme, proxy, and dependency setup. The main workflows are in the onboarding flow and UI.
 
+## Disclaimer
+
+- XiaDown is provided as a media management and download assistant, for learning, research, and saving content that you are authorized to access and use.
+- You are responsible for ensuring any download, storage, conversion, or use of content is authorized by the rights holder and complies with applicable laws and the terms of the target site/platform.
+- Do not use XiaDown to download, distribute, sell, or otherwise exploit infringing, unauthorized, paid/restricted, private, or otherwise unlawful content.
+- Any copyright, platform policy, account, network, or other legal responsibility arising from your use of XiaDown is borne by you; the project maintainers are not responsible for user conduct or its consequences.
+
 ## Acknowledgements
 
 XiaDown is built on top of excellent open-source projects. The desktop experience, media pipeline, local storage, browser connections, online music, and frontend interface all depend on these foundations.

@@ -37,6 +37,24 @@ func GetAllCookies(ctx context.Context) ([]appcookies.Record, error) {
 	return mapCDPCookies(items), nil
 }
 
+func GetCookiesForURLs(ctx context.Context, urls []string) ([]appcookies.Record, error) {
+	filtered := make([]string, 0, len(urls))
+	for _, rawURL := range urls {
+		trimmed := strings.TrimSpace(rawURL)
+		if trimmed != "" {
+			filtered = append(filtered, trimmed)
+		}
+	}
+	if len(filtered) == 0 {
+		return GetAllCookies(ctx)
+	}
+	items, err := network.GetCookies().WithURLs(filtered).Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return mapCDPCookies(items), nil
+}
+
 func GetStorageCookies(ctx context.Context) ([]appcookies.Record, error) {
 	items, err := storage.GetCookies().Do(ctx)
 	if err != nil {

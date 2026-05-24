@@ -13,8 +13,12 @@ type ConnectorRow struct {
 	ID             string         `bun:"id,pk"`
 	Type           string         `bun:"type"`
 	Status         string         `bun:"status"`
+	CredentialMode sql.NullString `bun:"credential_mode"`
 	CookiesPath    sql.NullString `bun:"cookies_path"`
 	CookiesJSON    sql.NullString `bun:"cookies_json"`
+	ProfileKey     sql.NullString `bun:"profile_key"`
+	ProfilePath    sql.NullString `bun:"profile_path"`
+	ProfileBrowser sql.NullString `bun:"profile_browser"`
 	LastVerifiedAt sql.NullTime   `bun:"last_verified_at"`
 	CreatedAt      time.Time      `bun:"created_at"`
 	UpdatedAt      time.Time      `bun:"updated_at"`
@@ -95,6 +99,9 @@ type SettingsRow struct {
 	SyncedLyricsEnabled   sql.NullBool   `bun:"synced_lyrics_enabled"`
 	RomanizedLyrics       sql.NullBool   `bun:"romanized_lyrics"`
 	PinyinLyrics          sql.NullBool   `bun:"pinyin_lyrics"`
+	ResourceSniffScope    sql.NullString `bun:"resource_sniff_scope"`
+	ResourceSniffMinBytes sql.NullInt64  `bun:"resource_sniff_min_bytes"`
+	ResourceSniffRetain   sql.NullInt64  `bun:"resource_sniff_retain"`
 	AppearanceConfigJSON  sql.NullString `bun:"appearance_config_json"`
 	MainX                 sql.NullInt64  `bun:"main_x"`
 	MainY                 sql.NullInt64  `bun:"main_y"`

@@ -62,6 +62,26 @@ describe("listen playback api adapter", () => {
     expect(item.thumbnailUrl).toBe("https://example.com/art.jpg");
   });
 
+  test("keeps structured artists across playback queue mapping", () => {
+    const item = listenOnlineItemFromPlaybackTrack({
+      id: "a",
+      videoId: "a-video",
+      title: "A",
+      artist: "Artist A, Artist B",
+      artists: [
+        { name: "Artist A", browseId: "UCartistA" },
+        { name: "Artist B", browseId: "UCartistB" },
+      ],
+      artistBrowseId: "UCartistA",
+      artistSource: "api-linked-multiple",
+    });
+
+    expect(item.artists).toEqual([
+      { name: "Artist A", browseId: "UCartistA" },
+      { name: "Artist B", browseId: "UCartistB" },
+    ]);
+  });
+
   test("normalizes lyrics time separately from playback progress", () => {
     const normalized = normalizeListenPlaybackSnapshot({
       progress: 12,

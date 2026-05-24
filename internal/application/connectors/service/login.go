@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -29,58 +30,88 @@ func (service *ConnectorsService) StartConnectorConnect(ctx context.Context, req
 	if err != nil {
 		return dto.StartConnectorConnectResult{}, err
 	}
-	connector, err = service.clearConnectorCookiesBeforeReconnect(ctx, connector)
+	connector, changed, err := service.normalizeConnectorCredential(connector)
 	if err != nil {
 		return dto.StartConnectorConnectResult{}, err
 	}
-	targetURL, err := connectorHomeURL(connector.Type)
+	if changed {
+		if saveErr := service.repo.Save(ctx, connector); saveErr != nil {
+			return dto.StartConnectorConnectResult{}, saveErr
+		}
+	}
+	connector, changed, err = service.bindConnectorProfileToCurrentBrowser(ctx, connector)
+	if err != nil {
+		return dto.StartConnectorConnectResult{}, err
+	}
+	if changed {
+		if saveErr := service.repo.Save(ctx, connector); saveErr != nil {
+			return dto.StartConnectorConnectResult{}, saveErr
+		}
+	}
+	if connector.CredentialMode == connectors.CredentialModeCookies {
+		connector, err = service.clearConnectorCookiesBeforeReconnect(ctx, connector)
+	}
+	if err != nil {
+		return dto.StartConnectorConnectResult{}, err
+	}
+	targetURL, err := connectorTargetURL(connector.Type, request.TargetURL)
 	if err != nil {
 		return dto.StartConnectorConnectResult{}, err
 	}
 
 	sessionID := service.newSessionID()
 	userDataDir := connectorSessionDir(connector.Type, sessionID)
-	runtime, tabCtx, cancel, err := service.startBrowser(service.preferredBrowser(ctx), false, userDataDir)
+	removeUserDataDir := true
+	persistentProfile := false
+	if connector.CredentialMode == connectors.CredentialModeProfile {
+		userDataDir = connector.ProfilePath
+		removeUserDataDir = false
+		persistentProfile = true
+	}
+	runtime, tabCtx, cancel, targetID, err := service.startBrowser(service.preferredBrowser(ctx), false, userDataDir, persistentProfile)
 	if err != nil {
 		return dto.StartConnectorConnectResult{}, err
 	}
-	if err := chromedp.Run(tabCtx, chromedp.Navigate(targetURL)); err != nil {
-		cancel()
-		runtime.Stop()
-		if service.removeAll != nil {
-			_ = service.removeAll(userDataDir)
-		}
-		return dto.StartConnectorConnectResult{}, err
-	}
-
 	session := &connectorSession{
 		ID:                sessionID,
 		ConnectorID:       connector.ID,
 		ConnectorType:     connector.Type,
+		CredentialMode:    connector.CredentialMode,
+		Purpose:           connectorSessionPurposeConnect,
 		Runtime:           runtime,
 		TabCtx:            tabCtx,
 		Cancel:            cancel,
 		UserDataDir:       userDataDir,
+		RemoveUserDataDir: removeUserDataDir,
+		ProfileBrowser:    connector.ProfileBrowser,
+		TargetURL:         targetURL,
 		State:             connectorSessionStateRunning,
 		ConnectorSnapshot: mapConnectorDTO(connector),
 		finalizeDone:      make(chan struct{}),
 	}
-	session.TargetID = connectorTargetIDFromContext(tabCtx)
+	session.TargetID = targetID
+	if session.TargetID == "" {
+		session.TargetID = connectorTargetIDFromContext(tabCtx)
+	}
 
 	replaced := service.putSession(session)
 	service.cleanupSession(replaced)
 	service.startConnectSessionMonitor(sessionID)
-	log.Printf("connectors: started connect session id=%s connector=%s target=%s userDataDir=%s", sessionID, connector.Type, session.TargetID, userDataDir)
+	go service.navigateConnectorSession(sessionID, targetURL)
 
 	return dto.StartConnectorConnectResult{
 		SessionID: sessionID,
 		Connector: mapConnectorDTO(connector),
+		TargetURL: targetURL,
 	}, nil
 }
 
 func (service *ConnectorsService) FinishConnectorConnect(ctx context.Context, request dto.FinishConnectorConnectRequest) (dto.FinishConnectorConnectResult, error) {
 	sessionID := strings.TrimSpace(request.SessionID)
 	if sessionID == "" {
+		return dto.FinishConnectorConnectResult{}, connectors.ErrConnectorSessionGone
+	}
+	if session, ok := service.getSession(sessionID); ok && session != nil && session.Purpose == connectorSessionPurposeOpen {
 		return dto.FinishConnectorConnectResult{}, connectors.ErrConnectorSessionGone
 	}
 	result, _, err := service.finalizeConnectSession(ctx, sessionID, "manual_finish")
@@ -95,7 +126,6 @@ func (service *ConnectorsService) CancelConnectorConnect(ctx context.Context, re
 	if sessionID == "" {
 		return connectors.ErrConnectorSessionGone
 	}
-	log.Printf("connectors: canceled connect session id=%s", sessionID)
 	service.cleanupSession(service.popSession(sessionID))
 	return nil
 }
@@ -143,8 +173,14 @@ func (service *ConnectorsService) performFinalize(ctx context.Context, session *
 	if session == nil {
 		return dto.FinishConnectorConnectResult{}, connectors.ErrConnectorSessionGone
 	}
+	if session.Purpose == connectorSessionPurposeOpen {
+		service.cleanupSession(session)
+		return dto.FinishConnectorConnectResult{}, connectors.ErrConnectorSessionGone
+	}
+	if session.CredentialMode == connectors.CredentialModeProfile {
+		return service.performProfileFinalize(ctx, session, reason)
+	}
 
-	log.Printf("connectors: finalize requested session=%s connector=%s reason=%s", session.ID, session.ConnectorType, reason)
 	records, err := readConnectorCookiesFromSession(session)
 	service.mu.Lock()
 	cachedRecords := append([]appcookies.Record(nil), session.LastCookies...)
@@ -163,7 +199,6 @@ func (service *ConnectorsService) performFinalize(ctx context.Context, session *
 
 	policy, _ := sitepolicy.ForConnectorType(string(session.ConnectorType))
 	filtered := appcookies.FilterByDomains(records, policy.Domains)
-	log.Printf("connectors: finalize cookies session=%s connector=%s reason=%s raw=%d filtered=%d domains=%s", session.ID, session.ConnectorType, reason, len(records), len(filtered), strings.Join(cookieDomains(filtered), ","))
 
 	current, err := service.repo.Get(ctx, session.ConnectorID)
 	if err != nil {
@@ -196,7 +231,11 @@ func (service *ConnectorsService) performFinalize(ctx context.Context, session *
 		ID:             current.ID,
 		Type:           string(current.Type),
 		Status:         string(connectors.StatusConnected),
+		CredentialMode: string(current.CredentialMode),
 		CookiesJSON:    cookiesJSON,
+		ProfileKey:     current.ProfileKey,
+		ProfilePath:    current.ProfilePath,
+		ProfileBrowser: current.ProfileBrowser,
 		LastVerifiedAt: &now,
 		CreatedAt:      &current.CreatedAt,
 		UpdatedAt:      &now,
@@ -211,8 +250,76 @@ func (service *ConnectorsService) performFinalize(ctx context.Context, session *
 	}
 	result.Connector = mapConnectorDTO(updated)
 	service.cleanupSession(session)
-	log.Printf("connectors: finalize saved cookies session=%s connector=%s reason=%s filtered=%d", session.ID, session.ConnectorType, reason, len(filtered))
 	return result, nil
+}
+
+func (service *ConnectorsService) performProfileFinalize(ctx context.Context, session *connectorSession, reason string) (dto.FinishConnectorConnectResult, error) {
+	current, err := service.repo.Get(ctx, session.ConnectorID)
+	if err != nil {
+		service.cleanupSession(session)
+		return dto.FinishConnectorConnectResult{}, err
+	}
+	current, _, err = service.normalizeConnectorCredential(current)
+	if err != nil {
+		service.cleanupSession(session)
+		return dto.FinishConnectorConnectResult{}, err
+	}
+	profilePath := strings.TrimSpace(session.UserDataDir)
+	if profilePath == "" {
+		profilePath = current.ProfilePath
+	}
+	profileBrowser := strings.TrimSpace(session.ProfileBrowser)
+	if profileBrowser == "" {
+		profileBrowser = current.ProfileBrowser
+	}
+	if profileBrowser == "" {
+		profileBrowser = connectorDefaultProfileBrowser
+	}
+	now := service.now()
+	updated, err := connectors.NewConnector(connectors.ConnectorParams{
+		ID:             current.ID,
+		Type:           string(current.Type),
+		Status:         string(connectors.StatusConnected),
+		CredentialMode: string(connectors.CredentialModeProfile),
+		ProfileKey:     current.ProfileKey,
+		ProfilePath:    profilePath,
+		ProfileBrowser: profileBrowser,
+		LastVerifiedAt: &now,
+		CreatedAt:      &current.CreatedAt,
+		UpdatedAt:      &now,
+	})
+	if err != nil {
+		service.cleanupSession(session)
+		return dto.FinishConnectorConnectResult{}, err
+	}
+	if err := service.repo.Save(ctx, updated); err != nil {
+		service.cleanupSession(session)
+		return dto.FinishConnectorConnectResult{}, err
+	}
+	policy, _ := sitepolicy.ForConnectorType(string(session.ConnectorType))
+	result := dto.FinishConnectorConnectResult{
+		SessionID: session.ID,
+		Saved:     strings.TrimSpace(updated.ProfilePath) != "",
+		Domains:   append([]string(nil), policy.Domains...),
+		Reason:    reason,
+		Connector: mapConnectorDTO(updated),
+	}
+	service.cleanupSession(session)
+	return result, nil
+}
+
+func (service *ConnectorsService) navigateConnectorSession(sessionID string, targetURL string) {
+	session, ok := service.getSession(sessionID)
+	if !ok || session == nil || session.TabCtx == nil {
+		return
+	}
+	if err := chromedp.Run(session.TabCtx, chromedp.Navigate(targetURL)); err != nil {
+		service.updateSession(sessionID, func(current *connectorSession) {
+			current.State = connectorSessionStateFailed
+			current.FinalError = err.Error()
+		})
+		service.cleanupSession(session)
+	}
 }
 
 func (service *ConnectorsService) startConnectSessionMonitor(sessionID string) {
@@ -245,7 +352,9 @@ func (service *ConnectorsService) startConnectSessionMonitor(sessionID string) {
 				service.triggerSessionFinalizeWithCookieSnapshot(sessionID, "browser_closed")
 				return
 			}
-			service.cacheSessionCookies(sessionID, tabCtx)
+			if session.CredentialMode == connectors.CredentialModeCookies {
+				service.cacheSessionCookies(sessionID, tabCtx)
+			}
 			if targetID != "" {
 				exists, err := connectorTargetExists(runtime, targetID)
 				if err == nil && !exists {
@@ -298,13 +407,17 @@ func (service *ConnectorsService) clearConnectorCookiesBeforeReconnect(ctx conte
 	}
 	now := service.now()
 	updated, err := connectors.NewConnector(connectors.ConnectorParams{
-		ID:          connector.ID,
-		Type:        string(connector.Type),
-		Status:      string(connectors.StatusDisconnected),
-		CookiesPath: connector.CookiesPath,
-		CookiesJSON: "",
-		CreatedAt:   &connector.CreatedAt,
-		UpdatedAt:   &now,
+		ID:             connector.ID,
+		Type:           string(connector.Type),
+		Status:         string(connectors.StatusDisconnected),
+		CredentialMode: string(connector.CredentialMode),
+		CookiesPath:    connector.CookiesPath,
+		CookiesJSON:    "",
+		ProfileKey:     connector.ProfileKey,
+		ProfilePath:    connector.ProfilePath,
+		ProfileBrowser: connector.ProfileBrowser,
+		CreatedAt:      &connector.CreatedAt,
+		UpdatedAt:      &now,
 	})
 	if err != nil {
 		return connectors.Connector{}, err
@@ -328,7 +441,9 @@ func (service *ConnectorsService) watchConnectSessionBrowser(sessionID string, s
 func (service *ConnectorsService) triggerSessionFinalizeWithCookieSnapshot(sessionID string, reason string) {
 	go func() {
 		if session, ok := service.getSession(sessionID); ok && session != nil {
-			service.cacheSessionCookies(sessionID, session.TabCtx)
+			if session.CredentialMode == connectors.CredentialModeCookies {
+				service.cacheSessionCookies(sessionID, session.TabCtx)
+			}
 		}
 		_, _, err := service.finalizeConnectSession(context.Background(), sessionID, reason)
 		if err != nil && !errors.Is(err, connectors.ErrConnectorSessionGone) {
@@ -357,6 +472,9 @@ func connectorTargetExistsWithTimeout(runtime *browsercdp.Runtime, targetID cdpt
 	if runtime == nil || targetID == "" {
 		return true, nil
 	}
+	if manager := runtime.TargetManager(); manager != nil {
+		return manager.PageTargetExists(string(targetID)), nil
+	}
 	execCtx, cancel, err := browsercdp.RuntimeBrowserExecutorContext(runtime, timeout)
 	if err != nil {
 		return false, err
@@ -378,6 +496,9 @@ func connectorTargetExistsWithTimeout(runtime *browsercdp.Runtime, targetID cdpt
 }
 
 func connectorHomeURL(connectorType connectors.ConnectorType) (string, error) {
+	if sites := sitepolicy.ProfileSitesForConnector(string(connectorType)); len(sites) > 0 {
+		return sites[0].URL, nil
+	}
 	switch connectorType {
 	case connectors.ConnectorYouTube:
 		return "https://www.youtube.com/", nil
@@ -385,7 +506,7 @@ func connectorHomeURL(connectorType connectors.ConnectorType) (string, error) {
 		return "https://www.bilibili.com/", nil
 	case connectors.ConnectorTikTok:
 		return "https://www.tiktok.com/", nil
-	case connectors.ConnectorDouyin:
+	case connectors.ConnectorChinaPrivate:
 		return "https://www.douyin.com/", nil
 	case connectors.ConnectorInstagram:
 		return "https://www.instagram.com/", nil
@@ -404,32 +525,87 @@ func connectorHomeURL(connectorType connectors.ConnectorType) (string, error) {
 	}
 }
 
-func startConnectorBrowser(preferredBrowser string, headless bool, userDataDir string) (*browsercdp.Runtime, context.Context, context.CancelFunc, error) {
-	runtime, err := browsercdp.Start(context.Background(), browsercdp.LaunchOptions{
-		PreferredBrowser: preferredBrowser,
-		Headless:         headless,
-		UserDataDir:      userDataDir,
-	})
-	if err != nil {
-		return nil, nil, nil, err
+func connectorTargetURL(connectorType connectors.ConnectorType, requestedURL string) (string, error) {
+	trimmed := strings.TrimSpace(requestedURL)
+	if trimmed == "" {
+		return connectorHomeURL(connectorType)
 	}
-	tabCtx, cancel, err := attachConnectorTab(runtime)
-	if err != nil {
-		runtime.Stop()
-		return nil, nil, nil, err
+	if !connectorTargetURLAllowed(connectorType, trimmed) {
+		return "", connectors.ErrInvalidConnector
 	}
-	return runtime, tabCtx, cancel, nil
+	return trimmed, nil
 }
 
-func attachConnectorTab(runtime *browsercdp.Runtime) (context.Context, context.CancelFunc, error) {
-	if runtime == nil {
-		return nil, nil, connectors.ErrConnectorSessionDead
+func connectorTargetURLAllowed(connectorType connectors.ConnectorType, requestedURL string) bool {
+	normalizedRequested := normalizeConnectorTargetURL(requestedURL)
+	if normalizedRequested == "" {
+		return false
 	}
-	tabCtx, cancel, _, err := browsercdp.AttachOrCreatePageTarget(runtime, 5*time.Second)
+	profileSites := sitepolicy.ProfileSitesForConnector(string(connectorType))
+	if len(profileSites) > 0 {
+		for _, site := range profileSites {
+			if normalizeConnectorTargetURL(site.URL) == normalizedRequested {
+				return true
+			}
+		}
+	}
+	policy, ok := sitepolicy.ForConnectorType(string(connectorType))
+	return ok && sitepolicy.MatchDomains(requestedURL, policy.Domains)
+}
+
+func normalizeConnectorTargetURL(value string) string {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed == nil {
+		return ""
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return ""
+	}
+	if strings.TrimSpace(parsed.Hostname()) == "" {
+		return ""
+	}
+	parsed.Scheme = scheme
+	parsed.Host = strings.ToLower(strings.TrimSpace(parsed.Host))
+	if parsed.Path == "" {
+		parsed.Path = "/"
+	} else if parsed.Path != "/" {
+		parsed.Path = strings.TrimRight(parsed.Path, "/")
+		if parsed.Path == "" {
+			parsed.Path = "/"
+		}
+	}
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func startConnectorBrowser(preferredBrowser string, headless bool, userDataDir string, persistentProfile bool) (*browsercdp.Runtime, context.Context, context.CancelFunc, cdptarget.ID, error) {
+	runtime, err := browsercdp.Start(context.Background(), browsercdp.LaunchOptions{
+		PreferredBrowser:  preferredBrowser,
+		Headless:          headless,
+		UserDataDir:       userDataDir,
+		PersistentProfile: persistentProfile,
+	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, "", err
 	}
-	return tabCtx, cancel, nil
+	tabCtx, cancel, targetID, err := attachConnectorTab(runtime)
+	if err != nil {
+		runtime.Stop()
+		return nil, nil, nil, "", err
+	}
+	return runtime, tabCtx, cancel, targetID, nil
+}
+
+func attachConnectorTab(runtime *browsercdp.Runtime) (context.Context, context.CancelFunc, cdptarget.ID, error) {
+	if runtime == nil {
+		return nil, nil, "", connectors.ErrConnectorSessionDead
+	}
+	tabCtx, cancel, targetID, err := browsercdp.AttachOrCreatePageTarget(runtime, 5*time.Second)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return tabCtx, cancel, cdptarget.ID(targetID), nil
 }
 
 func connectorTargetIDFromContext(tabCtx context.Context) cdptarget.ID {
@@ -442,7 +618,7 @@ func connectorTargetIDFromContext(tabCtx context.Context) cdptarget.ID {
 func readConnectorCookies(ctx context.Context) ([]appcookies.Record, error) {
 	var records []appcookies.Record
 	if err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionCtx context.Context) error {
-		items, err := browsercdp.GetAllCookies(actionCtx)
+		items, err := browsercdp.GetStorageCookies(actionCtx)
 		if err != nil {
 			return err
 		}

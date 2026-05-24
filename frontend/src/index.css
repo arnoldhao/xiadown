@@ -188,13 +188,38 @@
   :root[data-window="tray-miniplayer"],
   :root[data-window="tray-miniplayer"] body,
   :root[data-window="tray-miniplayer"] #root {
+    --tray-mini-player-radius: 22px;
     background: transparent !important;
+    border-radius: var(--tray-mini-player-radius);
+    clip-path: inset(0 round var(--tray-mini-player-radius));
+    overflow: hidden;
+  }
+
+  :root[data-window="tray-miniplayer"][data-platform="windows"],
+  :root[data-window="tray-miniplayer"][data-platform="windows"] body,
+  :root[data-window="tray-miniplayer"][data-platform="windows"] #root {
+    --tray-mini-player-radius: 0px;
+    background: hsl(var(--tray-control-color)) !important;
+    clip-path: none;
+  }
+
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .tray-mini-player-root {
+    background: hsl(var(--tray-control-color)) !important;
+    border-radius: 0 !important;
+    clip-path: none !important;
+  }
+
+  :root[data-window="tray-miniplayer"] {
+    width: 100%;
+    height: 100%;
   }
 
   :root[data-window="tray-miniplayer"] body,
   :root[data-window="tray-miniplayer"] #root {
     min-width: 0;
     min-height: 0;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
   }
 

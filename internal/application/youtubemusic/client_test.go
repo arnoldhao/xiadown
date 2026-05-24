@@ -512,6 +512,90 @@ func TestParseRadioTracks(t *testing.T) {
 	}
 }
 
+func TestParseRadioQueuePageExtractsNextRadioContinuation(t *testing.T) {
+	data := map[string]any{
+		"contents": map[string]any{
+			"singleColumnMusicWatchNextResultsRenderer": map[string]any{
+				"tabbedRenderer": map[string]any{
+					"watchNextTabbedResultsRenderer": map[string]any{
+						"tabs": []any{
+							map[string]any{
+								"tabRenderer": map[string]any{
+									"content": map[string]any{
+										"musicQueueRenderer": map[string]any{
+											"content": map[string]any{
+												"playlistPanelRenderer": map[string]any{
+													"contents": []any{
+														map[string]any{"playlistPanelVideoRenderer": map[string]any{
+															"videoId": "TESTVID008H",
+															"title":   map[string]any{"runs": []any{map[string]any{"text": "Mix Track"}}},
+														}},
+													},
+													"continuations": []any{
+														map[string]any{"nextRadioContinuationData": map[string]any{"continuation": "next-radio-token"}},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	page := parseRadioQueuePage(data, 10)
+	if len(page.Tracks) != 1 {
+		t.Fatalf("expected one track, got %d", len(page.Tracks))
+	}
+	if page.Continuation != "next-radio-token" {
+		t.Fatalf("unexpected continuation token: %q", page.Continuation)
+	}
+}
+
+func TestParseRadioTracksMarksLinkedMultiArtistSource(t *testing.T) {
+	data := map[string]any{
+		"items": []any{
+			map[string]any{"playlistPanelVideoRenderer": map[string]any{
+				"videoId": "TESTVID008H",
+				"title":   map[string]any{"runs": []any{map[string]any{"text": "Collab Track"}}},
+				"longBylineText": map[string]any{"runs": []any{
+					map[string]any{
+						"text":               "Artist A",
+						"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "UCartistA"}},
+					},
+					map[string]any{"text": ", "},
+					map[string]any{
+						"text":               "Artist B",
+						"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "UCartistB"}},
+					},
+				}},
+			}},
+		},
+	}
+
+	tracks := parseRadioTracks(data, 10)
+	if len(tracks) != 1 {
+		t.Fatalf("expected one track, got %d", len(tracks))
+	}
+	if tracks[0].Channel != "Artist A, Artist B" || tracks[0].ArtistBrowseID != "UCartistA" {
+		t.Fatalf("unexpected multi-artist metadata: %#v", tracks[0])
+	}
+	if tracks[0].ArtistSource != trackArtistSourceAPILinkedMultiple {
+		t.Fatalf("expected multi-artist source, got %q", tracks[0].ArtistSource)
+	}
+	if len(tracks[0].Artists) != 2 ||
+		tracks[0].Artists[0].Name != "Artist A" ||
+		tracks[0].Artists[0].BrowseID != "UCartistA" ||
+		tracks[0].Artists[1].Name != "Artist B" ||
+		tracks[0].Artists[1].BrowseID != "UCartistB" {
+		t.Fatalf("unexpected structured artists: %#v", tracks[0].Artists)
+	}
+}
+
 func TestParseHomeRecommendationTracks(t *testing.T) {
 	data := map[string]any{
 		"contents": map[string]any{
@@ -1070,6 +1154,10 @@ func TestArtistHeaderIgnoresSubscriptionTextForTitle(t *testing.T) {
 		"header": map[string]any{
 			"musicImmersiveHeaderRenderer": map[string]any{
 				"title": map[string]any{"runs": []any{map[string]any{"text": "Super Lofi World"}}},
+				"foregroundThumbnail": map[string]any{"musicThumbnailRenderer": map[string]any{"thumbnail": map[string]any{"thumbnails": []any{
+					map[string]any{"url": "https://lh3.googleusercontent.com/artist-small"},
+					map[string]any{"url": "https://lh3.googleusercontent.com/artist-large"},
+				}}}},
 				"monthlyListenerCount": map[string]any{"runs": []any{
 					map[string]any{"text": "1.2M monthly listeners"},
 				}},
@@ -1099,7 +1187,7 @@ func TestArtistHeaderIgnoresSubscriptionTextForTitle(t *testing.T) {
 	if header.Title != "Super Lofi World" {
 		t.Fatalf("unexpected artist title: %#v", header)
 	}
-	if header.Subtitle != "1.2M monthly listeners" || header.ChannelID != "UCsuperlofi" || !header.IsSubscribed || header.MixPlaylistID != "RDARTISTsuperlofi" {
+	if header.Subtitle != "1.2M monthly listeners" || header.ThumbnailURL != "https://lh3.googleusercontent.com/artist-large" || header.ChannelID != "UCsuperlofi" || !header.IsSubscribed || header.MixPlaylistID != "RDARTISTsuperlofi" {
 		t.Fatalf("unexpected artist header: %#v", header)
 	}
 }

@@ -9,17 +9,24 @@ type Policy struct {
 	Key                string
 	ConnectorType      string
 	Domains            []string
+	ProfileSites       []ProfileSite
 	ReadySelectors     []string
 	ExtractorSelectors []string
 	RemoveSelectors    []string
 	Capabilities       []string
 }
 
+type ProfileSite struct {
+	Key   string
+	Label string
+	URL   string
+}
+
 var builtinPolicyOrder = []string{
 	"youtube",
 	"bilibili",
 	"tiktok",
-	"douyin",
+	"china_private",
 	"instagram",
 	"x",
 	"facebook",
@@ -106,15 +113,27 @@ var builtinPolicies = map[string]Policy{
 		},
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
-	"douyin": {
-		Key:           "douyin",
-		ConnectorType: "douyin",
+	"china_private": {
+		Key:           "china_private",
+		ConnectorType: "china_private",
 		Domains: []string{
 			"douyin.com",
 			"iesdouyin.com",
+			"xiaohongshu.com",
+			"rednote.com",
+			"xhs.cn",
+			"xhslink.com",
+			"xhslink.cn",
+			"xhsurl.com",
+			"rl.ink",
+		},
+		ProfileSites: []ProfileSite{
+			{Key: "douyin", Label: "douyin.com", URL: "https://www.douyin.com/"},
+			{Key: "xiaohongshu", Label: "xiaohongshu.com", URL: "https://www.xiaohongshu.com/explore"},
 		},
 		ReadySelectors: []string{
 			"#douyin-web",
+			"#app",
 			"#root",
 			"body",
 		},
@@ -128,7 +147,7 @@ var builtinPolicies = map[string]Policy{
 			".recommend",
 			".comment",
 		},
-		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
+		Capabilities: []string{"profile", "browser", "download"},
 	},
 	"instagram": {
 		Key:           "instagram",
@@ -314,6 +333,14 @@ func DomainsForConnector(connectorType string) []string {
 	return cloneStrings(policy.Domains)
 }
 
+func ProfileSitesForConnector(connectorType string) []ProfileSite {
+	policy, ok := ForConnectorType(connectorType)
+	if !ok {
+		return nil
+	}
+	return cloneProfileSites(policy.ProfileSites)
+}
+
 func ReadySelectorForURL(rawURL string) string {
 	policy, ok := ForURL(rawURL)
 	if !ok {
@@ -360,6 +387,25 @@ func cloneStrings(values []string) []string {
 			continue
 		}
 		result = append(result, trimmed)
+	}
+	return result
+}
+
+func cloneProfileSites(values []ProfileSite) []ProfileSite {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]ProfileSite, 0, len(values))
+	for _, value := range values {
+		site := ProfileSite{
+			Key:   strings.TrimSpace(value.Key),
+			Label: strings.TrimSpace(value.Label),
+			URL:   strings.TrimSpace(value.URL),
+		}
+		if site.URL == "" {
+			continue
+		}
+		result = append(result, site)
 	}
 	return result
 }

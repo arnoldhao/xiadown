@@ -193,6 +193,7 @@ func (controller *SystemTrayController) ensureTray() {
 	controller.tray.OnClick(func() {
 		if controller.miniPlayer != nil {
 			controller.tray.ToggleWindow()
+			applyTrayMiniPlayerWindowShape(controller.miniPlayer)
 			return
 		}
 		controller.tray.OpenMenu()

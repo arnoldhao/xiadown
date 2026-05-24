@@ -86,6 +86,7 @@ type Track struct {
 	VideoID         string
 	Title           string
 	Channel         string
+	Artists         []TrackArtist
 	ArtistBrowseID  string
 	ArtistSource    string
 	DurationLabel   string
@@ -95,6 +96,16 @@ type Track struct {
 	IsExplicit      bool
 	RawDescription  string
 	ContinuationKey string
+}
+
+type TrackArtist struct {
+	Name     string
+	BrowseID string
+}
+
+type RadioQueuePage struct {
+	Tracks       []Track
+	Continuation string
 }
 
 type textRun struct {
@@ -111,14 +122,16 @@ const (
 )
 
 const (
-	trackArtistSourceAPILinked = "api-linked"
-	trackArtistSourceAPIText   = "api-text"
+	trackArtistSourceAPILinked         = "api-linked"
+	trackArtistSourceAPILinkedMultiple = "api-linked-multiple"
+	trackArtistSourceAPIText           = "api-text"
 )
 
 type TrackMetadata struct {
 	VideoID         string
 	Title           string
 	Channel         string
+	Artists         []TrackArtist
 	ArtistBrowseID  string
 	ArtistSource    string
 	DurationLabel   string
@@ -225,6 +238,43 @@ func (client *Client) Radio(ctx context.Context, videoID string, limit int) ([]T
 		return nil, err
 	}
 	return parseRadioTracks(data, normalizeLimit(limit)), nil
+}
+
+func (client *Client) MixQueue(ctx context.Context, playlistID string, startVideoID string, limit int) (RadioQueuePage, error) {
+	trimmedPlaylistID := strings.TrimSpace(playlistID)
+	if trimmedPlaylistID == "" {
+		return RadioQueuePage{}, fmt.Errorf("invalid youtube music mix playlist id")
+	}
+	body := map[string]any{
+		"playlistId":                    trimmedPlaylistID,
+		"enablePersistentPlaylistPanel": true,
+		"isAudioOnly":                   true,
+		"tunerSettingValue":             "AUTOMIX_SETTING_NORMAL",
+	}
+	if trimmedVideoID := strings.TrimSpace(startVideoID); videoIDPattern.MatchString(trimmedVideoID) {
+		body["videoId"] = trimmedVideoID
+	}
+	data, err := client.requestRead(ctx, "next", body)
+	if err != nil {
+		return RadioQueuePage{}, err
+	}
+	return parseRadioQueuePage(data, normalizeLimit(limit)), nil
+}
+
+func (client *Client) MixQueueContinuation(ctx context.Context, continuation string, limit int) (RadioQueuePage, error) {
+	trimmed := strings.TrimSpace(continuation)
+	if trimmed == "" {
+		return RadioQueuePage{}, nil
+	}
+	data, err := client.requestRead(ctx, "next", map[string]any{
+		"continuation":                  trimmed,
+		"enablePersistentPlaylistPanel": true,
+		"isAudioOnly":                   true,
+	})
+	if err != nil {
+		return RadioQueuePage{}, err
+	}
+	return parseRadioQueuePage(data, normalizeLimit(limit)), nil
 }
 
 func (client *Client) TrackMetadata(ctx context.Context, videoID string) (TrackMetadata, error) {
@@ -801,6 +851,22 @@ func parseRadioTracks(data map[string]any, limit int) []Track {
 	return tracks
 }
 
+func parseRadioQueuePage(data map[string]any, limit int) RadioQueuePage {
+	return RadioQueuePage{
+		Tracks:       parseRadioTracks(data, limit),
+		Continuation: extractNextRadioContinuationToken(data),
+	}
+}
+
+func extractNextRadioContinuationToken(data map[string]any) string {
+	for _, continuation := range collectRendererMaps(data, "nextRadioContinuationData") {
+		if token := stringInMap(continuation, "continuation"); token != "" {
+			return token
+		}
+	}
+	return ""
+}
+
 func trackFromMusicResponsiveRenderer(renderer map[string]any) (Track, bool) {
 	videoID := stringInMap(asMap(renderer["playlistItemData"]), "videoId")
 	if videoID == "" {
@@ -829,7 +895,7 @@ func trackFromMusicResponsiveRenderer(renderer map[string]any) (Track, bool) {
 		title = videoID
 	}
 
-	channel, artistBrowseID := artistRunFromFlexColumns(flexColumns)
+	channel, artistBrowseID, artistSource, artists := artistRunFromFlexColumns(flexColumns)
 	album := albumRunFromFlexColumns(flexColumns)
 	duration := durationFromFixedColumns(renderer)
 	if duration == "" {
@@ -842,8 +908,9 @@ func trackFromMusicResponsiveRenderer(renderer map[string]any) (Track, bool) {
 		VideoID:        videoID,
 		Title:          title,
 		Channel:        channel,
+		Artists:        artists,
 		ArtistBrowseID: artistBrowseID,
-		ArtistSource:   artistSourceFromBrowseID(channel, artistBrowseID),
+		ArtistSource:   artistSource,
 		DurationLabel:  duration,
 		PlayCountLabel: playCount,
 		ThumbnailURL:   lastThumbnailURL(renderer),
@@ -861,7 +928,7 @@ func trackFromPlaylistPanelRenderer(renderer map[string]any) (Track, bool) {
 	if title == "" {
 		title = videoID
 	}
-	channel, artistBrowseID, artistSource := artistRunFromPlaylistPanelRenderer(renderer)
+	channel, artistBrowseID, artistSource, artists := artistRunFromPlaylistPanelRenderer(renderer)
 	duration := firstUsefulText(runsText(asMap(renderer["lengthText"])))
 	if duration == "" {
 		duration = firstDurationLabel(collectTextRuns(renderer))
@@ -871,6 +938,7 @@ func trackFromPlaylistPanelRenderer(renderer map[string]any) (Track, bool) {
 		VideoID:        videoID,
 		Title:          title,
 		Channel:        fallbackString(channel, "YouTube Music"),
+		Artists:        artists,
 		ArtistBrowseID: artistBrowseID,
 		ArtistSource:   artistSource,
 		DurationLabel:  duration,
@@ -924,6 +992,7 @@ func parseTrackMetadata(data map[string]any, videoID string) TrackMetadata {
 			VideoID:         fallbackString(track.VideoID, fallbackString(currentVideoID, videoID)),
 			Title:           track.Title,
 			Channel:         track.Channel,
+			Artists:         track.Artists,
 			ArtistBrowseID:  track.ArtistBrowseID,
 			ArtistSource:    track.ArtistSource,
 			DurationLabel:   track.DurationLabel,
@@ -1164,27 +1233,23 @@ func firstCreatorText(values []string) string {
 	return ""
 }
 
-func artistRunFromPlaylistPanelRenderer(renderer map[string]any) (string, string, string) {
-	channel, artistBrowseID, artistSource := artistRunFromBylineRuns(textRunsWithNavigation(asMap(renderer["longBylineText"])))
+func artistRunFromPlaylistPanelRenderer(renderer map[string]any) (string, string, string, []TrackArtist) {
+	channel, artistBrowseID, artistSource, artists := artistRunFromBylineRuns(textRunsWithNavigation(asMap(renderer["longBylineText"])))
 	if channel != "" {
-		return channel, artistBrowseID, artistSource
+		return channel, artistBrowseID, artistSource, artists
 	}
 	return artistRunFromBylineRuns(textRunsWithNavigation(asMap(renderer["shortBylineText"])))
 }
 
-func artistRunFromBylineRuns(values []textRun) (string, string, string) {
-	artists := artistRuns(values)
+func artistRunFromBylineRuns(values []textRun) (string, string, string, []TrackArtist) {
+	artists := trackArtistsFromTextRuns(values)
 	if len(artists) > 0 {
-		names := make([]string, 0, len(artists))
-		for _, artist := range artists {
-			names = append(names, strings.TrimSpace(artist.Text))
-		}
-		return strings.Join(names, ", "), strings.TrimSpace(artists[0].BrowseID), trackArtistSourceAPILinked
+		return joinedTrackArtistNames(artists), firstTrackArtistBrowseID(artists), trackArtistSourceFromArtists(artists), artists
 	}
 	if channel := firstPlainCreatorRun(values); channel != "" {
-		return channel, "", trackArtistSourceAPIText
+		return channel, "", trackArtistSourceAPIText, nil
 	}
-	return "", "", ""
+	return "", "", "", nil
 }
 
 func firstPlainCreatorRun(values []textRun) string {
@@ -1201,26 +1266,12 @@ func firstPlainCreatorRun(values []textRun) string {
 	return ""
 }
 
-func artistSourceFromBrowseID(channel string, browseID string) string {
-	if strings.TrimSpace(channel) == "" {
-		return ""
-	}
-	if strings.TrimSpace(browseID) != "" {
-		return trackArtistSourceAPILinked
-	}
-	return ""
-}
-
-func artistRunFromFlexColumns(flexColumns []map[string]any) (string, string) {
-	artists := artistRunsFromFlexColumns(flexColumns)
+func artistRunFromFlexColumns(flexColumns []map[string]any) (string, string, string, []TrackArtist) {
+	artists := trackArtistsFromArtistRuns(artistRunsFromFlexColumns(flexColumns))
 	if len(artists) == 0 {
-		return "", ""
+		return "", "", "", nil
 	}
-	names := make([]string, 0, len(artists))
-	for _, artist := range artists {
-		names = append(names, strings.TrimSpace(artist.Text))
-	}
-	return strings.Join(names, ", "), strings.TrimSpace(artists[0].BrowseID)
+	return joinedTrackArtistNames(artists), firstTrackArtistBrowseID(artists), trackArtistSourceFromArtists(artists), artists
 }
 
 func artistRunsFromFlexColumns(flexColumns []map[string]any) []textRun {
@@ -1228,6 +1279,61 @@ func artistRunsFromFlexColumns(flexColumns []map[string]any) []textRun {
 		return nil
 	}
 	return artistRuns(textRunsWithNavigationFromFlexColumn(flexColumns[1]))
+}
+
+func trackArtistsFromTextRuns(values []textRun) []TrackArtist {
+	return trackArtistsFromArtistRuns(artistRuns(values))
+}
+
+func trackArtistsFromArtistRuns(runs []textRun) []TrackArtist {
+	artists := make([]TrackArtist, 0, len(runs))
+	seen := make(map[string]struct{}, len(runs))
+	for _, run := range runs {
+		name := strings.TrimSpace(run.Text)
+		browseID := strings.TrimSpace(run.BrowseID)
+		if name == "" || browseID == "" {
+			continue
+		}
+		key := browseID
+		if key == "" {
+			key = strings.ToLower(name)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		artists = append(artists, TrackArtist{Name: name, BrowseID: browseID})
+	}
+	return artists
+}
+
+func joinedTrackArtistNames(artists []TrackArtist) string {
+	names := make([]string, 0, len(artists))
+	for _, artist := range artists {
+		if name := strings.TrimSpace(artist.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+func firstTrackArtistBrowseID(artists []TrackArtist) string {
+	for _, artist := range artists {
+		if browseID := strings.TrimSpace(artist.BrowseID); browseID != "" {
+			return browseID
+		}
+	}
+	return ""
+}
+
+func trackArtistSourceFromArtists(artists []TrackArtist) string {
+	if len(artists) == 0 {
+		return ""
+	}
+	if len(artists) > 1 {
+		return trackArtistSourceAPILinkedMultiple
+	}
+	return trackArtistSourceAPILinked
 }
 
 func albumRunFromFlexColumns(flexColumns []map[string]any) string {

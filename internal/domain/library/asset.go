@@ -13,6 +13,12 @@ const (
 	FileKindSubtitle  FileKind = "subtitle"
 	FileKindThumbnail FileKind = "thumbnail"
 	FileKindTranscode FileKind = "transcode"
+	FileKindOther     FileKind = "other"
+	FileKindDocument  FileKind = "document"
+	FileKindFont      FileKind = "font"
+	FileKindAPI       FileKind = "api"
+	FileKindArchive   FileKind = "archive"
+	FileKindManifest  FileKind = "manifest"
 )
 
 type FileStorage struct {
@@ -120,7 +126,16 @@ func NewLibraryFile(params LibraryFileParams) (LibraryFile, error) {
 	storage.LocalPath = strings.TrimSpace(storage.LocalPath)
 	storage.DocumentID = strings.TrimSpace(storage.DocumentID)
 	switch kind {
-	case FileKindVideo, FileKindAudio, FileKindThumbnail, FileKindTranscode:
+	case FileKindVideo,
+		FileKindAudio,
+		FileKindThumbnail,
+		FileKindTranscode,
+		FileKindOther,
+		FileKindDocument,
+		FileKindFont,
+		FileKindAPI,
+		FileKindArchive,
+		FileKindManifest:
 		if storage.Mode == "" {
 			storage.Mode = "local_path"
 		}

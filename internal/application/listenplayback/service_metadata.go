@@ -200,6 +200,7 @@ func hasTrustedTrackArtist(track Track) bool {
 		return true
 	}
 	return track.ArtistSource == TrackArtistSourceAPILinked ||
+		track.ArtistSource == TrackArtistSourceAPILinkedMultiple ||
 		track.ArtistSource == TrackArtistSourceAPIMetadata
 }
 
@@ -213,9 +214,6 @@ func shouldAcceptIncomingTrackArtist(existing Track, incoming Track) bool {
 func mergeTrackMetadata(existing Track, incoming Track) Track {
 	existing = normalizeTrack(existing)
 	incoming = normalizeTrack(incoming)
-	if incoming.ID != "" {
-		existing.ID = incoming.ID
-	}
 	if incoming.Title != "" && incoming.Title != incoming.VideoID {
 		existing.Title = incoming.Title
 	}
@@ -226,6 +224,9 @@ func mergeTrackMetadata(existing Track, incoming Track) Track {
 	}
 	if incoming.ArtistBrowseID != "" {
 		existing.ArtistBrowseID = incoming.ArtistBrowseID
+	}
+	if len(incoming.Artists) > 0 && (acceptedArtist || len(existing.Artists) == 0) {
+		existing.Artists = incoming.Artists
 	}
 	if acceptedArtist && incoming.ArtistSource != "" {
 		existing.ArtistSource = incoming.ArtistSource

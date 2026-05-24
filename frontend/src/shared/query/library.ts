@@ -1,9 +1,13 @@
+import { Call } from "@wailsio/runtime";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import * as LibraryBindings from "../../../bindings/xiadown/internal/application/library/dto/models";
 import * as LibraryHandler from "../../../bindings/xiadown/internal/presentation/wails/libraryhandler";
 import type {
+  CDPBrowserStatus,
   CancelOperationRequest,
+  CancelResourceSniffRequest,
+  ClearResourceSniffResourcesRequest,
   CreateTranscodeJobRequest,
   CreateYTDLPJobRequest,
   DeleteFilesRequest,
@@ -11,18 +15,32 @@ import type {
   DeleteOperationsRequest,
   LibraryDTO,
   LibraryOperationDTO,
+  GetResourceSniffPreviewRequest,
+  ListResourceSniffResourcesRequest,
+  ListResourceSniffResourcesResponse,
   ListOperationsRequest,
   ListTranscodePresetsForDownloadRequest,
   OpenFileLocationRequest,
   OpenPathRequest,
   OperationListItemDTO,
+  GetResourceSniffSessionRequest,
   ParseYTDLPDownloadRequest,
   ParseYTDLPDownloadResponse,
+  ParseResourceSniffRequest,
+  ParseResourceSniffResponse,
+  PrepareResourceSniffRawDownloadRequest,
+  PrepareResourceSniffRawPreviewRequest,
+  PrepareResourceSniffRawPreviewResponse,
   PrepareYTDLPDownloadRequest,
   PrepareYTDLPDownloadResponse,
   ProbeTranscodeInputRequest,
   ProbeTranscodeInputResponse,
+  ResourceSniffPreviewResponse,
+  ResourceSniffSession,
   ResumeOperationRequest,
+  StartResourceSniffRequest,
+  StartResourceSniffResult,
+  StopCDPBrowserRuntimeRequest,
   TranscodePreset,
 } from "@/shared/contracts/library";
 
@@ -36,6 +54,11 @@ export const LIBRARY_WORKSPACE_PROJECT_QUERY_KEY = ["library", "workspace-projec
 export const LIBRARY_TRANSCODE_PRESETS_QUERY_KEY = ["library", "transcode-presets"] as const;
 export const LIBRARY_TRANSCODE_PRESETS_FOR_DOWNLOAD_QUERY_KEY = ["library", "transcode-presets-download"] as const;
 export const LIBRARY_TRANSCODE_PROBE_QUERY_KEY = ["library", "transcode-probe"] as const;
+export const LIBRARY_RESOURCE_SNIFF_QUERY_KEY = ["library", "resource-sniff"] as const;
+export const LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY = ["library", "resource-sniff", "sessions"] as const;
+export const LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY = ["library", "resource-sniff", "resources"] as const;
+export const LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY = ["library", "cdp-browser-status"] as const;
+const LIBRARY_HANDLER_SERVICE = "xiadown/internal/presentation/wails.LibraryHandler";
 
 export function invalidateLibraryQueries(queryClient: ReturnType<typeof useQueryClient>, libraryId?: string) {
   queryClient.invalidateQueries({ queryKey: LIBRARY_LIST_QUERY_KEY });
@@ -167,6 +190,183 @@ export function useParseYTDLPDownload() {
       return (await LibraryHandler.ParseYTDLPDownload(
         LibraryBindings.ParseYTDLPDownloadRequest.createFrom(request),
       )) as ParseYTDLPDownloadResponse;
+    },
+  });
+}
+
+export function useStartResourceSniff() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: StartResourceSniffRequest): Promise<StartResourceSniffResult> => {
+      return (await LibraryHandler.StartResourceSniff(
+        LibraryBindings.StartResourceSniffRequest.createFrom(request),
+      )) as StartResourceSniffResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY });
+    },
+  });
+}
+
+export function useParseResourceSniff() {
+  return useMutation({
+    mutationFn: async (request: ParseResourceSniffRequest): Promise<ParseResourceSniffResponse> => {
+      return (await LibraryHandler.ParseResourceSniff(
+        LibraryBindings.ParseResourceSniffRequest.createFrom(request),
+      )) as ParseResourceSniffResponse;
+    },
+  });
+}
+
+export function useCancelResourceSniff() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: CancelResourceSniffRequest): Promise<void> => {
+      await LibraryHandler.CancelResourceSniff(
+        LibraryBindings.CancelResourceSniffRequest.createFrom(request),
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY });
+    },
+  });
+}
+
+export function useResourceSniffSession(request: GetResourceSniffSessionRequest | null, enabled: boolean) {
+  const sessionId = request?.sessionId.trim() ?? "";
+  return useQuery({
+    queryKey: [...LIBRARY_RESOURCE_SNIFF_QUERY_KEY, sessionId],
+    enabled: enabled && sessionId.length > 0,
+    queryFn: async (): Promise<ResourceSniffSession> => {
+      if (!sessionId) {
+        throw new Error("resource sniff session request is required");
+      }
+      return (await LibraryHandler.GetResourceSniffSession(
+        LibraryBindings.GetResourceSniffSessionRequest.createFrom({ sessionId }),
+      )) as ResourceSniffSession;
+    },
+    refetchInterval: 250,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    staleTime: 0,
+  });
+}
+
+export function useResourceSniffSessions(enabled = true) {
+  return useQuery({
+    queryKey: LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY,
+    enabled,
+    queryFn: async (): Promise<ResourceSniffSession[]> => {
+      return ((await LibraryHandler.ListResourceSniffSessions()) ?? []) as ResourceSniffSession[];
+    },
+    refetchInterval: 750,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    staleTime: 0,
+  });
+}
+
+export function useResourceSniffResources(
+  request: ListResourceSniffResourcesRequest | null,
+  enabled = true,
+) {
+  const sessionId = request?.sessionId.trim() ?? "";
+  return useQuery({
+    queryKey: [...LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY, sessionId],
+    enabled: enabled && sessionId.length > 0,
+    queryFn: async (): Promise<ListResourceSniffResourcesResponse> => {
+      if (!sessionId) {
+        throw new Error("resource sniff session request is required");
+      }
+      return (await LibraryHandler.ListResourceSniffResources(
+        LibraryBindings.ListResourceSniffResourcesRequest.createFrom({ sessionId }),
+      )) as ListResourceSniffResourcesResponse;
+    },
+    refetchInterval: 750,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    staleTime: 0,
+  });
+}
+
+export function useClearResourceSniffResources() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: ClearResourceSniffResourcesRequest): Promise<void> => {
+      await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.ClearResourceSniffResources`, request);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY });
+    },
+  });
+}
+
+export function useResourceSniffPreview() {
+  return useMutation({
+    mutationFn: async (
+      request: GetResourceSniffPreviewRequest,
+    ): Promise<ResourceSniffPreviewResponse> => {
+      return (await Call.ByName(
+        `${LIBRARY_HANDLER_SERVICE}.GetResourceSniffPreview`,
+        request,
+      )) as ResourceSniffPreviewResponse;
+    },
+  });
+}
+
+export function usePrepareResourceSniffRawPreview() {
+  return useMutation({
+    mutationFn: async (
+      request: PrepareResourceSniffRawPreviewRequest,
+    ): Promise<PrepareResourceSniffRawPreviewResponse> => {
+      return (await Call.ByName(
+        `${LIBRARY_HANDLER_SERVICE}.PrepareResourceSniffRawPreview`,
+        request,
+      )) as PrepareResourceSniffRawPreviewResponse;
+    },
+  });
+}
+
+export function usePrepareResourceSniffRawDownload() {
+  return useMutation({
+    mutationFn: async (
+      request: PrepareResourceSniffRawDownloadRequest,
+    ): Promise<ParseYTDLPDownloadResponse> => {
+      return (await LibraryHandler.PrepareResourceSniffRawDownload(
+        LibraryBindings.PrepareResourceSniffRawDownloadRequest.createFrom(request),
+      )) as ParseYTDLPDownloadResponse;
+    },
+  });
+}
+
+export function useCDPBrowserStatus(enabled = true) {
+  return useQuery({
+    queryKey: LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY,
+    enabled,
+    queryFn: async (): Promise<CDPBrowserStatus> => {
+      return (await LibraryHandler.GetCDPBrowserStatus()) as CDPBrowserStatus;
+    },
+    refetchInterval: 1_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
+    staleTime: 0,
+  });
+}
+
+export function useStopCDPBrowserRuntime() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: StopCDPBrowserRuntimeRequest): Promise<void> => {
+      await LibraryHandler.StopCDPBrowserRuntime(
+        LibraryBindings.StopCDPBrowserRuntimeRequest.createFrom(request),
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY });
     },
   });
 }

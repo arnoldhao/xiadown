@@ -67,6 +67,13 @@ Tải trực tiếp gói mới nhất bên dưới. Các phiên bản cũ có tr
 2. `Windows`: chạy trực tiếp bộ cài `.exe`, hoặc giải nén gói portable rồi mở ứng dụng. Nếu SmartScreen xuất hiện trong lần chạy đầu tiên, chọn `More info -> Run anyway`.
 3. XiaDown mở luồng onboarding để thiết lập ngôn ngữ, chủ đề, proxy và các phụ thuộc. Các luồng chính nằm trong onboarding và giao diện ứng dụng.
 
+## Tuyên Bố Miễn Trừ Trách Nhiệm
+
+- XiaDown được cung cấp như một công cụ hỗ trợ quản lý phương tiện và tải xuống, phục vụ học tập, nghiên cứu và lưu nội dung mà bạn có quyền truy cập và sử dụng.
+- Bạn chịu trách nhiệm xác nhận rằng mọi việc tải xuống, lưu trữ, chuyển đổi hoặc sử dụng nội dung đã được chủ sở hữu quyền cho phép và tuân thủ pháp luật hiện hành cũng như điều khoản của website/nền tảng đích.
+- Không sử dụng XiaDown để tải xuống, phân phối, bán hoặc khai thác nội dung vi phạm, chưa được cấp phép, trả phí/bị giới hạn, riêng tư hoặc bất hợp pháp.
+- Mọi trách nhiệm pháp lý liên quan đến bản quyền, quy định nền tảng, tài khoản, mạng hoặc vấn đề khác phát sinh từ việc sử dụng XiaDown thuộc về người dùng; người duy trì dự án không chịu trách nhiệm đối với hành vi của người dùng hoặc hậu quả của hành vi đó.
+
 ## Lời Cảm Ơn
 
 XiaDown được xây dựng trên các dự án mã nguồn mở xuất sắc. Trải nghiệm desktop, xử lý media, lưu trữ cục bộ, kết nối trình duyệt, nhạc trực tuyến và giao diện frontend đều dựa trên những nền tảng này.

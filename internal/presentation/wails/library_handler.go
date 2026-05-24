@@ -119,6 +119,54 @@ func (handler *LibraryHandler) ParseYTDLPDownload(ctx context.Context, request d
 	return handler.service.ParseYTDLPDownload(ctx, request)
 }
 
+func (handler *LibraryHandler) StartResourceSniff(ctx context.Context, request dto.StartResourceSniffRequest) (dto.StartResourceSniffResult, error) {
+	return handler.service.StartResourceSniff(ctx, request)
+}
+
+func (handler *LibraryHandler) GetResourceSniffSession(ctx context.Context, request dto.GetResourceSniffSessionRequest) (dto.ResourceSniffSession, error) {
+	return handler.service.GetResourceSniffSession(ctx, request)
+}
+
+func (handler *LibraryHandler) ListResourceSniffSessions(ctx context.Context) ([]dto.ResourceSniffSession, error) {
+	return handler.service.ListResourceSniffSessions(ctx)
+}
+
+func (handler *LibraryHandler) ListResourceSniffResources(ctx context.Context, request dto.ListResourceSniffResourcesRequest) (dto.ListResourceSniffResourcesResponse, error) {
+	return handler.service.ListResourceSniffResources(ctx, request)
+}
+
+func (handler *LibraryHandler) ClearResourceSniffResources(ctx context.Context, request dto.ClearResourceSniffResourcesRequest) error {
+	return handler.service.ClearResourceSniffResources(ctx, request)
+}
+
+func (handler *LibraryHandler) GetResourceSniffPreview(ctx context.Context, request dto.GetResourceSniffPreviewRequest) (dto.ResourceSniffPreviewResponse, error) {
+	return handler.service.GetResourceSniffPreview(ctx, request)
+}
+
+func (handler *LibraryHandler) PrepareResourceSniffRawPreview(ctx context.Context, request dto.PrepareResourceSniffRawPreviewRequest) (dto.PrepareResourceSniffRawPreviewResponse, error) {
+	return handler.service.PrepareResourceSniffRawPreview(ctx, request)
+}
+
+func (handler *LibraryHandler) PrepareResourceSniffRawDownload(ctx context.Context, request dto.PrepareResourceSniffRawDownloadRequest) (dto.ParseYTDLPDownloadResponse, error) {
+	return handler.service.PrepareResourceSniffRawDownload(ctx, request)
+}
+
+func (handler *LibraryHandler) ParseResourceSniff(ctx context.Context, request dto.ParseResourceSniffRequest) (dto.ParseResourceSniffResponse, error) {
+	return handler.service.ParseResourceSniff(ctx, request)
+}
+
+func (handler *LibraryHandler) CancelResourceSniff(ctx context.Context, request dto.CancelResourceSniffRequest) error {
+	return handler.service.CancelResourceSniff(ctx, request)
+}
+
+func (handler *LibraryHandler) GetCDPBrowserStatus(ctx context.Context) (dto.CDPBrowserStatus, error) {
+	return handler.service.GetCDPBrowserStatus(ctx)
+}
+
+func (handler *LibraryHandler) StopCDPBrowserRuntime(ctx context.Context, request dto.StopCDPBrowserRuntimeRequest) error {
+	return handler.service.StopCDPBrowserRuntime(ctx, request)
+}
+
 func (handler *LibraryHandler) CreateYTDLPJob(ctx context.Context, request dto.CreateYTDLPJobRequest) (dto.LibraryOperationDTO, error) {
 	return handler.service.CreateYTDLPJob(ctx, request)
 }

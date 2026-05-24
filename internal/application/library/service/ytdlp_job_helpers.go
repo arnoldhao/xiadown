@@ -87,6 +87,26 @@ func (prefetch *ytdlpThumbnailPrefetch) Start(
 	}, onReady)
 }
 
+func (prefetch *ytdlpThumbnailPrefetch) StartForOutputPath(
+	ctx context.Context,
+	service *LibraryService,
+	request dto.CreateYTDLPJobRequest,
+	outputPath string,
+	operationID string,
+	onReady func(string),
+) {
+	if prefetch == nil || service == nil || strings.TrimSpace(request.ThumbnailURL) == "" {
+		return
+	}
+	prefetch.start(func() (string, error) {
+		targetPath, err := prepareYTDLPThumbnailPrefetchTargetPath(outputPath, operationID, ".jpg")
+		if err != nil {
+			return "", err
+		}
+		return service.downloadYTDLPThumbnailToTarget(ctx, request.ThumbnailURL, targetPath, true)
+	}, onReady)
+}
+
 func (prefetch *ytdlpThumbnailPrefetch) Wait() (string, error) {
 	if prefetch == nil {
 		return "", nil
@@ -210,7 +230,70 @@ func (service *LibraryService) createDownloadOperation(ctx context.Context, requ
 	return operation, history, libraryItem, nil
 }
 
+func (service *LibraryService) collectDownloadedThumbnailPaths(
+	ctx context.Context,
+	reporter *ytdlpProgressReporter,
+	operation library.LibraryOperation,
+	request dto.CreateYTDLPJobRequest,
+	outputPath string,
+	prefetch *ytdlpThumbnailPrefetch,
+) ([]string, []string) {
+	if !request.WriteThumbnail {
+		return nil, nil
+	}
+
+	warnings := make([]string, 0, 2)
+	thumbnailPaths := make([]string, 0, 1)
+	prefetchWarning := ""
+
+	if prefetch != nil {
+		if prefetchedThumbnailPath, err := prefetch.Wait(); err != nil {
+			prefetchWarning = fmt.Sprintf("thumbnail prefetch failed: %v", err)
+		} else if strings.TrimSpace(prefetchedThumbnailPath) != "" {
+			if promotedPath, promoteErr := service.promotePrefetchedYTDLPThumbnail(prefetchedThumbnailPath, outputPath); promoteErr != nil {
+				prefetchWarning = fmt.Sprintf("thumbnail download failed: %v", promoteErr)
+			} else if strings.TrimSpace(promotedPath) != "" {
+				thumbnailPaths = append(thumbnailPaths, promotedPath)
+			}
+		}
+	}
+
+	if len(thumbnailPaths) == 0 {
+		if previewPath := service.persistedYTDLPThumbnailPreviewPath(ctx, operation); previewPath != "" {
+			if promotedPath, promoteErr := service.promotePrefetchedYTDLPThumbnail(previewPath, outputPath); promoteErr != nil {
+				warnings = append(warnings, fmt.Sprintf("thumbnail preview promotion failed: %v", promoteErr))
+			} else if strings.TrimSpace(promotedPath) != "" {
+				thumbnailPaths = append(thumbnailPaths, promotedPath)
+			}
+		}
+	}
+
+	if len(thumbnailPaths) == 0 && prefetchWarning != "" {
+		warnings = append(warnings, prefetchWarning)
+	}
+
+	if len(thumbnailPaths) == 0 && strings.TrimSpace(request.ThumbnailURL) != "" {
+		if thumbnailPath, err := service.downloadYTDLPThumbnail(ctx, reporter, request, outputPath); err != nil {
+			warnings = append(warnings, fmt.Sprintf("thumbnail download failed: %v", err))
+		} else if strings.TrimSpace(thumbnailPath) != "" {
+			thumbnailPaths = append(thumbnailPaths, thumbnailPath)
+		}
+	}
+
+	if reporter != nil {
+		for _, thumbnailPath := range thumbnailPaths {
+			reporter.publishThumbnailPreviewPath(thumbnailPath)
+		}
+	}
+
+	return thumbnailPaths, warnings
+}
+
 func (service *LibraryService) runYTDLPOperation(ctx context.Context, operation library.LibraryOperation, history library.HistoryRecord, request dto.CreateYTDLPJobRequest) {
+	service.runYTDLPOperationWithHeaders(ctx, operation, history, request, nil)
+}
+
+func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context, operation library.LibraryOperation, history library.HistoryRecord, request dto.CreateYTDLPJobRequest, headers map[string]string) {
 	ctx, cancel := context.WithCancel(ctx)
 	if !service.registerOperationRun(operation.ID, cancel) {
 		cancel()
@@ -273,6 +356,7 @@ func (service *LibraryService) runYTDLPOperation(ctx context.Context, operation 
 		Tools:          service.tools,
 		Request:        request,
 		OutputTemplate: outputTemplate,
+		Headers:        normalizeResourceDownloadHeaders(headers, request.URL),
 		CookiesPath:    cookiesPath,
 		ProxyURL:       service.resolveYTDLPProxy(request.URL),
 	})
@@ -358,41 +442,18 @@ func (service *LibraryService) runYTDLPOperation(ctx context.Context, operation 
 	}
 
 	auxiliaryWarnings := make([]string, 0, 2)
-	explicitThumbnailPaths := make([]string, 0, 1)
-	if request.WriteThumbnail {
-		prefetchWarning := ""
-		if prefetchedThumbnailPath, err := thumbnailPrefetch.Wait(); err != nil {
-			prefetchWarning = fmt.Sprintf("thumbnail prefetch failed: %v", err)
-		} else if strings.TrimSpace(prefetchedThumbnailPath) != "" {
-			if promotedPath, promoteErr := service.promotePrefetchedYTDLPThumbnail(prefetchedThumbnailPath, outputPath); promoteErr != nil {
-				prefetchWarning = fmt.Sprintf("thumbnail download failed: %v", promoteErr)
-			} else if strings.TrimSpace(promotedPath) != "" {
-				explicitThumbnailPaths = append(explicitThumbnailPaths, promotedPath)
-			}
-		}
-		if len(explicitThumbnailPaths) == 0 {
-			if previewPath := service.persistedYTDLPThumbnailPreviewPath(ctx, operation); previewPath != "" {
-				if promotedPath, promoteErr := service.promotePrefetchedYTDLPThumbnail(previewPath, outputPath); promoteErr != nil {
-					auxiliaryWarnings = append(auxiliaryWarnings, fmt.Sprintf("thumbnail preview promotion failed: %v", promoteErr))
-				} else if strings.TrimSpace(promotedPath) != "" {
-					explicitThumbnailPaths = append(explicitThumbnailPaths, promotedPath)
-				}
-			}
-		}
-		if len(explicitThumbnailPaths) == 0 && prefetchWarning != "" {
-			auxiliaryWarnings = append(auxiliaryWarnings, prefetchWarning)
-		}
-		if request.ThumbnailURL == "" {
-			request.ThumbnailURL = extractYTDLPThumbnailURL(result)
-		}
-		if len(explicitThumbnailPaths) == 0 {
-			if thumbnailPath, err := service.downloadYTDLPThumbnail(ctx, reporter, request, outputPath); err != nil {
-				auxiliaryWarnings = append(auxiliaryWarnings, fmt.Sprintf("thumbnail download failed: %v", err))
-			} else if strings.TrimSpace(thumbnailPath) != "" {
-				explicitThumbnailPaths = append(explicitThumbnailPaths, thumbnailPath)
-			}
-		}
+	if request.WriteThumbnail && request.ThumbnailURL == "" {
+		request.ThumbnailURL = extractYTDLPThumbnailURL(result)
 	}
+	explicitThumbnailPaths, thumbnailWarnings := service.collectDownloadedThumbnailPaths(
+		ctx,
+		reporter,
+		operation,
+		request,
+		outputPath,
+		thumbnailPrefetch,
+	)
+	auxiliaryWarnings = append(auxiliaryWarnings, thumbnailWarnings...)
 	if wantsYTDLPSubtitles(request) {
 		if step := service.downloadYTDLPSubtitles(ctx, reporter, execPath, request, outputTemplate, subtitleTemplate, outputPath, cookiesPath); step.warning != "" {
 			auxiliaryWarnings = append(auxiliaryWarnings, step.warning)

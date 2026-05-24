@@ -14,7 +14,7 @@ import (
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/youtubemusic"
 
-	"github.com/wailsapp/go-webview2/pkg/edge"
+	"github.com/wailsapp/wails/webview2/pkg/edge"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/w32"

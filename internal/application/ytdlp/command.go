@@ -15,7 +15,7 @@ import (
 
 var quickManualSubtitleLanguages = []string{"all", "-live_chat"}
 
-func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFilePath string, cookiesPath string, explicitToolArgs []string, proxyURL string) []string {
+func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFilePath string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string) []string {
 	args := []string{
 		"--no-playlist",
 		"--newline",
@@ -40,6 +40,7 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 	if strings.TrimSpace(proxyURL) != "" {
 		args = append(args, "--proxy", proxyURL)
 	}
+	args = append(args, buildHeaderArgs(headers)...)
 	formatArg := ""
 	if strings.EqualFold(strings.TrimSpace(request.Quality), "audio") {
 		formatArg = "ba/b"
@@ -62,7 +63,7 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 	return args
 }
 
-func BuildSubtitleArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, subtitleTemplate string, cookiesPath string, explicitToolArgs []string, proxyURL string) []string {
+func BuildSubtitleArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, subtitleTemplate string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string) []string {
 	resolvedOutputTemplate := outputTemplate
 	if strings.TrimSpace(subtitleTemplate) != "" {
 		resolvedOutputTemplate = subtitleTemplate
@@ -89,6 +90,7 @@ func BuildSubtitleArgs(request dto.CreateYTDLPJobRequest, outputTemplate string,
 	if strings.TrimSpace(proxyURL) != "" {
 		args = append(args, "--proxy", proxyURL)
 	}
+	args = append(args, buildHeaderArgs(headers)...)
 	quickSubtitlePreset := request.SubtitleAll && strings.EqualFold(strings.TrimSpace(request.Mode), "quick")
 	if request.SubtitleAll {
 		args = append(args, "--write-subs")
@@ -164,6 +166,7 @@ func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool
 			options.CookiesPath,
 			explicitToolArgs,
 			options.ProxyURL,
+			options.Headers,
 		)
 		printFilePath = ""
 		cleanup()
@@ -176,6 +179,7 @@ func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool
 			options.CookiesPath,
 			explicitToolArgs,
 			options.ProxyURL,
+			options.Headers,
 		)
 	}
 
@@ -199,4 +203,38 @@ func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool
 		Cancel:        cancel,
 		Cleanup:       cleanup,
 	}, nil
+}
+
+func buildHeaderArgs(headers map[string]string) []string {
+	if len(headers) == 0 {
+		return nil
+	}
+	args := make([]string, 0, len(headers)*2)
+	for key, value := range headers {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" || ytdlpHeaderForbidden(trimmedKey) {
+			continue
+		}
+		args = append(args, "--add-header", trimmedKey+": "+trimmedValue)
+	}
+	return args
+}
+
+func ytdlpHeaderForbidden(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case ":authority", ":method", ":path", ":scheme",
+		"accept-encoding", "connection", "content-length", "host",
+		"if-modified-since", "if-none-match", "keep-alive",
+		"proxy-connection", "range",
+		"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness",
+		"sec-ch-ua-full-version", "sec-ch-ua-full-version-list",
+		"sec-ch-ua-mobile", "sec-ch-ua-model", "sec-ch-ua-platform",
+		"sec-ch-ua-platform-version", "sec-fetch-dest", "sec-fetch-mode",
+		"sec-fetch-site", "sec-fetch-user", "transfer-encoding",
+		"x-forwarded-for", "x-real-ip":
+		return true
+	default:
+		return false
+	}
 }

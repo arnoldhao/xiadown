@@ -109,7 +109,7 @@ export function TrayMiniPlayerApp() {
 
   return (
     <div
-      className="flex h-screen w-screen items-center justify-center overflow-hidden bg-transparent text-foreground"
+      className="tray-mini-player-root flex h-screen w-screen items-center justify-center overflow-hidden rounded-[22px] bg-transparent text-foreground [clip-path:inset(0_round_22px)]"
       style={controlStyle}
     >
       <ListenNowPlayingHoverPanel

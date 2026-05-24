@@ -23,6 +23,11 @@ type Database struct {
 	Bun *bun.DB
 }
 
+const (
+	libraryFileKindSetSQL        = "'video','audio','subtitle','thumbnail','transcode','other','document','font','api','archive','manifest'"
+	libraryFilePathStorageSetSQL = "'video','audio','thumbnail','transcode','other','document','font','api','archive','manifest'"
+)
+
 func (db *Database) Close() error {
 	if db == nil || db.SQL == nil {
 		return nil
@@ -94,6 +99,9 @@ CREATE TABLE IF NOT EXISTS settings (
 		synced_lyrics_enabled BOOLEAN DEFAULT 1,
 		romanized_lyrics BOOLEAN DEFAULT 1,
 		pinyin_lyrics BOOLEAN DEFAULT 1,
+	resource_sniff_scope TEXT,
+	resource_sniff_min_bytes INTEGER,
+	resource_sniff_retain INTEGER,
 		agent_model_provider_id TEXT,
 	agent_model_name TEXT,
 	chat_stream_enabled BOOLEAN,
@@ -632,8 +640,12 @@ CREATE TABLE IF NOT EXISTS connectors (
 	id TEXT PRIMARY KEY,
 	type TEXT NOT NULL,
 	status TEXT NOT NULL,
+	credential_mode TEXT,
 	cookies_path TEXT,
 	cookies_json TEXT,
+	profile_key TEXT,
+	profile_path TEXT,
+	profile_browser TEXT,
 	last_verified_at TIMESTAMP,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -934,6 +946,9 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
 	if _, err := db.ExecContext(ctx, librarySchemaSQL); err != nil {
 		return err
 	}
+	if err := ensureLibraryFilesCompletedKinds(ctx, db); err != nil {
+		return err
+	}
 	if err := ensureListenLiveChannelsLooseColumn(ctx, db); err != nil {
 		return err
 	}
@@ -1000,6 +1015,41 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			table:     "settings",
 			column:    "default_browser",
 			statement: "ALTER TABLE settings ADD COLUMN default_browser TEXT",
+		},
+		{
+			table:     "settings",
+			column:    "resource_sniff_scope",
+			statement: "ALTER TABLE settings ADD COLUMN resource_sniff_scope TEXT",
+		},
+		{
+			table:     "settings",
+			column:    "resource_sniff_min_bytes",
+			statement: "ALTER TABLE settings ADD COLUMN resource_sniff_min_bytes INTEGER",
+		},
+		{
+			table:     "settings",
+			column:    "resource_sniff_retain",
+			statement: "ALTER TABLE settings ADD COLUMN resource_sniff_retain INTEGER",
+		},
+		{
+			table:     "connectors",
+			column:    "credential_mode",
+			statement: "ALTER TABLE connectors ADD COLUMN credential_mode TEXT",
+		},
+		{
+			table:     "connectors",
+			column:    "profile_key",
+			statement: "ALTER TABLE connectors ADD COLUMN profile_key TEXT",
+		},
+		{
+			table:     "connectors",
+			column:    "profile_path",
+			statement: "ALTER TABLE connectors ADD COLUMN profile_path TEXT",
+		},
+		{
+			table:     "connectors",
+			column:    "profile_browser",
+			statement: "ALTER TABLE connectors ADD COLUMN profile_browser TEXT",
 		},
 		{
 			table:     "telemetry_state",
@@ -1204,6 +1254,150 @@ FROM listen_live_channels`,
 	return tx.Commit()
 }
 
+func ensureLibraryFilesCompletedKinds(ctx context.Context, db *sql.DB) error {
+	hasTable, err := sqliteTableExists(ctx, db, "library_files")
+	if err != nil || !hasTable {
+		return err
+	}
+	var createSQL string
+	if err := db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'library_files'").Scan(&createSQL); err != nil {
+		return err
+	}
+	if libraryFilesSchemaSupportsCompletedKinds(createSQL) {
+		return nil
+	}
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys = ON")
+	}()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	statements := []string{
+		"DROP TABLE IF EXISTS library_files_next",
+		`CREATE TABLE library_files_next (
+  id TEXT PRIMARY KEY,
+  library_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN (` + libraryFileKindSetSQL + `)),
+  name TEXT NOT NULL,
+  metadata_json TEXT,
+  display_name TEXT,
+
+  storage_mode TEXT NOT NULL CHECK (storage_mode IN ('local_path','db_document','hybrid')),
+  storage_local_path TEXT,
+  storage_document_id TEXT,
+
+  origin_kind TEXT NOT NULL CHECK (origin_kind IN ('import','download','transcode')),
+  origin_operation_id TEXT,
+  origin_import_batch_id TEXT,
+  origin_import_path TEXT,
+  origin_imported_at TIMESTAMP,
+  origin_keep_source_file BOOLEAN,
+
+  lineage_root_file_id TEXT,
+  latest_operation_id TEXT,
+
+  state_json TEXT NOT NULL,
+  media_json TEXT,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+
+  FOREIGN KEY (library_id) REFERENCES library_libraries(id) ON DELETE CASCADE,
+  FOREIGN KEY (lineage_root_file_id) REFERENCES library_files(id) ON DELETE SET NULL,
+
+  CHECK (
+    (kind IN (` + libraryFilePathStorageSetSQL + `) AND storage_mode IN ('local_path','hybrid') AND COALESCE(storage_local_path,'') <> '') OR
+    (kind = 'subtitle' AND storage_mode IN ('db_document','hybrid') AND COALESCE(storage_document_id,'') <> '')
+  ),
+  CHECK (
+    (origin_kind = 'import' AND COALESCE(origin_import_path,'') <> '' AND origin_operation_id IS NULL) OR
+    (origin_kind IN ('download','transcode') AND COALESCE(origin_operation_id,'') <> '' AND origin_import_path IS NULL)
+  )
+)`,
+		`INSERT INTO library_files_next (
+  id,
+  library_id,
+  kind,
+  name,
+  metadata_json,
+  display_name,
+  storage_mode,
+  storage_local_path,
+  storage_document_id,
+  origin_kind,
+  origin_operation_id,
+  origin_import_batch_id,
+  origin_import_path,
+  origin_imported_at,
+  origin_keep_source_file,
+  lineage_root_file_id,
+  latest_operation_id,
+  state_json,
+  media_json,
+  created_at,
+  updated_at
+)
+SELECT
+  id,
+  library_id,
+  kind,
+  name,
+  metadata_json,
+  display_name,
+  storage_mode,
+  storage_local_path,
+  storage_document_id,
+  origin_kind,
+  origin_operation_id,
+  origin_import_batch_id,
+  origin_import_path,
+  origin_imported_at,
+  origin_keep_source_file,
+  lineage_root_file_id,
+  latest_operation_id,
+  state_json,
+  media_json,
+  created_at,
+  updated_at
+FROM library_files`,
+		"DROP TRIGGER IF EXISTS trg_operation_output_same_library",
+		"DROP TABLE library_files",
+		"ALTER TABLE library_files_next RENAME TO library_files",
+		`CREATE INDEX IF NOT EXISTS library_files_library_created_idx ON library_files(library_id, created_at DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, librarySchemaSQL)
+	return err
+}
+
+func libraryFilesSchemaSupportsCompletedKinds(createSQL string) bool {
+	normalized := strings.ToLower(createSQL)
+	for _, kind := range []string{"other", "document", "font", "api", "archive", "manifest"} {
+		if !strings.Contains(normalized, "'"+kind+"'") {
+			return false
+		}
+	}
+	return true
+}
+
 func listenLiveChannelsHasColumnForeignKey(ctx context.Context, db *sql.DB) (bool, error) {
 	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_list(listen_live_channels)")
 	if err != nil {
@@ -1334,7 +1528,7 @@ CREATE TABLE IF NOT EXISTS library_module_config (
 CREATE TABLE IF NOT EXISTS library_files (
   id TEXT PRIMARY KEY,
   library_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('video','audio','subtitle','thumbnail','transcode')),
+  kind TEXT NOT NULL CHECK (kind IN (` + libraryFileKindSetSQL + `)),
   name TEXT NOT NULL,
   metadata_json TEXT,
   display_name TEXT,
@@ -1362,7 +1556,7 @@ CREATE TABLE IF NOT EXISTS library_files (
   FOREIGN KEY (lineage_root_file_id) REFERENCES library_files(id) ON DELETE SET NULL,
 
   CHECK (
-    (kind IN ('video','audio','thumbnail','transcode') AND storage_mode IN ('local_path','hybrid') AND COALESCE(storage_local_path,'') <> '') OR
+    (kind IN (` + libraryFilePathStorageSetSQL + `) AND storage_mode IN ('local_path','hybrid') AND COALESCE(storage_local_path,'') <> '') OR
     (kind = 'subtitle' AND storage_mode IN ('db_document','hybrid') AND COALESCE(storage_document_id,'') <> '')
   ),
   CHECK (

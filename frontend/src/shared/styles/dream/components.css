@@ -849,6 +849,10 @@
     background: var(--listen-panel-surface);
     color: var(--listen-panel-foreground);
     box-shadow: var(--listen-panel-shadow);
+    border-radius: 22px;
+    clip-path: inset(0 round 22px);
+    contain: paint;
+    overflow: hidden;
     transform: translateZ(0);
     -webkit-backdrop-filter: var(--listen-panel-backdrop-filter);
     backdrop-filter: var(--listen-panel-backdrop-filter);
@@ -944,6 +948,33 @@
       transparent 100%
     );
     --listen-panel-grain-opacity: 0.055;
+  }
+
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-now-playing-panel[data-surface="tray"] {
+    --listen-panel-surface: hsl(var(--tray-control-color));
+    --listen-panel-color-wash: linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 44%,
+      hsl(var(--tray-control-color) / 0.10) 54%,
+      hsl(var(--tray-control-color) / 0.50) 68%,
+      hsl(var(--tray-control-color)) 86%
+    );
+    border-radius: 0;
+    clip-path: none;
+  }
+
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-panel-layout,
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-panel-ring,
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-panel-artwork-glow,
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-panel-artwork-main,
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-panel-artwork-glow > img,
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-panel-artwork-main > img {
+    border-radius: 0;
+  }
+
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .listen-panel-artwork-main {
+    clip-path: none;
   }
 
   .listen-panel-artwork-glow {
@@ -2465,6 +2496,7 @@
     --app-dialog-content-padding-x: 1rem;
     --app-dialog-edge-fade-size: 1.125rem;
     overflow: hidden;
+    outline: none;
     border: 1px solid hsl(var(--foreground) / 0.055);
     border-radius: var(--dream-radius-xl);
     background: var(--dream-settings-card-surface);
@@ -2473,6 +2505,11 @@
       0 24px 70px -42px hsl(var(--foreground) / 0.46);
     -webkit-backdrop-filter: blur(18px) saturate(1.1);
     backdrop-filter: blur(18px) saturate(1.1);
+  }
+
+  .app-dialog-content:focus,
+  .app-dialog-content:focus-visible {
+    outline: none;
   }
 
   .app-dialog-content.app-dialog-content[data-state="open"] {
@@ -2526,15 +2563,20 @@
   .app-dialog-scroll-area {
     --app-dialog-scroll-fade-top: 0rem;
     --app-dialog-scroll-fade-bottom: 0rem;
-    --app-dialog-scroll-card-inset: 0.5rem;
+    --app-dialog-scroll-card-inset: 0.375rem;
+    --app-dialog-scrollbar-width: 0.625rem;
     position: relative;
     min-width: 0;
     overflow-x: hidden;
     overflow-y: hidden;
-    margin-right: 0;
-    padding-right: 0;
+    margin-right: calc(var(--app-dialog-content-padding-x) * -1);
+    padding-left: var(--app-dialog-scroll-card-inset);
+    padding-right: calc(
+      var(--app-dialog-content-padding-x) + var(--app-dialog-scroll-card-inset)
+    );
     scrollbar-gutter: auto;
     scrollbar-width: none;
+    scrollbar-color: transparent transparent;
     -webkit-mask-image: none;
     mask-image: none;
     -webkit-mask-repeat: no-repeat;
@@ -2549,15 +2591,16 @@
   }
 
   .app-dialog-scroll-area[data-scrollable="true"] {
-    margin-right: calc(var(--app-dialog-content-padding-x) * -1);
+    overflow-y: auto;
     padding-right: calc(
-      var(--app-dialog-content-padding-x) + var(--app-dialog-scroll-card-inset)
+      var(--app-dialog-content-padding-x) + var(--app-dialog-scroll-card-inset) - var(--app-dialog-scrollbar-width)
     );
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
   }
 
-  .app-dialog-scroll-area[data-scrollbar-visible="true"] {
-    overflow-y: auto;
-    scrollbar-width: thin;
+  .app-dialog-scroll-area[data-scrollable="true"][data-scrollbar-visible="true"] {
+    scrollbar-color: hsl(var(--foreground) / 0.18) transparent;
     -webkit-mask-image:
       linear-gradient(
         180deg,
@@ -2576,11 +2619,11 @@
       );
   }
 
-  .app-dialog-scroll-area[data-scrollbar-visible="true"][data-at-top="false"] {
+  .app-dialog-scroll-area[data-scrollable="true"][data-scrollbar-visible="true"][data-at-top="false"] {
     --app-dialog-scroll-fade-top: var(--app-dialog-edge-fade-size);
   }
 
-  .app-dialog-scroll-area[data-scrollbar-visible="true"][data-at-bottom="false"] {
+  .app-dialog-scroll-area[data-scrollable="true"][data-scrollbar-visible="true"][data-at-bottom="false"] {
     --app-dialog-scroll-fade-bottom: var(--app-dialog-edge-fade-size);
   }
 
@@ -2588,18 +2631,22 @@
     width: 0;
   }
 
-  .app-dialog-scroll-area[data-scrollbar-visible="true"]::-webkit-scrollbar {
-    width: 0.625rem;
+  .app-dialog-scroll-area[data-scrollable="true"]::-webkit-scrollbar {
+    width: var(--app-dialog-scrollbar-width);
   }
 
   .app-dialog-scroll-area::-webkit-scrollbar-thumb {
     border: 0.1875rem solid transparent;
     border-radius: 999px;
-    background-color: hsl(var(--foreground) / 0.18);
+    background-color: transparent;
     background-clip: content-box;
   }
 
-  .app-dialog-scroll-area::-webkit-scrollbar-thumb:hover {
+  .app-dialog-scroll-area[data-scrollable="true"][data-scrollbar-visible="true"]::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--foreground) / 0.18);
+  }
+
+  .app-dialog-scroll-area[data-scrollable="true"][data-scrollbar-visible="true"]::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--foreground) / 0.26);
   }
 

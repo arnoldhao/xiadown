@@ -1,5 +1,5 @@
 import { System } from "@wailsio/runtime";
-import { CheckCircle2, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
+import { CheckCircle2, CheckSquare, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 import * as React from "react";
 
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -14,6 +14,7 @@ import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMe
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
+import { PetDisplay } from "@/shared/ui/pet-player";
 import { formatBytes } from "@/shared/utils/formatBytes";
 import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripPathExtension } from "@/shared/utils/resourceHelpers";
 
@@ -125,6 +126,18 @@ function isCompletedListItemTarget(target: EventTarget | null) {
   );
 }
 
+function isCompletedDetailOrFloatingLayerTarget(
+  target: EventTarget | null,
+  detailPane: HTMLElement | null,
+) {
+  if (!(target instanceof Node)) {
+    return false;
+  }
+  return Boolean(
+    detailPane?.contains(target) || isCompletedFloatingLayerTarget(target),
+  );
+}
+
 function resolveCompletedTaskStatusIcon(status?: string) {
   switch ((status ?? "").trim().toLowerCase()) {
     case "succeeded":
@@ -204,6 +217,8 @@ export function CompletedPage(props: {
   const [deleteConfirmError, setDeleteConfirmError] = React.useState("");
   const [selectedTaskIds, setSelectedTaskIds] = React.useState<string[]>([]);
   const [selectedFileIds, setSelectedFileIds] = React.useState<string[]>([]);
+  const [previewPresentationModeActive, setPreviewPresentationModeActive] =
+    React.useState(false);
   const [taskStatusFilters, setTaskStatusFilters] = React.useState<string[]>(
     [],
   );
@@ -543,12 +558,15 @@ export function CompletedPage(props: {
       "audio",
       "subtitle",
       "image",
-      "other",
     ];
+    const visibleTypes = new Set<CompletedFileType>(order);
     const seen = new Set<string>();
     const types = allFiles
       .map((file) => resolveCompletedFileType(file))
       .filter((type) => {
+        if (!visibleTypes.has(type)) {
+          return false;
+        }
         if (seen.has(type)) {
           return false;
         }
@@ -751,10 +769,24 @@ export function CompletedPage(props: {
     () => allFiles.filter((file) => selectedFileIdsSet.has(file.id)),
     [allFiles, selectedFileIdsSet],
   );
+  const currentSelectionTargetIds = React.useMemo(
+    () =>
+      viewMode === "tasks"
+        ? filteredTasks.map((entry) => entry.operation.operationId)
+        : filteredFiles.map((file) => file.id),
+    [filteredFiles, filteredTasks, viewMode],
+  );
   const selectionMode =
     viewMode === "tasks" ? taskSelectionMode : fileSelectionMode;
   const selectionCount =
     viewMode === "tasks" ? selectedTaskIds.length : selectedFileIds.length;
+  const allCurrentSelectionTargetsSelected =
+    currentSelectionTargetIds.length > 0 &&
+    currentSelectionTargetIds.every((id) =>
+      viewMode === "tasks"
+        ? selectedTaskIdsSet.has(id)
+        : selectedFileIdsSet.has(id),
+    );
   const searchInputExpanded = !selectionMode && (searchFocused || searchHasText);
   const tabsCompact = searchHasText;
   const canDeleteSelectedTasks = selectedBatchTasks.length > 0;
@@ -827,6 +859,25 @@ export function CompletedPage(props: {
     }
     setFileSelectionMode(true);
     setSelectedFileIds([]);
+  };
+
+  const toggleSelectAllCurrentSelection = () => {
+    if (currentSelectionTargetIds.length === 0) {
+      return;
+    }
+    if (viewMode === "tasks") {
+      setSelectedTaskIds(
+        allCurrentSelectionTargetsSelected
+          ? []
+          : [...currentSelectionTargetIds],
+      );
+      return;
+    }
+    setSelectedFileIds(
+      allCurrentSelectionTargetsSelected
+        ? []
+        : [...currentSelectionTargetIds],
+    );
   };
 
   const openTaskContextMenu = (
@@ -1248,6 +1299,18 @@ export function CompletedPage(props: {
       if (!(target instanceof Node)) {
         return;
       }
+      if (previewPresentationModeActive) {
+        if (
+          !isCompletedDetailOrFloatingLayerTarget(
+            target,
+            detailPaneRef.current,
+          )
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return;
+      }
       if (isCompletedFloatingLayerTarget(target)) {
         return;
       }
@@ -1263,7 +1326,32 @@ export function CompletedPage(props: {
       }
       setSelectedFileId("");
     },
-    [selectedFile, selectedTask, selectionMode, viewMode],
+    [
+      previewPresentationModeActive,
+      selectedFile,
+      selectedTask,
+      selectionMode,
+      viewMode,
+    ],
+  );
+
+  const handleCompletedPageClickCapture = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!previewPresentationModeActive || selectionMode) {
+        return;
+      }
+      if (
+        isCompletedDetailOrFloatingLayerTarget(
+          event.target,
+          detailPaneRef.current,
+        )
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [previewPresentationModeActive, selectionMode],
   );
 
   const renderToolbarActionGroup = () => {
@@ -1349,6 +1437,23 @@ export function CompletedPage(props: {
               variant="ghost"
               size="sm"
               className="app-completed-selection-action"
+              disabled={currentSelectionTargetIds.length === 0}
+              onClick={toggleSelectAllCurrentSelection}
+            >
+              {allCurrentSelectionTargetsSelected ? (
+                <CircleSlash className="h-3.5 w-3.5" />
+              ) : (
+                <CheckSquare className="h-3.5 w-3.5" />
+              )}
+              {allCurrentSelectionTargetsSelected
+                ? props.text.completed.clearSelection
+                : props.text.completed.selectAll}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="app-completed-selection-action"
               onClick={exitSelectionMode}
             >
               <X className="h-3.5 w-3.5" />
@@ -1359,6 +1464,29 @@ export function CompletedPage(props: {
       </div>
     );
   };
+
+  const renderEmptyListState = (label: string) => (
+    <div
+      className="flex h-full min-h-[16rem] items-center justify-center px-6 text-center"
+      onMouseDown={handleBlankListMouseDown}
+    >
+      <div className="flex min-w-0 flex-col items-center justify-center gap-3">
+        <PetDisplay
+          pet={props.pet}
+          imageUrl={props.petImageURL}
+          animation="review"
+          alt={props.text.appName}
+          size={96}
+          load={Boolean(props.petImageURL)}
+          className="shrink-0"
+          glowClassName="opacity-60"
+        />
+        <div className="max-w-[18rem] text-sm font-medium leading-5 text-muted-foreground">
+          {label}
+        </div>
+      </div>
+    </div>
+  );
 
   const renderSelectedDetailPanel = () => {
     if (selectionMode) {
@@ -1373,6 +1501,7 @@ export function CompletedPage(props: {
           task={selectedTask}
           selectedPreviewFileId={selectedPreviewFileId}
           onTranscodeFile={props.onTranscodeFile}
+          onPreviewPresentationModeChange={setPreviewPresentationModeActive}
           pet={props.pet}
           petImageURL={props.petImageURL}
         />
@@ -1382,6 +1511,7 @@ export function CompletedPage(props: {
           appName={props.text.appName}
           file={selectedFile}
           onTranscodeFile={props.onTranscodeFile}
+          onPreviewPresentationModeChange={setPreviewPresentationModeActive}
         />
       ) : null;
 
@@ -1400,7 +1530,13 @@ export function CompletedPage(props: {
     return (
       <aside
         ref={detailPaneRef}
-        className="app-main-detail-pane app-completed-inline-detail my-3 flex w-[25rem] shrink-0 flex-col overflow-hidden xl:w-[27rem]"
+        data-preview-presentation={
+          previewPresentationModeActive ? "true" : undefined
+        }
+        className={cn(
+          "app-main-detail-pane app-completed-inline-detail my-3 flex w-[25rem] shrink-0 flex-col overflow-hidden xl:w-[27rem]",
+          previewPresentationModeActive && "z-[300] overflow-visible",
+        )}
       >
         {viewMode === "tasks" && selectedTask ? (
           <CompletedTaskDetailHeader
@@ -1430,6 +1566,7 @@ export function CompletedPage(props: {
     <div
       className="app-main-page app-main-completed-page flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
       onMouseDownCapture={handleCompletedPageMouseDownCapture}
+      onClickCapture={handleCompletedPageClickCapture}
     >
       <div
         className={cn(
@@ -1535,12 +1672,7 @@ export function CompletedPage(props: {
         >
           {viewMode === "tasks" ? (
             pagedTasks.length === 0 ? (
-              <div
-                className="flex h-full items-center justify-center text-sm text-muted-foreground"
-                onMouseDown={handleBlankListMouseDown}
-              >
-                {props.text.completed.emptyTasks}
-              </div>
+              renderEmptyListState(props.text.completed.emptyTasks)
             ) : (
               <div
                 className="app-completed-task-grid grid gap-x-4 gap-y-5"
@@ -1681,12 +1813,7 @@ export function CompletedPage(props: {
               </div>
             )
           ) : pagedFiles.length === 0 ? (
-            <div
-              className="flex h-full items-center justify-center text-sm text-muted-foreground"
-              onMouseDown={handleBlankListMouseDown}
-            >
-              {props.text.completed.emptyFiles}
-            </div>
+            renderEmptyListState(props.text.completed.emptyFiles)
           ) : (
             <div
               className="app-completed-file-list space-y-2"
@@ -1709,7 +1836,7 @@ export function CompletedPage(props: {
                       ? Music2
                       : previewKind === "image"
                         ? ImageIcon
-                        : (file.kind ?? "").trim().toLowerCase() === "subtitle"
+                        : previewKind === "subtitle"
                           ? Languages
                           : Link2;
                 const transcodeSourceLabel =

@@ -911,6 +911,7 @@ func buildSettingsWindowOptions(current dto.Settings, launchedByAutoStart bool) 
 
 func buildTrayMiniPlayerWindowOptions(current dto.Settings) application.WebviewWindowOptions {
 	titles := resolveWindowTitles(current)
+	backgroundType, background := trayMiniPlayerWindowBackground(current)
 	return application.WebviewWindowOptions{
 		Name:                       "tray-miniplayer",
 		Title:                      titles.Main,
@@ -925,8 +926,8 @@ func buildTrayMiniPlayerWindowOptions(current dto.Settings) application.WebviewW
 		AlwaysOnTop:                true,
 		DisableResize:              true,
 		Frameless:                  true,
-		BackgroundType:             application.BackgroundTypeTransparent,
-		BackgroundColour:           application.RGBA{Alpha: 0},
+		BackgroundType:             backgroundType,
+		BackgroundColour:           background,
 		HideOnFocusLost:            true,
 		HideOnEscape:               true,
 		DefaultContextMenuDisabled: true,
@@ -936,6 +937,13 @@ func buildTrayMiniPlayerWindowOptions(current dto.Settings) application.WebviewW
 			WindowIsTranslucent: true,
 		},
 	}
+}
+
+func trayMiniPlayerWindowBackground(current dto.Settings) (application.BackgroundType, application.RGBA) {
+	if runtime.GOOS == "windows" {
+		return application.BackgroundTypeSolid, backgroundColour(current)
+	}
+	return application.BackgroundTypeTransparent, application.RGBA{Alpha: 0}
 }
 
 func buildWindowOptions(name, title, url string, bounds dto.WindowBounds, current dto.Settings, launchedByAutoStart bool, isSettings bool) application.WebviewWindowOptions {

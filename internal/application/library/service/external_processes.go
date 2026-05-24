@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 
 	"xiadown/internal/domain/library"
 )
@@ -28,6 +29,22 @@ func (service *LibraryService) trackExternalProcess(operationID string, kind str
 	if rootPID <= 0 {
 		return func() {}
 	}
+	return service.trackExternalProcessIDs(trimmedOperationID, trimmedKind, trimmedTool, rootPID, processGroupID)
+}
+
+func (service *LibraryService) trackExternalProcessIDs(operationID string, kind string, tool string, rootPID int, processGroupID int) func() {
+	if service == nil || service.processes == nil {
+		return func() {}
+	}
+	if rootPID <= 0 {
+		return func() {}
+	}
+	trimmedOperationID := strings.TrimSpace(operationID)
+	trimmedKind := strings.TrimSpace(kind)
+	trimmedTool := strings.TrimSpace(tool)
+	if trimmedOperationID == "" || trimmedKind == "" || trimmedTool == "" {
+		return func() {}
+	}
 	now := service.now()
 	record := library.ExternalProcess{
 		ID:             uuid.NewString(),
@@ -43,13 +60,53 @@ func (service *LibraryService) trackExternalProcess(operationID string, kind str
 	saveErr := service.processes.Save(saveCtx, record)
 	saveCancel()
 	if saveErr != nil {
+		zap.L().Warn(
+			"external process tracking save failed",
+			zap.String("operationID", trimmedOperationID),
+			zap.String("kind", trimmedKind),
+			zap.String("tool", trimmedTool),
+			zap.Int("pid", rootPID),
+			zap.Int("processGroupID", processGroupID),
+			zap.Error(saveErr),
+		)
 		return func() {}
 	}
+	zap.L().Info(
+		"external process tracking saved",
+		zap.String("recordID", record.ID),
+		zap.String("operationID", trimmedOperationID),
+		zap.String("kind", trimmedKind),
+		zap.String("tool", trimmedTool),
+		zap.Int("pid", rootPID),
+		zap.Int("processGroupID", processGroupID),
+	)
 
 	return func() {
 		deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = service.processes.Delete(deleteCtx, record.ID)
+		deleteErr := service.processes.Delete(deleteCtx, record.ID)
 		deleteCancel()
+		if deleteErr != nil {
+			zap.L().Warn(
+				"external process tracking delete failed",
+				zap.String("recordID", record.ID),
+				zap.String("operationID", trimmedOperationID),
+				zap.String("kind", trimmedKind),
+				zap.String("tool", trimmedTool),
+				zap.Int("pid", rootPID),
+				zap.Int("processGroupID", processGroupID),
+				zap.Error(deleteErr),
+			)
+			return
+		}
+		zap.L().Info(
+			"external process tracking deleted",
+			zap.String("recordID", record.ID),
+			zap.String("operationID", trimmedOperationID),
+			zap.String("kind", trimmedKind),
+			zap.String("tool", trimmedTool),
+			zap.Int("pid", rootPID),
+			zap.Int("processGroupID", processGroupID),
+		)
 	}
 }
 

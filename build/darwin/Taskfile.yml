@@ -7,7 +7,7 @@ vars:
   # Signing configuration - edit these values for your project
   # SIGN_IDENTITY: "Developer ID Application: Your Company (TEAMID)"
   # KEYCHAIN_PROFILE: "my-notarize-profile"
-  # ENTITLEMENTS: "build/darwin/entitlements.plist"
+  ENTITLEMENTS: "build/darwin/entitlements.plist"
 
   # Docker image for cross-compilation (used when building on non-macOS)
   CROSS_IMAGE: wails-cross
@@ -178,7 +178,7 @@ tasks:
     summary: Ad-hoc signs the app bundle (macOS only)
     internal: true
     cmds:
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.app"
+      - codesign --force --deep --sign - {{if .ENTITLEMENTS}}--entitlements "{{.ENTITLEMENTS}}"{{end}} "{{.BIN_DIR}}/{{.APP_NAME}}.app"
 
   codesign:skip:
     summary: Skips codesigning when cross-compiling
@@ -196,7 +196,7 @@ tasks:
       - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Resources"
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - go run ./build/tools/render_metadata darwin-plist --input build/darwin/Info.dev.plist --output "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Info.plist" --version "{{.EFFECTIVE_APP_VERSION}}"
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.app"
+      - codesign --force --deep --sign - {{if .ENTITLEMENTS}}--entitlements "{{.ENTITLEMENTS}}"{{end}} "{{.BIN_DIR}}/{{.APP_NAME}}.app"
       - '{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS/{{.APP_NAME}}'
     vars:
       APP_VERSION:

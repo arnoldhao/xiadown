@@ -34,8 +34,12 @@ func (repo *SQLiteConnectorRepository) List(ctx context.Context) ([]connectors.C
 			ID:             row.ID,
 			Type:           row.Type,
 			Status:         row.Status,
+			CredentialMode: stringOrEmpty(row.CredentialMode),
 			CookiesPath:    stringOrEmpty(row.CookiesPath),
 			CookiesJSON:    stringOrEmpty(row.CookiesJSON),
+			ProfileKey:     stringOrEmpty(row.ProfileKey),
+			ProfilePath:    stringOrEmpty(row.ProfilePath),
+			ProfileBrowser: stringOrEmpty(row.ProfileBrowser),
 			LastVerifiedAt: timeOrNil(row.LastVerifiedAt),
 			CreatedAt:      &row.CreatedAt,
 			UpdatedAt:      &row.UpdatedAt,
@@ -60,8 +64,12 @@ func (repo *SQLiteConnectorRepository) Get(ctx context.Context, id string) (conn
 		ID:             row.ID,
 		Type:           row.Type,
 		Status:         row.Status,
+		CredentialMode: stringOrEmpty(row.CredentialMode),
 		CookiesPath:    stringOrEmpty(row.CookiesPath),
 		CookiesJSON:    stringOrEmpty(row.CookiesJSON),
+		ProfileKey:     stringOrEmpty(row.ProfileKey),
+		ProfilePath:    stringOrEmpty(row.ProfilePath),
+		ProfileBrowser: stringOrEmpty(row.ProfileBrowser),
 		LastVerifiedAt: timeOrNil(row.LastVerifiedAt),
 		CreatedAt:      &row.CreatedAt,
 		UpdatedAt:      &row.UpdatedAt,
@@ -81,8 +89,12 @@ func (repo *SQLiteConnectorRepository) Save(ctx context.Context, connector conne
 		ID:             connector.ID,
 		Type:           string(connector.Type),
 		Status:         string(connector.Status),
+		CredentialMode: nullString(string(connector.CredentialMode)),
 		CookiesPath:    nullString(connector.CookiesPath),
 		CookiesJSON:    nullString(connector.CookiesJSON),
+		ProfileKey:     nullString(connector.ProfileKey),
+		ProfilePath:    nullString(connector.ProfilePath),
+		ProfileBrowser: nullString(connector.ProfileBrowser),
 		LastVerifiedAt: nullTime(connector.LastVerifiedAt),
 		CreatedAt:      createdAt,
 		UpdatedAt:      updatedAt,
@@ -91,8 +103,12 @@ func (repo *SQLiteConnectorRepository) Save(ctx context.Context, connector conne
 		On("CONFLICT(id) DO UPDATE").
 		Set("type = EXCLUDED.type").
 		Set("status = EXCLUDED.status").
+		Set("credential_mode = EXCLUDED.credential_mode").
 		Set("cookies_path = EXCLUDED.cookies_path").
 		Set("cookies_json = EXCLUDED.cookies_json").
+		Set("profile_key = EXCLUDED.profile_key").
+		Set("profile_path = EXCLUDED.profile_path").
+		Set("profile_browser = EXCLUDED.profile_browser").
 		Set("last_verified_at = EXCLUDED.last_verified_at").
 		Set("updated_at = EXCLUDED.updated_at").
 		Exec(ctx)

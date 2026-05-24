@@ -4,7 +4,8 @@ import {
   MediaPlayer,
   MediaProvider,
   MediaRemoteControl,
-  type VideoSrc,
+  type MediaStreamType,
+  type PlayerSrc,
 } from "@vidstack/react";
 import {
   Loader2,
@@ -14,34 +15,59 @@ import {
   Minimize2,
   Pause,
   Play,
+  VideoOff,
   Volume2,
   VolumeX,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/shared/ui/button";
-import { getXiaText } from "@/features/xiadown/shared";
 import {
-  COMPLETED_PREVIEW_CONTROL_BUTTON_CLASS,
-  COMPLETED_PREVIEW_CONTROL_RANGE_CLASS,
-  COMPLETED_PREVIEW_SHELL_CLASS,
-  COMPLETED_PREVIEW_VOLUME_RANGE_CLASS,
+  VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS,
+  VIDSTACK_PREVIEW_CONTROL_RANGE_CLASS,
+  VIDSTACK_PREVIEW_SHELL_CLASS,
+  VIDSTACK_PREVIEW_VOLUME_RANGE_CLASS,
 } from "@/shared/styles/xiadown";
 
-type CompletedVidstackPreviewProps = {
-  text: ReturnType<typeof getXiaText>;
+export type VidstackPreviewLabels = {
+  noPreview: string;
+  previewEnterFullscreen: string;
+  previewExitFullscreen: string;
+  previewMute: string;
+  previewPause: string;
+  previewPlay: string;
+  previewPlaybackStalled: string;
+  previewSeek: string;
+  previewUnmute: string;
+  previewVolume: string;
+  previewWindowFullscreen: string;
+  previewWindowRestore: string;
+};
+
+export type VidstackPreviewProps = {
+  labels: VidstackPreviewLabels;
   mediaUrl: string;
   title: string;
   persistKey?: string;
   posterUrl?: string;
   durationMs?: number;
+  streamType?: MediaStreamType;
+  sourceType?: "hls" | "dash";
+  persistProgress?: boolean;
+  onPresentationModeChange?: (active: boolean) => void;
 };
 
 type MediaPlayerElement = React.ElementRef<typeof MediaPlayer>;
+type PreviewLoadState = "loading" | "ready" | "unavailable";
 type PreviewFullscreenMode = "dom" | "wails";
-type CompletedPreviewProgressState = {
+type VidstackPreviewProgressState = {
   positionMs: number;
   durationMs: number;
+  volume: number;
+  muted: boolean;
+  updatedAt: number;
+};
+type VidstackPreviewVolumeState = {
   volume: number;
   muted: boolean;
   updatedAt: number;
@@ -52,12 +78,17 @@ type MediaProviderHandle = {
   video?: unknown;
 };
 
-const COMPLETED_PREVIEW_PROGRESS_STORAGE_PREFIX =
+const VIDSTACK_PREVIEW_PROGRESS_STORAGE_PREFIX =
   "xiadown:completed-preview-progress:v1:";
-const COMPLETED_PREVIEW_PROGRESS_SAVE_INTERVAL_MS = 2000;
-const COMPLETED_PREVIEW_PROGRESS_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
-const COMPLETED_PREVIEW_RESUME_MIN_POSITION_MS = 1000;
-const COMPLETED_PREVIEW_RESUME_END_GAP_MS = 5000;
+const VIDSTACK_PREVIEW_VOLUME_STORAGE_KEY =
+  "xiadown:completed-preview-volume:v1";
+const VIDSTACK_PREVIEW_PROGRESS_SAVE_INTERVAL_MS = 2000;
+const VIDSTACK_PREVIEW_PROGRESS_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
+const VIDSTACK_PREVIEW_RESUME_MIN_POSITION_MS = 1000;
+const VIDSTACK_PREVIEW_RESUME_END_GAP_MS = 5000;
+const VIDSTACK_PREVIEW_RESUME_SEEK_TOLERANCE_MS = 750;
+const VIDSTACK_PREVIEW_RESUME_RETRY_WINDOW_MS = 8000;
+const VIDSTACK_PREVIEW_LOAD_TIMEOUT_MS = 5000;
 
 function clampMs(value: number, durationMs: number) {
   if (!Number.isFinite(value)) {
@@ -111,8 +142,19 @@ function resolveMediaFileExtension(source: string, fallbackName?: string) {
 function resolveVideoSource(
   mediaUrl: string,
   title?: string,
-): string | VideoSrc {
+  sourceType?: VidstackPreviewProps["sourceType"],
+): PlayerSrc {
+  if (sourceType === "hls") {
+    return { src: mediaUrl, type: "application/vnd.apple.mpegurl" };
+  }
+  if (sourceType === "dash") {
+    return { src: mediaUrl, type: "application/dash+xml" };
+  }
   switch (resolveMediaFileExtension(mediaUrl, title)) {
+    case "m3u8":
+      return { src: mediaUrl, type: "application/vnd.apple.mpegurl" };
+    case "mpd":
+      return { src: mediaUrl, type: "application/dash+xml" };
     case "webm":
       return { src: mediaUrl, type: "video/webm" };
     case "mp4":
@@ -173,8 +215,31 @@ function resolvePlayerMediaElement(player: MediaPlayerElement | null) {
 }
 
 function resolvePlaybackErrorMessage(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message.trim() : "";
+  const message = normalizePlaybackErrorText(
+    error instanceof Error ? error.message : "",
+  );
   return message || fallback;
+}
+
+function normalizePlaybackErrorText(message: string) {
+  return message.replace(/\s+/g, " ").trim().slice(0, 180);
+}
+
+function resolvePreviewPlaybackErrorMessage(params: {
+  detail?: string;
+  fallback: string;
+  labels: VidstackPreviewLabels;
+  mediaError?: MediaError | null;
+  reason?: "play" | "stalled";
+}) {
+  if (params.reason === "stalled") {
+    return params.labels.previewPlaybackStalled;
+  }
+  return (
+    normalizePlaybackErrorText(
+      params.mediaError?.message || params.detail || "",
+    ) || params.fallback
+  );
 }
 
 function invokeMediaRequest(action: () => Promise<void> | void) {
@@ -203,12 +268,12 @@ function ensureMediaLoadStarted(media: HTMLMediaElement) {
 
 function resolveProgressStorageKey(persistKey?: string, mediaUrl?: string) {
   const source = (persistKey ?? "").trim() || (mediaUrl ?? "").trim();
-  return source ? `${COMPLETED_PREVIEW_PROGRESS_STORAGE_PREFIX}${source}` : "";
+  return source ? `${VIDSTACK_PREVIEW_PROGRESS_STORAGE_PREFIX}${source}` : "";
 }
 
 function readStoredPreviewProgress(
   key: string,
-): CompletedPreviewProgressState | null {
+): VidstackPreviewProgressState | null {
   if (!key || typeof window === "undefined") {
     return null;
   }
@@ -217,11 +282,11 @@ function readStoredPreviewProgress(
     if (!raw) {
       return null;
     }
-    const parsed = JSON.parse(raw) as Partial<CompletedPreviewProgressState>;
+    const parsed = JSON.parse(raw) as Partial<VidstackPreviewProgressState>;
     const updatedAt = Number(parsed.updatedAt ?? 0);
     if (
       !Number.isFinite(updatedAt) ||
-      Date.now() - updatedAt > COMPLETED_PREVIEW_PROGRESS_MAX_AGE_MS
+      Date.now() - updatedAt > VIDSTACK_PREVIEW_PROGRESS_MAX_AGE_MS
     ) {
       window.localStorage.removeItem(key);
       return null;
@@ -238,9 +303,30 @@ function readStoredPreviewProgress(
   }
 }
 
+function readStoredPreviewVolume(): VidstackPreviewVolumeState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(VIDSTACK_PREVIEW_VOLUME_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<VidstackPreviewVolumeState>;
+    const updatedAt = Number(parsed.updatedAt ?? 0);
+    return {
+      volume: clampVolume(Number(parsed.volume ?? 1)),
+      muted: Boolean(parsed.muted),
+      updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function writeStoredPreviewProgress(
   key: string,
-  state: CompletedPreviewProgressState,
+  state: VidstackPreviewProgressState,
 ) {
   if (!key || typeof window === "undefined") {
     return;
@@ -252,17 +338,49 @@ function writeStoredPreviewProgress(
   }
 }
 
-export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
+function writeStoredPreviewVolume(
+  state: Pick<VidstackPreviewVolumeState, "volume" | "muted"> &
+    Partial<Pick<VidstackPreviewVolumeState, "updatedAt">>,
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      VIDSTACK_PREVIEW_VOLUME_STORAGE_KEY,
+      JSON.stringify({
+        volume: clampVolume(Number(state.volume)),
+        muted: Boolean(state.muted),
+        updatedAt: Number.isFinite(state.updatedAt)
+          ? state.updatedAt
+          : Date.now(),
+      }),
+    );
+  } catch {
+    // Storage can be unavailable in restricted WebViews.
+  }
+}
+
+export function VidstackPreview(props: VidstackPreviewProps) {
+  const [initialVolumeState] = React.useState(() => readStoredPreviewVolume());
   const shellRef = React.useRef<HTMLDivElement | null>(null);
   const fullscreenModeRef = React.useRef<PreviewFullscreenMode | null>(null);
   const previousWindowedFullscreenRef = React.useRef(false);
-  const lastNonZeroVolumeRef = React.useRef(1);
+  const lastNonZeroVolumeRef = React.useRef(
+    initialVolumeState && initialVolumeState.volume > 0
+      ? initialVolumeState.volume
+      : 1,
+  );
   const animationFrameRef = React.useRef<number>();
+  const loadWatchdogRef = React.useRef<number>();
   const playbackWatchdogRef = React.useRef<number>();
   const pendingPlayRef = React.useRef(false);
   const playRequestSerialRef = React.useRef(0);
   const playRequestInFlightRef = React.useRef(false);
   const restoredProgressKeyRef = React.useRef("");
+  const restoredVolumeMediaRef = React.useRef<HTMLMediaElement | null>(null);
+  const resumeTargetMsRef = React.useRef<number | null>(null);
+  const resumeRetryUntilRef = React.useRef(0);
   const lastProgressSaveAtRef = React.useRef(0);
   const mediaRemote = React.useMemo(() => new MediaRemoteControl(), []);
   const [playerElement, setPlayerElement] =
@@ -275,20 +393,34 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
   );
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [playPending, setPlayPending] = React.useState(false);
-  const [volume, setVolume] = React.useState(1);
-  const [muted, setMuted] = React.useState(false);
+  const [volume, setVolume] = React.useState(
+    initialVolumeState?.volume ?? 1,
+  );
+  const [muted, setMuted] = React.useState(
+    initialVolumeState?.muted ?? false,
+  );
   const [playbackError, setPlaybackError] = React.useState("");
+  const [previewLoadState, setPreviewLoadState] =
+    React.useState<PreviewLoadState>(() =>
+      props.mediaUrl ? "loading" : "unavailable",
+    );
   const [windowedFullscreen, setWindowedFullscreen] = React.useState(false);
   const [screenFullscreen, setScreenFullscreen] = React.useState(false);
+  const presentationModeActive = windowedFullscreen || screenFullscreen;
 
   const effectiveDurationMs = Math.max(resolvedDurationMs, 0);
   const playerSource = React.useMemo(
-    () => resolveVideoSource(props.mediaUrl, props.title),
-    [props.mediaUrl, props.title],
+    () => resolveVideoSource(props.mediaUrl, props.title, props.sourceType),
+    [props.mediaUrl, props.sourceType, props.title],
   );
+  const shouldPersistProgress =
+    props.persistProgress ?? !String(props.streamType ?? "").startsWith("live");
   const progressStorageKey = React.useMemo(
-    () => resolveProgressStorageKey(props.persistKey, props.mediaUrl),
-    [props.mediaUrl, props.persistKey],
+    () =>
+      shouldPersistProgress
+        ? resolveProgressStorageKey(props.persistKey, props.mediaUrl)
+        : "",
+    [props.mediaUrl, props.persistKey, shouldPersistProgress],
   );
 
   const getActiveMediaElement = React.useCallback(() => {
@@ -298,6 +430,53 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     }
     return mediaElement?.isConnected ? mediaElement : null;
   }, [mediaElement, playerElement]);
+
+  const persistPreviewVolumeState = React.useCallback(
+    (nextVolume: number, nextMuted: boolean) => {
+      writeStoredPreviewVolume({
+        volume: clampVolume(nextVolume),
+        muted: nextMuted,
+      });
+    },
+    [],
+  );
+
+  const applyPersistedPreviewVolume = React.useCallback(
+    (
+      media: HTMLMediaElement,
+      fallback?: VidstackPreviewVolumeState | null,
+    ) => {
+      const storedVolume = readStoredPreviewVolume();
+      const nextVolumeState = storedVolume ?? fallback;
+      if (!nextVolumeState) {
+        return;
+      }
+      const alreadySynced =
+        restoredVolumeMediaRef.current === media &&
+        Math.abs(media.volume - nextVolumeState.volume) < 0.001 &&
+        media.muted === nextVolumeState.muted;
+      if (alreadySynced) {
+        return;
+      }
+
+      restoredVolumeMediaRef.current = media;
+      media.volume = nextVolumeState.volume;
+      media.muted = nextVolumeState.muted;
+      if (playerElement) {
+        playerElement.volume = nextVolumeState.volume;
+        playerElement.muted = nextVolumeState.muted;
+      }
+      setVolume(nextVolumeState.volume);
+      setMuted(nextVolumeState.muted);
+      if (nextVolumeState.volume > 0) {
+        lastNonZeroVolumeRef.current = nextVolumeState.volume;
+      }
+      if (!storedVolume && fallback) {
+        writeStoredPreviewVolume(nextVolumeState);
+      }
+    },
+    [playerElement],
+  );
 
   const finishPendingPlay = React.useCallback(() => {
     if (playbackWatchdogRef.current) {
@@ -320,6 +499,36 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     setPlayPending(false);
   }, []);
 
+  const clearLoadWatchdog = React.useCallback(() => {
+    if (loadWatchdogRef.current) {
+      window.clearTimeout(loadWatchdogRef.current);
+      loadWatchdogRef.current = undefined;
+    }
+  }, []);
+
+  const markPreviewReady = React.useCallback(
+    (media?: HTMLMediaElement | null) => {
+      clearLoadWatchdog();
+      if (media) {
+        setMediaElement(media);
+      }
+      setPreviewLoadState("ready");
+      setPlaybackError("");
+    },
+    [clearLoadWatchdog],
+  );
+
+  const markPreviewUnavailable = React.useCallback(
+    (message: string) => {
+      clearLoadWatchdog();
+      cancelPendingPlay();
+      setIsPlaying(false);
+      setPlaybackError(message);
+      setPreviewLoadState("unavailable");
+    },
+    [cancelPendingPlay, clearLoadWatchdog],
+  );
+
   const startPlaybackWatchdog = React.useCallback(() => {
     if (playbackWatchdogRef.current) {
       window.clearTimeout(playbackWatchdogRef.current);
@@ -338,13 +547,19 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
         return;
       }
       finishPendingPlay();
-      setIsPlaying(false);
-      setPlaybackError(props.text.completed.previewPlaybackStalled);
+      markPreviewUnavailable(
+        resolvePreviewPlaybackErrorMessage({
+          fallback: props.labels.noPreview,
+          labels: props.labels,
+          reason: "stalled",
+        }),
+      );
     }, 8000);
   }, [
     finishPendingPlay,
     getActiveMediaElement,
-    props.text.completed.previewPlaybackStalled,
+    markPreviewUnavailable,
+    props.labels,
   ]);
 
   const requestPlayWhenMediaIsAvailable = React.useCallback(
@@ -385,17 +600,90 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
           return;
         }
         finishPendingPlay();
-        setIsPlaying(false);
-        setPlaybackError(
-          resolvePlaybackErrorMessage(error, props.text.completed.noPreview),
+        markPreviewUnavailable(
+          resolvePreviewPlaybackErrorMessage({
+            detail: resolvePlaybackErrorMessage(error, ""),
+            fallback: props.labels.noPreview,
+            labels: props.labels,
+            reason: "play",
+          }),
         );
       }
     },
     [
       finishPendingPlay,
-      props.text.completed.noPreview,
+      markPreviewUnavailable,
+      props.labels,
       startPlaybackWatchdog,
     ],
+  );
+
+  const applyPendingResumeTarget = React.useCallback(
+    (media: HTMLMediaElement, force = false) => {
+      const targetMs = resumeTargetMsRef.current;
+      if (
+        !targetMs ||
+        targetMs < VIDSTACK_PREVIEW_RESUME_MIN_POSITION_MS
+      ) {
+        return false;
+      }
+
+      const now = Date.now();
+      if (now > resumeRetryUntilRef.current) {
+        if (!force) {
+          resumeTargetMsRef.current = null;
+          resumeRetryUntilRef.current = 0;
+          return false;
+        }
+        resumeRetryUntilRef.current =
+          now + VIDSTACK_PREVIEW_RESUME_RETRY_WINDOW_MS;
+      }
+
+      const currentMs = Math.max(0, Math.round(media.currentTime * 1000));
+      if (currentMs > targetMs + VIDSTACK_PREVIEW_RESUME_SEEK_TOLERANCE_MS) {
+        resumeTargetMsRef.current = null;
+        resumeRetryUntilRef.current = 0;
+        return false;
+      }
+
+      if (
+        Math.abs(currentMs - targetMs) <=
+          VIDSTACK_PREVIEW_RESUME_SEEK_TOLERANCE_MS
+      ) {
+        return false;
+      }
+
+      try {
+        media.currentTime = targetMs / 1000;
+        setCurrentTimeMs(targetMs);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [],
+  );
+
+  const shouldDeferResumeProgressPersistence = React.useCallback(
+    (media: HTMLMediaElement) => {
+      const targetMs = resumeTargetMsRef.current;
+      if (
+        !targetMs ||
+        targetMs < VIDSTACK_PREVIEW_RESUME_MIN_POSITION_MS
+      ) {
+        return false;
+      }
+      if (Date.now() > resumeRetryUntilRef.current) {
+        resumeTargetMsRef.current = null;
+        resumeRetryUntilRef.current = 0;
+        return false;
+      }
+      const currentMs = Math.max(0, Math.round(media.currentTime * 1000));
+      return (
+        currentMs + VIDSTACK_PREVIEW_RESUME_SEEK_TOLERANCE_MS < targetMs
+      );
+    },
+    [],
   );
 
   const persistPlaybackState = React.useCallback(
@@ -403,11 +691,17 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       if (!progressStorageKey) {
         return;
       }
+      if (
+        applyPendingResumeTarget(media) ||
+        shouldDeferResumeProgressPersistence(media)
+      ) {
+        return;
+      }
       const now = Date.now();
       if (
         !force &&
         now - lastProgressSaveAtRef.current <
-          COMPLETED_PREVIEW_PROGRESS_SAVE_INTERVAL_MS
+          VIDSTACK_PREVIEW_PROGRESS_SAVE_INTERVAL_MS
       ) {
         return;
       }
@@ -422,7 +716,7 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       const nearEnd =
         durationMs > 0 &&
         rawPositionMs >=
-          Math.max(0, durationMs - COMPLETED_PREVIEW_RESUME_END_GAP_MS);
+          Math.max(0, durationMs - VIDSTACK_PREVIEW_RESUME_END_GAP_MS);
       writeStoredPreviewProgress(progressStorageKey, {
         positionMs: nearEnd ? 0 : rawPositionMs,
         durationMs,
@@ -431,29 +725,43 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
         updatedAt: now,
       });
     },
-    [effectiveDurationMs, muted, progressStorageKey, volume],
+    [
+      applyPendingResumeTarget,
+      effectiveDurationMs,
+      muted,
+      progressStorageKey,
+      shouldDeferResumeProgressPersistence,
+      volume,
+    ],
   );
 
   const restorePersistedPlaybackState = React.useCallback(
     (media: HTMLMediaElement) => {
       if (!progressStorageKey) {
+        applyPersistedPreviewVolume(media);
         return;
       }
       if (restoredProgressKeyRef.current === progressStorageKey) {
+        applyPersistedPreviewVolume(media);
+        applyPendingResumeTarget(media, true);
         return;
       }
       const stored = readStoredPreviewProgress(progressStorageKey);
       restoredProgressKeyRef.current = progressStorageKey;
+      applyPersistedPreviewVolume(
+        media,
+        stored
+          ? {
+              volume: stored.volume,
+              muted: stored.muted,
+              updatedAt: stored.updatedAt,
+            }
+          : null,
+      );
       if (!stored) {
+        resumeTargetMsRef.current = null;
+        resumeRetryUntilRef.current = 0;
         return;
-      }
-
-      media.volume = stored.volume;
-      media.muted = stored.muted;
-      setVolume(stored.volume);
-      setMuted(stored.muted);
-      if (stored.volume > 0) {
-        lastNonZeroVolumeRef.current = stored.volume;
       }
 
       const durationMs = Math.max(
@@ -464,25 +772,31 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
           : 0,
       );
       const shouldResume =
-        stored.positionMs >= COMPLETED_PREVIEW_RESUME_MIN_POSITION_MS &&
+        stored.positionMs >= VIDSTACK_PREVIEW_RESUME_MIN_POSITION_MS &&
         (durationMs <= 0 ||
           stored.positionMs <
-            durationMs - COMPLETED_PREVIEW_RESUME_END_GAP_MS);
+            durationMs - VIDSTACK_PREVIEW_RESUME_END_GAP_MS);
       if (!shouldResume) {
-        return;
+        resumeTargetMsRef.current = null;
+        resumeRetryUntilRef.current = 0;
+      } else {
+        resumeTargetMsRef.current = durationMs
+          ? clampMs(stored.positionMs, durationMs)
+          : stored.positionMs;
+        resumeRetryUntilRef.current =
+          Date.now() + VIDSTACK_PREVIEW_RESUME_RETRY_WINDOW_MS;
       }
 
-      const nextTime = durationMs
-        ? clampMs(stored.positionMs, durationMs) / 1000
-        : stored.positionMs / 1000;
-      try {
-        media.currentTime = nextTime;
-        setCurrentTimeMs(Math.round(nextTime * 1000));
-      } catch {
-        // Some media elements reject seeking until more data is buffered.
+      if (shouldResume) {
+        applyPendingResumeTarget(media, true);
       }
     },
-    [progressStorageKey, props.durationMs],
+    [
+      applyPendingResumeTarget,
+      applyPersistedPreviewVolume,
+      progressStorageKey,
+      props.durationMs,
+    ],
   );
 
   const syncCurrentTime = React.useCallback(() => {
@@ -515,10 +829,34 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     setIsPlaying(false);
     cancelPendingPlay();
     restoredProgressKeyRef.current = "";
+    restoredVolumeMediaRef.current = null;
+    resumeTargetMsRef.current = null;
+    resumeRetryUntilRef.current = 0;
     lastProgressSaveAtRef.current = 0;
     setMediaElement(null);
     setPlaybackError("");
   }, [cancelPendingPlay, progressStorageKey, props.durationMs, props.mediaUrl]);
+
+  React.useEffect(() => {
+    clearLoadWatchdog();
+    if (!props.mediaUrl) {
+      setPreviewLoadState("unavailable");
+      return;
+    }
+
+    setPreviewLoadState("loading");
+    loadWatchdogRef.current = window.setTimeout(() => {
+      markPreviewUnavailable(
+        resolvePreviewPlaybackErrorMessage({
+          fallback: props.labels.noPreview,
+          labels: props.labels,
+          reason: "stalled",
+        }),
+      );
+    }, VIDSTACK_PREVIEW_LOAD_TIMEOUT_MS);
+
+    return clearLoadWatchdog;
+  }, [clearLoadWatchdog, markPreviewUnavailable, props.mediaUrl]);
 
   React.useEffect(() => {
     mediaRemote.setPlayer(playerElement);
@@ -530,13 +868,19 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     if (!player) {
       return;
     }
-    const nextVolume = clampVolume(Number(player.volume ?? 1));
+    const storedVolume = readStoredPreviewVolume() ?? initialVolumeState;
+    const nextVolume = storedVolume
+      ? storedVolume.volume
+      : clampVolume(Number(player.volume ?? 1));
+    const nextMuted = storedVolume ? storedVolume.muted : Boolean(player.muted);
+    player.volume = nextVolume;
+    player.muted = nextMuted;
     setVolume(nextVolume);
     if (nextVolume > 0) {
       lastNonZeroVolumeRef.current = nextVolume;
     }
-    setMuted(Boolean(player.muted));
-  }, [playerElement]);
+    setMuted(nextMuted);
+  }, [initialVolumeState, playerElement]);
 
   React.useEffect(() => {
     const player = playerElement;
@@ -569,8 +913,7 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
   const handleLoadedMetadata = React.useCallback(
     (event: React.SyntheticEvent<HTMLMediaElement>) => {
       const media = event.currentTarget;
-      setMediaElement(media);
-      setPlaybackError("");
+      markPreviewReady(media);
       const nextDurationMs = Number.isFinite(media.duration)
         ? Math.round(media.duration * 1000)
         : 0;
@@ -579,29 +922,32 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       }
       restorePersistedPlaybackState(media);
     },
-    [restorePersistedPlaybackState],
+    [markPreviewReady, restorePersistedPlaybackState],
   );
 
   const handleMediaCanPlay = React.useCallback(
     (event: React.SyntheticEvent<HTMLMediaElement>) => {
       const media = event.currentTarget;
-      setMediaElement(media);
-      setPlaybackError("");
+      markPreviewReady(media);
+      restorePersistedPlaybackState(media);
       if (pendingPlayRef.current && !playRequestInFlightRef.current) {
         void playNativeMedia(media);
       }
     },
-    [playNativeMedia],
+    [markPreviewReady, playNativeMedia, restorePersistedPlaybackState],
   );
 
   const handleMediaError = React.useCallback(
     (event: React.SyntheticEvent<HTMLMediaElement>) => {
-      const message = event.currentTarget.error?.message.trim() ?? "";
-      cancelPendingPlay();
-      setPlaybackError(message || props.text.completed.noPreview);
-      setIsPlaying(false);
+      markPreviewUnavailable(
+        resolvePreviewPlaybackErrorMessage({
+          fallback: props.labels.noPreview,
+          labels: props.labels,
+          mediaError: event.currentTarget.error,
+        }),
+      );
     },
-    [cancelPendingPlay, props.text.completed.noPreview],
+    [markPreviewUnavailable, props.labels],
   );
 
   React.useEffect(() => {
@@ -618,10 +964,22 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     }
 
     const handlePlay = () => {
+      if (isHTMLMediaElement(media)) {
+        markPreviewReady(media);
+        restorePersistedPlaybackState(media);
+      } else {
+        markPreviewReady();
+      }
       setPlaybackError("");
       setIsPlaying(true);
     };
     const handlePlaying = () => {
+      if (isHTMLMediaElement(media)) {
+        markPreviewReady(media);
+        restorePersistedPlaybackState(media);
+      } else {
+        markPreviewReady();
+      }
       finishPendingPlay();
       setPlaybackError("");
       setIsPlaying(true);
@@ -643,11 +1001,13 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     };
     const handleVolumeChange = () => {
       const nextVolume = clampVolume(Number(media.volume ?? 1));
+      const nextMuted = Boolean(media.muted);
       setVolume(nextVolume);
-      setMuted(Boolean(media.muted));
+      setMuted(nextMuted);
       if (nextVolume > 0) {
         lastNonZeroVolumeRef.current = nextVolume;
       }
+      persistPreviewVolumeState(nextVolume, nextMuted);
       if (isHTMLMediaElement(media)) {
         persistPlaybackState(media, true);
       }
@@ -661,8 +1021,13 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       }
     };
     const handleCanPlay = () => {
-      setPlaybackError("");
       const nativeMedia = isHTMLMediaElement(media) ? media : mediaElement;
+      if (nativeMedia) {
+        markPreviewReady(nativeMedia);
+        restorePersistedPlaybackState(nativeMedia);
+      } else {
+        markPreviewReady();
+      }
       if (
         nativeMedia &&
         pendingPlayRef.current &&
@@ -673,14 +1038,23 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     };
     const handleError = () => {
       const nativeMedia = isHTMLMediaElement(media) ? media : mediaElement;
-      const message = nativeMedia?.error?.message.trim() ?? "";
-      cancelPendingPlay();
-      setPlaybackError(message || props.text.completed.noPreview);
-      setIsPlaying(false);
+      markPreviewUnavailable(
+        resolvePreviewPlaybackErrorMessage({
+          fallback: props.labels.noPreview,
+          labels: props.labels,
+          mediaError: nativeMedia?.error,
+        }),
+      );
     };
     const handleTimeUpdate = () => {
       if (pendingPlayRef.current) {
         finishPendingPlay();
+      }
+      if (isHTMLMediaElement(media)) {
+        markPreviewReady(media);
+        restorePersistedPlaybackState(media);
+      } else {
+        markPreviewReady();
       }
       syncCurrentTime();
     };
@@ -711,11 +1085,15 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
   }, [
     cancelPendingPlay,
     finishPendingPlay,
+    markPreviewReady,
+    markPreviewUnavailable,
     mediaElement,
     persistPlaybackState,
+    persistPreviewVolumeState,
     playNativeMedia,
     playerElement,
-    props.text.completed.noPreview,
+    props.labels,
+    restorePersistedPlaybackState,
     syncCurrentTime,
   ]);
 
@@ -758,6 +1136,11 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
   }, [isPlaying, props.mediaUrl, syncCurrentTime]);
 
   React.useEffect(() => {
+    const restoreWindowedFullscreenAfterScreenExit = () => {
+      setWindowedFullscreen(previousWindowedFullscreenRef.current);
+      previousWindowedFullscreenRef.current = false;
+    };
+
     const handleDomFullscreenChange = () => {
       if (fullscreenModeRef.current !== "dom") {
         return;
@@ -766,17 +1149,17 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       setScreenFullscreen(isActive);
       if (!isActive) {
         fullscreenModeRef.current = null;
-        setWindowedFullscreen(previousWindowedFullscreenRef.current);
-        previousWindowedFullscreenRef.current = false;
+        restoreWindowedFullscreenAfterScreenExit();
       }
     };
 
     document.addEventListener("fullscreenchange", handleDomFullscreenChange);
-    return () =>
+    return () => {
       document.removeEventListener(
         "fullscreenchange",
         handleDomFullscreenChange,
       );
+    };
   }, []);
 
   React.useEffect(() => {
@@ -805,17 +1188,22 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     };
   }, []);
 
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && windowedFullscreen && !screenFullscreen) {
-        setWindowedFullscreen(false);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [screenFullscreen, windowedFullscreen]);
+  React.useLayoutEffect(() => {
+    props.onPresentationModeChange?.(presentationModeActive);
+    return () => props.onPresentationModeChange?.(false);
+  }, [presentationModeActive, props.onPresentationModeChange]);
+
+  const previewReady = Boolean(props.mediaUrl) && previewLoadState === "ready";
+  const previewLoading =
+    Boolean(props.mediaUrl) && previewLoadState === "loading";
+  const previewUnavailable =
+    Boolean(props.mediaUrl) && previewLoadState === "unavailable";
+  const previewControlsDisabled = !previewReady;
 
   const togglePlay = (trigger?: Event) => {
+    if (previewControlsDisabled) {
+      return;
+    }
     const activeMedia = getActiveMediaElement();
     const player = playerElement;
     if (!activeMedia && !player) {
@@ -831,6 +1219,9 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       return;
     }
 
+    if (activeMedia) {
+      restorePersistedPlaybackState(activeMedia);
+    }
     requestPlayWhenMediaIsAvailable(activeMedia);
     if (player) {
       player.paused = false;
@@ -844,6 +1235,9 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
   };
 
   const handleSeek = (value: number) => {
+    if (previewControlsDisabled) {
+      return;
+    }
     const activeMedia = getActiveMediaElement() ?? playerElement;
     if (!activeMedia) {
       return;
@@ -857,6 +1251,9 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
   };
 
   const toggleMute = () => {
+    if (previewControlsDisabled) {
+      return;
+    }
     const activeMedia = getActiveMediaElement() ?? playerElement;
     if (!activeMedia) {
       return;
@@ -867,6 +1264,7 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       activeMedia.muted = false;
       setVolume(restoredVolume);
       setMuted(false);
+      persistPreviewVolumeState(restoredVolume, false);
       if (isHTMLMediaElement(activeMedia)) {
         persistPlaybackState(activeMedia, true);
       }
@@ -875,12 +1273,16 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     lastNonZeroVolumeRef.current = volume;
     activeMedia.muted = true;
     setMuted(true);
+    persistPreviewVolumeState(volume, true);
     if (isHTMLMediaElement(activeMedia)) {
       persistPlaybackState(activeMedia, true);
     }
   };
 
   const handleVolumeChange = (value: number) => {
+    if (previewControlsDisabled) {
+      return;
+    }
     const activeMedia = getActiveMediaElement() ?? playerElement;
     if (!activeMedia) {
       return;
@@ -893,9 +1295,15 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
     if (nextVolume > 0) {
       lastNonZeroVolumeRef.current = nextVolume;
     }
+    persistPreviewVolumeState(nextVolume, nextVolume <= 0);
     if (isHTMLMediaElement(activeMedia)) {
       persistPlaybackState(activeMedia, true);
     }
+  };
+
+  const restoreWindowedFullscreenAfterScreenExit = () => {
+    setWindowedFullscreen(previousWindowedFullscreenRef.current);
+    previousWindowedFullscreenRef.current = false;
   };
 
   const exitScreenFullscreen = React.useCallback(async () => {
@@ -909,33 +1317,57 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       if (fullscreenModeRef.current === "wails") {
         fullscreenModeRef.current = null;
         setScreenFullscreen(false);
-        setWindowedFullscreen(previousWindowedFullscreenRef.current);
-        previousWindowedFullscreenRef.current = false;
+        restoreWindowedFullscreenAfterScreenExit();
       }
       return;
     }
     setScreenFullscreen(false);
-    setWindowedFullscreen(previousWindowedFullscreenRef.current);
-    previousWindowedFullscreenRef.current = false;
+    restoreWindowedFullscreenAfterScreenExit();
   }, []);
 
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (screenFullscreen) {
+        event.preventDefault();
+        event.stopPropagation();
+        void exitScreenFullscreen().catch(() => {
+          setScreenFullscreen(false);
+          restoreWindowedFullscreenAfterScreenExit();
+        });
+        return;
+      }
+      if (windowedFullscreen) {
+        setWindowedFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [exitScreenFullscreen, screenFullscreen, windowedFullscreen]);
+
   const toggleWindowedFullscreen = () => {
+    if (previewControlsDisabled || screenFullscreen) {
+      return;
+    }
     setWindowedFullscreen((value) => !value);
   };
 
   const toggleScreenFullscreen = () => {
+    if (previewControlsDisabled) {
+      return;
+    }
     if (screenFullscreen) {
       void exitScreenFullscreen().catch(() => {
         setScreenFullscreen(false);
-        setWindowedFullscreen(previousWindowedFullscreenRef.current);
-        previousWindowedFullscreenRef.current = false;
+        restoreWindowedFullscreenAfterScreenExit();
       });
       return;
     }
 
     previousWindowedFullscreenRef.current = windowedFullscreen;
     setWindowedFullscreen(true);
-
     const shell = shellRef.current;
     if (shell?.requestFullscreen) {
       void shell
@@ -951,8 +1383,7 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
             .catch(() => {
               fullscreenModeRef.current = null;
               setScreenFullscreen(false);
-              setWindowedFullscreen(previousWindowedFullscreenRef.current);
-              previousWindowedFullscreenRef.current = false;
+              restoreWindowedFullscreenAfterScreenExit();
             });
         });
       return;
@@ -964,94 +1395,136 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
       .catch(() => {
         fullscreenModeRef.current = null;
         setScreenFullscreen(false);
-        setWindowedFullscreen(previousWindowedFullscreenRef.current);
-        previousWindowedFullscreenRef.current = false;
+        restoreWindowedFullscreenAfterScreenExit();
       });
   };
 
   const visibleVolume = muted ? 0 : volume;
   const playLabel = isPlaying
-    ? props.text.completed.previewPause
-    : props.text.completed.previewPlay;
+    ? props.labels.previewPause
+    : props.labels.previewPlay;
   const muteLabel =
     muted || volume <= 0
-      ? props.text.completed.previewUnmute
-      : props.text.completed.previewMute;
+      ? props.labels.previewUnmute
+      : props.labels.previewMute;
+  const progressRangePercent =
+    previewReady && effectiveDurationMs > 0
+      ? Math.max(0, Math.min(100, (currentTimeMs / effectiveDurationMs) * 100))
+      : 0;
+  const volumeRangePercent = Math.max(0, Math.min(100, visibleVolume * 100));
+  const currentTimeLabel = previewReady ? formatMediaTime(currentTimeMs) : "--:--";
+  const durationLabel =
+    previewReady && effectiveDurationMs > 0
+      ? formatMediaTime(effectiveDurationMs)
+      : "--:--";
   const windowedFullscreenLabel = windowedFullscreen
-    ? props.text.completed.previewWindowRestore
-    : props.text.completed.previewWindowFullscreen;
+    ? props.labels.previewWindowRestore
+    : props.labels.previewWindowFullscreen;
   const screenFullscreenLabel = screenFullscreen
-    ? props.text.completed.previewExitFullscreen
-    : props.text.completed.previewEnterFullscreen;
+    ? props.labels.previewExitFullscreen
+    : props.labels.previewEnterFullscreen;
 
   return (
     <div
       ref={shellRef}
       className={cn(
-        COMPLETED_PREVIEW_SHELL_CLASS,
+        VIDSTACK_PREVIEW_SHELL_CLASS,
         windowedFullscreen &&
           "fixed inset-0 z-[200] rounded-none border-0 shadow-none",
         screenFullscreen && "rounded-none border-0 shadow-none",
       )}
+      data-preview-presentation={presentationModeActive ? "true" : undefined}
     >
-      <div
-        className={cn(
-          "relative min-h-0 flex-1 bg-black p-3",
-          (windowedFullscreen || screenFullscreen) && "p-0",
-        )}
-      >
-        {props.mediaUrl ? (
-          <div className="relative h-full w-full overflow-hidden bg-black">
-            <MediaPlayer
-              key={props.mediaUrl}
-              ref={handlePlayerRef}
-              src={playerSource}
-              title={props.title}
-              viewType="video"
-              streamType="on-demand"
-              load="eager"
-              controls={false}
-              playsInline
-              preload="auto"
-              style={{ aspectRatio: "auto" }}
-              className="h-full w-full bg-black"
+        <div
+          className={cn(
+            "app-completed-preview-stage relative min-h-0 flex-1",
+            (windowedFullscreen || screenFullscreen) && "rounded-none",
+          )}
+        >
+          {props.mediaUrl ? (
+            <div
+              className={cn(
+                "app-completed-preview-media-frame relative h-full w-full overflow-hidden",
+                (windowedFullscreen || screenFullscreen) && "rounded-none",
+              )}
             >
-              <MediaProvider
-                className="h-full w-full overflow-hidden bg-black"
-                mediaProps={{
-                  className: "h-full w-full object-contain object-center",
-                  onLoadedMetadata: handleLoadedMetadata,
-                  onCanPlay: handleMediaCanPlay,
-                  onError: handleMediaError,
-                }}
-              />
-            </MediaPlayer>
-            {playbackError ? (
-              <div className="pointer-events-none absolute inset-x-3 top-3 z-10 rounded-lg bg-black/62 px-3 py-2 text-xs leading-5 text-white/82 shadow-[0_12px_30px_-24px_rgba(0,0,0,0.75)] backdrop-blur-md">
-                {playbackError}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          <div className="flex h-full items-center justify-center bg-black px-8 text-center">
-            <div className="text-sm text-white/65">
-              {props.text.completed.noPreview}
+              <MediaPlayer
+                key={props.mediaUrl}
+                ref={handlePlayerRef}
+                src={playerSource}
+                title={props.title}
+                viewType="video"
+                streamType={props.streamType ?? "on-demand"}
+                load="eager"
+                volume={volume}
+                muted={muted}
+                controls={false}
+                playsInline
+                preload="auto"
+                style={{ aspectRatio: "auto" }}
+                className={cn(
+                  "app-completed-preview-player h-full w-full transition-opacity duration-200",
+                  !previewReady && "opacity-0",
+                )}
+              >
+                <MediaProvider
+                  className="app-completed-preview-provider h-full w-full overflow-hidden"
+                  mediaProps={{
+                    className: "h-full w-full object-contain object-center",
+                    onLoadedMetadata: handleLoadedMetadata,
+                    onLoadedData: handleMediaCanPlay,
+                    onCanPlay: handleMediaCanPlay,
+                    onError: handleMediaError,
+                  }}
+                />
+              </MediaPlayer>
+              {previewLoading ? (
+                <div className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : null}
+              {previewUnavailable ? (
+                <div
+                  className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-8 text-center"
+                  aria-label={playbackError || props.labels.noPreview}
+                  role="status"
+                  title={playbackError || props.labels.noPreview}
+                >
+                  <VideoOff className="app-completed-preview-state-icon h-10 w-10" />
+                  <div className="app-completed-preview-state-text text-sm font-medium">
+                    {props.labels.noPreview}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div
+              className={cn(
+                "app-completed-preview-empty flex h-full items-center justify-center px-8 text-center",
+                (windowedFullscreen || screenFullscreen) && "rounded-none",
+              )}
+            >
+              <div className="app-completed-preview-empty-text text-sm">
+                {props.labels.noPreview}
+              </div>
+            </div>
+          )}
+        </div>
 
-      <div className="shrink-0 border-t border-white/5 bg-[#0f0f0f] px-3 py-1.5">
+      <div
+        className="app-completed-preview-control-bar shrink-0 px-3 py-1.5"
+        data-disabled={previewControlsDisabled ? "true" : "false"}
+      >
         <div className="flex min-w-0 items-center gap-1.5">
           <Button
             type="button"
             variant="ghost"
             size="compactIcon"
-            className={COMPLETED_PREVIEW_CONTROL_BUTTON_CLASS}
+            className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
             onClick={(event) => togglePlay(event.nativeEvent)}
             aria-label={playLabel}
             title={playLabel}
-            disabled={!mediaElement && !playerElement}
+            disabled={previewControlsDisabled}
           >
             {playPending ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -1062,31 +1535,40 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
             )}
           </Button>
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="w-[3.25rem] shrink-0 text-right font-mono text-[11px] tabular-nums text-white/75">
-              {formatMediaTime(currentTimeMs)}
+            <span className="app-completed-preview-time w-[3.25rem] shrink-0 text-right font-mono text-[11px] tabular-nums">
+              {currentTimeLabel}
             </span>
             <input
               type="range"
               min={0}
               max={effectiveDurationMs || 1}
-              value={Math.min(currentTimeMs, effectiveDurationMs || 1)}
+              value={
+                previewReady ? Math.min(currentTimeMs, effectiveDurationMs || 1) : 0
+              }
               onChange={(event) => handleSeek(Number(event.target.value))}
-              aria-label={props.text.completed.previewSeek}
-              className={`${COMPLETED_PREVIEW_CONTROL_RANGE_CLASS} min-w-0 flex-1`}
+              aria-label={props.labels.previewSeek}
+              disabled={previewControlsDisabled}
+              className={`${VIDSTACK_PREVIEW_CONTROL_RANGE_CLASS} min-w-0 flex-1`}
+              style={
+                {
+                  "--completed-preview-range-value": `${progressRangePercent}%`,
+                } as React.CSSProperties
+              }
             />
-            <span className="w-[3.25rem] shrink-0 text-left font-mono text-[11px] tabular-nums text-white/75">
-              {formatMediaTime(effectiveDurationMs)}
+            <span className="app-completed-preview-time w-[3.25rem] shrink-0 text-left font-mono text-[11px] tabular-nums">
+              {durationLabel}
             </span>
           </div>
-          <div className="group/volume flex shrink-0 items-center overflow-hidden">
+          <div className="group/volume relative flex shrink-0 items-center">
             <Button
               type="button"
               variant="ghost"
               size="compactIcon"
-              className={COMPLETED_PREVIEW_CONTROL_BUTTON_CLASS}
+              className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
               onClick={toggleMute}
               aria-label={muteLabel}
               title={muteLabel}
+              disabled={previewControlsDisabled}
             >
               {muted || volume <= 0 ? (
                 <VolumeX className="h-3 w-3" />
@@ -1094,29 +1576,38 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
                 <Volume2 className="h-3 w-3" />
               )}
             </Button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={visibleVolume}
-              onChange={(event) =>
-                handleVolumeChange(Number(event.target.value))
-              }
-              aria-label={props.text.completed.previewVolume}
-              title={props.text.completed.previewVolume}
-              className={COMPLETED_PREVIEW_VOLUME_RANGE_CLASS}
-            />
+            <div className="app-completed-preview-volume-popover pointer-events-none absolute bottom-full left-1/2 z-30 flex h-28 w-8 -translate-x-1/2 translate-y-1 items-center justify-center rounded-full opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/volume:pointer-events-auto group-hover/volume:translate-y-0 group-hover/volume:opacity-100 group-focus-within/volume:pointer-events-auto group-focus-within/volume:translate-y-0 group-focus-within/volume:opacity-100">
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={visibleVolume}
+                onChange={(event) =>
+                  handleVolumeChange(Number(event.target.value))
+                }
+                aria-label={props.labels.previewVolume}
+                title={props.labels.previewVolume}
+                disabled={previewControlsDisabled}
+                className={VIDSTACK_PREVIEW_VOLUME_RANGE_CLASS}
+                style={
+                  {
+                    "--completed-preview-range-value": `${volumeRangePercent}%`,
+                  } as React.CSSProperties
+                }
+              />
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button
               type="button"
               variant="ghost"
               size="compactIcon"
-              className={COMPLETED_PREVIEW_CONTROL_BUTTON_CLASS}
+              className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
               onClick={toggleWindowedFullscreen}
               aria-label={windowedFullscreenLabel}
               title={windowedFullscreenLabel}
+              disabled={previewControlsDisabled || screenFullscreen}
             >
               {windowedFullscreen ? (
                 <Minimize2 className="h-3 w-3" />
@@ -1128,10 +1619,11 @@ export function CompletedVidstackPreview(props: CompletedVidstackPreviewProps) {
               type="button"
               variant="ghost"
               size="compactIcon"
-              className={COMPLETED_PREVIEW_CONTROL_BUTTON_CLASS}
+              className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
               onClick={toggleScreenFullscreen}
               aria-label={screenFullscreenLabel}
               title={screenFullscreenLabel}
+              disabled={previewControlsDisabled}
             >
               {screenFullscreen ? (
                 <Minimize className="h-3 w-3" />

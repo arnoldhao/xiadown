@@ -113,6 +113,7 @@ export interface OperationRequestPreviewDTO {
   extractor?: string
   author?: string
   thumbnailUrl?: string
+  downloadMethod?: "yt-dlp" | "resource-sniff" | string
   fileId?: string
   inputPath?: string
   rootFileId?: string
@@ -486,6 +487,8 @@ export interface CreateYTDLPJobRequest {
   deleteSourceFileAfterTranscode?: boolean
   connectorId?: string
   useConnector?: boolean
+  resourceSessionId?: string
+  resourceMediaId?: string
 }
 
 export interface CheckYTDLPOperationFailureRequest {
@@ -535,6 +538,8 @@ export interface PrepareYTDLPDownloadResponse {
   icon?: string
   connectorId?: string
   connectorAvailable: boolean
+  connectorCredentialMode?: string
+  connectorCredentialState?: string
   reachable?: boolean
 }
 
@@ -580,8 +585,164 @@ export interface ParseYTDLPDownloadResponse {
   extractor?: string
   author?: string
   thumbnailUrl?: string
+  pageUrl?: string
+  resourceSessionId?: string
+  resourceMediaId?: string
   formats: YTDLPFormatOption[]
   subtitles: YTDLPSubtitleOption[]
+}
+
+export interface ListResourceSniffResourcesRequest {
+  sessionId: string
+}
+
+export interface ClearResourceSniffResourcesRequest {
+  sessionId: string
+}
+
+export interface GetResourceSniffPreviewRequest {
+  sessionId: string
+  resourceId: string
+}
+
+export interface ResourceSniffPreviewResponse {
+  resourceId: string
+  kind: string
+  mimeType?: string
+  sizeBytes?: number
+  dataBase64: string
+  seenAt?: string
+}
+
+export interface PrepareResourceSniffRawPreviewRequest {
+  sessionId: string
+  resourceId: string
+}
+
+export interface PrepareResourceSniffRawPreviewResponse {
+  resourceId: string
+  leaseId: string
+  kind: string
+  mimeType?: string
+  fileName?: string
+  sizeBytes?: number
+  expiresAt?: string
+}
+
+export interface ListResourceSniffResourcesResponse {
+  session: ResourceSniffSession
+  resources: ResourceSniffRawResource[]
+  updatedAt: string
+}
+
+export interface ResourceSniffRawResource {
+  id: string
+  source: string
+  kind: string
+  url: string
+  pageUrl?: string
+  domain?: string
+  mimeType?: string
+  contentType?: string
+  resourceType?: string
+  status?: number
+  sizeBytes?: number
+  score?: number
+  reason?: string
+  targetId?: string
+  seenAt?: string
+  downloadable: boolean
+  previewAvailable?: boolean
+  previewKind?: string
+  previewMimeType?: string
+  previewSizeBytes?: number
+  previewDataBase64?: string
+}
+
+export interface PrepareResourceSniffRawDownloadRequest {
+  sessionId: string
+  resourceId: string
+}
+
+export interface CDPBrowserStatus {
+  active: boolean
+  mode?: string
+  session?: ResourceSniffSession | null
+  runtimeId?: string
+  browserStatus?: string
+  currentUrl?: string
+  title?: string
+  tabCount?: number
+  pid?: number
+  processCount?: number
+  orphanCount?: number
+  startedAt?: string
+}
+
+export interface StopCDPBrowserRuntimeRequest {
+  runtimeId: string
+}
+
+export interface StartResourceSniffRequest {
+  url: string
+}
+
+export interface StartResourceSniffResult {
+  session?: ResourceSniffSession
+  failure?: ResourceSniffFailure
+}
+
+export interface GetResourceSniffSessionRequest {
+  sessionId: string
+}
+
+export interface ParseResourceSniffRequest {
+  sessionId: string
+}
+
+export type ResourceSniffFailureCode =
+  | "profile_connection_required"
+  | "verification_required"
+  | "no_media_detected"
+  | "unsupported_douyin_lvdetail"
+  | "douyin_recommend_login_required"
+
+export type ResourceSniffFailureAction =
+  | "connect_profile"
+  | "complete_verification"
+  | "play_page"
+  | "none"
+
+export interface ResourceSniffFailure {
+  code: ResourceSniffFailureCode
+  site?: string
+  action?: ResourceSniffFailureAction
+  retryable: boolean
+  detail?: string
+}
+
+export interface ParseResourceSniffResponse {
+  media?: ParseYTDLPDownloadResponse
+  failure?: ResourceSniffFailure
+}
+
+export interface CancelResourceSniffRequest {
+  sessionId: string
+}
+
+export interface ResourceSniffSession {
+  sessionId: string
+  state: string
+  browserStatus: string
+  url: string
+  currentUrl?: string
+  title?: string
+  activeTargetId?: string
+  tabCount?: number
+  unoptimizedDomain?: string
+  authStatus?: "logged_in" | "logged_out" | "unknown"
+  authUser?: string
+  authSite?: string
 }
 
 export interface CreateVideoImportRequest {

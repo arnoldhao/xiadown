@@ -1,24 +1,28 @@
 import {
-  ArrowRight,
   AudioLines,
   Download,
   FileCog,
   FolderOpen,
   Loader2,
   Pencil,
+  Radar,
   SlidersHorizontal,
   Video,
+  X,
   Zap,
 } from "lucide-react";
 import * as React from "react";
 
 import { ConnectorBrandIcon } from "@/features/settings/connectors";
 import { getXiaText } from "@/features/xiadown/shared";
+import { cn } from "@/lib/utils";
 import type {
+  CreateYTDLPJobRequest,
   LibraryMediaInfoDTO,
   ParseYTDLPDownloadResponse,
   PrepareYTDLPDownloadResponse,
   ProbeTranscodeInputRequest,
+  ResourceSniffFailure,
 } from "@/shared/contracts/library";
 import type { Settings } from "@/shared/contracts/settings";
 import {
@@ -30,13 +34,16 @@ import {
 import {
   useCreateTranscodeJob,
   useCreateYTDLPJob,
+  useCancelResourceSniff,
   useParseYTDLPDownload,
+  useParseResourceSniff,
   usePrepareYTDLPDownload,
   useProbeTranscodeInput,
+  useResourceSniffSession,
+  useStartResourceSniff,
   useTranscodePresets,
   useTranscodePresetsForDownload,
 } from "@/shared/query/library";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -72,6 +79,7 @@ import {
   formatCompletedDuration,
   formatCompletedFrameRate,
   formatCompletedResolution,
+  parseAppErrorMessage,
   resolveUnknownErrorMessage,
 } from "@/app/main/helpers";
 import { TASK_DIALOG_DEPENDENCIES } from "@/app/main/main-constants";
@@ -82,6 +90,7 @@ import {
   formatSubtitleLabel,
   inferMediaTypeFromPath,
   pickDefaultFormat,
+  resolveResourceSniffStartResolution,
   resolveFormatMediaType,
   resolveOpenFileName,
   resolvePreparedConnectorType,
@@ -100,6 +109,8 @@ import type {
   NewTaskDialogTranscodeSource,
   SourceMediaType,
 } from "@/app/main/types";
+
+type DownloadEntryMode = "direct" | "sniff";
 
 export function InlineSwitch(props: {
   checked: boolean;
@@ -158,11 +169,145 @@ function parseJSONFromErrorMessage(message: string) {
 }
 
 function formatParseErrorDetail(message: string) {
-  const parsed = parseJSONFromErrorMessage(message);
+  const appError = parseAppErrorMessage(message);
+  const detail = appError.message || message;
+  const parsed = parseJSONFromErrorMessage(detail);
   if (parsed !== null) {
     return JSON.stringify(parsed, null, 2);
   }
-  return message.trim();
+  return detail.trim();
+}
+
+function resolveParseErrorDescription(
+  message: string,
+  fallback: string,
+  text: ReturnType<typeof getXiaText>,
+) {
+  const appError = parseAppErrorMessage(message);
+  switch (appError.code) {
+    case "resource_verification_required":
+      return text.dialogs.resourceVerificationRequired;
+    case "resource_no_media_detected":
+      return text.dialogs.resourceNoMediaDetected;
+    default:
+      return fallback;
+  }
+}
+
+function resolveResourceSniffFailureDescription(
+  failure: ResourceSniffFailure,
+  text: ReturnType<typeof getXiaText>,
+) {
+  const descriptions: Record<ResourceSniffFailure["code"], string> = {
+    profile_connection_required: text.dialogs.profileConnectionRequired,
+    verification_required: text.dialogs.resourceVerificationRequired,
+    no_media_detected: text.dialogs.resourceNoMediaDetected,
+    unsupported_douyin_lvdetail: text.dialogs.resourceDouyinLVDetail,
+    douyin_recommend_login_required:
+      text.dialogs.resourceDouyinRecommendLoginRequired,
+  };
+  return descriptions[failure.code];
+}
+
+function noDownloadableMediaErrorMessage() {
+  return "[resource_no_media_detected] no downloadable formats found";
+}
+
+function hasDownloadableFormats(parsed: ParseYTDLPDownloadResponse) {
+  return (parsed.formats ?? []).some((format) => format.id.trim().length > 0);
+}
+
+function usesProfileConnector(prepared: PrepareYTDLPDownloadResponse | null) {
+  return (
+    (prepared?.connectorCredentialMode ?? "").trim().toLowerCase() ===
+    "profile"
+  );
+}
+
+function normalizeResourceSniffPageUrl(value?: string) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function stripLeadingWWW(value: string) {
+  return value.trim().replace(/^www\./i, "");
+}
+
+function parseURLHostname(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const candidates = [
+    trimmed,
+    trimmed.startsWith("//") ? `https:${trimmed}` : "",
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? "" : `https://${trimmed}`,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      return new URL(candidate).hostname;
+    } catch {
+      // Keep trying more permissive URL forms.
+    }
+  }
+  return "";
+}
+
+function uniqueDisplayCandidates(values: string[]) {
+  const seen = new Set<string>();
+  return values
+    .map((value) => value.trim())
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+}
+
+function buildDownloadUrlDisplayParts(rawUrl: string, domain?: string) {
+  const value = rawUrl.trim();
+  if (!value) {
+    return { prefix: "", domain: "", suffix: "" };
+  }
+
+  const preparedDomain = (domain ?? "").trim();
+  const parsedHostname = parseURLHostname(value);
+  const candidates = uniqueDisplayCandidates([
+    stripLeadingWWW(preparedDomain),
+    preparedDomain,
+    stripLeadingWWW(parsedHostname),
+    parsedHostname,
+  ]);
+  const lowerValue = value.toLowerCase();
+
+  for (const candidate of candidates) {
+    const index = lowerValue.indexOf(candidate.toLowerCase());
+    if (index >= 0) {
+      return {
+        prefix: value.slice(0, index),
+        domain: value.slice(index, index + candidate.length),
+        suffix: value.slice(index + candidate.length),
+      };
+    }
+  }
+
+  return {
+    prefix: "",
+    domain: stripLeadingWWW(preparedDomain || parsedHostname) || value,
+    suffix: "",
+  };
 }
 
 const TRANSCODE_VIDEO_EXTENSIONS = [...VIDEO_FILE_EXTENSIONS].sort();
@@ -216,6 +361,8 @@ export function NewTaskDialog(props: {
   initialUrl?: string;
   initialTranscodeSource?: NewTaskDialogTranscodeSource | null;
   settings: Settings | null;
+  onOpenConnections?: () => void;
+  onOpenSniffDesk?: () => void;
 }) {
   const text = getXiaText(props.settings?.language);
   const tools = useDependencies({
@@ -228,7 +375,11 @@ export function NewTaskDialog(props: {
   const bunInstallState = useDependencyInstallState("bun", props.open);
   const prepareDownload = usePrepareYTDLPDownload();
   const parseDownload = useParseYTDLPDownload();
+  const startResourceSniff = useStartResourceSniff();
+  const parseResourceSniff = useParseResourceSniff();
+  const cancelResourceSniff = useCancelResourceSniff();
   const createYTDLP = useCreateYTDLPJob();
+  const queueYTDLP = useCreateYTDLPJob();
   const presetsQuery = useTranscodePresets();
   const createTranscode = useCreateTranscodeJob();
   const [activeMode, setActiveMode] = React.useState<NewTaskDialogMode>(
@@ -243,6 +394,8 @@ export function NewTaskDialog(props: {
   const [downloadTab, setDownloadTab] =
     React.useState<DownloadDialogTab>("quick");
   const [downloadPrepareError, setDownloadPrepareError] = React.useState("");
+  const [downloadPrepareIntent, setDownloadPrepareIntent] =
+    React.useState<DownloadEntryMode | null>(null);
   const [downloadSubmitError, setDownloadSubmitError] = React.useState("");
   const [quickQuality, setQuickQuality] =
     React.useState<DownloadQuality>("best");
@@ -252,10 +405,19 @@ export function NewTaskDialog(props: {
     React.useState(true);
   const [customParseResult, setCustomParseResult] =
     React.useState<ParseYTDLPDownloadResponse | null>(null);
+  const [customParsePageUrl, setCustomParsePageUrl] = React.useState("");
   const [customFormatId, setCustomFormatId] = React.useState("");
   const [customSubtitleId, setCustomSubtitleId] = React.useState("");
   const [customPresetId, setCustomPresetId] = React.useState("");
   const [customParseError, setCustomParseError] = React.useState("");
+  const [resourceSniffSessionId, setResourceSniffSessionId] =
+    React.useState("");
+  const [resourceSniffFailure, setResourceSniffFailure] =
+    React.useState<ResourceSniffFailure | null>(null);
+  const [resourceSniffTechnicalError, setResourceSniffTechnicalError] =
+    React.useState("");
+  const [resourceSniffFinalBrowserStatus, setResourceSniffFinalBrowserStatus] =
+    React.useState("");
   const [transcodeInputPath, setTranscodeInputPath] = React.useState("");
   const [transcodeSourceFileId, setTranscodeSourceFileId] = React.useState("");
   const [transcodeSourceTitle, setTranscodeSourceTitle] = React.useState("");
@@ -265,7 +427,102 @@ export function NewTaskDialog(props: {
   const [transcodeContainer, setTranscodeContainer] = React.useState("");
   const [transcodeCodec, setTranscodeCodec] = React.useState("");
   const [transcodeSubmitError, setTranscodeSubmitError] = React.useState("");
+  const [closingDialog, setClosingDialog] = React.useState(false);
   const autoPreparedInitialUrlRef = React.useRef("");
+  const dialogOpenRef = React.useRef(props.open);
+  const dialogClosingRef = React.useRef(false);
+  const preserveResourceSniffOnCloseRef = React.useRef(false);
+  const parseRequestVersionRef = React.useRef(0);
+  const resourceSniffTransferRequestVersionRef = React.useRef<number | null>(
+    null,
+  );
+  const customParsePageObservedRef = React.useRef(false);
+  const resourceSniffSessionIdRef = React.useRef("");
+  const resourceSniffStartPromiseRef = React.useRef<Promise<string> | null>(
+    null,
+  );
+  const cancelResourceSniffRef = React.useRef(cancelResourceSniff);
+
+  React.useEffect(() => {
+    dialogOpenRef.current = props.open;
+    if (props.open) {
+      preserveResourceSniffOnCloseRef.current = false;
+    }
+  }, [props.open]);
+
+  React.useEffect(() => {
+    resourceSniffSessionIdRef.current = resourceSniffSessionId;
+  }, [resourceSniffSessionId]);
+
+  React.useEffect(() => {
+    cancelResourceSniffRef.current = cancelResourceSniff;
+  }, [cancelResourceSniff]);
+
+  const setActiveResourceSniffSessionId = React.useCallback(
+    (sessionId: string) => {
+      const trimmed = sessionId.trim();
+      resourceSniffSessionIdRef.current = trimmed;
+      setResourceSniffSessionId(trimmed);
+      setResourceSniffFinalBrowserStatus("");
+    },
+    [],
+  );
+
+  const cancelResourceSniffSession = React.useCallback(
+    async (sessionId: string) => {
+      const trimmed = sessionId.trim();
+      if (!trimmed) {
+        return false;
+      }
+      if (resourceSniffSessionIdRef.current === trimmed) {
+        setActiveResourceSniffSessionId("");
+      }
+      try {
+        await cancelResourceSniffRef.current.mutateAsync({ sessionId: trimmed });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [setActiveResourceSniffSessionId],
+  );
+
+  const cancelActiveResourceSniff = React.useCallback(async () => {
+    const sessionId = resourceSniffSessionIdRef.current;
+    if (!sessionId) {
+      return false;
+    }
+    return cancelResourceSniffSession(sessionId);
+  }, [cancelResourceSniffSession]);
+
+  const closeDialogAfterResourceCleanup = React.useCallback(async () => {
+    if (dialogClosingRef.current) {
+      return;
+    }
+    dialogClosingRef.current = true;
+    setClosingDialog(true);
+    try {
+      parseRequestVersionRef.current += 1;
+      dialogOpenRef.current = false;
+      void cancelActiveResourceSniff();
+      props.onOpenChange(false);
+    } finally {
+      dialogClosingRef.current = false;
+      setClosingDialog(false);
+    }
+  }, [cancelActiveResourceSniff, props.onOpenChange]);
+
+  const handleDialogOpenChange = React.useCallback(
+    (open: boolean) => {
+      if (!open) {
+        void closeDialogAfterResourceCleanup();
+        return;
+      }
+      dialogOpenRef.current = true;
+      props.onOpenChange(open);
+    },
+    [closeDialogAfterResourceCleanup, props.onOpenChange],
+  );
 
   const toolsByName = React.useMemo(
     () => new Map((tools.data ?? []).map((item) => [item.name, item])),
@@ -342,10 +599,68 @@ export function NewTaskDialog(props: {
     () => formatParseErrorDetail(customParseError),
     [customParseError],
   );
+  const customParseAppError = React.useMemo(
+    () => parseAppErrorMessage(customParseError),
+    [customParseError],
+  );
+  const preparedDownloadUrl = (downloadPrepared?.url ?? downloadUrl).trim();
+  const downloadUrlDisplayParts = buildDownloadUrlDisplayParts(
+    preparedDownloadUrl,
+    downloadPrepared?.domain,
+  );
+  const downloadConnectorType = resolvePreparedConnectorType(downloadPrepared);
+  const downloadConnectorMode = (
+    downloadPrepared?.connectorCredentialMode ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const downloadUsesProfileConnector = usesProfileConnector(downloadPrepared);
+  const downloadShowsSniffMode =
+    downloadUsesProfileConnector || downloadTab === "sniff";
+  const downloadMatchesCookieConnector =
+    Boolean(downloadPrepared?.connectorId?.trim()) &&
+    downloadConnectorMode === "cookies";
+  const downloadCookieConnectorState = !downloadMatchesCookieConnector
+    ? "unmatched"
+    : downloadPrepared?.connectorAvailable
+      ? "available"
+      : "unavailable";
+  const downloadConnectorCanUseCookies =
+    downloadCookieConnectorState === "available" &&
+    !downloadUsesProfileConnector;
+  const downloadConnectorStatusLabel =
+    downloadCookieConnectorState === "available"
+      ? text.dialogs.connectorCanEnable
+      : downloadCookieConnectorState === "unavailable"
+        ? text.dialogs.connectorNotConfigured
+        : text.dialogs.noAvailableConnector;
+  const downloadTabItems: Array<{
+    value: DownloadDialogTab;
+    label: string;
+    icon: React.ReactNode;
+  }> = [
+    {
+      value: "quick",
+      label: text.dialogs.quickMode,
+      icon: <Zap className="h-3.5 w-3.5" />,
+    },
+    {
+      value: "custom",
+      label: text.dialogs.customMode,
+      icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
+    },
+  ];
   const customParseErrorDescription =
-    downloadUseConnector && downloadPrepared?.connectorAvailable
-      ? text.dialogs.parseFailedWithConnector
-      : text.dialogs.parseFailedWithoutConnector;
+    resolveParseErrorDescription(
+      customParseError,
+      downloadUseConnector && downloadConnectorCanUseCookies
+        ? text.dialogs.parseFailedWithConnector
+        : text.dialogs.parseFailedWithoutConnector,
+      text,
+    );
+  const customParseErrorLine = customParseAppError.code
+    ? customParseErrorDescription
+    : customParseErrorDetail || customParseErrorDescription;
   const transcodeMediaType = React.useMemo(
     () => inferMediaTypeFromPath(transcodeInputPath),
     [transcodeInputPath],
@@ -484,18 +799,160 @@ export function NewTaskDialog(props: {
     [transcodeCodec, transcodeContainer, transcodePresets, transcodeScale],
   );
   const transcodeFileName = splitFileNameForDisplay(transcodeInputPath);
-  const downloadDomainLabel = (
-    downloadPrepared?.domain ||
-    downloadPrepared?.url ||
-    downloadUrl
-  )
-    .trim()
-    .toUpperCase();
-  const downloadConnectorType = resolvePreparedConnectorType(downloadPrepared);
+  const resourceSniffSessionQuery = useResourceSniffSession(
+    resourceSniffSessionId ? { sessionId: resourceSniffSessionId } : null,
+    props.open &&
+      activeMode === "download" &&
+      downloadTab === "sniff" &&
+      Boolean(resourceSniffSessionId),
+  );
+  const resourceSniffPolledSession = resourceSniffSessionQuery.data ?? null;
+  React.useEffect(() => {
+    if (
+      !resourceSniffPolledSession ||
+      resourceSniffSessionId.trim().length === 0
+    ) {
+      return;
+    }
+    const browserStatus = resourceSniffPolledSession.browserStatus?.trim() ?? "";
+    if (browserStatus === "open") {
+      setResourceSniffFinalBrowserStatus("");
+      return;
+    }
+    if (browserStatus) {
+      setResourceSniffFinalBrowserStatus(browserStatus);
+      return;
+    }
+    if (
+      resourceSniffPolledSession.state &&
+      resourceSniffPolledSession.state !== "running"
+    ) {
+      setResourceSniffFinalBrowserStatus(resourceSniffPolledSession.state);
+    }
+  }, [resourceSniffPolledSession, resourceSniffSessionId]);
+  const startedResourceSniffSession = startResourceSniff.data?.session ?? null;
+  const resourceSniffStartedSession =
+    startedResourceSniffSession?.sessionId === resourceSniffSessionId
+      ? startedResourceSniffSession
+      : null;
+  const resourceSniffSession =
+    resourceSniffPolledSession ?? resourceSniffStartedSession;
+  React.useEffect(() => {
+    if (downloadTab !== "sniff" || !customParseResult?.resourceSessionId) {
+      customParsePageObservedRef.current = false;
+      return;
+    }
+    const parsedPageUrl = normalizeResourceSniffPageUrl(customParsePageUrl);
+    const currentPageUrl = normalizeResourceSniffPageUrl(
+      resourceSniffSession?.currentUrl,
+    );
+    if (!parsedPageUrl || !currentPageUrl) {
+      return;
+    }
+    if (parsedPageUrl === currentPageUrl) {
+      customParsePageObservedRef.current = true;
+      return;
+    }
+    if (!customParsePageObservedRef.current) {
+      return;
+    }
+    customParsePageObservedRef.current = false;
+    setCustomParseResult(null);
+    setCustomFormatId("");
+    setCustomSubtitleId("");
+    setCustomPresetId("");
+    setCustomParsePageUrl("");
+    setResourceSniffFailure(null);
+    setResourceSniffTechnicalError("");
+  }, [
+    customParsePageUrl,
+    customParseResult?.resourceSessionId,
+    downloadTab,
+    resourceSniffSession?.currentUrl,
+  ]);
+  const resourceSniffBrowserStatus =
+    resourceSniffPolledSession?.browserStatus ||
+    resourceSniffFinalBrowserStatus ||
+    resourceSniffStartedSession?.browserStatus ||
+    (resourceSniffSessionId ? "open" : "");
+  const resourceSniffBrowserOpen = resourceSniffBrowserStatus === "open";
+  const resourceSniffBrowserExited =
+    Boolean(resourceSniffSessionId) &&
+    Boolean(resourceSniffSession) &&
+    resourceSniffBrowserStatus === "browser_closed";
+  const resourceSniffHasActiveTab =
+    resourceSniffBrowserOpen &&
+    Boolean(resourceSniffSession?.activeTargetId) &&
+    (resourceSniffSession?.tabCount ?? 0) > 0;
+  const resourceSniffStatusLabel = resourceSniffBrowserExited
+    ? text.dialogs.sniffBrowserExited
+    : resourceSniffHasActiveTab
+      ? text.dialogs.sniffBrowserOpen
+      : resourceSniffSessionId
+        ? text.dialogs.sniffNoActiveTab
+        : text.dialogs.sniffReady;
+  const resourceSniffCurrentPageLabel = resourceSniffHasActiveTab
+    ? resourceSniffSession?.title || resourceSniffSession?.currentUrl || ""
+    : resourceSniffSessionId
+      ? text.dialogs.sniffNoActiveTab
+      : "";
+  const showResourceSniffCurrentPage =
+    Boolean(resourceSniffSessionId) &&
+    (resourceSniffHasActiveTab
+      ? Boolean(resourceSniffSession?.currentUrl || resourceSniffSession?.title)
+      : Boolean(resourceSniffSession));
+  const resourceSniffAuthStatus =
+    downloadTab === "sniff"
+      ? resourceSniffSession?.authStatus?.trim() ?? ""
+      : "";
+  const resourceSniffCurrentUserLabel =
+    resourceSniffAuthStatus === "logged_in"
+      ? resourceSniffSession?.authUser?.trim() || text.dialogs.loggedIn
+      : resourceSniffAuthStatus === "logged_out"
+        ? text.dialogs.notLoggedIn
+        : text.common.unknown;
+  const showResourceSniffCurrentUser =
+    resourceSniffHasActiveTab && Boolean(resourceSniffSession?.authSite?.trim());
+  const resourceSniffUnsupportedDomain =
+    downloadTab === "sniff"
+      ? resourceSniffSession?.unoptimizedDomain?.trim() ?? ""
+      : "";
+  const resourceSniffUnsupportedDomainHint = resourceSniffUnsupportedDomain
+    ? text.sniffDesk.urlUnsupportedDomain.replace(
+        "{domain}",
+        resourceSniffUnsupportedDomain,
+      )
+    : "";
+  const resourceSniffNeedsDesk = Boolean(resourceSniffUnsupportedDomain);
+  const downloadRequiresSniffDesk =
+    downloadTab === "sniff" && resourceSniffNeedsDesk;
+  const resourceSniffUnsupportedDomainNotice = resourceSniffUnsupportedDomainHint ? (
+    <div
+      className="app-dream-status-message app-new-task-sniff-unsupported-notice max-w-full px-3 py-1.5 text-center text-xs font-medium leading-5"
+      data-intent="warning"
+      role="note"
+      title={resourceSniffUnsupportedDomainHint}
+    >
+      {resourceSniffUnsupportedDomainHint}
+    </div>
+  ) : null;
+  const isSniffCardRefreshing =
+    downloadTab === "sniff" &&
+    parseResourceSniff.isPending &&
+    Boolean(customParseResult);
+  const resourceSniffIssueDescription = resourceSniffFailure
+    ? resolveResourceSniffFailureDescription(resourceSniffFailure, text)
+    : resourceSniffTechnicalError.trim();
+  const resourceSniffHasIssue = resourceSniffIssueDescription.length > 0;
+  const resourceSniffThumbnailUrl =
+    downloadTab === "sniff"
+      ? customParseResult?.thumbnailUrl?.trim() ?? ""
+      : "";
   const showDownloadFooter =
     downloadStep === "config" &&
     (downloadTab === "quick" ||
-      (downloadTab === "custom" && Boolean(customParseResult)));
+      ((downloadTab === "custom" || downloadTab === "sniff") &&
+        Boolean(customParseResult)));
   const showTranscodeFooter =
     activeMode === "transcode" && Boolean(transcodeInputPath);
 
@@ -528,6 +985,7 @@ export function NewTaskDialog(props: {
     setDownloadUseConnector(false);
     setDownloadTab("quick");
     setDownloadPrepareError("");
+    setDownloadPrepareIntent(null);
     setDownloadSubmitError("");
     setQuickQuality("best");
     setQuickSubtitle(false);
@@ -538,6 +996,12 @@ export function NewTaskDialog(props: {
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
+    parseRequestVersionRef.current += 1;
+    parseDownload.reset();
+    parseResourceSniff.reset();
+    setActiveResourceSniffSessionId("");
+    setResourceSniffFailure(null);
+    setResourceSniffTechnicalError("");
     if (initialMode === "transcode" && props.initialTranscodeSource?.inputPath.trim()) {
       applyTranscodeInputPath(
         props.initialTranscodeSource.inputPath.trim(),
@@ -564,6 +1028,30 @@ export function NewTaskDialog(props: {
     props.initialUrl,
     props.open,
   ]);
+
+  React.useEffect(() => {
+    if (props.open) {
+      return;
+    }
+    parseRequestVersionRef.current += 1;
+    parseDownload.reset();
+    parseResourceSniff.reset();
+    if (preserveResourceSniffOnCloseRef.current) {
+      setActiveResourceSniffSessionId("");
+      return;
+    }
+    void cancelActiveResourceSniff();
+  }, [cancelActiveResourceSniff, props.open, setActiveResourceSniffSessionId]);
+
+  React.useEffect(
+    () => () => {
+      if (preserveResourceSniffOnCloseRef.current) {
+        return;
+      }
+      void cancelActiveResourceSniff();
+    },
+    [cancelActiveResourceSniff],
+  );
 
   React.useEffect(() => {
     if (!quickPresetId) {
@@ -663,10 +1151,15 @@ export function NewTaskDialog(props: {
   }, [selectedTranscodePreset?.id]);
 
   const resetDownloadConfig = () => {
+    void cancelActiveResourceSniff();
+    parseRequestVersionRef.current += 1;
+    parseDownload.reset();
+    parseResourceSniff.reset();
     setDownloadPrepared(null);
     setDownloadStep("input");
     setDownloadUseConnector(false);
     setDownloadTab("quick");
+    setDownloadPrepareIntent(null);
     setDownloadSubmitError("");
     setDownloadKeepOnlyTranscodedFile(true);
     setCustomParseResult(null);
@@ -674,34 +1167,164 @@ export function NewTaskDialog(props: {
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
+    setActiveResourceSniffSessionId("");
+    setResourceSniffFailure(null);
+    setResourceSniffTechnicalError("");
   };
 
-  const handlePrepareDownload = React.useCallback(async (overrideUrl?: string) => {
-    const url = (overrideUrl ?? downloadUrl).trim();
-    if (!url) {
-      return;
-    }
-    setDownloadPrepareError("");
-    setDownloadSubmitError("");
-    try {
-      const prepared = await prepareDownload.mutateAsync({ url });
-      setDownloadPrepared(prepared);
-      setDownloadUrl(prepared.url || url);
-      setDownloadUseConnector(Boolean(prepared.connectorAvailable));
-      setDownloadStep("config");
-      setDownloadTab("quick");
-      setCustomParseResult(null);
-      setCustomFormatId("");
-      setCustomSubtitleId("");
-      setCustomPresetId("");
-      setDownloadKeepOnlyTranscodedFile(true);
-      setCustomParseError("");
-    } catch (error) {
-      setDownloadPrepareError(
-        resolveUnknownErrorMessage(error, text.common.unknown),
+  const resetParsedDownloadSelection = () => {
+    parseRequestVersionRef.current += 1;
+    parseDownload.reset();
+    parseResourceSniff.reset();
+    setCustomParseResult(null);
+    setCustomFormatId("");
+    setCustomSubtitleId("");
+    setCustomPresetId("");
+    setCustomParseError("");
+  };
+
+  const startPreparedResourceSniff = React.useCallback(
+    async (prepared: PrepareYTDLPDownloadResponse) => {
+      const existingSessionID = resourceSniffSessionIdRef.current.trim();
+      if (existingSessionID) {
+        await cancelResourceSniffSession(existingSessionID);
+      }
+      resetParsedDownloadSelection();
+      const requestVersion = parseRequestVersionRef.current;
+      setResourceSniffFailure(null);
+      setResourceSniffTechnicalError("");
+      const startMutationPromise = startResourceSniff.mutateAsync({
+        url: prepared.url,
+      });
+      const startPromise = startMutationPromise.then(
+        (result) => result.session?.sessionId ?? "",
       );
-    }
-  }, [text.common.unknown, downloadUrl, prepareDownload]);
+      resourceSniffStartPromiseRef.current = startPromise;
+      try {
+        const result = await startMutationPromise;
+        if (result.failure) {
+          if (
+            resolveResourceSniffStartResolution({
+              requestVersion,
+              currentVersion: parseRequestVersionRef.current,
+              dialogOpen: dialogOpenRef.current,
+              transferRequestVersion:
+                resourceSniffTransferRequestVersionRef.current,
+            }) === "preserve"
+          ) {
+            resourceSniffTransferRequestVersionRef.current = null;
+            return;
+          }
+          setResourceSniffFailure(result.failure);
+          setResourceSniffTechnicalError("");
+          return;
+        }
+        const sessionId = result.session?.sessionId.trim() ?? "";
+        if (!sessionId) {
+          throw new Error("resource sniff start returned no session");
+        }
+        const startResolution = resolveResourceSniffStartResolution({
+          requestVersion,
+          currentVersion: parseRequestVersionRef.current,
+          dialogOpen: dialogOpenRef.current,
+          transferRequestVersion: resourceSniffTransferRequestVersionRef.current,
+        });
+        if (startResolution === "preserve") {
+          resourceSniffTransferRequestVersionRef.current = null;
+          return;
+        }
+        if (startResolution === "cancel") {
+          await cancelResourceSniffSession(sessionId);
+          return;
+        }
+        setActiveResourceSniffSessionId(sessionId);
+      } catch (error) {
+        if (
+          resolveResourceSniffStartResolution({
+            requestVersion,
+            currentVersion: parseRequestVersionRef.current,
+            dialogOpen: dialogOpenRef.current,
+            transferRequestVersion:
+              resourceSniffTransferRequestVersionRef.current,
+          }) === "preserve"
+        ) {
+          resourceSniffTransferRequestVersionRef.current = null;
+          return;
+        }
+        if (!dialogOpenRef.current && !preserveResourceSniffOnCloseRef.current) {
+          return;
+        }
+        setResourceSniffFailure(null);
+        setResourceSniffTechnicalError(
+          resolveUnknownErrorMessage(error, text.common.unknown),
+        );
+      } finally {
+        if (resourceSniffStartPromiseRef.current === startPromise) {
+          resourceSniffStartPromiseRef.current = null;
+        }
+      }
+    },
+    [
+      cancelResourceSniffSession,
+      parseDownload,
+      parseResourceSniff,
+      startResourceSniff,
+      text.common.unknown,
+    ],
+  );
+
+  const handlePrepareDownload = React.useCallback(
+    async (
+      mode: DownloadEntryMode,
+      overrideUrl?: string,
+      options?: { autoStartSniff?: boolean },
+    ) => {
+      const url = (overrideUrl ?? downloadUrl).trim();
+      if (!url) {
+        return;
+      }
+      const autoStartSniff = options?.autoStartSniff ?? true;
+      setDownloadPrepareIntent(mode);
+      setDownloadPrepareError("");
+      setDownloadSubmitError("");
+      setResourceSniffFailure(null);
+      setResourceSniffTechnicalError("");
+      try {
+        const prepared = await prepareDownload.mutateAsync({ url });
+        const usesProfile = usesProfileConnector(prepared);
+        const nextTab: DownloadDialogTab =
+          mode === "sniff" || usesProfile ? "sniff" : "quick";
+        setDownloadPrepared(prepared);
+        setDownloadUrl(prepared.url || url);
+        setDownloadUseConnector(
+          Boolean(prepared.connectorAvailable && !usesProfile),
+        );
+        setDownloadStep("config");
+        setDownloadTab(nextTab);
+        setCustomParseResult(null);
+        setCustomFormatId("");
+        setCustomSubtitleId("");
+        setCustomPresetId("");
+        setDownloadKeepOnlyTranscodedFile(true);
+        setCustomParseError("");
+        if (nextTab === "sniff" && autoStartSniff) {
+          await startPreparedResourceSniff(prepared);
+        }
+      } catch (error) {
+        setDownloadPrepareError(
+          resolveUnknownErrorMessage(error, text.common.unknown),
+        );
+      } finally {
+        setDownloadPrepareIntent(null);
+      }
+    },
+    [
+      downloadUrl,
+      prepareDownload,
+      startPreparedResourceSniff,
+      text.common.unknown,
+    ],
+  );
 
   React.useEffect(() => {
     const initialUrl = (props.initialUrl ?? "").trim();
@@ -717,7 +1340,7 @@ export function NewTaskDialog(props: {
       return;
     }
     autoPreparedInitialUrlRef.current = initialUrl;
-    void handlePrepareDownload(initialUrl);
+    void handlePrepareDownload("direct", initialUrl, { autoStartSniff: false });
   }, [
     activeMode,
     downloadStep,
@@ -732,21 +1355,160 @@ export function NewTaskDialog(props: {
     if (!downloadPrepared) {
       return;
     }
+    const requestVersion = ++parseRequestVersionRef.current;
     setCustomParseError("");
     try {
       const parsed = await parseDownload.mutateAsync({
         url: downloadPrepared.url,
         connectorId: downloadPrepared.connectorId,
-        useConnector:
-          downloadUseConnector && downloadPrepared.connectorAvailable,
+        useConnector: downloadUseConnector && downloadConnectorCanUseCookies,
       });
+      if (
+        requestVersion !== parseRequestVersionRef.current ||
+        !dialogOpenRef.current
+      ) {
+        return;
+      }
+      if (!hasDownloadableFormats(parsed)) {
+        setCustomParseResult(null);
+        setCustomFormatId("");
+        setCustomSubtitleId("");
+        setCustomPresetId("");
+        setCustomParseError(noDownloadableMediaErrorMessage());
+        return;
+      }
       const defaultFormat = pickDefaultFormat(parsed.formats);
       setCustomParseResult(parsed);
       setCustomFormatId(defaultFormat?.id ?? "");
       setCustomSubtitleId("");
       setCustomPresetId("");
     } catch (error) {
+      if (
+        requestVersion !== parseRequestVersionRef.current ||
+        !dialogOpenRef.current
+      ) {
+        return;
+      }
       setCustomParseError(
+        resolveUnknownErrorMessage(error, text.common.unknown),
+      );
+    }
+  };
+
+  const handleDownloadTabChange = (value: string) => {
+    const nextTab = value as DownloadDialogTab;
+    if (!downloadTabItems.some((item) => item.value === nextTab)) {
+      return;
+    }
+    if (nextTab === downloadTab) {
+      return;
+    }
+    setDownloadTab(nextTab);
+    resetParsedDownloadSelection();
+    setResourceSniffFailure(null);
+    setResourceSniffTechnicalError("");
+  };
+
+  const handleOpenConnections = React.useCallback(() => {
+    if (!props.onOpenConnections) {
+      return;
+    }
+    void closeDialogAfterResourceCleanup().finally(() => {
+      props.onOpenConnections?.();
+    });
+  }, [closeDialogAfterResourceCleanup, props.onOpenConnections]);
+
+  const handleOpenSniffDesk = React.useCallback(() => {
+    if (!props.onOpenSniffDesk) {
+      return;
+    }
+    resourceSniffTransferRequestVersionRef.current =
+      parseRequestVersionRef.current;
+    preserveResourceSniffOnCloseRef.current = true;
+    parseRequestVersionRef.current += 1;
+    setActiveResourceSniffSessionId("");
+    setResourceSniffFailure(null);
+    setResourceSniffTechnicalError("");
+    dialogOpenRef.current = false;
+    props.onOpenChange(false);
+    props.onOpenSniffDesk();
+  }, [
+    props.onOpenChange,
+    props.onOpenSniffDesk,
+    setActiveResourceSniffSessionId,
+  ]);
+
+  const handleStartResourceSniff = async () => {
+    if (!downloadPrepared) {
+      return;
+    }
+    await startPreparedResourceSniff(downloadPrepared);
+  };
+
+  const handleParseResourceSniff = async () => {
+    const sessionId = resourceSniffSessionId.trim();
+    if (!sessionId) {
+      return;
+    }
+    const requestVersion = ++parseRequestVersionRef.current;
+    const requestPageUrl = resourceSniffSession?.currentUrl?.trim() ?? "";
+    const hasCurrentResult = Boolean(customParseResult);
+    if (!hasCurrentResult) {
+      setCustomParseResult(null);
+      setCustomFormatId("");
+      setCustomSubtitleId("");
+      setCustomPresetId("");
+      setCustomParsePageUrl("");
+    }
+    setResourceSniffFailure(null);
+    setResourceSniffTechnicalError("");
+    try {
+      const response = await parseResourceSniff.mutateAsync({ sessionId });
+      if (
+        requestVersion !== parseRequestVersionRef.current ||
+        !dialogOpenRef.current
+      ) {
+        return;
+      }
+      if (response.failure) {
+        setCustomParseResult(null);
+        setCustomFormatId("");
+        setCustomSubtitleId("");
+        setCustomPresetId("");
+        setCustomParsePageUrl("");
+        setResourceSniffFailure(response.failure);
+        setResourceSniffTechnicalError("");
+        return;
+      }
+      const parsed = response.media;
+      if (!parsed) {
+        throw new Error("resource sniff parse returned no media");
+      }
+      if (!hasDownloadableFormats(parsed)) {
+        throw new Error("resource sniff parse returned media without formats");
+      }
+      const defaultFormat = pickDefaultFormat(parsed.formats);
+      const parsedPageUrl = parsed.pageUrl?.trim() || requestPageUrl;
+      customParsePageObservedRef.current = false;
+      setCustomParseResult(parsed);
+      setCustomParsePageUrl(parsedPageUrl);
+      setCustomFormatId(defaultFormat?.id ?? "");
+      setCustomSubtitleId("");
+      setCustomPresetId("");
+    } catch (error) {
+      if (
+        requestVersion !== parseRequestVersionRef.current ||
+        !dialogOpenRef.current
+      ) {
+        return;
+      }
+      setCustomParseResult(null);
+      setCustomFormatId("");
+      setCustomSubtitleId("");
+      setCustomPresetId("");
+      setCustomParsePageUrl("");
+      setResourceSniffFailure(null);
+      setResourceSniffTechnicalError(
         resolveUnknownErrorMessage(error, text.common.unknown),
       );
     }
@@ -772,10 +1534,71 @@ export function NewTaskDialog(props: {
           ? downloadKeepOnlyTranscodedFile
           : undefined,
         connectorId: downloadPrepared.connectorId || undefined,
-        useConnector:
-          downloadUseConnector && downloadPrepared.connectorAvailable,
+        useConnector: downloadUseConnector && downloadConnectorCanUseCookies,
       });
-      props.onOpenChange(false);
+      await closeDialogAfterResourceCleanup();
+    } catch (error) {
+      setDownloadSubmitError(
+        resolveUnknownErrorMessage(error, text.common.unknown),
+      );
+    }
+  };
+
+  const buildCustomDownloadRequest = (
+    resourceReference: "none" | "session" | "media",
+  ): CreateYTDLPJobRequest | null => {
+    if (!downloadPrepared || !customParseResult || !customSelectedFormat) {
+      return null;
+    }
+    const selectedSubtitleLang = customSelectedSubtitle?.language?.trim() ?? "";
+    const needsAudioJoin =
+      customSelectedFormat.hasVideo && !customSelectedFormat.hasAudio;
+    return {
+      url: downloadPrepared.url,
+      source: "xiadown.download.dialog",
+      caller: "main",
+      mode: "custom",
+      title: customParseResult.title || undefined,
+      extractor: customParseResult.extractor || undefined,
+      author: customParseResult.author || undefined,
+      thumbnailUrl: customParseResult.thumbnailUrl || undefined,
+      writeThumbnail: true,
+      quality: customSelectedFormat.hasVideo ? "best" : "audio",
+      formatId: customSelectedFormat.id,
+      audioFormatId: needsAudioJoin
+        ? selectAudioFormatId(customFormats) || "bestaudio"
+        : undefined,
+      subtitleLangs: selectedSubtitleLang ? [selectedSubtitleLang] : undefined,
+      subtitleAuto: Boolean(customSelectedSubtitle?.isAuto),
+      subtitleFormat: customSelectedSubtitle?.ext || undefined,
+      transcodePresetId: customPresetId || undefined,
+      deleteSourceFileAfterTranscode: customPresetId
+        ? downloadKeepOnlyTranscodedFile
+        : undefined,
+      connectorId: downloadPrepared.connectorId || undefined,
+      useConnector: downloadUseConnector && downloadConnectorCanUseCookies,
+      resourceSessionId:
+        resourceReference === "session"
+          ? customParseResult.resourceSessionId || undefined
+          : undefined,
+      resourceMediaId:
+        resourceReference === "media"
+          ? customParseResult.resourceMediaId || undefined
+          : undefined,
+    };
+  };
+
+  const handleQueueResourceDownload = async () => {
+    const request = buildCustomDownloadRequest("media");
+    if (!request?.resourceMediaId) {
+      return;
+    }
+    setDownloadSubmitError("");
+    try {
+      await queueYTDLP.mutateAsync(request);
+      resetParsedDownloadSelection();
+      setResourceSniffFailure(null);
+      setResourceSniffTechnicalError("");
     } catch (error) {
       setDownloadSubmitError(
         resolveUnknownErrorMessage(error, text.common.unknown),
@@ -784,43 +1607,22 @@ export function NewTaskDialog(props: {
   };
 
   const handleStartCustomDownload = async () => {
-    if (!downloadPrepared || !customParseResult || !customSelectedFormat) {
+    if (!customParseResult || !customSelectedFormat) {
       return;
     }
-    const selectedSubtitleLang = customSelectedSubtitle?.language?.trim() ?? "";
-    const needsAudioJoin =
-      customSelectedFormat.hasVideo && !customSelectedFormat.hasAudio;
+    const request = buildCustomDownloadRequest(
+      customParseResult.resourceSessionId ? "session" : "none",
+    );
+    if (!request) {
+      return;
+    }
     setDownloadSubmitError("");
     try {
-      await createYTDLP.mutateAsync({
-        url: downloadPrepared.url,
-        source: "xiadown.download.dialog",
-        caller: "main",
-        mode: "custom",
-        title: customParseResult.title || undefined,
-        extractor: customParseResult.extractor || undefined,
-        author: customParseResult.author || undefined,
-        thumbnailUrl: customParseResult.thumbnailUrl || undefined,
-        writeThumbnail: true,
-        quality: customSelectedFormat.hasVideo ? "best" : "audio",
-        formatId: customSelectedFormat.id,
-        audioFormatId: needsAudioJoin
-          ? selectAudioFormatId(customFormats) || "bestaudio"
-          : undefined,
-        subtitleLangs: selectedSubtitleLang
-          ? [selectedSubtitleLang]
-          : undefined,
-        subtitleAuto: Boolean(customSelectedSubtitle?.isAuto),
-        subtitleFormat: customSelectedSubtitle?.ext || undefined,
-        transcodePresetId: customPresetId || undefined,
-        deleteSourceFileAfterTranscode: customPresetId
-          ? downloadKeepOnlyTranscodedFile
-          : undefined,
-        connectorId: downloadPrepared.connectorId || undefined,
-        useConnector:
-          downloadUseConnector && downloadPrepared.connectorAvailable,
-      });
-      props.onOpenChange(false);
+      await createYTDLP.mutateAsync(request);
+      if (customParseResult.resourceSessionId) {
+        setActiveResourceSniffSessionId("");
+      }
+      await closeDialogAfterResourceCleanup();
     } catch (error) {
       setDownloadSubmitError(
         resolveUnknownErrorMessage(error, text.common.unknown),
@@ -878,7 +1680,7 @@ export function NewTaskDialog(props: {
         presetId: selectedTranscodePreset?.id || transcodePresetId || undefined,
         source: "xiadown.transcode.dialog",
       });
-      props.onOpenChange(false);
+      await closeDialogAfterResourceCleanup();
     } catch (error) {
       setTranscodeSubmitError(
         resolveUnknownErrorMessage(error, text.common.unknown),
@@ -897,12 +1699,32 @@ export function NewTaskDialog(props: {
   };
 
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog open={props.open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         className="max-w-[min(92vw,32rem)] gap-4 overflow-hidden"
-        showCloseButton
+        showCloseButton={false}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
       >
-        <DialogHeader className="space-y-0 text-left">
+        <button
+          type="button"
+          className="app-dialog-close app-new-task-browser-close absolute right-4 top-4 transition-[background,color,box-shadow] focus:outline-none disabled:pointer-events-none"
+          data-closing={closingDialog ? "true" : undefined}
+          disabled={closingDialog}
+          onClick={() => {
+            void closeDialogAfterResourceCleanup();
+          }}
+        >
+          {closingDialog ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <X className="h-4 w-4" />
+          )}
+          {closingDialog ? <span>{text.actions.closeBrowser}</span> : null}
+        </button>
+        <DialogHeader
+          className={cn("space-y-0 text-left", closingDialog ? "pr-28" : "pr-10")}
+        >
           <DialogTitle className="sr-only">
             {activeMode === "download"
               ? text.dialogs.downloadTitle
@@ -952,38 +1774,74 @@ export function NewTaskDialog(props: {
                     className="flex gap-2"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void handlePrepareDownload();
+                      void handlePrepareDownload("direct");
                     }}
                   >
                     <Input
                       value={downloadUrl}
-                      onChange={(event) => setDownloadUrl(event.target.value)}
+                      onChange={(event) => {
+                        setDownloadUrl(event.target.value);
+                        if (downloadPrepareError) {
+                          setDownloadPrepareError("");
+                        }
+                      }}
                       placeholder={text.dialogs.downloadPlaceholder}
-                      className="min-w-0 flex-1"
+                      className="app-new-task-url-input min-w-0 flex-1"
                     />
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="inline-flex shrink-0">
                           <Button
-                            type="submit"
+                            type="button"
                             size="compactIcon"
-                            title={text.dialogs.requestDownload}
-                            aria-label={text.dialogs.requestDownload}
+                            title={text.dialogs.startSniffMode}
+                            aria-label={text.dialogs.startSniffMode}
+                            onClick={() => void handlePrepareDownload("sniff")}
                             disabled={
                               !downloadUrl.trim() ||
                               !ytdlpInstalled ||
                               prepareDownload.isPending
                             }
                           >
-                            {prepareDownload.isPending ? (
+                            {prepareDownload.isPending &&
+                            downloadPrepareIntent === "sniff" ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
-                              <ArrowRight className="h-4 w-4" />
+                              <Radar className="h-4 w-4" />
                             )}
                           </Button>
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent>{text.dialogs.requestDownload}</TooltipContent>
+                      <TooltipContent>
+                        {text.dialogs.startSniffMode}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex shrink-0">
+                          <Button
+                            type="submit"
+                            size="compactIcon"
+                            title={text.dialogs.directDownload}
+                            aria-label={text.dialogs.directDownload}
+                            disabled={
+                              !downloadUrl.trim() ||
+                              !ytdlpInstalled ||
+                              prepareDownload.isPending
+                            }
+                          >
+                            {prepareDownload.isPending &&
+                            downloadPrepareIntent === "direct" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {text.dialogs.directDownload}
+                      </TooltipContent>
                     </Tooltip>
                   </form>
                   {!ytdlpInstalled ? (
@@ -1006,102 +1864,144 @@ export function NewTaskDialog(props: {
             {activeMode === "download" && downloadStep === "config" ? (
               <>
                 <DialogListCard className="app-new-task-panel">
-                  <DialogListCardContent className="space-y-2 p-4">
-                    <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-                      {downloadConnectorType ? (
-                        <ConnectorBrandIcon
-                          connectorType={downloadConnectorType}
-                          fallback="none"
-                          className="h-3.5 w-3.5 shrink-0"
-                        />
-                      ) : null}
-                      <span className="truncate">{downloadDomainLabel}</span>
-                      {downloadPrepared?.reachable === false ? (
-                        <Badge
-                          variant="outline"
-                          className="app-dream-status-badge-warning"
+                  <DialogListCardContent className="p-3">
+                    <div
+                      className="app-new-task-field-strip app-new-task-url-card-strip h-9 w-full min-w-0 overflow-hidden"
+                      data-mode={downloadShowsSniffMode ? "sniff" : "connector"}
+                    >
+                      <div className="app-new-task-url-card-link flex h-full min-w-0 items-center">
+                        <div
+                          className="app-new-task-url-card-url flex h-full min-w-0 flex-1 items-center gap-1.5 px-3"
+                          title={preparedDownloadUrl}
                         >
-                          {text.common.unknown}
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <div className="app-new-task-field-strip flex h-9 w-full min-w-0 items-center overflow-hidden">
-                      <Input
-                        size="default"
-                        value={downloadPrepared?.url ?? downloadUrl}
-                        readOnly
-                        className="h-full min-w-0 flex-1 truncate rounded-none border-0 bg-transparent py-0 text-xs leading-none shadow-none"
-                      />
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="compactIcon"
-                            className="app-new-task-field-action !h-full !w-9 shrink-0"
-                            aria-label={text.dialogs.modifyLink}
-                            onClick={() => {
-                              if (downloadPrepared?.url) {
-                                setDownloadUrl(downloadPrepared.url);
-                              }
-                              resetDownloadConfig();
-                            }}
+                          <ConnectorBrandIcon
+                            connectorType={downloadConnectorType}
+                            fallback="globe"
+                            className="app-new-task-url-card-icon h-3.5 w-3.5 shrink-0"
+                          />
+                          <span
+                            className="app-new-task-url-card-text min-w-0 flex-1"
+                            dir="ltr"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.dialogs.modifyLink}</TooltipContent>
-                      </Tooltip>
-                      <div className="app-new-task-field-switch-slot flex h-full w-12 shrink-0 items-center justify-center">
+                            {downloadUrlDisplayParts.prefix ? (
+                              <span className="app-new-task-url-card-url-muted">
+                                {downloadUrlDisplayParts.prefix}
+                              </span>
+                            ) : null}
+                            <span className="app-new-task-url-card-url-domain">
+                              {downloadUrlDisplayParts.domain ||
+                                preparedDownloadUrl}
+                            </span>
+                            {downloadUrlDisplayParts.suffix ? (
+                              <span className="app-new-task-url-card-url-muted">
+                                {downloadUrlDisplayParts.suffix}
+                              </span>
+                            ) : null}
+                          </span>
+                        </div>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <span className="flex items-center justify-center">
-                              <InlineSwitch
-                                checked={
-                                  downloadPrepared?.connectorAvailable
-                                    ? downloadUseConnector
-                                    : false
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="compactIcon"
+                              className="app-new-task-field-action !h-full !w-9 shrink-0"
+                              aria-label={text.dialogs.modifyLink}
+                              onClick={() => {
+                                if (downloadPrepared?.url) {
+                                  setDownloadUrl(downloadPrepared.url);
                                 }
-                                onChange={(checked) => {
-                                  if (downloadPrepared?.connectorAvailable) {
-                                    setDownloadUseConnector(checked);
-                                  }
-                                }}
-                                ariaLabel={text.dialogs.useConnector}
-                                disabled={!downloadPrepared?.connectorAvailable}
-                              />
-                            </span>
+                                resetDownloadConfig();
+                              }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
                           </TooltipTrigger>
-                          <TooltipContent>
-                            {downloadPrepared?.connectorAvailable
-                              ? text.dialogs.connectorAvailable
-                              : text.dialogs.connectorUnavailable}
-                          </TooltipContent>
+                          <TooltipContent>{text.dialogs.modifyLink}</TooltipContent>
                         </Tooltip>
+                      </div>
+                      <div className="app-new-task-url-card-mode-slot relative h-full min-w-0 overflow-hidden">
+                        <div
+                          className="app-new-task-url-card-mode-panel"
+                          data-panel="connector"
+                          data-visible={
+                            downloadShowsSniffMode ? "false" : "true"
+                          }
+                          aria-hidden={
+                            downloadShowsSniffMode ? "true" : undefined
+                          }
+                        >
+                          <span className="app-new-task-url-card-mode-label">
+                            {downloadConnectorStatusLabel}
+                          </span>
+                          {downloadConnectorCanUseCookies ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="flex shrink-0 items-center justify-center">
+                                  <InlineSwitch
+                                    checked={downloadUseConnector}
+                                    onChange={setDownloadUseConnector}
+                                    ariaLabel={text.dialogs.connectorCookiesDownload}
+                                  />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {text.dialogs.connectorCookiesDownload}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : downloadMatchesCookieConnector ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex shrink-0">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="compactIcon"
+                                    className="app-new-task-url-card-manage-button !h-7 !w-7"
+                                    aria-label={text.dialogs.openConnections}
+                                    disabled={!props.onOpenConnections}
+                                    onClick={handleOpenConnections}
+                                  >
+                                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                                  </Button>
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {text.dialogs.openConnections}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
+                        <div
+                          className="app-new-task-url-card-mode-panel app-new-task-url-card-mode-panel-sniff"
+                          data-panel="sniff"
+                          data-visible={
+                            downloadShowsSniffMode ? "true" : "false"
+                          }
+                          aria-hidden={
+                            downloadShowsSniffMode ? undefined : "true"
+                          }
+                        >
+                          <Radar className="h-3.5 w-3.5 shrink-0" />
+                          <span className="app-new-task-url-card-mode-label">
+                            {text.dialogs.sniffMode}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </DialogListCardContent>
                 </DialogListCard>
 
-                <div className="flex justify-center">
-                  <DreamSegmentSwitch
-                    value={downloadTab}
-                    className="app-new-task-download-mode-switch"
-                    items={[
-                      {
-                        value: "quick",
-                        label: text.dialogs.quickMode,
-                        icon: <Zap className="h-3.5 w-3.5" />,
-                      },
-                      {
-                        value: "custom",
-                        label: text.dialogs.customMode,
-                        icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
-                      },
-                    ]}
-                    onValueChange={setDownloadTab}
-                  />
-                </div>
+                {!downloadUsesProfileConnector && downloadTab !== "sniff" ? (
+                  <div className="flex justify-center">
+                    <DreamSegmentSwitch
+                      value={downloadTab}
+                      className="app-new-task-download-mode-switch"
+                      items={downloadTabItems}
+                      onValueChange={handleDownloadTabChange}
+                    />
+                  </div>
+                ) : null}
 
                 {downloadTab === "quick" ? (
                   <DialogListCard className="app-new-task-panel app-new-task-list-panel">
@@ -1178,96 +2078,342 @@ export function NewTaskDialog(props: {
                   </DialogListCard>
                 ) : null}
 
-                {downloadTab === "custom" ? (
+                {downloadTab === "custom" || downloadTab === "sniff" ? (
                   customParseResult ? (
-                    <DialogListCard className="app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden">
-                      <DialogListCardContent>
-                        <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
-                          <span className="app-new-task-select-row-label text-muted-foreground">
-                            {text.dialogs.quality}
-                          </span>
-                          <Select
-                            className="app-new-task-select"
-                            value={customFormatId}
-                            onChange={(event) =>
-                              setCustomFormatId(event.target.value)
-                            }
-                          >
-                            <option value="">
-                              {text.dialogs.selectFormat}
-                            </option>
-                            {customVideoFormats.length > 0 ? (
-                              <optgroup label={text.dialogs.formatGroupVideo}>
-                                {customVideoFormats.map((format) => (
-                                  <option key={format.id} value={format.id}>
-                                    {format.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ) : null}
-                            {customAudioFormats.length > 0 ? (
-                              <optgroup label={text.dialogs.formatGroupAudio}>
-                                {customAudioFormats.map((format) => (
-                                  <option key={format.id} value={format.id}>
-                                    {format.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            ) : null}
-                          </Select>
-                        </DialogRow>
-                        <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
-                          <span className="app-new-task-select-row-label text-muted-foreground">
-                            {text.dialogs.subtitles}
-                          </span>
-                          <Select
-                            className="app-new-task-select"
-                            value={customSubtitleId}
-                            onChange={(event) =>
-                              setCustomSubtitleId(event.target.value)
-                            }
-                          >
-                            <option value="">{text.dialogs.noSubtitle}</option>
-                            {customSubtitles.map((subtitle) => (
-                              <option key={subtitle.id} value={subtitle.id}>
-                                {formatSubtitleLabel(subtitle)}
-                              </option>
-                            ))}
-                          </Select>
-                        </DialogRow>
-                        <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
-                          <span className="app-new-task-select-row-label text-muted-foreground">
-                            {text.actions.transcode}
-                          </span>
-                          <Select
-                            className="app-new-task-select"
-                            value={customPresetId}
-                            onChange={(event) =>
-                              setCustomPresetId(event.target.value)
-                            }
-                          >
-                            <option value="">{text.dialogs.noTranscode}</option>
-                            {(customPresetsQuery.data ?? []).map((preset) => (
-                              <option key={preset.id} value={preset.id}>
-                              {preset.name}
-                            </option>
-                          ))}
-                        </Select>
-                        </DialogRow>
-                        {customPresetId ? (
-                          <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                            <div className="text-muted-foreground">
-                              {text.dialogs.keepOnlyTranscodedFile}
+                    <>
+                      <DialogListCard
+                        className={`app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden ${
+                          downloadTab === "sniff" ? "app-new-task-media-card" : ""
+                        }`}
+                        data-has-cover={
+                          resourceSniffThumbnailUrl ? "true" : "false"
+                        }
+                        data-refreshing={
+                          isSniffCardRefreshing ? "true" : "false"
+                        }
+                      >
+                        <div
+                          className="app-new-task-media-card-visuals"
+                          data-refreshing={
+                            isSniffCardRefreshing ? "true" : undefined
+                          }
+                          aria-hidden="true"
+                        >
+                          {resourceSniffThumbnailUrl ? (
+                            <div
+                              className="app-new-task-media-card-cover-stage"
+                              data-refreshing={
+                                isSniffCardRefreshing ? "true" : undefined
+                              }
+                            >
+                              <img
+                                src={resourceSniffThumbnailUrl}
+                                alt=""
+                                className="app-new-task-media-card-cover-blur"
+                                loading="lazy"
+                                decoding="async"
+                                draggable={false}
+                              />
+                              <div className="app-new-task-media-card-cover-detail-wrap">
+                                <img
+                                  src={resourceSniffThumbnailUrl}
+                                  alt=""
+                                  className="app-new-task-media-card-cover-detail"
+                                  loading="lazy"
+                                  decoding="async"
+                                  draggable={false}
+                                />
+                              </div>
+                              <div className="app-new-task-media-card-cover-softener" />
+                              <div className="app-new-task-media-card-cover-gradient" />
+                              <div className="app-new-task-media-card-cover-texture" />
+                              <div className="app-new-task-media-card-cover-sweep" />
                             </div>
-                            <InlineSwitch
-                              checked={downloadKeepOnlyTranscodedFile}
-                              onChange={setDownloadKeepOnlyTranscodedFile}
-                              ariaLabel={text.dialogs.keepOnlyTranscodedFile}
-                            />
+                          ) : null}
+                        </div>
+                        <DialogListCardContent
+                          className={
+                            downloadTab === "sniff"
+                              ? "app-new-task-media-card-content"
+                              : undefined
+                          }
+                        >
+                          {downloadTab === "sniff" ? (
+                            <>
+                              <DialogRow className="app-new-task-row app-new-task-media-meta-row flex items-center justify-between gap-4 p-3 text-sm">
+                                <span className="text-muted-foreground">
+                                  {text.dialogs.mediaTitle}
+                                </span>
+                                <span
+                                  className="min-w-0 max-w-[68%] truncate text-right font-medium text-foreground"
+                                  title={
+                                    customParseResult.title ||
+                                    text.common.unknown
+                                  }
+                                >
+                                  {customParseResult.title ||
+                                    text.common.unknown}
+                                </span>
+                              </DialogRow>
+                              <DialogRow className="app-new-task-row app-new-task-media-meta-row flex items-center justify-between gap-4 p-3 text-sm">
+                                <span className="text-muted-foreground">
+                                  {text.dialogs.mediaAuthor}
+                                </span>
+                                <span
+                                  className="min-w-0 max-w-[68%] truncate text-right font-medium text-foreground"
+                                  title={
+                                    customParseResult.author ||
+                                    text.common.unknown
+                                  }
+                                >
+                                  {customParseResult.author ||
+                                    text.common.unknown}
+                                </span>
+                              </DialogRow>
+                            </>
+                          ) : null}
+                          <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                            <span className="app-new-task-select-row-label text-muted-foreground">
+                              {text.dialogs.quality}
+                            </span>
+                            <Select
+                              className="app-new-task-select"
+                              value={customFormatId}
+                              onChange={(event) =>
+                                setCustomFormatId(event.target.value)
+                              }
+                            >
+                              <option value="">
+                                {text.dialogs.selectFormat}
+                              </option>
+                              {customVideoFormats.length > 0 ? (
+                                <optgroup label={text.dialogs.formatGroupVideo}>
+                                  {customVideoFormats.map((format) => (
+                                    <option key={format.id} value={format.id}>
+                                      {format.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ) : null}
+                              {customAudioFormats.length > 0 ? (
+                                <optgroup label={text.dialogs.formatGroupAudio}>
+                                  {customAudioFormats.map((format) => (
+                                    <option key={format.id} value={format.id}>
+                                      {format.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ) : null}
+                            </Select>
                           </DialogRow>
+                          {downloadTab !== "sniff" ||
+                          customSubtitles.length > 0 ? (
+                            <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                              <span className="app-new-task-select-row-label text-muted-foreground">
+                                {text.dialogs.subtitles}
+                              </span>
+                              <Select
+                                className="app-new-task-select"
+                                value={customSubtitleId}
+                                onChange={(event) =>
+                                  setCustomSubtitleId(event.target.value)
+                                }
+                              >
+                                <option value="">
+                                  {text.dialogs.noSubtitle}
+                                </option>
+                                {customSubtitles.map((subtitle) => (
+                                  <option key={subtitle.id} value={subtitle.id}>
+                                    {formatSubtitleLabel(subtitle)}
+                                  </option>
+                                ))}
+                              </Select>
+                            </DialogRow>
+                          ) : null}
+                          <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                            <span className="app-new-task-select-row-label text-muted-foreground">
+                              {text.actions.transcode}
+                            </span>
+                            <Select
+                              className="app-new-task-select"
+                              value={customPresetId}
+                              onChange={(event) =>
+                                setCustomPresetId(event.target.value)
+                              }
+                            >
+                              <option value="">{text.dialogs.noTranscode}</option>
+                              {(customPresetsQuery.data ?? []).map((preset) => (
+                                <option key={preset.id} value={preset.id}>
+                                  {preset.name}
+                                </option>
+                              ))}
+                            </Select>
+                          </DialogRow>
+                          {customPresetId ? (
+                            <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                              <div className="text-muted-foreground">
+                                {text.dialogs.keepOnlyTranscodedFile}
+                              </div>
+                              <InlineSwitch
+                                checked={downloadKeepOnlyTranscodedFile}
+                                onChange={setDownloadKeepOnlyTranscodedFile}
+                                ariaLabel={text.dialogs.keepOnlyTranscodedFile}
+                              />
+                            </DialogRow>
+                          ) : null}
+                        </DialogListCardContent>
+                      </DialogListCard>
+                      {downloadRequiresSniffDesk ? (
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          {resourceSniffUnsupportedDomainNotice}
+                          <Button
+                            type="button"
+                            size="compact"
+                            variant="outline"
+                            onClick={handleOpenSniffDesk}
+                            disabled={!props.onOpenSniffDesk}
+                          >
+                            <Radar className="h-4 w-4" />
+                            {text.dialogs.enterSniffDesk}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {downloadTab === "sniff" && resourceSniffHasIssue ? (
+                        <div className="app-new-task-parse-error w-full min-w-0 px-3 py-2 text-xs font-medium">
+                          {resourceSniffIssueDescription}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : downloadTab === "sniff" ? (
+                    <div className="space-y-3">
+                      {resourceSniffSessionId ? (
+                        <DialogListCard className="app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden">
+                          <DialogListCardContent>
+                            <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                              <span className="text-muted-foreground">
+                                {text.dialogs.currentStatus}
+                              </span>
+                              <div className="flex max-w-[68%] items-center justify-end gap-2">
+                                <span className="min-w-0 truncate text-right font-medium text-foreground">
+                                  {resourceSniffStatusLabel}
+                                </span>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="compact"
+                                  className="h-7 shrink-0 px-2"
+                                  onClick={() => void handleStartResourceSniff()}
+                                  disabled={startResourceSniff.isPending}
+                                >
+                                  {startResourceSniff.isPending ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : null}
+                                  {text.dialogs.restartSniffShort}
+                                </Button>
+                              </div>
+                            </DialogRow>
+                            {showResourceSniffCurrentPage ? (
+                              <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                                <span className="text-muted-foreground">
+                                  {text.dialogs.currentPage}
+                                </span>
+                                <span
+                                  className="max-w-[62%] truncate text-right text-xs text-muted-foreground"
+                                  title={
+                                    resourceSniffHasActiveTab
+                                      ? resourceSniffSession?.currentUrl
+                                      : undefined
+                                  }
+                                >
+                                  {resourceSniffCurrentPageLabel}
+                                </span>
+                              </DialogRow>
+                            ) : null}
+                            {showResourceSniffCurrentUser ? (
+                              <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
+                                <span className="text-muted-foreground">
+                                  {text.dialogs.currentUser}
+                                </span>
+                                <span
+                                  className="max-w-[62%] truncate text-right text-xs text-muted-foreground"
+                                  title={resourceSniffCurrentUserLabel}
+                                >
+                                  {resourceSniffCurrentUserLabel}
+                                </span>
+                              </DialogRow>
+                            ) : null}
+                          </DialogListCardContent>
+                        </DialogListCard>
+                      ) : null}
+
+                      <div className="flex flex-col items-center justify-center gap-2 py-4">
+                        {resourceSniffSessionId ? (
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            <Button
+                              type="button"
+                              size="compact"
+                              onClick={() =>
+                                resourceSniffHasActiveTab
+                                  ? void handleParseResourceSniff()
+                                  : void handleStartResourceSniff()
+                              }
+                              disabled={
+                                parseResourceSniff.isPending ||
+                                startResourceSniff.isPending ||
+                                (resourceSniffHasActiveTab &&
+                                  resourceSniffNeedsDesk)
+                              }
+                            >
+                              {parseResourceSniff.isPending ||
+                              startResourceSniff.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : null}
+                              {resourceSniffHasActiveTab
+                                ? resourceSniffHasIssue && !resourceSniffNeedsDesk
+                                  ? text.dialogs.parseAgain
+                                  : text.dialogs.parse
+                                : text.dialogs.restartSniffShort}
+                            </Button>
+                            {resourceSniffNeedsDesk ? (
+                              <Button
+                                type="button"
+                                size="compact"
+                                variant="outline"
+                                onClick={handleOpenSniffDesk}
+                                disabled={!props.onOpenSniffDesk}
+                              >
+                                <Radar className="h-4 w-4" />
+                                {text.dialogs.enterSniffDesk}
+                              </Button>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="compact"
+                            onClick={() => void handleStartResourceSniff()}
+                            disabled={startResourceSniff.isPending}
+                          >
+                            {startResourceSniff.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : null}
+                            {text.dialogs.startSniff}
+                          </Button>
+                        )}
+                        {resourceSniffUnsupportedDomainNotice ? (
+                          <div className="flex w-full justify-center">
+                            {resourceSniffUnsupportedDomainNotice}
+                          </div>
                         ) : null}
-                      </DialogListCardContent>
-                    </DialogListCard>
+                        {resourceSniffHasIssue ? (
+                          <div className="w-full">
+                            <div className="app-new-task-parse-error w-full min-w-0 px-3 py-2 text-xs font-medium">
+                              {resourceSniffIssueDescription}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-2 py-4">
                       <Button
@@ -1285,11 +2431,11 @@ export function NewTaskDialog(props: {
                       </Button>
                       {customParseError ? (
                         <div className="w-full">
-                          <div className="app-new-task-parse-error w-full min-w-0 text-xs">
-                            <div className="border-b border-destructive/20 px-3 py-2 font-medium">
-                              {customParseErrorDescription}
-                            </div>
-                            <pre className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] leading-4 text-muted-foreground">{customParseErrorDetail}</pre>
+                          <div
+                            className="app-new-task-parse-error w-full min-w-0 truncate px-3 py-2 text-xs font-medium"
+                            title={customParseErrorDetail || customParseErrorLine}
+                          >
+                            {customParseErrorLine}
                           </div>
                         </div>
                       ) : null}
@@ -1486,10 +2632,50 @@ export function NewTaskDialog(props: {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => props.onOpenChange(false)}
+              onClick={() => {
+                void closeDialogAfterResourceCleanup();
+              }}
+              disabled={closingDialog}
             >
               {text.actions.cancelDialog}
             </Button>
+            {downloadTab === "sniff" && customParseResult?.resourceSessionId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void handleParseResourceSniff()}
+                disabled={
+                  downloadRequiresSniffDesk ||
+                  parseResourceSniff.isPending ||
+                  !resourceSniffSessionId.trim() ||
+                  !resourceSniffHasActiveTab
+                }
+              >
+                {parseResourceSniff.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                {text.dialogs.parseAgain}
+              </Button>
+            ) : null}
+            {downloadTab === "sniff" && customParseResult?.resourceMediaId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => void handleQueueResourceDownload()}
+                disabled={
+                  downloadRequiresSniffDesk ||
+                  queueYTDLP.isPending ||
+                  createYTDLP.isPending ||
+                  !downloadPrepared ||
+                  !customSelectedFormat
+                }
+              >
+                {queueYTDLP.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                {text.actions.addToDownloadQueue}
+              </Button>
+            ) : null}
             <Button
               type="button"
               onClick={() =>
@@ -1498,10 +2684,12 @@ export function NewTaskDialog(props: {
                   : handleStartCustomDownload())
               }
               disabled={
+                downloadRequiresSniffDesk ||
                 createYTDLP.isPending ||
+                queueYTDLP.isPending ||
                 !downloadPrepared ||
                 !ytdlpInstalled ||
-                (downloadTab === "custom" &&
+                ((downloadTab === "custom" || downloadTab === "sniff") &&
                   (!customParseResult || !customSelectedFormat))
               }
             >
@@ -1518,7 +2706,10 @@ export function NewTaskDialog(props: {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => props.onOpenChange(false)}
+              onClick={() => {
+                void closeDialogAfterResourceCleanup();
+              }}
+              disabled={closingDialog}
             >
               {text.actions.cancelDialog}
             </Button>

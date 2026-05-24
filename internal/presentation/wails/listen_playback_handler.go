@@ -59,6 +59,7 @@ type ListenPlaybackQueueItemsRequest struct {
 }
 
 type ListenPlaybackRemoveQueueRequest struct {
+	TrackIDs []string `json:"trackIds"`
 	VideoIDs []string `json:"videoIds"`
 }
 
@@ -276,6 +277,13 @@ func (handler *ListenPlayerHandler) RemoveFromQueue(ctx context.Context, request
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
+	trackIDs := make(map[string]struct{}, len(request.TrackIDs))
+	for _, trackID := range request.TrackIDs {
+		trackID = strings.TrimSpace(trackID)
+		if trackID != "" {
+			trackIDs[trackID] = struct{}{}
+		}
+	}
 	videoIDs := make(map[string]struct{}, len(request.VideoIDs))
 	for _, videoID := range request.VideoIDs {
 		videoID = strings.TrimSpace(videoID)
@@ -283,7 +291,7 @@ func (handler *ListenPlayerHandler) RemoveFromQueue(ctx context.Context, request
 			videoIDs[videoID] = struct{}{}
 		}
 	}
-	handler.service.RemoveFromQueue(ctx, videoIDs)
+	handler.service.RemoveFromQueue(ctx, trackIDs, videoIDs)
 	return handler.service.Snapshot(ctx), nil
 }
 

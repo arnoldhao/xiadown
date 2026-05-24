@@ -68,11 +68,25 @@ export const IMAGE_FILE_EXTENSIONS = new Set([
   "svg",
   "webp",
 ]);
+export const SUBTITLE_FILE_EXTENSIONS = new Set([
+  "ass",
+  "dfxp",
+  "fcpxml",
+  "itt",
+  "lrc",
+  "sbv",
+  "srt",
+  "ssa",
+  "ttml",
+  "vtt",
+]);
+export const COMPLETED_TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
+export const COMPLETED_IMAGE_PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
 export const CONNECTOR_TYPES = new Set([
   "youtube",
   "bilibili",
   "tiktok",
-  "douyin",
+  "china_private",
   "instagram",
   "x",
   "facebook",
@@ -153,6 +167,33 @@ export function formatRelativeTime(value?: string) {
   return value;
 }
 
+export function formatLocalDateTime(value?: string) {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) {
+    return trimmed;
+  }
+  const date = new Date(parsed);
+  if (
+    typeof Intl !== "undefined" &&
+    typeof Intl.DateTimeFormat !== "undefined"
+  ) {
+    return new Intl.DateTimeFormat(getLanguage(), {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+  return date.toLocaleString();
+}
+
 export function normalizeDependencyVersion(version?: string, dependencyName?: string) {
   let value = (version ?? "").trim();
   if (!value) {
@@ -217,32 +258,51 @@ export function resolveCompletedPreviewKind(
   file: Pick<CompletedFileEntry, "kind" | "path" | "format">,
 ) {
   const normalizedKind = (file.kind ?? "").trim().toLowerCase();
-  if (normalizedKind === "video") {
-    return "video" as const;
-  }
-  if (normalizedKind === "audio") {
-    return "audio" as const;
-  }
-  if (normalizedKind === "subtitle") {
-    return "subtitle" as const;
-  }
-  if (normalizedKind === "image" || normalizedKind === "thumbnail") {
-    return "image" as const;
-  }
-
   const extension = (extractExtensionFromPath(file.path) || file.format || "")
     .trim()
     .toLowerCase();
-  if (AUDIO_FILE_EXTENSIONS.has(extension)) {
-    return "audio" as const;
+
+  if (normalizedKind === "subtitle" || SUBTITLE_FILE_EXTENSIONS.has(extension)) {
+    return "subtitle" as const;
   }
-  if (VIDEO_FILE_EXTENSIONS.has(extension)) {
-    return "video" as const;
-  }
-  if (IMAGE_FILE_EXTENSIONS.has(extension)) {
+  if (
+    normalizedKind === "image" ||
+    normalizedKind === "thumbnail" ||
+    IMAGE_FILE_EXTENSIONS.has(extension)
+  ) {
     return "image" as const;
   }
+  if (normalizedKind === "audio" || AUDIO_FILE_EXTENSIONS.has(extension)) {
+    return "audio" as const;
+  }
+  if (
+    normalizedKind === "video" ||
+    normalizedKind === "transcode" ||
+    VIDEO_FILE_EXTENSIONS.has(extension)
+  ) {
+    return "video" as const;
+  }
   return "other" as const;
+}
+
+export function resolveCompletedPreviewMaxBytes(
+  file: Pick<CompletedFileEntry, "kind" | "path" | "format">,
+) {
+  const previewKind = resolveCompletedPreviewKind(file);
+  if (previewKind === "subtitle") {
+    return COMPLETED_TEXT_PREVIEW_MAX_BYTES;
+  }
+  if (previewKind === "image") {
+    return COMPLETED_IMAGE_PREVIEW_MAX_BYTES;
+  }
+  return 0;
+}
+
+export function isCompletedPreviewTooLarge(
+  file: Pick<CompletedFileEntry, "kind" | "path" | "format" | "sizeBytes">,
+) {
+  const maxBytes = resolveCompletedPreviewMaxBytes(file);
+  return maxBytes > 0 && file.sizeBytes > maxBytes;
 }
 
 export function normalizeCompletedMediaToken(value?: string) {
@@ -418,10 +478,16 @@ export function buildCompletedProbeTypes(
 export function canPreviewCompletedFile(
   file: Pick<
     CompletedFileEntry,
-    "id" | "kind" | "path" | "format" | "previewURL" | "media"
+    "id" | "kind" | "path" | "format" | "previewURL" | "media" | "sizeBytes"
   >,
 ) {
   const previewKind = resolveCompletedPreviewKind(file);
+  if (previewKind === "subtitle" || previewKind === "image") {
+    return Boolean(file.previewURL) && !isCompletedPreviewTooLarge(file);
+  }
+  if (previewKind === "other") {
+    return false;
+  }
   if (previewKind !== "video" && previewKind !== "audio") {
     return true;
   }
@@ -775,6 +841,7 @@ export function resolveCompletedFileDetailFooterItems(
     case "video":
       return compactItems([
         { label: text.completed.fileFormat, value: fileFormat },
+        { label: text.completed.fileSize, value: fileSize },
         { label: text.completed.codec, value: codecSummary },
         {
           label: text.completed.videoBitrate,
@@ -786,11 +853,11 @@ export function resolveCompletedFileDetailFooterItems(
           label: text.completed.audioBitrate,
           value: formatCompletedBitrate(file.media?.audioBitrateKbps),
         },
-        { label: text.completed.fileSize, value: fileSize },
       ]);
     case "audio":
       return compactItems([
         { label: text.completed.fileFormat, value: fileFormat },
+        { label: text.completed.fileSize, value: fileSize },
         { label: text.completed.codec, value: codecSummary },
         {
           label: text.completed.bitrate,
@@ -798,7 +865,6 @@ export function resolveCompletedFileDetailFooterItems(
             file.media?.audioBitrateKbps ?? file.media?.bitrateKbps,
           ),
         },
-        { label: text.completed.fileSize, value: fileSize },
       ]);
     case "image":
       return compactItems([
@@ -806,8 +872,8 @@ export function resolveCompletedFileDetailFooterItems(
           label: text.completed.resolution,
           value: formatCompletedResolution(file.media?.width, file.media?.height),
         },
-        { label: text.completed.dpi, value: formatCompletedDpi(file.media?.dpi) },
         { label: text.completed.fileSize, value: fileSize },
+        { label: text.completed.dpi, value: formatCompletedDpi(file.media?.dpi) },
       ]);
     case "subtitle":
       return compactItems([
@@ -815,11 +881,11 @@ export function resolveCompletedFileDetailFooterItems(
           label: text.completed.originalFormat,
           value: resolveCompletedSubtitleOriginalFormat(file, text),
         },
+        { label: text.completed.fileSize, value: fileSize },
         {
           label: text.completed.lineCount,
           value: formatCompletedCueCount(file.media?.cueCount, text),
         },
-        { label: text.completed.fileSize, value: fileSize },
       ]);
     default:
       return compactItems([
@@ -1023,7 +1089,14 @@ export function resolveConnectorTypeForDomain(domain?: string) {
       return "tiktok";
     case "douyin.com":
     case "iesdouyin.com":
-      return "douyin";
+    case "xiaohongshu.com":
+    case "rednote.com":
+    case "xhs.cn":
+    case "xhslink.com":
+    case "xhslink.cn":
+    case "xhsurl.com":
+    case "rl.ink":
+      return "china_private";
     case "instagram.com":
       return "instagram";
     case "x.com":
@@ -1047,12 +1120,149 @@ export function resolveConnectorTypeForDomain(domain?: string) {
   }
 }
 
+type ParsedAppErrorMessage = {
+  code: string;
+  message: string;
+  structured: boolean;
+};
+
+function isErrorRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function errorStringField(
+  record: Record<string, unknown>,
+  keys: string[],
+): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function parseJSONErrorRecord(message: string): Record<string, unknown> | null {
+  const trimmed = message.trim();
+  const candidates = [trimmed];
+  const objectStart = trimmed.indexOf("{");
+  const objectEnd = trimmed.lastIndexOf("}");
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    candidates.push(trimmed.slice(objectStart, objectEnd + 1));
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate.startsWith("{") || !candidate.endsWith("}")) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (isErrorRecord(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Try the next JSON-looking candidate.
+    }
+  }
+  return null;
+}
+
+function errorRecordField(
+  record: Record<string, unknown>,
+  keys: string[],
+): Record<string, unknown> | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (isErrorRecord(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function parseAppErrorRecord(
+  record: Record<string, unknown>,
+): ParsedAppErrorMessage {
+  const code = errorStringField(record, [
+    "code",
+    "errorCode",
+    "Code",
+    "ErrorCode",
+  ]);
+  const message = errorStringField(record, [
+    "message",
+    "errorMessage",
+    "detail",
+    "error",
+    "Message",
+    "ErrorMessage",
+    "Detail",
+    "Error",
+  ]);
+  const parsedMessage = message ? parseAppErrorMessageParts(message) : null;
+  const nestedRecord = errorRecordField(record, ["error", "cause", "err"]);
+  const nested = nestedRecord ? parseAppErrorRecord(nestedRecord) : null;
+  return {
+    code: code || parsedMessage?.code || nested?.code || "",
+    message: parsedMessage?.message || message || nested?.message || "",
+    structured: true,
+  };
+}
+
+function parseAppErrorMessageParts(message: string): ParsedAppErrorMessage {
+  const trimmed = message.trim();
+  const jsonRecord = parseJSONErrorRecord(trimmed);
+  if (jsonRecord) {
+    return parseAppErrorRecord(jsonRecord);
+  }
+  const match = trimmed.match(/\[([a-z0-9_.-]+)]\s*(.*)$/i);
+  if (!match) {
+    return { code: "", message: trimmed, structured: false };
+  }
+  return {
+    code: match[1]?.trim() ?? "",
+    message: match[2]?.trim() ?? "",
+    structured: true,
+  };
+}
+
+function extractAppErrorMessage(error: unknown): ParsedAppErrorMessage {
+  if (error instanceof Error) {
+    const parsed = parseAppErrorMessageParts(error.message);
+    if (parsed.structured) {
+      return parsed;
+    }
+    const cause = (error as Error & { cause?: unknown }).cause;
+    const parsedCause = cause === undefined ? null : extractAppErrorMessage(cause);
+    if (parsedCause && (parsedCause.code || parsedCause.message)) {
+      return {
+        code: parsedCause.code || parsed.code,
+        message: parsedCause.message || parsed.message,
+        structured: parsedCause.structured,
+      };
+    }
+    return parsed;
+  }
+  if (typeof error === "string") {
+    return parseAppErrorMessageParts(error);
+  }
+  if (isErrorRecord(error)) {
+    return parseAppErrorRecord(error);
+  }
+  return { code: "", message: "", structured: false };
+}
+
 export function resolveUnknownErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-  if (typeof error === "string" && error.trim()) {
-    return error;
-  }
-  return fallback;
+  const parsed = extractAppErrorMessage(error);
+  return parsed.message || fallback;
+}
+
+export function parseAppErrorMessage(message: string) {
+  const parsed = parseAppErrorMessageParts(message);
+  return { code: parsed.code, message: parsed.message };
+}
+
+export function getAppErrorCode(error: unknown) {
+  return extractAppErrorMessage(error).code;
 }

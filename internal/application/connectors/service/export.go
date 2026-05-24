@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,6 +28,12 @@ func (service *ConnectorsService) ExportConnectorCookies(ctx context.Context, id
 	connector, err := service.repo.Get(ctx, trimmed)
 	if err != nil {
 		return "", err
+	}
+	if connector.CredentialMode == "" {
+		connector.CredentialMode = connectors.DefaultCredentialMode(connector.Type)
+	}
+	if connector.CredentialMode == connectors.CredentialModeProfile {
+		return "", connectors.ErrNoCookies
 	}
 	records := decodeCookies(connector.CookiesJSON)
 	if len(records) == 0 {
@@ -77,10 +84,6 @@ func writeNetscapeCookies(path string, cookies []appcookies.Record) error {
 		if domain == "" {
 			continue
 		}
-		includeSubdomains := "FALSE"
-		if strings.HasPrefix(domain, ".") {
-			includeSubdomains = "TRUE"
-		}
 		secure := "FALSE"
 		if cookie.Secure {
 			secure = "TRUE"
@@ -93,19 +96,58 @@ func writeNetscapeCookies(path string, cookies []appcookies.Record) error {
 		if cookie.Expires > 0 {
 			expires = strconv.FormatInt(cookie.Expires, 10)
 		}
-		builder.WriteString(strings.Join([]string{
-			domain,
-			includeSubdomains,
-			pathValue,
-			secure,
-			expires,
-			cookie.Name,
-			cookie.Value,
-		}, "\t"))
-		builder.WriteString("\n")
+		for _, domainEntry := range netscapeCookieDomains(domain) {
+			builder.WriteString(strings.Join([]string{
+				domainEntry.domain,
+				domainEntry.includeSubdomains,
+				pathValue,
+				secure,
+				expires,
+				cookie.Name,
+				cookie.Value,
+			}, "\t"))
+			builder.WriteString("\n")
+		}
 	}
 
 	return writeFileAtomic(path, []byte(builder.String()), 0o600)
+}
+
+type netscapeCookieDomain struct {
+	domain            string
+	includeSubdomains string
+}
+
+func netscapeCookieDomains(domain string) []netscapeCookieDomain {
+	trimmed := strings.TrimSpace(domain)
+	if trimmed == "" {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, ".") {
+		return []netscapeCookieDomain{{
+			domain:            trimmed,
+			includeSubdomains: "TRUE",
+		}}
+	}
+	domains := []netscapeCookieDomain{{
+		domain:            trimmed,
+		includeSubdomains: "FALSE",
+	}}
+	if canNetscapeCookieDomainIncludeSubdomains(trimmed) {
+		domains = append(domains, netscapeCookieDomain{
+			domain:            "." + trimmed,
+			includeSubdomains: "TRUE",
+		})
+	}
+	return domains
+}
+
+func canNetscapeCookieDomainIncludeSubdomains(domain string) bool {
+	normalized := strings.Trim(strings.TrimSpace(domain), "[]")
+	if normalized == "" || strings.Contains(normalized, ":") || !strings.Contains(normalized, ".") {
+		return false
+	}
+	return net.ParseIP(normalized) == nil
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {

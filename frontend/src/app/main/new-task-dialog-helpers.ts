@@ -231,3 +231,23 @@ export function resolveOpenFileName(path: string) {
   const baseName = getPathBaseName(path);
   return stripPathExtension(baseName);
 }
+
+export type ResourceSniffStartResolution =
+  | "attach"
+  | "cancel"
+  | "preserve";
+
+export function resolveResourceSniffStartResolution(input: {
+  requestVersion: number;
+  currentVersion: number;
+  dialogOpen: boolean;
+  transferRequestVersion: number | null | undefined;
+}): ResourceSniffStartResolution {
+  if (input.transferRequestVersion === input.requestVersion) {
+    return "preserve";
+  }
+  if (input.requestVersion !== input.currentVersion || !input.dialogOpen) {
+    return "cancel";
+  }
+  return "attach";
+}

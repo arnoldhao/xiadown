@@ -94,6 +94,7 @@ type ArtistPage struct {
 	ID            string
 	Title         string
 	Subtitle      string
+	ThumbnailURL  string
 	ChannelID     string
 	IsSubscribed  bool
 	MixPlaylistID string
@@ -344,6 +345,7 @@ func (client *Client) ArtistPage(ctx context.Context, browseID string, limit int
 		ID:            artistBrowseID,
 		Title:         firstNonEmpty(header.Title, browsePageTitle(data)),
 		Subtitle:      header.Subtitle,
+		ThumbnailURL:  header.ThumbnailURL,
 		ChannelID:     header.ChannelID,
 		IsSubscribed:  header.IsSubscribed,
 		MixPlaylistID: header.MixPlaylistID,
@@ -1236,7 +1238,7 @@ func trackFromHomeTwoRowRenderer(renderer map[string]any) (Track, bool) {
 	}
 	subtitleNavigationRuns := textRunsWithNavigation(asMap(renderer["subtitle"]))
 	subtitleRuns := textValuesFromRuns(subtitleNavigationRuns)
-	channel, artistBrowseID, artistSource := artistRunFromBylineRuns(subtitleNavigationRuns)
+	channel, artistBrowseID, artistSource, artists := artistRunFromBylineRuns(subtitleNavigationRuns)
 	if channel == "" {
 		channel = firstCreatorText(subtitleRuns)
 	}
@@ -1246,6 +1248,7 @@ func trackFromHomeTwoRowRenderer(renderer map[string]any) (Track, bool) {
 		VideoID:        videoID,
 		Title:          title,
 		Channel:        fallbackString(channel, "YouTube Music"),
+		Artists:        artists,
 		ArtistBrowseID: artistBrowseID,
 		ArtistSource:   artistSource,
 		DurationLabel:  duration,
@@ -1652,6 +1655,7 @@ func browsePageTitle(data map[string]any) string {
 type artistHeader struct {
 	Title         string
 	Subtitle      string
+	ThumbnailURL  string
 	ChannelID     string
 	IsSubscribed  bool
 	MixPlaylistID string
@@ -1678,6 +1682,9 @@ func artistHeaderFromBrowseData(data map[string]any, browseID string) artistHead
 		}
 		if result.Subtitle == "" {
 			result.Subtitle = artistSubtitleFromHeader(renderer)
+		}
+		if result.ThumbnailURL == "" {
+			result.ThumbnailURL = lastThumbnailURL(renderer)
 		}
 		if channelID, subscribed := artistSubscriptionFromHeader(renderer); channelID != "" || subscribed {
 			if channelID != "" {
