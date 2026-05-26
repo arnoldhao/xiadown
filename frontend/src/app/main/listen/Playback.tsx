@@ -821,7 +821,9 @@ export function ListenPlayback(props: {
         data: null,
         error: "",
       });
-      setLocalMediaMode("cover");
+      if (props.mode !== "linger" || !localTrack) {
+        setLocalMediaMode("cover");
+      }
       setLocalQueueOpen(false);
       return;
     }
@@ -838,7 +840,6 @@ export function ListenPlayback(props: {
         data: null,
         error: "",
       });
-      setLocalMediaMode("cover");
       return;
     }
     const forceRequest = localLyricsRetryKeyRef.current === lyricsId;
@@ -1343,8 +1344,7 @@ export function ListenYouTubePlayback(props: {
     return videoId ? buildYouTubeWatchURL(videoId) : "";
   }, [props.track.videoId]);
   const [mediaMode, setMediaMode] = React.useState<ListenMediaMode>("cover");
-  const [videoOpen, setVideoOpen] = React.useState(false);
-  const videoOpenRef = React.useRef(false);
+  const mediaModeRef = React.useRef<ListenMediaMode>("cover");
   const fullscreenLyricsDefaultKeyRef = React.useRef("");
   const [videoAvailability, setVideoAvailability] =
     React.useState<ListenVideoAvailability>(() =>
@@ -1443,7 +1443,7 @@ export function ListenYouTubePlayback(props: {
   const inlineVideoHasSurface =
     props.active &&
     !isLive &&
-    videoOpen &&
+    mediaMode === "video" &&
     hasVideo &&
     props.enabled;
   const inlineVideoModeEligible =
@@ -1934,13 +1934,9 @@ export function ListenYouTubePlayback(props: {
     const defaultKey = `${props.track.id}:${props.track.videoId}`;
     if (mediaMode === "lyrics") {
       fullscreenLyricsDefaultKeyRef.current = defaultKey;
-      if (videoOpen) {
-        setVideoOpen(false);
-        hideInlineEmbeddedVideo();
-      }
       return;
     }
-    if (videoOpen) {
+    if (mediaMode === "video") {
       fullscreenLyricsDefaultKeyRef.current = defaultKey;
       return;
     }
@@ -1953,7 +1949,6 @@ export function ListenYouTubePlayback(props: {
     fullscreenLyricsDefaultKeyRef.current = defaultKey;
     setMediaMode("lyrics");
   }, [
-    hideInlineEmbeddedVideo,
     isLive,
     mediaMode,
     props.active,
@@ -1961,26 +1956,6 @@ export function ListenYouTubePlayback(props: {
     props.track.id,
     props.track.videoId,
     trackVideoId,
-    videoOpen,
-  ]);
-
-  React.useEffect(() => {
-    if (
-      isLive ||
-      !props.listOpen ||
-      !videoOpen ||
-      mediaMode !== "lyrics"
-    ) {
-      return;
-    }
-    setVideoOpen(false);
-    hideInlineEmbeddedVideo();
-  }, [
-    hideInlineEmbeddedVideo,
-    isLive,
-    mediaMode,
-    props.listOpen,
-    videoOpen,
   ]);
 
   const showInlineEmbeddedVideo = React.useCallback(
@@ -2048,22 +2023,8 @@ export function ListenYouTubePlayback(props: {
   ]);
 
   React.useEffect(() => {
-    videoOpenRef.current = videoOpen;
-  }, [videoOpen]);
-
-  React.useEffect(() => {
-    if (hasVideo || !videoOpen) {
-      return;
-    }
-    setVideoOpen(false);
-    hideInlineEmbeddedVideo();
-    const requestId = inlineNativeVideoRequestRef.current + 1;
-    inlineNativeVideoRequestRef.current = requestId;
-    const sequence = createListenNativeVideoSequence(requestId);
-    void callNativePlayer("HideVideoWindowForSequence", { sequence }).catch(
-      () => {},
-    );
-  }, [callNativePlayer, hasVideo, hideInlineEmbeddedVideo, videoOpen]);
+    mediaModeRef.current = mediaMode;
+  }, [mediaMode]);
 
   React.useEffect(() => {
     if (!props.enabled || !canCheckVideoAvailability || videoAvailability !== "checking") {
@@ -2113,7 +2074,7 @@ export function ListenYouTubePlayback(props: {
       }).catch(
         () => {},
       );
-      if (videoOpenRef.current) {
+      if (mediaModeRef.current === "video") {
         void Call.ByName(`${playerService}.HideVideoWindowForSequence`, {
           sequence,
         }).catch(
@@ -2158,32 +2119,13 @@ export function ListenYouTubePlayback(props: {
 
   const handleOnlineMediaModeChange = React.useCallback(
     (mode: ListenMediaMode) => {
-      if (mode === "lyrics") {
-        if (videoOpen) {
-          setVideoOpen(false);
-          hideInlineEmbeddedVideo();
-        }
-        setMediaMode("lyrics");
-        return;
-      }
       setMediaMode(mode);
+      if (mode !== "video") {
+        hideInlineEmbeddedVideo();
+      }
     },
-    [hideInlineEmbeddedVideo, videoOpen],
+    [hideInlineEmbeddedVideo],
   );
-
-  const handleToggleVideo = React.useCallback(() => {
-    if (!hasVideo) {
-      return;
-    }
-    const nextOpen = !videoOpen;
-    if (nextOpen) {
-      setMediaMode("cover");
-    }
-    setVideoOpen(nextOpen);
-    if (!nextOpen) {
-      hideInlineEmbeddedVideo();
-    }
-  }, [hasVideo, hideInlineEmbeddedVideo, videoOpen]);
 
   const handleOpenTrackPage = React.useCallback(() => {
     if (!trackPageURL) {
@@ -2404,7 +2346,7 @@ export function ListenYouTubePlayback(props: {
         return;
       }
       if (data.type === "video-closed") {
-        setVideoOpen(false);
+        setMediaMode((current) => (current === "video" ? "cover" : current));
         return;
       }
       if (data.type === "remote-next") {
@@ -2732,7 +2674,7 @@ export function ListenYouTubePlayback(props: {
   );
 
   const handleStopPlayback = React.useCallback(() => {
-    setVideoOpen(false);
+    setMediaMode((current) => (current === "video" ? "cover" : current));
     setPlaybackAdvertising(false);
     setPlaybackAdvertisingLabel("");
     setPlaybackAdvertisingProgress(null);
@@ -2913,8 +2855,6 @@ export function ListenYouTubePlayback(props: {
         playMode={props.playMode}
         text={props.text}
         onAirPlay={props.airPlaySupported ? handleAirPlay : undefined}
-        videoOpen={videoOpen}
-        onToggleVideo={hasVideo ? handleToggleVideo : undefined}
         onMediaModeChange={handleOnlineMediaModeChange}
         onPrevious={props.onPrevious}
         onNext={props.onNext}
@@ -2984,7 +2924,6 @@ function ListenPlayerChrome(props: {
   lyricsAvailable?: boolean;
   lyricsKind?: ListenLyricsKind;
   lyricsLoading?: boolean;
-  videoOpen?: boolean;
   disabled?: boolean;
   title: string;
   subtitle: string;
@@ -3021,7 +2960,6 @@ function ListenPlayerChrome(props: {
   text: ReturnType<typeof getXiaText>;
   onMediaModeChange: (mode: ListenMediaMode) => void;
   onAirPlay?: (anchor: ListenAirPlayAnchor) => void;
-  onToggleVideo?: () => void;
   onPrevious: () => void;
   onNext: () => void;
   onPlayModeChange: (mode: ListenPlayMode) => void;
@@ -3038,9 +2976,9 @@ function ListenPlayerChrome(props: {
   const inlineVideoActive =
     !props.live &&
     props.hasVideo &&
-    props.videoOpen === true &&
+    props.mediaMode === "video" &&
     Boolean(props.onInlineVideoRectChange);
-  const splitMode = props.mediaMode !== "cover" || inlineVideoActive;
+  const splitMode = props.mediaMode === "lyrics" || inlineVideoActive;
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const playerStackRef = React.useRef<HTMLDivElement | null>(null);
   const layoutKey = props.listOpen === true ? "list" : "fullscreen";
@@ -3088,7 +3026,7 @@ function ListenPlayerChrome(props: {
   const mediaStage =
     inlineVideoSurface ? (
       inlineVideoSurface
-    ) : props.mediaMode === "cover" ? (
+    ) : props.mediaMode !== "lyrics" ? (
       props.cover
     ) : (
       <div
@@ -3351,11 +3289,9 @@ function ListenPlayerChrome(props: {
           lyricsAvailable={props.lyricsAvailable !== false}
           lyricsKind={props.lyricsKind}
           lyricsLoading={props.lyricsLoading}
-          videoOpen={props.videoOpen}
           queueOpen={props.queueOpen}
           text={props.text}
           onAirPlay={props.onAirPlay}
-          onToggleVideo={props.onToggleVideo}
           onMediaModeChange={props.onMediaModeChange}
           onToggleQueue={props.onToggleQueue}
         />
