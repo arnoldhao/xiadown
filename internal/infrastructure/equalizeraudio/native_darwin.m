@@ -11,6 +11,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #import <WebKit/WebKit.h>
+#include <dispatch/dispatch.h>
 #include <libproc.h>
 #include <math.h>
 #include <objc/message.h>
@@ -40,9 +41,14 @@ typedef struct {
 	AudioObjectID tapID;
 	AudioObjectID aggregateID;
 	AudioDeviceIOProcID ioProcID;
+	CFStringRef outputDeviceUID;
 	Float64 sampleRate;
 	int running;
+	int defaultOutputListenerInstalled;
 	int hasObservedAudio;
+	int settingsEnabled;
+	double settingsPreampDB;
+	double settingsGainsDB[6];
 	float preampLinear;
 	float wetMix;
 	float wetMixTarget;
@@ -68,6 +74,9 @@ static pthread_mutex_t xiaVisualizerLock = PTHREAD_MUTEX_INITIALIZER;
 static XiaEqualizerEngine xiaEngine;
 static XiaVisualizerFrame xiaVisualizerFrame;
 static int xiaEngineInitialized = 0;
+static dispatch_once_t xiaOutputRouteQueueOnce;
+static dispatch_queue_t xiaOutputRouteQueueRef = NULL;
+static volatile int xiaOutputRouteRestartScheduled = 0;
 static double xiaAnalyzerSampleRate = 0;
 static double xiaAnalyzerCoefficients[32];
 
@@ -78,6 +87,21 @@ static const int xiaBandCount = 6;
 static const int xiaVisualizerBandCount = 32;
 static const int xiaVisualizerWaveformCount = 64;
 static const double xiaBandFrequencies[6] = {60, 150, 400, 1000, 2400, 15000};
+
+static dispatch_queue_t xiaOutputRouteQueue(void) {
+	dispatch_once(&xiaOutputRouteQueueOnce, ^{
+		xiaOutputRouteQueueRef = dispatch_queue_create("com.dreamapp.XiaDown.equalizer.output-route", DISPATCH_QUEUE_SERIAL);
+	});
+	return xiaOutputRouteQueueRef;
+}
+
+static OSStatus xiaDefaultOutputDeviceChanged(
+	AudioObjectID inObjectID,
+	UInt32 inNumberAddresses,
+	const AudioObjectPropertyAddress *inAddresses,
+	void *inClientData
+);
+static void xiaRestartForDefaultOutputChange(void);
 
 static double xiaCurrentHostTimeSeconds(void) {
 	UInt64 hostTime = AudioGetCurrentHostTime();
@@ -130,9 +154,16 @@ static void xiaEnsureEngineInitialized(void) {
 	xiaEngine.tapID = kAudioObjectUnknown;
 	xiaEngine.aggregateID = kAudioObjectUnknown;
 	xiaEngine.ioProcID = NULL;
+	xiaEngine.outputDeviceUID = NULL;
 	xiaEngine.sampleRate = 48000;
 	xiaEngine.running = 0;
+	xiaEngine.defaultOutputListenerInstalled = 0;
 	xiaEngine.hasObservedAudio = 0;
+	xiaEngine.settingsEnabled = 0;
+	xiaEngine.settingsPreampDB = 0;
+	for (int index = 0; index < xiaBandCount; index++) {
+		xiaEngine.settingsGainsDB[index] = 0;
+	}
 	xiaEngine.preampLinear = 1;
 	xiaEngine.wetMix = 1;
 	xiaEngine.wetMixTarget = 1;
@@ -997,6 +1028,23 @@ static NSString *xiaDefaultOutputDeviceUID(void) {
 	return xiaStringProperty(deviceID, kAudioDevicePropertyDeviceUID);
 }
 
+static void xiaClearBoundOutputDeviceUIDLocked(void) {
+	if (xiaEngine.outputDeviceUID == NULL) {
+		return;
+	}
+	CFRelease(xiaEngine.outputDeviceUID);
+	xiaEngine.outputDeviceUID = NULL;
+}
+
+static void xiaAdoptBoundOutputDeviceUIDLocked(NSString *outputUID) {
+	xiaClearBoundOutputDeviceUIDLocked();
+	if (outputUID.length == 0) {
+		[outputUID release];
+		return;
+	}
+	xiaEngine.outputDeviceUID = (CFStringRef)outputUID;
+}
+
 static void xiaDestroyOrphanedAggregates(void) {
 	AudioObjectPropertyAddress address = {
 		.mSelector = kAudioHardwarePropertyDevices,
@@ -1024,7 +1072,7 @@ static void xiaDestroyOrphanedAggregates(void) {
 	free(devices);
 }
 
-static AudioObjectID xiaCreateAggregateDevice(AudioObjectID tapID) {
+static AudioObjectID xiaCreateAggregateDevice(AudioObjectID tapID, NSString **boundOutputUID) {
 	NSString *outputUID = xiaDefaultOutputDeviceUID();
 	NSString *tapUID = xiaStringProperty(tapID, kAudioTapPropertyUID);
 	if (outputUID.length == 0 || tapUID.length == 0) {
@@ -1052,7 +1100,13 @@ static AudioObjectID xiaCreateAggregateDevice(AudioObjectID tapID) {
 	};
 	AudioObjectID aggregateID = kAudioObjectUnknown;
 	OSStatus status = AudioHardwareCreateAggregateDevice((CFDictionaryRef)description, &aggregateID);
-	return status == noErr ? aggregateID : kAudioObjectUnknown;
+	if (status != noErr) {
+		return kAudioObjectUnknown;
+	}
+	if (boundOutputUID != NULL) {
+		*boundOutputUID = [outputUID copy];
+	}
+	return aggregateID;
 }
 
 static int xiaReadAggregateSampleRate(AudioObjectID aggregateID, Float64 *sampleRate) {
@@ -1082,6 +1136,274 @@ static void xiaDestroyProcessTap(AudioObjectID tapID) {
 
 static BOOL xiaStatusLooksPermissionDenied(OSStatus status) {
 	return status == kAudioDevicePermissionsError;
+}
+
+static void xiaStoreEqualizerSettingsLocked(int enabled, double preampDB, const double *gains, int gainCount) {
+	xiaEngine.settingsEnabled = enabled ? 1 : 0;
+	if (!isfinite(preampDB)) {
+		preampDB = 0;
+	}
+	if (preampDB < -12) {
+		preampDB = -12;
+	} else if (preampDB > 12) {
+		preampDB = 12;
+	}
+	xiaEngine.settingsPreampDB = preampDB;
+	for (int index = 0; index < xiaBandCount; index++) {
+		double value = (gains != NULL && index < gainCount) ? gains[index] : 0;
+		if (!isfinite(value)) {
+			value = 0;
+		}
+		if (value < -12) {
+			value = -12;
+		} else if (value > 12) {
+			value = 12;
+		}
+		xiaEngine.settingsGainsDB[index] = value;
+	}
+}
+
+static void xiaApplyStoredEqualizerSettingsLocked(void) {
+	double peakBandGain = 0;
+	for (int index = 0; index < xiaBandCount; index++) {
+		double value = xiaEngine.settingsGainsDB[index];
+		if (index == 0 || value > peakBandGain) {
+			peakBandGain = value;
+		}
+	}
+	double autoTrimDB = -fmax(0, xiaEngine.settingsPreampDB + peakBandGain) * 0.2;
+	xiaEngine.preampLinear = (float)pow(10.0, (xiaEngine.settingsPreampDB + autoTrimDB) / 20.0);
+	xiaEngine.wetMixTarget = xiaEngine.settingsEnabled ? 1.0f : 0.0f;
+	double sampleRate = xiaEngine.sampleRate > 0 ? xiaEngine.sampleRate : 48000;
+	for (int index = 0; index < xiaBandCount; index++) {
+		if (index == 0) {
+			xiaSetShelf(&xiaEngine.filters[index], 0, xiaBandFrequencies[index], xiaBandQ[index], xiaEngine.settingsGainsDB[index], sampleRate);
+		} else if (index == xiaBandCount - 1) {
+			xiaSetShelf(&xiaEngine.filters[index], 1, xiaBandFrequencies[index], xiaBandQ[index], xiaEngine.settingsGainsDB[index], sampleRate);
+		} else {
+			xiaSetPeakingEQ(&xiaEngine.filters[index], xiaBandFrequencies[index], xiaBandQ[index], xiaEngine.settingsGainsDB[index], sampleRate);
+		}
+	}
+}
+
+static void xiaApplyEqualizerSettingsLocked(int enabled, double preampDB, const double *gains, int gainCount) {
+	xiaStoreEqualizerSettingsLocked(enabled, preampDB, gains, gainCount);
+	xiaApplyStoredEqualizerSettingsLocked();
+}
+
+static void xiaScheduleOutputRouteRestart(void) {
+	if (!__sync_bool_compare_and_swap(&xiaOutputRouteRestartScheduled, 0, 1)) {
+		return;
+	}
+	dispatch_async(xiaOutputRouteQueue(), ^{
+		xiaRestartForDefaultOutputChange();
+	});
+}
+
+static AudioObjectPropertyAddress xiaDefaultOutputDevicePropertyAddress(void) {
+	AudioObjectPropertyAddress address = {
+		.mSelector = kAudioHardwarePropertyDefaultOutputDevice,
+		.mScope = kAudioObjectPropertyScopeGlobal,
+		.mElement = kAudioObjectPropertyElementMain,
+	};
+	return address;
+}
+
+static void xiaInstallDefaultOutputListenerLocked(void) {
+	if (xiaEngine.defaultOutputListenerInstalled) {
+		return;
+	}
+	AudioObjectPropertyAddress address = xiaDefaultOutputDevicePropertyAddress();
+	OSStatus status = AudioObjectAddPropertyListener(
+		kAudioObjectSystemObject,
+		&address,
+		xiaDefaultOutputDeviceChanged,
+		NULL
+	);
+	if (status == noErr) {
+		xiaEngine.defaultOutputListenerInstalled = 1;
+	}
+}
+
+static void xiaRemoveDefaultOutputListenerLocked(void) {
+	if (!xiaEngine.defaultOutputListenerInstalled) {
+		return;
+	}
+	AudioObjectPropertyAddress address = xiaDefaultOutputDevicePropertyAddress();
+	AudioObjectRemovePropertyListener(
+		kAudioObjectSystemObject,
+		&address,
+		xiaDefaultOutputDeviceChanged,
+		NULL
+	);
+	xiaEngine.defaultOutputListenerInstalled = 0;
+	__sync_lock_test_and_set(&xiaOutputRouteRestartScheduled, 0);
+}
+
+static void xiaStopAudioPipelineLocked(int clearVisualizer) {
+	if (xiaEngine.ioProcID != NULL && xiaEngine.aggregateID != kAudioObjectUnknown) {
+		AudioDeviceStop(xiaEngine.aggregateID, xiaEngine.ioProcID);
+		AudioDeviceDestroyIOProcID(xiaEngine.aggregateID, xiaEngine.ioProcID);
+	}
+	xiaEngine.ioProcID = NULL;
+	if (xiaEngine.aggregateID != kAudioObjectUnknown) {
+		AudioHardwareDestroyAggregateDevice(xiaEngine.aggregateID);
+	}
+	xiaEngine.aggregateID = kAudioObjectUnknown;
+	if (xiaEngine.tapID != kAudioObjectUnknown) {
+		xiaDestroyProcessTap(xiaEngine.tapID);
+	}
+	xiaEngine.tapID = kAudioObjectUnknown;
+	xiaClearBoundOutputDeviceUIDLocked();
+	xiaEngine.running = 0;
+	xiaEngine.hasObservedAudio = 0;
+	if (clearVisualizer) {
+		xiaClearVisualizerFrame(0);
+	}
+}
+
+static int xiaStartAudioPipelineLocked(int *detailStatus) {
+	if (@available(macOS 14.2, *)) {
+		xiaDestroyOrphanedAggregates();
+		NSArray<NSNumber *> *objects = xiaAudioObjectsToTap();
+		if (objects.count == 0) {
+			return XiaEQStartNoAudioSource;
+		}
+
+		CATapDescription *description = [[CATapDescription alloc] initStereoMixdownOfProcesses:objects];
+		description.muteBehavior = CATapMutedWhenTapped;
+		description.privateTap = YES;
+		description.exclusive = NO;
+		description.name = [NSString stringWithUTF8String:xiaTapName];
+
+		AudioObjectID tapID = kAudioObjectUnknown;
+		OSStatus tapStatus = AudioHardwareCreateProcessTap(description, &tapID);
+		[description release];
+		if (tapStatus != noErr) {
+			if (detailStatus != NULL) {
+				*detailStatus = tapStatus;
+			}
+			xiaDestroyProcessTap(tapID);
+			if (xiaStatusLooksPermissionDenied(tapStatus)) {
+				return XiaEQStartPermissionDenied;
+			}
+			return XiaEQStartTapCreation;
+		}
+		xiaEngine.tapID = tapID;
+
+		NSString *boundOutputUID = nil;
+		AudioObjectID aggregateID = xiaCreateAggregateDevice(tapID, &boundOutputUID);
+		if (aggregateID == kAudioObjectUnknown) {
+			[boundOutputUID release];
+			xiaStopAudioPipelineLocked(1);
+			return XiaEQStartAggregateCreation;
+		}
+		xiaEngine.aggregateID = aggregateID;
+
+		Float64 sampleRate = 0;
+		if (!xiaReadAggregateSampleRate(aggregateID, &sampleRate)) {
+			[boundOutputUID release];
+			xiaStopAudioPipelineLocked(1);
+			return XiaEQStartInvalidTapFormat;
+		}
+		xiaEngine.sampleRate = sampleRate;
+		xiaUpdateAnalyzerCoefficients(sampleRate);
+		xiaApplyStoredEqualizerSettingsLocked();
+		xiaResetDSPState();
+
+		AudioDeviceIOProcID ioProcID = NULL;
+		OSStatus createStatus = AudioDeviceCreateIOProcID(aggregateID, xiaEqualizerIOProc, NULL, &ioProcID);
+		if (createStatus != noErr || ioProcID == NULL) {
+			if (detailStatus != NULL) {
+				*detailStatus = createStatus;
+			}
+			if (ioProcID != NULL) {
+				AudioDeviceDestroyIOProcID(aggregateID, ioProcID);
+			}
+			[boundOutputUID release];
+			xiaStopAudioPipelineLocked(1);
+			return XiaEQStartIOProcInstall;
+		}
+		xiaEngine.ioProcID = ioProcID;
+
+		OSStatus startStatus = AudioDeviceStart(aggregateID, ioProcID);
+		if (startStatus != noErr) {
+			if (detailStatus != NULL) {
+				*detailStatus = startStatus;
+			}
+			[boundOutputUID release];
+			xiaStopAudioPipelineLocked(1);
+			if (xiaStatusLooksPermissionDenied(startStatus)) {
+				return XiaEQStartPermissionDenied;
+			}
+			return XiaEQStartDeviceStart;
+		}
+
+		xiaEngine.running = 1;
+		xiaAdoptBoundOutputDeviceUIDLocked(boundOutputUID);
+		xiaClearVisualizerFrame(1);
+		xiaInstallDefaultOutputListenerLocked();
+		NSString *currentUID = xiaDefaultOutputDeviceUID();
+		if (
+			currentUID.length > 0 &&
+			xiaEngine.outputDeviceUID != NULL &&
+			CFStringCompare(xiaEngine.outputDeviceUID, (CFStringRef)currentUID, 0) != kCFCompareEqualTo
+		) {
+			xiaScheduleOutputRouteRestart();
+		}
+		return XiaEQStartSuccess;
+	}
+	return XiaEQStartUnsupported;
+}
+
+static OSStatus xiaDefaultOutputDeviceChanged(
+	AudioObjectID inObjectID,
+	UInt32 inNumberAddresses,
+	const AudioObjectPropertyAddress *inAddresses,
+	void *inClientData
+) {
+	(void)inObjectID;
+	(void)inNumberAddresses;
+	(void)inAddresses;
+	(void)inClientData;
+	xiaScheduleOutputRouteRestart();
+	return noErr;
+}
+
+static void xiaRestartForDefaultOutputChange(void) {
+	if (@available(macOS 14.2, *)) {
+		@autoreleasepool {
+			pthread_mutex_lock(&xiaEngineLock);
+			__sync_lock_test_and_set(&xiaOutputRouteRestartScheduled, 0);
+			xiaEnsureEngineInitialized();
+			if (!xiaEngine.running) {
+				pthread_mutex_unlock(&xiaEngineLock);
+				return;
+			}
+			NSString *currentUID = xiaDefaultOutputDeviceUID();
+			if (currentUID.length == 0) {
+				pthread_mutex_unlock(&xiaEngineLock);
+				return;
+			}
+			if (
+				xiaEngine.outputDeviceUID != NULL &&
+				CFStringCompare(xiaEngine.outputDeviceUID, (CFStringRef)currentUID, 0) == kCFCompareEqualTo
+			) {
+				pthread_mutex_unlock(&xiaEngineLock);
+				return;
+			}
+
+			xiaStopAudioPipelineLocked(0);
+			int status = xiaStartAudioPipelineLocked(NULL);
+			if (status != XiaEQStartSuccess) {
+				xiaRemoveDefaultOutputListenerLocked();
+				xiaClearVisualizerFrame(0);
+			}
+			pthread_mutex_unlock(&xiaEngineLock);
+		}
+		return;
+	}
+	__sync_lock_test_and_set(&xiaOutputRouteRestartScheduled, 0);
 }
 
 int xia_equalizer_supported(void) {
@@ -1179,66 +1501,17 @@ int xia_equalizer_visualizer_frame(
 }
 
 void xia_equalizer_apply(int enabled, double preampDB, const double *gains, int gainCount) {
+	pthread_mutex_lock(&xiaEngineLock);
 	xiaEnsureEngineInitialized();
-	double normalizedGains[6] = {0, 0, 0, 0, 0, 0};
-	double peakBandGain = 0;
-	for (int index = 0; index < xiaBandCount; index++) {
-		double value = (gains != NULL && index < gainCount) ? gains[index] : 0;
-		if (!isfinite(value)) {
-			value = 0;
-		}
-		if (value < -12) {
-			value = -12;
-		} else if (value > 12) {
-			value = 12;
-		}
-		normalizedGains[index] = value;
-		if (index == 0 || value > peakBandGain) {
-			peakBandGain = value;
-		}
-	}
-	if (!isfinite(preampDB)) {
-		preampDB = 0;
-	}
-	if (preampDB < -12) {
-		preampDB = -12;
-	} else if (preampDB > 12) {
-		preampDB = 12;
-	}
-	double autoTrimDB = -fmax(0, preampDB + peakBandGain) * 0.2;
-	xiaEngine.preampLinear = (float)pow(10.0, (preampDB + autoTrimDB) / 20.0);
-	xiaEngine.wetMixTarget = enabled ? 1.0f : 0.0f;
-	double sampleRate = xiaEngine.sampleRate > 0 ? xiaEngine.sampleRate : 48000;
-	for (int index = 0; index < xiaBandCount; index++) {
-		if (index == 0) {
-			xiaSetShelf(&xiaEngine.filters[index], 0, xiaBandFrequencies[index], xiaBandQ[index], normalizedGains[index], sampleRate);
-		} else if (index == xiaBandCount - 1) {
-			xiaSetShelf(&xiaEngine.filters[index], 1, xiaBandFrequencies[index], xiaBandQ[index], normalizedGains[index], sampleRate);
-		} else {
-			xiaSetPeakingEQ(&xiaEngine.filters[index], xiaBandFrequencies[index], xiaBandQ[index], normalizedGains[index], sampleRate);
-		}
-	}
+	xiaApplyEqualizerSettingsLocked(enabled, preampDB, gains, gainCount);
+	pthread_mutex_unlock(&xiaEngineLock);
 }
 
 void xia_equalizer_stop(void) {
 	pthread_mutex_lock(&xiaEngineLock);
 	xiaEnsureEngineInitialized();
-	if (xiaEngine.ioProcID != NULL && xiaEngine.aggregateID != kAudioObjectUnknown) {
-		AudioDeviceStop(xiaEngine.aggregateID, xiaEngine.ioProcID);
-		AudioDeviceDestroyIOProcID(xiaEngine.aggregateID, xiaEngine.ioProcID);
-	}
-	xiaEngine.ioProcID = NULL;
-	if (xiaEngine.aggregateID != kAudioObjectUnknown) {
-		AudioHardwareDestroyAggregateDevice(xiaEngine.aggregateID);
-	}
-	xiaEngine.aggregateID = kAudioObjectUnknown;
-	if (xiaEngine.tapID != kAudioObjectUnknown) {
-		xiaDestroyProcessTap(xiaEngine.tapID);
-	}
-	xiaEngine.tapID = kAudioObjectUnknown;
-	xiaEngine.running = 0;
-	xiaEngine.hasObservedAudio = 0;
-	xiaClearVisualizerFrame(0);
+	xiaRemoveDefaultOutputListenerLocked();
+	xiaStopAudioPipelineLocked(1);
 	pthread_mutex_unlock(&xiaEngineLock);
 }
 
@@ -1257,100 +1530,14 @@ int xia_equalizer_start(int enabled, double preampDB, const double *gains, int g
 		@autoreleasepool {
 			pthread_mutex_lock(&xiaEngineLock);
 			xiaEnsureEngineInitialized();
+			xiaApplyEqualizerSettingsLocked(enabled, preampDB, gains, gainCount);
 			if (xiaEngine.running) {
-				xia_equalizer_apply(enabled, preampDB, gains, gainCount);
 				pthread_mutex_unlock(&xiaEngineLock);
 				return XiaEQStartSuccess;
 			}
-			xiaDestroyOrphanedAggregates();
-			NSArray<NSNumber *> *objects = xiaAudioObjectsToTap();
-			if (objects.count == 0) {
-				pthread_mutex_unlock(&xiaEngineLock);
-				return XiaEQStartNoAudioSource;
-			}
-
-			CATapDescription *description = [[CATapDescription alloc] initStereoMixdownOfProcesses:objects];
-			description.muteBehavior = CATapMutedWhenTapped;
-			description.privateTap = YES;
-			description.exclusive = NO;
-			description.name = [NSString stringWithUTF8String:xiaTapName];
-
-			AudioObjectID tapID = kAudioObjectUnknown;
-			OSStatus tapStatus = AudioHardwareCreateProcessTap(description, &tapID);
-			[description release];
-			if (tapStatus != noErr) {
-				if (detailStatus != NULL) {
-					*detailStatus = tapStatus;
-				}
-				xiaDestroyProcessTap(tapID);
-				pthread_mutex_unlock(&xiaEngineLock);
-				if (xiaStatusLooksPermissionDenied(tapStatus)) {
-					return XiaEQStartPermissionDenied;
-				}
-				return XiaEQStartTapCreation;
-			}
-			xiaEngine.tapID = tapID;
-
-			AudioObjectID aggregateID = xiaCreateAggregateDevice(tapID);
-			if (aggregateID == kAudioObjectUnknown) {
-				xiaDestroyProcessTap(tapID);
-				xiaEngine.tapID = kAudioObjectUnknown;
-				pthread_mutex_unlock(&xiaEngineLock);
-				return XiaEQStartAggregateCreation;
-			}
-			xiaEngine.aggregateID = aggregateID;
-
-			Float64 sampleRate = 0;
-			if (!xiaReadAggregateSampleRate(aggregateID, &sampleRate)) {
-				AudioHardwareDestroyAggregateDevice(aggregateID);
-				xiaDestroyProcessTap(tapID);
-				xiaEngine.aggregateID = kAudioObjectUnknown;
-				xiaEngine.tapID = kAudioObjectUnknown;
-				pthread_mutex_unlock(&xiaEngineLock);
-				return XiaEQStartInvalidTapFormat;
-			}
-			xiaEngine.sampleRate = sampleRate;
-			xiaUpdateAnalyzerCoefficients(sampleRate);
-			xia_equalizer_apply(enabled, preampDB, gains, gainCount);
-			xiaResetDSPState();
-
-			AudioDeviceIOProcID ioProcID = NULL;
-			OSStatus createStatus = AudioDeviceCreateIOProcID(aggregateID, xiaEqualizerIOProc, NULL, &ioProcID);
-			if (createStatus != noErr || ioProcID == NULL) {
-				if (detailStatus != NULL) {
-					*detailStatus = createStatus;
-				}
-				AudioHardwareDestroyAggregateDevice(aggregateID);
-				xiaDestroyProcessTap(tapID);
-				xiaEngine.aggregateID = kAudioObjectUnknown;
-				xiaEngine.tapID = kAudioObjectUnknown;
-				pthread_mutex_unlock(&xiaEngineLock);
-				return XiaEQStartIOProcInstall;
-			}
-			xiaEngine.ioProcID = ioProcID;
-
-			OSStatus startStatus = AudioDeviceStart(aggregateID, ioProcID);
-			if (startStatus != noErr) {
-				if (detailStatus != NULL) {
-					*detailStatus = startStatus;
-				}
-				AudioDeviceDestroyIOProcID(aggregateID, ioProcID);
-				AudioHardwareDestroyAggregateDevice(aggregateID);
-				xiaDestroyProcessTap(tapID);
-				xiaEngine.ioProcID = NULL;
-				xiaEngine.aggregateID = kAudioObjectUnknown;
-				xiaEngine.tapID = kAudioObjectUnknown;
-				pthread_mutex_unlock(&xiaEngineLock);
-				if (xiaStatusLooksPermissionDenied(startStatus)) {
-					return XiaEQStartPermissionDenied;
-				}
-				return XiaEQStartDeviceStart;
-			}
-
-			xiaEngine.running = 1;
-			xiaClearVisualizerFrame(1);
+			int status = xiaStartAudioPipelineLocked(detailStatus);
 			pthread_mutex_unlock(&xiaEngineLock);
-			return XiaEQStartSuccess;
+			return status;
 		}
 	}
 	return XiaEQStartUnsupported;
