@@ -398,6 +398,42 @@ func TestListenRawMusicSyncReconcilesVideoDriftWithoutTrackChanged(t *testing.T)
 	}
 }
 
+func TestListenRawMusicBufferingSyncKeepsPlaybackPlaying(t *testing.T) {
+	ctx := context.Background()
+	transport := &listenPlaybackTestTransport{}
+	service := listenplayback.NewPlayerService(
+		transport,
+		listenplayback.WithUserInteractionUnlocked(),
+	)
+	tracks := []listenplayback.Track{
+		{ID: "one", VideoID: "video-one", Title: "One", Artist: "Artist"},
+	}
+	if err := service.PlayQueue(ctx, tracks, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 12, 180); err != nil {
+		t.Fatal(err)
+	}
+
+	player := NewListenYouTubeMusicPlayer(nil, nil, nil)
+	player.syncPlaybackServiceFromNativeEvent(
+		service,
+		"state",
+		"buffering",
+		"video-one",
+		"One",
+		"Artist",
+		"",
+		"",
+		false,
+		map[string]any{"currentTime": 14, "duration": 180},
+	)
+
+	if service.State() != listenplayback.PlaybackStatePlaying {
+		t.Fatalf("expected buffering sync to keep playback playing, got %s", service.State())
+	}
+}
+
 func TestListenRawMusicRemoteNextSyncsPlaybackServiceDirectly(t *testing.T) {
 	ctx := context.Background()
 	transport := &listenPlaybackTestTransport{}

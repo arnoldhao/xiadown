@@ -1043,7 +1043,7 @@ func (player *ListenYouTubeMusicPlayer) syncPlaybackServiceFromNativeEvent(
 	currentTime, hasCurrentTime := listenPayloadFloat(payload, "currentTime")
 	duration, hasDuration := listenPayloadFloat(payload, "duration")
 	if state != "" && (hasCurrentTime || hasDuration) {
-		_ = service.UpdatePlaybackState(ctx, state == "playing", currentTime, duration)
+		_ = service.UpdatePlaybackState(ctx, state == "playing" || state == "buffering", currentTime, duration)
 	}
 	if videoID != "" || title != "" {
 		_ = service.UpdateTrackMetadata(ctx, listenplayback.ObservedTrack{
