@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./frontend/public/appicon.png" width="112" alt="XiaDown icon" />
   <h1>XiaDown</h1>
-  <p><strong>A video download tool with online music support.</strong></p>
+  <p><strong>A dual-engine video download tool with online music support.</strong></p>
   <p>Listen Keep, Make it Yours</p>
   <p>
     <a href="./README.md">简体中文</a> ·
@@ -24,29 +24,88 @@
 
 ## Overview
 
-XiaDown is an online music player, and also a video download tool.
+XiaDown is an online music player, and also a dual-engine video download tool.
 
-It is built for content creators: when you need source material, it provides powerful YT-DLP-based download capabilities; when you need to work, it can keep online music playing in the background. With pets and customizable appearance, the app stays simple without feeling dull.
+It is built for content creators: when you need source material, it provides powerful download capabilities through browser sniffing and YT-DLP; when you need to work, it keeps online music playing in the background. With a library, transcoding, dependency management, account isolation, pets, and appearance customization, XiaDown can handle media material and also serve as your everyday desktop media tool.
+
+## Main Capabilities
+
+- 📥 **Dual-engine video downloads**: XiaDown includes a YT-DLP download engine and a CDP-based browser sniffing engine. Regular links can be parsed and downloaded directly, including with Cookies saved in connection profiles; for dynamically loaded pages, complex site structures, or resources that require a real browser session, sniffing mode can capture video, audio, subtitles, covers, and other media resources, then continue into transcoding and library management.
+- 🎧 **Desktop music player**: automatically manages local audio from downloaded resources, supports YouTube Music search for songs, artists, and playlists, and supports YouTube Live radio playback with live video viewing. The player includes queues, artwork, synced lyrics, East Asian romanized/pinyin lyrics, an equalizer, and spectrum visualizations.
+- 🧩 **A flexible, controlled workspace**: dependency tools are installed and upgraded automatically without polluting the system environment; accounts, Cookies, and browser Profiles are managed through isolated connection settings; themes, light/dark mode, accent colors, fonts, font sizes, and Codex Pets can all be customized.
 
 ## Core Capabilities
 
-- **Online music player**: a desktop player designed for YouTube Lo-Fi stations and YouTube Music, with account sign-in, song/artist/playlist search, playback queues, lyrics, artwork, and custom online Lo-Fi station support. Tracks worth keeping can be downloaded into the local library.
-- **Video and audio downloads**: powered by YT-DLP, with support for material downloads from thousands of online video sites; paste a link to save video, audio, subtitles, and covers, then transcode and manage them in the local library.
-- **Personalized media space**: carefully designed theme packs, accent colors, appearance modes, sidebar styles, and full Codex Pets support, with dependencies and app updates maintained automatically for long-term daily use.
+- **Sniffing downloads**: a self-developed CDP-based browser sniffing capability that can observe video, audio, live streams, manifests, images, subtitles, API responses, and other resources on a page. In a real browser environment where the user has explicitly signed in, it can identify and download resources from TikTok, Douyin, Kuaishou, Xiaohongshu, and similar sites, and it can link downloads directly into transcoding.
+- **YT-DLP downloads**: integrates YT-DLP for downloading material from a wide range of online video sites, with stable support for common platforms such as YouTube and Bilibili. Paste a link to parse and save video, audio, subtitles, and covers; downloads can also use Cookies saved in connection profiles for content the user is authorized to access, then continue into transcoding and library management.
+- **Audio and video transcoding**: powered by FFmpeg, with support for transcoding right after download or manually selecting local files. Built-in presets include H.264, H.265, VP9, MP3, AAC, Opus, FLAC, WAV, and common output targets such as original size, 2160p, 1080p, 720p, and 480p.
+- **Multi-view resource management**: task and file views unify downloaded, transcoded, subtitle, cover, and imported files. Supports media preview, task details, file details, batch selection, deletion, failed-task recovery, file existence checks, and stale-record cleanup.
+- **Local music playback**: automatically indexes audio files in the library, with local playback, playback queue, artwork display, synced lyrics, East Asian romanized/pinyin lyrics, an equalizer, and multiple spectrum visualization styles.
+- **YouTube Music**: provides a desktop YouTube Music experience with account connections, song/artist/playlist search, home recommendations, playlist library, followed artists, liked music, playback queue, lyrics, and ad-data cleanup to reduce playback interruptions.
+- **YouTube Live**: supports custom YouTube Live groups and channels, live status viewing, live radio playback, and direct live video viewing.
+- **Automatic dependency management**: automatically maintains installation, verification, and upgrades for YT-DLP, FFmpeg, Bun, and related tools. Tool paths are managed independently by the app and do not depend on or pollute the user's global environment.
+- **Credential and user isolation**: supports calling local browser capabilities through CDP while persisting independent Profiles and Cookies. Data only comes from user-initiated sign-in, and connection settings stay isolated from everyday browser use.
+- **Appearance customization**: supports theme packs, light/dark/auto modes, accent colors, fonts, font sizes, sidebar styles, and more. The built-in Codex Pets Gallery can import online and local Pets as desktop companion elements.
 
 ## Product Preview
 
 <p align="center">
-  <img src="./images/download.png" alt="XiaDown download task view" width="88%" />
+  <img src="./images/download.webp" alt="XiaDown download task view" width="88%" />
+  <br />
+  <sub>Download and transcoding tasks</sub>
 </p>
 
 <p align="center">
-  <img src="./images/listen.png" alt="XiaDown Listen online music playback view" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="XiaDown sniffing desk resource capture view" width="88%" />
+  <br />
+  <sub>Sniffing desk for capturing page resources</sub>
 </p>
 
 <p align="center">
-  <img src="./images/library.png" alt="XiaDown library view" width="88%" />
+  <img src="./images/youtube-music.webp" alt="XiaDown YouTube Music playback view" width="88%" />
+  <br />
+  <sub>Desktop YouTube Music playback</sub>
 </p>
+
+<p align="center">
+  <img src="./images/youtube-live.webp" alt="XiaDown YouTube Live video view" width="88%" />
+  <br />
+  <sub>YouTube Live video viewing</sub>
+</p>
+
+<p align="center">
+  <img src="./images/library.webp" alt="XiaDown library view" width="88%" />
+  <br />
+  <sub>Unified library for downloaded and transcoded content</sub>
+</p>
+
+<details>
+  <summary>More settings and personalization views</summary>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="XiaDown connection and account isolation view" width="88%" />
+    <br />
+    <sub>Connection settings, Cookies, and browser Profile isolation</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/tools.webp" alt="XiaDown dependency tool management view" width="88%" />
+    <br />
+    <sub>Automatic management for YT-DLP, FFmpeg, and Bun</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/appearance.webp" alt="XiaDown appearance settings view" width="88%" />
+    <br />
+    <sub>Themes, light/dark mode, accent colors, fonts, and font sizes</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/codex-pets-gallery.webp" alt="XiaDown Codex Pets Gallery view" width="88%" />
+    <br />
+    <sub>Codex Pets Gallery and local pet imports</sub>
+  </p>
+</details>
 
 ## Quick Start
 

@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./frontend/public/appicon.png" width="112" alt="Icono de XiaDown" />
   <h1>XiaDown</h1>
-  <p><strong>Una herramienta para descargar videos con soporte de música en línea.</strong></p>
+  <p><strong>Una herramienta de descarga de video con doble motor y soporte de música en línea.</strong></p>
   <p>Listen Keep, Make it Yours</p>
   <p>
     <a href="./README.md">简体中文</a> ·
@@ -24,29 +24,88 @@
 
 ## Descripción General
 
-XiaDown es un reproductor de música en línea y también una herramienta para descargar videos.
+XiaDown es un reproductor de música en línea y también una herramienta de descarga de video con doble motor.
 
-Está creado para creadores de contenido: cuando necesitas material, ofrece una potente descarga basada en YT-DLP; cuando necesitas trabajar, mantiene la música en línea reproduciéndose en segundo plano. Con mascotas y apariencia personalizable, la app se mantiene simple sin sentirse aburrida.
+Está pensado para creadores de contenido: cuando necesitas material, ofrece descargas potentes mediante captura de recursos del navegador y YT-DLP; cuando necesitas trabajar, mantiene música en línea reproduciéndose en segundo plano. Con biblioteca, transcodificación, gestión automática de dependencias, aislamiento de cuentas, mascotas y personalización visual, XiaDown sirve tanto para manejar material multimedia como para convertirse en tu herramienta multimedia de escritorio del día a día.
 
 ## Capacidades Principales
 
-- **Reproductor de música en línea**: un reproductor de escritorio diseñado para estaciones Lo-Fi de YouTube y YouTube Music, con inicio de sesión, búsqueda de canciones, artistas y playlists, cola de reproducción, letras, carátulas y soporte para estaciones Lo-Fi en línea personalizadas. Las pistas que quieras conservar se pueden descargar a la biblioteca local.
-- **Descargas de video y audio**: impulsado por YT-DLP, con soporte para descargar material desde miles de sitios de video en línea; pega un enlace para guardar video, audio, subtítulos y portadas, luego transcodifica y administra todo en la biblioteca local.
-- **Espacio multimedia personalizado**: paquetes de temas cuidadosamente diseñados, colores de acento, modos de apariencia, estilos de barra lateral y soporte completo para Codex Pets, con dependencias y actualizaciones de la app mantenidas automáticamente para el uso diario a largo plazo.
+- 📥 **Descarga de video con doble motor**: incluye un motor de descarga YT-DLP y un motor de captura del navegador basado en CDP. Los enlaces normales se pueden analizar y descargar directamente, incluso usando Cookies guardadas en los perfiles de conexión; para páginas con carga dinámica, estructuras de sitio complejas o recursos que requieren una sesión real del navegador, el modo de captura puede detectar video, audio, subtítulos, portadas y otros recursos multimedia, y luego continuar con transcodificación y gestión en la biblioteca.
+- 🎧 **Reproductor de música de escritorio**: administra automáticamente el audio local de los recursos descargados, permite buscar canciones, artistas y playlists en YouTube Music, y reproduce radios de YouTube Live con visualización de video en vivo. El reproductor incluye cola, carátulas, letras sincronizadas, letras romanizadas/pinyin de Asia oriental, ecualizador y visualizaciones de espectro.
+- 🧩 **Un espacio flexible y bajo control**: las herramientas dependientes se instalan y actualizan automáticamente sin contaminar el entorno del sistema; las cuentas, Cookies y Profiles del navegador se gestionan mediante conexiones aisladas; temas, modo claro/oscuro, colores de acento, fuentes, tamaños de fuente y Codex Pets se pueden ajustar libremente.
+
+## Capacidades Clave
+
+- **Descarga por captura de recursos**: una capacidad propia de captura del navegador basada en CDP que puede observar video, audio, transmisiones en vivo, manifiestos, imágenes, subtítulos, respuestas de API y otros recursos de una página. En un entorno real de navegador donde el usuario inició sesión de forma explícita, puede identificar y descargar recursos de TikTok, Douyin, Kuaishou, Xiaohongshu y sitios similares, además de enlazar la descarga directamente con la transcodificación.
+- **Descargas con YT-DLP**: integra YT-DLP para descargar material desde una amplia variedad de sitios de video en línea, con soporte estable para plataformas comunes como YouTube y Bilibili. Pega un enlace para analizar y guardar video, audio, subtítulos y portadas; también puede usar Cookies guardadas en perfiles de conexión para contenido al que el usuario está autorizado a acceder, y luego continuar con transcodificación y gestión en la biblioteca.
+- **Transcodificación de audio y video**: impulsada por FFmpeg, admite transcodificación después de la descarga y selección manual de archivos locales. Incluye presets para H.264, H.265, VP9, MP3, AAC, Opus, FLAC, WAV y salidas comunes como tamaño original, 2160p, 1080p, 720p y 480p.
+- **Gestión de recursos con varias vistas**: las vistas de tareas y archivos unifican descargas, transcodificaciones, subtítulos, portadas y archivos importados. Incluye vista previa de medios, detalles de tareas, detalles de archivos, selección por lotes, eliminación, recuperación de tareas fallidas, verificación de existencia de archivos y limpieza de registros obsoletos.
+- **Reproducción de música local**: indexa automáticamente archivos de audio en la biblioteca, con reproducción local, cola, carátulas, letras sincronizadas, letras romanizadas/pinyin de Asia oriental, ecualizador y varios estilos de visualización de espectro.
+- **YouTube Music**: ofrece una experiencia de YouTube Music en escritorio con conexiones de cuenta, búsqueda de canciones/artistas/playlists, recomendaciones de inicio, biblioteca de playlists, artistas seguidos, música marcada como favorita, cola de reproducción, letras y limpieza de datos publicitarios para reducir interrupciones.
+- **YouTube Live**: permite crear grupos y canales personalizados de YouTube Live, ver el estado de transmisiones, reproducir radios en vivo y ver directamente el video en vivo.
+- **Gestión automática de dependencias**: mantiene automáticamente la instalación, verificación y actualización de YT-DLP, FFmpeg, Bun y herramientas relacionadas. Las rutas de herramientas son gestionadas por la app de forma independiente, sin depender del entorno global del usuario ni contaminarlo.
+- **Aislamiento de credenciales y usuario**: permite usar capacidades del navegador local mediante CDP y persistir Profiles y Cookies independientes. Los datos provienen solo de inicios de sesión iniciados por el usuario, y la configuración de conexiones queda separada del uso cotidiano del navegador.
+- **Personalización visual**: admite paquetes de temas, modos claro/oscuro/automático, colores de acento, fuentes, tamaños de fuente, estilos de barra lateral y más. Codex Pets Gallery integrado permite importar Pets en línea o locales y usarlos como elementos de compañía en el escritorio.
 
 ## Vista del Producto
 
 <p align="center">
-  <img src="./images/download.png" alt="Vista de tareas de descarga de XiaDown" width="88%" />
+  <img src="./images/download.webp" alt="Vista de tareas de descarga de XiaDown" width="88%" />
+  <br />
+  <sub>Tareas de descarga y transcodificación</sub>
 </p>
 
 <p align="center">
-  <img src="./images/listen.png" alt="Vista de reproducción de música en línea Listen de XiaDown" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="Vista de captura de recursos de XiaDown" width="88%" />
+  <br />
+  <sub>Panel de captura para recursos de páginas web</sub>
 </p>
 
 <p align="center">
-  <img src="./images/library.png" alt="Vista de biblioteca de XiaDown" width="88%" />
+  <img src="./images/youtube-music.webp" alt="Vista de reproducción de YouTube Music en XiaDown" width="88%" />
+  <br />
+  <sub>Reproducción de YouTube Music en escritorio</sub>
 </p>
+
+<p align="center">
+  <img src="./images/youtube-live.webp" alt="Vista de video de YouTube Live en XiaDown" width="88%" />
+  <br />
+  <sub>Visualización de video en YouTube Live</sub>
+</p>
+
+<p align="center">
+  <img src="./images/library.webp" alt="Vista de biblioteca de XiaDown" width="88%" />
+  <br />
+  <sub>Biblioteca unificada para descargas y contenido transcodificado</sub>
+</p>
+
+<details>
+  <summary>Más vistas de configuración y personalización</summary>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="Vista de conexiones y aislamiento de cuentas de XiaDown" width="88%" />
+    <br />
+    <sub>Aislamiento de conexiones, Cookies y Profiles del navegador</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/tools.webp" alt="Vista de gestión de herramientas dependientes de XiaDown" width="88%" />
+    <br />
+    <sub>Gestión automática de YT-DLP, FFmpeg y Bun</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/appearance.webp" alt="Vista de configuración visual de XiaDown" width="88%" />
+    <br />
+    <sub>Temas, modo claro/oscuro, colores de acento, fuentes y tamaños</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/codex-pets-gallery.webp" alt="Vista de Codex Pets Gallery en XiaDown" width="88%" />
+    <br />
+    <sub>Codex Pets Gallery e importación de Pets locales</sub>
+  </p>
+</details>
 
 ## Inicio Rápido
 

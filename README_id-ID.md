@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./frontend/public/appicon.png" width="112" alt="Ikon XiaDown" />
   <h1>XiaDown</h1>
-  <p><strong>Alat pengunduh video dengan dukungan musik online.</strong></p>
+  <p><strong>Alat pengunduh video bermesin ganda dengan dukungan musik online.</strong></p>
   <p>Listen Keep, Make it Yours</p>
   <p>
     <a href="./README.md">简体中文</a> ·
@@ -24,29 +24,88 @@
 
 ## Gambaran Umum
 
-XiaDown adalah pemutar musik online sekaligus alat pengunduh video.
+XiaDown adalah pemutar musik online sekaligus alat pengunduh video bermesin ganda.
 
-Aplikasi ini dibuat untuk kreator konten: saat Anda membutuhkan materi, XiaDown menyediakan kemampuan unduh yang kuat berbasis YT-DLP; saat Anda bekerja, musik online dapat tetap diputar di latar belakang. Dengan pet dan tampilan yang bisa disesuaikan, aplikasi tetap sederhana tanpa terasa membosankan.
+Aplikasi ini dibuat untuk kreator konten: saat Anda membutuhkan materi, XiaDown menyediakan kemampuan unduh yang kuat melalui sniffing browser dan YT-DLP; saat Anda bekerja, musik online dapat tetap diputar di latar belakang. Dengan pustaka, transcoding, pengelolaan dependensi otomatis, isolasi akun, pet, dan tampilan yang dapat disesuaikan, XiaDown bisa menangani materi media sekaligus menjadi alat media desktop untuk penggunaan harian.
 
 ## Kemampuan Utama
 
-- **Pemutar musik online**: pemutar desktop yang dirancang untuk stasiun YouTube Lo-Fi dan YouTube Music, dengan login akun, pencarian lagu, artis, dan playlist, antrean pemutaran, lirik, artwork, serta dukungan untuk stasiun Lo-Fi online kustom. Trek yang ingin disimpan dapat diunduh ke pustaka lokal.
-- **Unduhan video dan audio**: didukung oleh YT-DLP, dengan dukungan unduh materi dari ribuan situs video online; tempel tautan untuk menyimpan video, audio, subtitle, dan sampul, lalu lakukan transcoding dan kelola semuanya di pustaka lokal.
-- **Ruang media yang dipersonalisasi**: paket tema yang dirancang dengan cermat, warna aksen, mode tampilan, gaya sidebar, dan dukungan penuh Codex Pets, dengan dependensi dan pembaruan aplikasi yang dikelola otomatis untuk penggunaan harian jangka panjang.
+- 📥 **Unduhan video bermesin ganda**: XiaDown menyertakan mesin unduh YT-DLP dan mesin sniffing browser berbasis CDP. Tautan biasa dapat dianalisis dan diunduh langsung, termasuk menggunakan Cookies yang tersimpan di profil koneksi; untuk halaman yang dimuat dinamis, struktur situs yang kompleks, atau resource yang membutuhkan sesi browser nyata, mode sniffing dapat menangkap video, audio, subtitle, sampul, dan resource media lainnya, lalu melanjutkannya ke transcoding dan pengelolaan pustaka.
+- 🎧 **Pemutar musik desktop**: mengelola audio lokal dari resource yang diunduh secara otomatis, mendukung pencarian lagu, artis, dan playlist di YouTube Music, serta mendukung pemutaran radio YouTube Live dan penayangan video live. Pemutar menyediakan antrean, sampul, lirik tersinkron, lirik romanisasi/pinyin Asia Timur, equalizer, dan visualisasi spektrum.
+- 🧩 **Ruang kerja yang bebas dan terkendali**: alat dependensi dipasang dan diperbarui otomatis tanpa mengotori lingkungan sistem; akun, Cookies, dan Profile browser dikelola melalui pengaturan koneksi yang terisolasi; tema, mode terang/gelap, warna aksen, font, ukuran font, dan Codex Pets dapat disesuaikan secara bebas.
+
+## Kemampuan Inti
+
+- **Unduhan sniffing**: kemampuan sniffing browser berbasis CDP yang dikembangkan sendiri, mampu mengamati video, audio, live stream, manifest, gambar, subtitle, respons API, dan resource lain di halaman. Dalam lingkungan browser nyata setelah pengguna login secara eksplisit, XiaDown dapat mengenali dan mengunduh resource dari TikTok, Douyin, Kuaishou, Xiaohongshu, dan situs sejenis, serta menghubungkan hasil unduhan langsung ke proses transcoding.
+- **Unduhan YT-DLP**: mengintegrasikan YT-DLP untuk mengunduh materi dari berbagai situs video online, dengan dukungan stabil untuk platform umum seperti YouTube dan Bilibili. Tempel tautan untuk menganalisis dan menyimpan video, audio, subtitle, dan sampul; unduhan juga dapat menggunakan Cookies yang tersimpan di profil koneksi untuk konten yang memang berhak diakses pengguna, lalu dilanjutkan ke transcoding dan pengelolaan pustaka.
+- **Transcoding audio dan video**: berbasis FFmpeg, mendukung transcoding setelah unduhan maupun pemilihan file lokal secara manual. Preset bawaan mencakup H.264, H.265, VP9, MP3, AAC, Opus, FLAC, WAV, serta target output umum seperti ukuran asli, 2160p, 1080p, 720p, dan 480p.
+- **Manajemen resource multi-tampilan**: tampilan tugas dan tampilan file menyatukan unduhan, hasil transcoding, subtitle, sampul, dan file impor. Mendukung pratinjau media, detail tugas, detail file, pemilihan massal, penghapusan, pemulihan tugas gagal, pemeriksaan keberadaan file, dan pembersihan catatan yang sudah tidak valid.
+- **Pemutaran musik lokal**: mengindeks file audio di pustaka secara otomatis, dengan pemutaran lokal, antrean pemutaran, tampilan sampul, lirik tersinkron, lirik romanisasi/pinyin Asia Timur, equalizer, dan beberapa gaya visualisasi spektrum.
+- **YouTube Music**: menghadirkan pengalaman YouTube Music di desktop, dengan koneksi akun, pencarian lagu/artis/playlist, rekomendasi beranda, pustaka playlist, artis yang diikuti, musik yang disukai, antrean pemutaran, lirik, serta pembersihan data iklan untuk mengurangi gangguan pemutaran.
+- **YouTube Live**: mendukung penambahan grup dan channel YouTube Live kustom, melihat status live, memutar radio live, dan menonton video live secara langsung.
+- **Manajemen dependensi otomatis**: secara otomatis memelihara instalasi, verifikasi, dan pembaruan YT-DLP, FFmpeg, Bun, dan alat terkait. Path alat dikelola secara independen oleh aplikasi, sehingga tidak bergantung pada dan tidak mengotori lingkungan global pengguna.
+- **Isolasi kredensial dan pengguna**: mendukung pemanggilan kemampuan browser lokal melalui CDP sekaligus menyimpan Profiles dan Cookies yang independen. Data hanya berasal dari login yang dilakukan pengguna, dan pengaturan koneksi tetap terpisah dari penggunaan browser sehari-hari.
+- **Kustomisasi tampilan**: mendukung paket tema, mode terang/gelap/otomatis, warna aksen, font, ukuran font, gaya sidebar, dan lainnya. Codex Pets Gallery bawaan dapat mengimpor Pets online maupun lokal sebagai elemen pendamping di desktop.
 
 ## Pratinjau Produk
 
 <p align="center">
-  <img src="./images/download.png" alt="Tampilan tugas unduhan XiaDown" width="88%" />
+  <img src="./images/download.webp" alt="Tampilan tugas unduhan XiaDown" width="88%" />
+  <br />
+  <sub>Tugas unduhan dan transcoding</sub>
 </p>
 
 <p align="center">
-  <img src="./images/listen.png" alt="Tampilan pemutaran musik online XiaDown Listen" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="Tampilan sniffing resource XiaDown" width="88%" />
+  <br />
+  <sub>Sniffing desk untuk menangkap resource halaman web</sub>
 </p>
 
 <p align="center">
-  <img src="./images/library.png" alt="Tampilan pustaka XiaDown" width="88%" />
+  <img src="./images/youtube-music.webp" alt="Tampilan pemutaran YouTube Music di XiaDown" width="88%" />
+  <br />
+  <sub>Pemutaran YouTube Music di desktop</sub>
 </p>
+
+<p align="center">
+  <img src="./images/youtube-live.webp" alt="Tampilan video YouTube Live di XiaDown" width="88%" />
+  <br />
+  <sub>Penayangan video YouTube Live</sub>
+</p>
+
+<p align="center">
+  <img src="./images/library.webp" alt="Tampilan pustaka XiaDown" width="88%" />
+  <br />
+  <sub>Pustaka terpadu untuk unduhan dan konten hasil transcoding</sub>
+</p>
+
+<details>
+  <summary>Tampilan pengaturan dan personalisasi lainnya</summary>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="Tampilan koneksi dan isolasi akun XiaDown" width="88%" />
+    <br />
+    <sub>Isolasi pengaturan koneksi, Cookies, dan Profile browser</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/tools.webp" alt="Tampilan manajemen alat dependensi XiaDown" width="88%" />
+    <br />
+    <sub>Manajemen otomatis YT-DLP, FFmpeg, dan Bun</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/appearance.webp" alt="Tampilan pengaturan visual XiaDown" width="88%" />
+    <br />
+    <sub>Tema, mode terang/gelap, warna aksen, font, dan ukuran font</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/codex-pets-gallery.webp" alt="Tampilan Codex Pets Gallery di XiaDown" width="88%" />
+    <br />
+    <sub>Codex Pets Gallery dan impor Pet lokal</sub>
+  </p>
+</details>
 
 ## Mulai Cepat
 

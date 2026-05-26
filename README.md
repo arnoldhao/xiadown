@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./frontend/public/appicon.png" width="112" alt="下蛋 / XiaDown 图标" />
   <h1>下蛋 / XiaDown</h1>
-  <p><strong>一款支持在线音乐的视频下载工具</strong></p>
+  <p><strong>一款支持在线音乐的双引擎视频下载工具</strong></p>
   <p>Listen Keep, Make it Yours · 随你，听存随心</p>
   <p>
     <strong>简体中文</strong> ·
@@ -24,29 +24,88 @@
 
 ## 项目简介
 
-下蛋是一款在线音乐播放器，也是一款视频下载工具。
+下蛋是一款在线音乐播放器，也是一款支持双引擎下载的视频下载工具。
 
-它是为内容创作者打造的：需要素材时，提供基于 YT-DLP 的强大下载能力；需要工作时，在后台提供在线音乐播放能力。同时依托宠物与自定义外观，让软件保持简约，也不显得乏味。
+它是为内容创作者打造的：需要素材时，提供嗅探与 YT-DLP 的强大下载能力；需要工作时，在后台提供在线音乐播放能力。同时依托资源库、转码、依赖自动管理、账号隔离、宠物与自定义外观，让下蛋既能处理素材，也能长期作为自己的桌面媒体工具使用。
 
 ## 主要能力
 
-- 🎧 **在线音乐播放器**：为 YouTube Lo-Fi 电台与 YouTube Music 设计的桌面播放器，支持账号登录、歌曲/艺人/歌单搜索、播放队列、歌词与封面展示，也支持添加自定义在线 Lo-Fi 电台；遇到想长期保留的在线曲目，可继续下载到本地资源库。
-- 📥 **视频与音频下载**：基于 YT-DLP，支持上千个在线视频网站的素材下载；粘贴链接即可保存视频、音频、字幕和封面，下载后可继续转码并在资源库里统一管理。
-- 🧩 **个性化使用空间**：内置精心设计的主题包、强调色、外观模式与侧边栏样式，并提供完整的 Codex Pets 支持；依赖与软件更新会自动维护，适合长期作为自己的媒体工具使用。
+- 📥 **双引擎视频下载**：内置 YT-DLP 下载引擎，也提供基于 CDP 的浏览器嗅探引擎。普通链接可直接解析下载，并可结合连接中保存的 Cookies；遇到动态加载、站点结构复杂或需要真实浏览器会话的资源，可通过嗅探模式捕获视频、音频、字幕、封面和其他媒体资源，下载后还能继续转码并进入资源库管理。
+- 🎧 **桌面音乐播放器**：自动管理下载资源中的本地音频，也支持 YouTube Music 搜索歌曲、艺人和歌单，以及 YouTube Live 直播电台播放与直播视频查看。播放器支持队列、封面、同步歌词、东亚罗马音/拼音歌词、均衡器和频谱可视化。
+- 🧩 **自由且可控的使用空间**：依赖工具由应用自动安装和升级，不污染系统环境；账号、Cookies 与浏览器 Profile 使用独立连接配置管理；主题、明暗模式、强调色、字体、字号和 Codex Pets 都可以自由调整。
+
+## 核心能力
+
+- **嗅探下载**：自研基于 CDP 的浏览器嗅探能力，可观察网页中的视频、音频、直播流、清单、图片、字幕、API 响应等资源；支持在用户主动登录后的真实浏览器环境中识别与下载 TikTok、抖音、快手、小红书等站点资源，也可与转码联动，下载完成后自动进入转码流程。
+- **YT-DLP 下载**：集成 YT-DLP 下载能力，支持大量在线视频网站的素材下载，可稳定下载 YouTube、哔哩哔哩等常用平台资源；粘贴链接即可解析并保存视频、音频、字幕和封面，也可携带连接中保存的 Cookies 下载用户有权访问的内容，下载后可继续转码并在资源库里统一管理。
+- **音视频转码**：基于 FFmpeg，支持下载后联动转码和手动选择本地文件转码；内置 H.264、H.265、VP9、MP3、AAC、Opus、FLAC、WAV 等常用预设，覆盖原始尺寸、2160p、1080p、720p、480p 等输出场景。
+- **多视图资源管理**：支持任务视图与文件视图，统一管理下载、转码、字幕、封面和导入文件；支持媒体预览、任务详情、文件详情、批量选择、删除、失败任务恢复、文件存在性检测与失效记录清理。
+- **本地音乐播放**：自动索引资源库中的音频文件，支持本地播放、播放队列、封面展示、同步歌词、东亚罗马音/拼音歌词、均衡器和多种频谱可视化效果。
+- **YouTube Music**：提供桌面化 YouTube Music 播放体验，支持账号连接、歌曲/艺人/歌单搜索、首页推荐、歌单库、关注艺人、喜欢的音乐、播放队列与歌词，并通过广告数据清理减少播放干扰。
+- **YouTube Live**：支持自定义添加 YouTube Live 分组与频道，可查看直播状态、播放直播电台，也可以直接查看直播视频。
+- **依赖自动管理**：自动维护 YT-DLP、FFmpeg、Bun 等工具的安装、校验与升级；工具路径由应用独立管理，不依赖也不污染用户本机全局环境。
+- **凭证与用户隔离**：支持通过 CDP 调用本机浏览器能力并持久化独立的 Profiles 与 Cookies；数据仅来自用户主动登录，连接配置与日常浏览器使用场景相互隔离。
+- **外观自由定义**：支持主题包、明暗/自动模式、强调色、字体、字号、侧边栏样式等外观设置；内置 Codex Pets Gallery，可导入在线与本地 Pets 并设置为桌面陪伴元素。
 
 ## 产品界面
 
 <p align="center">
-  <img src="./images/download.png" alt="下蛋下载任务界面" width="88%" />
+  <img src="./images/download.webp" alt="下蛋下载任务界面" width="88%" />
+  <br />
+  <sub>下载与转码任务</sub>
 </p>
 
 <p align="center">
-  <img src="./images/listen.png" alt="下蛋 Listen 在线音乐播放界面" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="下蛋嗅探台资源捕获界面" width="88%" />
+  <br />
+  <sub>嗅探台捕获网页资源</sub>
 </p>
 
 <p align="center">
-  <img src="./images/library.png" alt="下蛋资源库界面" width="88%" />
+  <img src="./images/youtube-music.webp" alt="下蛋 YouTube Music 播放界面" width="88%" />
+  <br />
+  <sub>YouTube Music 桌面播放</sub>
 </p>
+
+<p align="center">
+  <img src="./images/youtube-live.webp" alt="下蛋 YouTube Live 直播视频界面" width="88%" />
+  <br />
+  <sub>YouTube Live 直播视频查看</sub>
+</p>
+
+<p align="center">
+  <img src="./images/library.webp" alt="下蛋资源库界面" width="88%" />
+  <br />
+  <sub>资源库统一管理下载与转码内容</sub>
+</p>
+
+<details>
+  <summary>更多设置与个性化界面</summary>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="下蛋连接与账号隔离界面" width="88%" />
+    <br />
+    <sub>连接配置、Cookies 与浏览器 Profile 隔离</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/tools.webp" alt="下蛋依赖工具管理界面" width="88%" />
+    <br />
+    <sub>YT-DLP、FFmpeg、Bun 依赖自动管理</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/appearance.webp" alt="下蛋外观设置界面" width="88%" />
+    <br />
+    <sub>主题、明暗模式、强调色、字体与字号设置</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/codex-pets-gallery.webp" alt="下蛋 Codex Pets 宠物画廊界面" width="88%" />
+    <br />
+    <sub>Codex Pets Gallery 与本地宠物导入</sub>
+  </p>
+</details>
 
 ## 快速开始
 
