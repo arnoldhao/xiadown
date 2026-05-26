@@ -39,7 +39,7 @@ import {
   useListenStableImageSource,
 } from "@/app/main/listen/ui";
 
-export type ListenMediaMode = "cover" | "lyrics";
+export type ListenMediaMode = "cover" | "lyrics" | "video";
 
 export type ListenAirPlayAnchor = {
   x: number;
@@ -60,11 +60,9 @@ export function ListenPlayerFooter(props: {
   lyricsAvailable: boolean;
   lyricsKind?: ListenLyricsKind;
   lyricsLoading?: boolean;
-  videoOpen?: boolean;
   queueOpen?: boolean;
   text: ReturnType<typeof getXiaText>;
   onAirPlay?: (anchor: ListenAirPlayAnchor) => void;
-  onToggleVideo?: () => void;
   onMediaModeChange: (mode: ListenMediaMode) => void;
   onToggleQueue?: (anchor: ListenQueuePopupAnchor) => void;
 }) {
@@ -83,6 +81,10 @@ export function ListenPlayerFooter(props: {
   };
   const showMediaActions = !props.live;
   const showVideoAction = showMediaActions && !props.videoHidden;
+  const videoModeActive = props.mediaMode === "video";
+  const videoActionLoading = props.videoLoading === true && !videoModeActive;
+  const videoActionDisabled =
+    videoActionLoading || (!props.hasVideo && !videoModeActive);
   const handleQueueClick: React.MouseEventHandler<HTMLButtonElement> = (event) => {
     props.onToggleQueue?.(resolveListenQueuePopupAnchor(event.currentTarget));
   };
@@ -116,10 +118,10 @@ export function ListenPlayerFooter(props: {
                   ? props.text.listen.video
                   : props.text.listen.noVideo
               }
-              active={props.hasVideo && props.videoOpen}
-              disabled={props.videoLoading || !props.hasVideo || !props.onToggleVideo}
+              active={videoModeActive}
+              disabled={videoActionDisabled}
               className={LISTEN_PLAYER_FOOTER_ICON_BUTTON_CLASS}
-              onClick={props.onToggleVideo}
+              onClick={() => toggleMediaMode("video")}
             >
               {props.videoLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
