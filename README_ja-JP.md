@@ -4,6 +4,17 @@
   <p><strong>オンライン音楽に対応したデュアルエンジン動画ダウンロードツールです。</strong></p>
   <p>Listen Keep, Make it Yours</p>
   <p>
+    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="最新バージョン" />
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="ライセンス" />
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="対応プラットフォーム" />
+    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="技術スタック" />
+  </p>
+  <p>
+    <a href="https://xiadown.dreamapp.cc/">Webサイト</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/releases">リリース</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/issues">Issue</a>
+  </p>
+  <p>
     <a href="./README.md">简体中文</a> ·
     <a href="./README_zh-Hant.md">繁體中文</a> ·
     <a href="./README_en.md">English</a> ·
@@ -14,102 +25,102 @@
     <a href="./README_id-ID.md">Bahasa Indonesia</a> ·
     <a href="./README_vi-VN.md">Tiếng Việt</a>
   </p>
-  <p>
-    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="最新バージョン" />
-    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="ライセンス" />
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="対応プラットフォーム" />
-    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="技術スタック" />
-  </p>
 </div>
+
+<p align="center">
+  <img src="./images/download.webp" alt="XiaDownのダウンロードタスク画面" width="92%" />
+  <br />
+  <sub>ダウンロードとトランスコードのタスク</sub>
+</p>
 
 ## 概要
 
 XiaDownはオンライン音楽プレーヤーであり、デュアルエンジンの動画ダウンロードツールでもあります。
 
-コンテンツクリエイターのために作られています。素材が必要なときは、ブラウザスニッフィングとYT-DLPによる強力なダウンロード機能を提供し、作業中はバックグラウンドでオンライン音楽を再生できます。ライブラリ、トランスコード、依存ツールの自動管理、アカウント分離、ペット、外観カスタマイズにより、素材処理にも、普段使いのデスクトップメディアツールとしても使えます。
+コンテンツクリエイターの日常ツールとして作られています。素材が必要なときはスニッフィングとYT-DLPでダウンロードし、集中したいときはオンライン音楽をバックグラウンドで再生できます。豊富なカスタマイズにより、長く使っても軽やかで新鮮な使い心地を保てます。
 
 ## 主な機能
 
-- 📥 **デュアルエンジン動画ダウンロード**: YT-DLPダウンロードエンジンに加え、CDPベースのブラウザスニッフィングエンジンを内蔵しています。通常のリンクは直接解析してダウンロードでき、接続設定に保存されたCookiesも利用できます。動的に読み込まれるページ、複雑なサイト構造、実ブラウザセッションを必要とするリソースでは、スニッフィングモードで動画、音声、字幕、カバー、その他のメディアリソースを捕捉し、ダウンロード後にトランスコードとライブラリ管理へつなげられます。
-- 🎧 **デスクトップ音楽プレーヤー**: ダウンロードリソース内のローカル音声を自動管理し、YouTube Musicでの曲、アーティスト、プレイリスト検索、YouTube Liveのライブラジオ再生とライブ動画表示に対応します。プレーヤーはキュー、カバー、同期歌詞、東アジア言語のローマ字/ピンイン歌詞、イコライザー、スペクトラム可視化を備えています。
-- 🧩 **自由で管理しやすい利用空間**: 依存ツールはアプリが自動でインストール・アップグレードし、システム環境を汚しません。アカウント、Cookies、ブラウザProfileは独立した接続設定で管理され、テーマ、ライト/ダークモード、アクセントカラー、フォント、文字サイズ、Codex Petsも自由に調整できます。
+### 📥 ダウンロードとトランスコード
 
-## 中核機能
+- **スニッフィングダウンロード**: CDPを使ってページ内の動画、音声、ライブストリーム、マニフェスト、画像、字幕、APIレスポンスを観測します。TikTok、抖音、快手、小紅書など、実ブラウザセッションが必要なサイトに向いています。
+- **YT-DLPダウンロード**: リンクを貼り付けるだけでYouTubeやBilibiliなどの主要プラットフォームを解析し、動画、音声、字幕、カバーを保存できます。ログイン済みの本人情報を使って、アクセス権のあるコンテンツをダウンロードすることもできます。
+- **音声・動画トランスコード**: FFmpegを基盤に、ダウンロード後の連動トランスコードとローカルファイルのトランスコードに対応します。H.264、H.265、VP9、MP3、AAC、Opus、FLAC、WAVなどのプリセットを内蔵しています。
 
-- **スニッフィングダウンロード**: CDPベースで自主開発したブラウザスニッフィング機能により、ページ内の動画、音声、ライブストリーム、マニフェスト、画像、字幕、APIレスポンスなどを観測できます。ユーザーが明示的にログインした実ブラウザ環境で、TikTok、抖音、快手、小紅書などのサイトリソースを識別・ダウンロードでき、ダウンロード完了後に自動でトランスコードへ進めることもできます。
-- **YT-DLPダウンロード**: YT-DLPを統合し、多数のオンライン動画サイトから素材をダウンロードできます。YouTube、Bilibiliなどのよく使われるプラットフォームも安定してダウンロードできます。リンクを貼り付けるだけで動画、音声、字幕、カバーを解析・保存でき、接続設定に保存されたCookiesを使ってユーザーがアクセス権を持つコンテンツを取得し、その後トランスコードとライブラリ管理へ進められます。
-- **音声・動画トランスコード**: FFmpegを基盤に、ダウンロード後の連動トランスコードとローカルファイルの手動選択に対応します。H.264、H.265、VP9、MP3、AAC、Opus、FLAC、WAVなどのプリセットを内蔵し、オリジナルサイズ、2160p、1080p、720p、480pなどの出力に対応します。
-- **複数ビューのリソース管理**: タスクビューとファイルビューで、ダウンロード、トランスコード、字幕、カバー、インポートファイルを一元管理できます。メディアプレビュー、タスク詳細、ファイル詳細、一括選択、削除、失敗タスクの復旧、ファイル存在チェック、無効レコードの整理に対応します。
-- **ローカル音楽再生**: ライブラリ内の音声ファイルを自動でインデックス化し、ローカル再生、再生キュー、カバー表示、同期歌詞、東アジア言語のローマ字/ピンイン歌詞、イコライザー、複数のスペクトラム可視化を利用できます。
-- **YouTube Music**: デスクトップ向けのYouTube Music体験を提供します。アカウント接続、曲/アーティスト/プレイリスト検索、ホームおすすめ、プレイリストライブラリ、フォロー中のアーティスト、好きな音楽、再生キュー、歌詞に対応し、広告データのクリーンアップで再生の妨げを減らします。
-- **YouTube Live**: YouTube Liveのグループとチャンネルを自由に追加でき、ライブ状態の確認、ライブラジオ再生、ライブ動画の直接表示に対応します。
-- **依存ツールの自動管理**: YT-DLP、FFmpeg、Bunなどのツールのインストール、検証、アップグレードを自動で管理します。ツールパスはアプリが独立して管理するため、ユーザーのグローバル環境に依存せず、汚しません。
-- **認証情報とユーザー環境の分離**: CDPを通じてローカルブラウザの機能を呼び出し、独立したProfilesとCookiesを永続化できます。データはユーザーが明示的にログインしたものに限られ、接続設定は普段使いのブラウザ環境から分離されます。
-- **外観の自由なカスタマイズ**: テーマパック、ライト/ダーク/自動モード、アクセントカラー、フォント、文字サイズ、サイドバースタイルなどを設定できます。内蔵のCodex Pets GalleryからオンラインやローカルのPetsを取り込み、デスクトップ上の相棒として使えます。
+### 🗂️ リソース管理
+
+- **複数ビューのリソース管理**: タスクビューとファイルビューで、ダウンロード、トランスコード、字幕、カバー、インポートファイルを一元管理します。プレビュー、詳細表示、一括選択、削除、失敗タスクの復旧、無効レコードの整理に対応します。
+
+### 🎧 プレーヤー
+
+- **ローカル音楽再生**: ライブラリ内の音声を自動でインデックス化し、キュー、カバー、同期歌詞、東アジア言語のローマ字/ピンイン歌詞、イコライザー、スペクトラム可視化に対応します。
+- **YouTube Music**: デスクトップ向けの体験で曲、アーティスト、プレイリストを検索でき、ホームおすすめ、プレイリストライブラリ、フォロー中のアーティスト、好きな音楽、再生キュー、歌詞を利用できます。
+- **YouTube Live**: ライブのグループとチャンネルを自由に作成し、ライブ状態の確認、ライブラジオ再生、ライブ動画の直接表示ができます。
+
+### 🔐 安全性と分離
+
+- **依存ツールの自動管理**: YT-DLP、FFmpeg、Bunなどのツールを自動でインストール、検証、アップグレードします。ツールパスはアプリが独立して管理し、システム環境を汚しません。
+- **認証情報とユーザー環境の分離**: CDPを通じてローカルブラウザの機能を呼び出し、独立したProfilesとCookiesを永続化します。データはユーザーが明示的にログインしたものに限られ、接続設定は普段のブラウザ利用から分離されます。
+
+### 🎨 自由度
+
+- **外観の自由なカスタマイズ**: テーマパック、ライト/ダーク/自動モード、アクセントカラー、フォント、文字サイズ、サイドバースタイルを設定できます。内蔵のCodex Pets GalleryからオンラインやローカルのPetsを取り込めます。
 
 ## 製品プレビュー
 
 <p align="center">
-  <img src="./images/download.webp" alt="XiaDownのダウンロードタスク画面" width="88%" />
-  <br />
-  <sub>ダウンロードとトランスコードのタスク</sub>
-</p>
-
-<p align="center">
-  <img src="./images/sniff-desk.webp" alt="XiaDownのスニッフィングデスクによるリソース捕捉画面" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="XiaDownのスニッフィングデスクによるリソース捕捉画面" width="92%" />
   <br />
   <sub>スニッフィングデスクでページリソースを捕捉</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-music.webp" alt="XiaDownのYouTube Music再生画面" width="88%" />
+  <img src="./images/youtube-music.webp" alt="XiaDownのYouTube Music再生画面" width="92%" />
   <br />
   <sub>YouTube Musicのデスクトップ再生</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-live.webp" alt="XiaDownのYouTube Live動画表示画面" width="88%" />
-  <br />
-  <sub>YouTube Liveのライブ動画表示</sub>
-</p>
-
-<p align="center">
-  <img src="./images/library.webp" alt="XiaDownのライブラリ画面" width="88%" />
+  <img src="./images/library.webp" alt="XiaDownのライブラリ画面" width="92%" />
   <br />
   <sub>ダウンロード済み・トランスコード済みコンテンツをライブラリで一元管理</sub>
 </p>
 
 <details>
-  <summary>その他の設定とパーソナライズ画面</summary>
+  <summary><strong>その他の画面</strong></summary>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="XiaDownの接続とアカウント分離画面" width="88%" />
+    <img src="./images/youtube-live.webp" alt="XiaDownのYouTube Live動画表示画面" width="92%" />
+    <br />
+    <sub>YouTube Liveのライブ動画表示</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="XiaDownの接続とアカウント分離画面" width="92%" />
     <br />
     <sub>接続設定、Cookies、ブラウザProfileの分離</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="XiaDownの依存ツール管理画面" width="88%" />
+    <img src="./images/tools.webp" alt="XiaDownの依存ツール管理画面" width="92%" />
     <br />
     <sub>YT-DLP、FFmpeg、Bunの依存ツール自動管理</sub>
   </p>
 
   <p align="center">
-    <img src="./images/appearance.webp" alt="XiaDownの外観設定画面" width="88%" />
+    <img src="./images/appearance.webp" alt="XiaDownの外観設定画面" width="92%" />
     <br />
     <sub>テーマ、ライト/ダークモード、アクセントカラー、フォント、文字サイズ</sub>
   </p>
 
   <p align="center">
-    <img src="./images/codex-pets-gallery.webp" alt="XiaDownのCodex Pets Gallery画面" width="88%" />
+    <img src="./images/codex-pets-gallery.webp" alt="XiaDownのCodex Pets Gallery画面" width="92%" />
     <br />
     <sub>Codex Pets GalleryとローカルPetのインポート</sub>
   </p>
 </details>
 
 ## クイックスタート
-
-### ダウンロードとインストール
 
 以下から最新パッケージを直接ダウンロードできます。過去のリリースは[GitHub Releases](https://github.com/arnoldhao/xiadown/releases)で確認できます。
 
@@ -135,7 +146,7 @@ XiaDownはオンライン音楽プレーヤーであり、デュアルエンジ�
 
 ## 謝辞
 
-XiaDownは優れたオープンソースプロジェクトの上に構築されています。デスクトップ体験、メディア処理、ローカルストレージ、ブラウザ接続、オンライン音楽、フロントエンドUIは、これらの基盤に支えられています。
+XiaDownは優れたオープンソースプロジェクトの上に構築されています。デスクトップ体験、メディア処理、ローカルストレージ、ブラウザ接続、オンライン音楽、インターフェイス機能は、これらの基盤に支えられています。
 
 | カテゴリ | ホームページ |
 | --- | --- |
