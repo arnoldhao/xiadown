@@ -3018,9 +3018,21 @@ func listenYouTubeMusicVideoModeScript(rects ...ListenEmbeddedVideoRect) string 
 
   const SOURCE = "listen-youtube-music-player";
   const EMBEDDED_RESIZE_REQUEST = __LISTEN_EMBEDDED_RESIZE_REQUEST__;
+  const ENFORCE_BURST_MS = 1600;
+  const ENFORCE_HEARTBEAT_MS = 1200;
+  const VIDEO_MODE_STYLE_TEXT = [
+    "html, body, * { visibility: hidden !important; }",
+    "html, body { background: #000 !important; overflow: hidden !important; visibility: visible !important; }",
+    ".listen-video-visible { visibility: visible !important; display: block !important; opacity: 1 !important; padding: 0 !important; margin: 0 !important; background: #000 !important; z-index: 2147483640 !important; }",
+    ".listen-video-visible { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; overflow: visible !important; }",
+    "video.listen-video-visible, .video-stream.listen-video-visible { z-index: 2147483647 !important; object-fit: contain !important; }"
+  ].join("\n");
 
   try { window.localStorage.setItem("__listenVideoModeActive", "true"); } catch (error) {}
   window.__listenVideoModeActive = true;
+  if (typeof window.__listenVideoModeCleanup === "function") {
+    try { window.__listenVideoModeCleanup(); } catch (error) {}
+  }
 
   function post(payload) {
     const message = JSON.stringify(Object.assign({ source: SOURCE }, payload));
@@ -3103,13 +3115,9 @@ func listenYouTubeMusicVideoModeScript(rects ...ListenEmbeddedVideoRect) string 
       style.id = styleId;
       document.head.appendChild(style);
     }
-    style.textContent = [
-      "html, body, * { visibility: hidden !important; }",
-      "html, body { background: #000 !important; overflow: hidden !important; visibility: visible !important; }",
-      ".listen-video-visible { visibility: visible !important; display: block !important; opacity: 1 !important; padding: 0 !important; margin: 0 !important; background: #000 !important; z-index: 2147483640 !important; }",
-      ".listen-video-visible { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; overflow: visible !important; }",
-      "video.listen-video-visible, .video-stream.listen-video-visible { z-index: 2147483647 !important; object-fit: contain !important; }"
-    ].join("\n");
+    if (style.textContent !== VIDEO_MODE_STYLE_TEXT) {
+      style.textContent = VIDEO_MODE_STYLE_TEXT;
+    }
   }
 
   function videoElement() {
@@ -3233,18 +3241,103 @@ func listenYouTubeMusicVideoModeScript(rects ...ListenEmbeddedVideoRect) string 
     window.requestAnimationFrame(tick);
   }
 
-  function enforce() {
+  function videoModeActive() {
     let active = window.__listenVideoModeActive;
     try {
       active = active && window.localStorage.getItem("__listenVideoModeActive") === "true";
     } catch (error) {}
-    if (!active) return;
+    return Boolean(active);
+  }
+
+  function enforce() {
+    if (!videoModeActive()) return false;
     activateYouTubeMusicVideoMode();
     if (markVideoTree()) {
       installVideoStyles();
       removeBlackout();
     }
-    window.requestAnimationFrame(enforce);
+    return true;
+  }
+
+  let enforceFrame = 0;
+  let burstUntil = Date.now() + ENFORCE_BURST_MS;
+  let heartbeatTimer = 0;
+  let mutationTimer = 0;
+  let delayedTimers = [];
+  let observer = null;
+
+  function scheduleEnforceBurst() {
+    burstUntil = Math.max(burstUntil, Date.now() + ENFORCE_BURST_MS);
+    scheduleEnforce();
+  }
+
+  function scheduleEnforce() {
+    if (enforceFrame || !videoModeActive()) return;
+    enforceFrame = window.requestAnimationFrame(() => {
+      enforceFrame = 0;
+      const active = enforce();
+      if (active && Date.now() < burstUntil) {
+        scheduleEnforce();
+      }
+    });
+  }
+
+  function scheduleDeferredEnforce() {
+    if (mutationTimer || !videoModeActive()) return;
+    mutationTimer = window.setTimeout(() => {
+      mutationTimer = 0;
+      scheduleEnforce();
+    }, 120);
+  }
+
+  function scheduleDelay(callback, delay) {
+    const timer = window.setTimeout(() => {
+      delayedTimers = delayedTimers.filter((item) => item !== timer);
+      callback();
+    }, delay);
+    delayedTimers.push(timer);
+  }
+
+  function installEnforceScheduler() {
+    scheduleEnforceBurst();
+    heartbeatTimer = window.setInterval(() => {
+      if (!videoModeActive()) {
+        window.clearInterval(heartbeatTimer);
+        heartbeatTimer = 0;
+        return;
+      }
+      scheduleEnforce();
+    }, ENFORCE_HEARTBEAT_MS);
+    if (window.MutationObserver) {
+      try {
+        observer = new MutationObserver(scheduleDeferredEnforce);
+        observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+      } catch (error) {}
+    }
+    window.addEventListener("resize", scheduleEnforceBurst);
+    window.addEventListener("orientationchange", scheduleEnforceBurst);
+    window.__listenVideoModeCleanup = () => {
+      if (enforceFrame) {
+        window.cancelAnimationFrame(enforceFrame);
+        enforceFrame = 0;
+      }
+      if (heartbeatTimer) {
+        window.clearInterval(heartbeatTimer);
+        heartbeatTimer = 0;
+      }
+      if (mutationTimer) {
+        window.clearTimeout(mutationTimer);
+        mutationTimer = 0;
+      }
+      delayedTimers.forEach((timer) => window.clearTimeout(timer));
+      delayedTimers = [];
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
+      window.removeEventListener("resize", scheduleEnforceBurst);
+      window.removeEventListener("orientationchange", scheduleEnforceBurst);
+    };
   }
 
   function revealIfReady() {
@@ -3262,11 +3355,14 @@ func listenYouTubeMusicVideoModeScript(rects ...ListenEmbeddedVideoRect) string 
   try { window.scrollTo(0, 0); } catch (error) {}
   revealIfReady();
   waitForEmbeddedResize(EMBEDDED_RESIZE_REQUEST);
-  window.requestAnimationFrame(enforce);
+  installEnforceScheduler();
   [80, 180, 360, 720].forEach((delay) => {
-    window.setTimeout(revealIfReady, delay);
+    scheduleDelay(() => {
+      revealIfReady();
+      scheduleEnforceBurst();
+    }, delay);
   });
-  window.setTimeout(removeBlackout, 2500);
+  scheduleDelay(removeBlackout, 2500);
 })();
 	`
 	return strings.Replace(script, "__LISTEN_EMBEDDED_RESIZE_REQUEST__", requestJSON, 1)
@@ -3277,6 +3373,10 @@ func listenYouTubeMusicExitVideoModeScript() string {
 (function() {
   window.__listenVideoModeActive = false;
   try { window.localStorage.setItem("__listenVideoModeActive", "false"); } catch (error) {}
+  if (typeof window.__listenVideoModeCleanup === "function") {
+    try { window.__listenVideoModeCleanup(); } catch (error) {}
+    window.__listenVideoModeCleanup = null;
+  }
   document.getElementById("listen-video-blackout")?.remove();
   document.getElementById("listen-video-mode-style")?.remove();
   document.querySelectorAll(".listen-video-visible, .listen-video-root").forEach((element) => {

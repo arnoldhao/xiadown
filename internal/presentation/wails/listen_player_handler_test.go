@@ -192,7 +192,10 @@ func TestListenVideoModeScriptUsesYouTubeMusicVideoMode(t *testing.T) {
 		"video.listen-video-visible",
 		"let current = video",
 		"current.classList.add(\"listen-video-visible\")",
-		"requestAnimationFrame(enforce)",
+		"ENFORCE_BURST_MS",
+		"ENFORCE_HEARTBEAT_MS",
+		"MutationObserver(scheduleDeferredEnforce)",
+		"__listenVideoModeCleanup",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("video mode script should contain %q", expected)
