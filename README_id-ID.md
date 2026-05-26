@@ -4,6 +4,17 @@
   <p><strong>Alat pengunduh video bermesin ganda dengan dukungan musik online.</strong></p>
   <p>Listen Keep, Make it Yours</p>
   <p>
+    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="Versi terbaru" />
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Lisensi" />
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Platform yang didukung" />
+    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Stack teknologi" />
+  </p>
+  <p>
+    <a href="https://xiadown.dreamapp.cc/">Situs web</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/releases">Rilis</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a>
+  </p>
+  <p>
     <a href="./README.md">简体中文</a> ·
     <a href="./README_zh-Hant.md">繁體中文</a> ·
     <a href="./README_en.md">English</a> ·
@@ -14,102 +25,102 @@
     <strong>Bahasa Indonesia</strong> ·
     <a href="./README_vi-VN.md">Tiếng Việt</a>
   </p>
-  <p>
-    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="Versi terbaru" />
-    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Lisensi" />
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Platform yang didukung" />
-    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Stack teknologi" />
-  </p>
 </div>
+
+<p align="center">
+  <img src="./images/download.webp" alt="Tampilan tugas unduhan XiaDown" width="92%" />
+  <br />
+  <sub>Tugas unduhan dan transcoding</sub>
+</p>
 
 ## Gambaran Umum
 
 XiaDown adalah pemutar musik online sekaligus alat pengunduh video bermesin ganda.
 
-Aplikasi ini dibuat untuk kreator konten: saat Anda membutuhkan materi, XiaDown menyediakan kemampuan unduh yang kuat melalui sniffing browser dan YT-DLP; saat Anda bekerja, musik online dapat tetap diputar di latar belakang. Dengan pustaka, transcoding, pengelolaan dependensi otomatis, isolasi akun, pet, dan tampilan yang dapat disesuaikan, XiaDown bisa menangani materi media sekaligus menjadi alat media desktop untuk penggunaan harian.
+XiaDown dibuat sebagai alat harian untuk kreator konten: saat membutuhkan materi, gunakan sniffing dan YT-DLP untuk mengunduh; saat perlu fokus, putar musik online di latar belakang; opsi kustomisasi yang kaya membuat penggunaan jangka panjang tetap ringan dan terasa segar.
 
 ## Kemampuan Utama
 
-- 📥 **Unduhan video bermesin ganda**: XiaDown menyertakan mesin unduh YT-DLP dan mesin sniffing browser berbasis CDP. Tautan biasa dapat dianalisis dan diunduh langsung, termasuk menggunakan Cookies yang tersimpan di profil koneksi; untuk halaman yang dimuat dinamis, struktur situs yang kompleks, atau resource yang membutuhkan sesi browser nyata, mode sniffing dapat menangkap video, audio, subtitle, sampul, dan resource media lainnya, lalu melanjutkannya ke transcoding dan pengelolaan pustaka.
-- 🎧 **Pemutar musik desktop**: mengelola audio lokal dari resource yang diunduh secara otomatis, mendukung pencarian lagu, artis, dan playlist di YouTube Music, serta mendukung pemutaran radio YouTube Live dan penayangan video live. Pemutar menyediakan antrean, sampul, lirik tersinkron, lirik romanisasi/pinyin Asia Timur, equalizer, dan visualisasi spektrum.
-- 🧩 **Ruang kerja yang bebas dan terkendali**: alat dependensi dipasang dan diperbarui otomatis tanpa mengotori lingkungan sistem; akun, Cookies, dan Profile browser dikelola melalui pengaturan koneksi yang terisolasi; tema, mode terang/gelap, warna aksen, font, ukuran font, dan Codex Pets dapat disesuaikan secara bebas.
+### 📥 Unduh dan Transcoding
 
-## Kemampuan Inti
+- **Unduhan sniffing**: mengamati video, audio, live stream, manifest, gambar, subtitle, dan respons API lewat CDP; cocok untuk situs seperti TikTok, Douyin, Kuaishou, dan Xiaohongshu yang membutuhkan sesi browser nyata.
+- **Unduhan YT-DLP**: tempel tautan untuk menganalisis platform umum seperti YouTube dan Bilibili, menyimpan video, audio, subtitle, dan sampul, serta menggunakan identitas yang sudah login untuk mengunduh konten yang berhak Anda akses.
+- **Transcoding audio dan video**: berbasis FFmpeg, mendukung transcoding setelah unduhan dan transcoding file lokal, dengan preset bawaan seperti H.264, H.265, VP9, MP3, AAC, Opus, FLAC, dan WAV.
 
-- **Unduhan sniffing**: kemampuan sniffing browser berbasis CDP yang dikembangkan sendiri, mampu mengamati video, audio, live stream, manifest, gambar, subtitle, respons API, dan resource lain di halaman. Dalam lingkungan browser nyata setelah pengguna login secara eksplisit, XiaDown dapat mengenali dan mengunduh resource dari TikTok, Douyin, Kuaishou, Xiaohongshu, dan situs sejenis, serta menghubungkan hasil unduhan langsung ke proses transcoding.
-- **Unduhan YT-DLP**: mengintegrasikan YT-DLP untuk mengunduh materi dari berbagai situs video online, dengan dukungan stabil untuk platform umum seperti YouTube dan Bilibili. Tempel tautan untuk menganalisis dan menyimpan video, audio, subtitle, dan sampul; unduhan juga dapat menggunakan Cookies yang tersimpan di profil koneksi untuk konten yang memang berhak diakses pengguna, lalu dilanjutkan ke transcoding dan pengelolaan pustaka.
-- **Transcoding audio dan video**: berbasis FFmpeg, mendukung transcoding setelah unduhan maupun pemilihan file lokal secara manual. Preset bawaan mencakup H.264, H.265, VP9, MP3, AAC, Opus, FLAC, WAV, serta target output umum seperti ukuran asli, 2160p, 1080p, 720p, dan 480p.
-- **Manajemen resource multi-tampilan**: tampilan tugas dan tampilan file menyatukan unduhan, hasil transcoding, subtitle, sampul, dan file impor. Mendukung pratinjau media, detail tugas, detail file, pemilihan massal, penghapusan, pemulihan tugas gagal, pemeriksaan keberadaan file, dan pembersihan catatan yang sudah tidak valid.
-- **Pemutaran musik lokal**: mengindeks file audio di pustaka secara otomatis, dengan pemutaran lokal, antrean pemutaran, tampilan sampul, lirik tersinkron, lirik romanisasi/pinyin Asia Timur, equalizer, dan beberapa gaya visualisasi spektrum.
-- **YouTube Music**: menghadirkan pengalaman YouTube Music di desktop, dengan koneksi akun, pencarian lagu/artis/playlist, rekomendasi beranda, pustaka playlist, artis yang diikuti, musik yang disukai, antrean pemutaran, lirik, serta pembersihan data iklan untuk mengurangi gangguan pemutaran.
-- **YouTube Live**: mendukung penambahan grup dan channel YouTube Live kustom, melihat status live, memutar radio live, dan menonton video live secara langsung.
-- **Manajemen dependensi otomatis**: secara otomatis memelihara instalasi, verifikasi, dan pembaruan YT-DLP, FFmpeg, Bun, dan alat terkait. Path alat dikelola secara independen oleh aplikasi, sehingga tidak bergantung pada dan tidak mengotori lingkungan global pengguna.
-- **Isolasi kredensial dan pengguna**: mendukung pemanggilan kemampuan browser lokal melalui CDP sekaligus menyimpan Profiles dan Cookies yang independen. Data hanya berasal dari login yang dilakukan pengguna, dan pengaturan koneksi tetap terpisah dari penggunaan browser sehari-hari.
-- **Kustomisasi tampilan**: mendukung paket tema, mode terang/gelap/otomatis, warna aksen, font, ukuran font, gaya sidebar, dan lainnya. Codex Pets Gallery bawaan dapat mengimpor Pets online maupun lokal sebagai elemen pendamping di desktop.
+### 🗂️ Manajemen Resource
+
+- **Manajemen resource multi-tampilan**: tampilan tugas dan tampilan file menyatukan unduhan, hasil transcoding, subtitle, sampul, dan file impor, lengkap dengan pratinjau, detail, pemilihan massal, penghapusan, pemulihan kegagalan, dan pembersihan catatan usang.
+
+### 🎧 Pemutar
+
+- **Pemutaran musik lokal**: mengindeks audio pustaka secara otomatis dan mendukung antrean, sampul, lirik tersinkron, lirik romanisasi/pinyin Asia Timur, equalizer, dan visualisasi spektrum.
+- **YouTube Music**: cari lagu, artis, dan playlist dalam pengalaman desktop, dengan rekomendasi beranda, pustaka playlist, artis yang diikuti, musik yang disukai, antrean pemutaran, dan lirik.
+- **YouTube Live**: buat grup dan channel live kustom, lihat status live, putar radio live, dan buka video live secara langsung.
+
+### 🔐 Keamanan dan Isolasi
+
+- **Manajemen dependensi otomatis**: memasang, memverifikasi, dan memperbarui YT-DLP, FFmpeg, Bun, dan alat terkait secara otomatis; path alat dikelola aplikasi dan tidak mengotori lingkungan sistem.
+- **Isolasi kredensial dan pengguna**: memanggil kemampuan browser lokal lewat CDP dan menyimpan Profiles serta Cookies yang independen; data berasal dari login yang dimulai pengguna, dan pengaturan koneksi terpisah dari penggunaan browser sehari-hari.
+
+### 🎨 Kebebasan
+
+- **Kustomisasi tampilan**: mendukung paket tema, mode terang/gelap/otomatis, warna aksen, font, ukuran font, dan gaya sidebar; Codex Pets Gallery bawaan dapat mengimpor Pets online maupun lokal.
 
 ## Pratinjau Produk
 
 <p align="center">
-  <img src="./images/download.webp" alt="Tampilan tugas unduhan XiaDown" width="88%" />
-  <br />
-  <sub>Tugas unduhan dan transcoding</sub>
-</p>
-
-<p align="center">
-  <img src="./images/sniff-desk.webp" alt="Tampilan sniffing resource XiaDown" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="Tampilan sniffing resource XiaDown" width="92%" />
   <br />
   <sub>Sniffing desk untuk menangkap resource halaman web</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-music.webp" alt="Tampilan pemutaran YouTube Music di XiaDown" width="88%" />
+  <img src="./images/youtube-music.webp" alt="Tampilan pemutaran YouTube Music di XiaDown" width="92%" />
   <br />
   <sub>Pemutaran YouTube Music di desktop</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-live.webp" alt="Tampilan video YouTube Live di XiaDown" width="88%" />
-  <br />
-  <sub>Penayangan video YouTube Live</sub>
-</p>
-
-<p align="center">
-  <img src="./images/library.webp" alt="Tampilan pustaka XiaDown" width="88%" />
+  <img src="./images/library.webp" alt="Tampilan pustaka XiaDown" width="92%" />
   <br />
   <sub>Pustaka terpadu untuk unduhan dan konten hasil transcoding</sub>
 </p>
 
 <details>
-  <summary>Tampilan pengaturan dan personalisasi lainnya</summary>
+  <summary><strong>Cuplikan antarmuka lainnya</strong></summary>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="Tampilan koneksi dan isolasi akun XiaDown" width="88%" />
+    <img src="./images/youtube-live.webp" alt="Tampilan video YouTube Live di XiaDown" width="92%" />
+    <br />
+    <sub>Penayangan video YouTube Live</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="Tampilan koneksi dan isolasi akun XiaDown" width="92%" />
     <br />
     <sub>Isolasi pengaturan koneksi, Cookies, dan Profile browser</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="Tampilan manajemen alat dependensi XiaDown" width="88%" />
+    <img src="./images/tools.webp" alt="Tampilan manajemen alat dependensi XiaDown" width="92%" />
     <br />
     <sub>Manajemen otomatis YT-DLP, FFmpeg, dan Bun</sub>
   </p>
 
   <p align="center">
-    <img src="./images/appearance.webp" alt="Tampilan pengaturan visual XiaDown" width="88%" />
+    <img src="./images/appearance.webp" alt="Tampilan pengaturan visual XiaDown" width="92%" />
     <br />
     <sub>Tema, mode terang/gelap, warna aksen, font, dan ukuran font</sub>
   </p>
 
   <p align="center">
-    <img src="./images/codex-pets-gallery.webp" alt="Tampilan Codex Pets Gallery di XiaDown" width="88%" />
+    <img src="./images/codex-pets-gallery.webp" alt="Tampilan Codex Pets Gallery di XiaDown" width="92%" />
     <br />
     <sub>Codex Pets Gallery dan impor Pet lokal</sub>
   </p>
 </details>
 
 ## Mulai Cepat
-
-### Unduh dan instal
 
 Unduh paket terbaru secara langsung di bawah ini. Versi lama tersedia di [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
 
@@ -135,7 +146,7 @@ Unduh paket terbaru secara langsung di bawah ini. Versi lama tersedia di [GitHub
 
 ## Ucapan Terima Kasih
 
-XiaDown dibangun di atas proyek open source yang sangat baik. Pengalaman desktop, pipeline media, penyimpanan lokal, koneksi browser, musik online, dan antarmuka frontend semuanya bergantung pada fondasi ini.
+XiaDown dibangun di atas proyek open source yang sangat baik. Pengalaman desktop, pemrosesan media, penyimpanan lokal, koneksi browser, musik online, dan kemampuan antarmuka semuanya bergantung pada fondasi ini.
 
 | Kategori | Beranda |
 | --- | --- |

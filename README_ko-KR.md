@@ -4,6 +4,17 @@
   <p><strong>온라인 음악을 지원하는 듀얼 엔진 동영상 다운로드 도구입니다.</strong></p>
   <p>Listen Keep, Make it Yours</p>
   <p>
+    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="최신 버전" />
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="라이선스" />
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="지원 플랫폼" />
+    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="기술 스택" />
+  </p>
+  <p>
+    <a href="https://xiadown.dreamapp.cc/">웹사이트</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/releases">릴리스</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/issues">이슈</a>
+  </p>
+  <p>
     <a href="./README.md">简体中文</a> ·
     <a href="./README_zh-Hant.md">繁體中文</a> ·
     <a href="./README_en.md">English</a> ·
@@ -14,102 +25,102 @@
     <a href="./README_id-ID.md">Bahasa Indonesia</a> ·
     <a href="./README_vi-VN.md">Tiếng Việt</a>
   </p>
-  <p>
-    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="최신 버전" />
-    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="라이선스" />
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="지원 플랫폼" />
-    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="기술 스택" />
-  </p>
 </div>
+
+<p align="center">
+  <img src="./images/download.webp" alt="XiaDown 다운로드 작업 화면" width="92%" />
+  <br />
+  <sub>다운로드 및 트랜스코딩 작업</sub>
+</p>
 
 ## 개요
 
 XiaDown은 온라인 음악 플레이어이자 듀얼 엔진 동영상 다운로드 도구입니다.
 
-콘텐츠 크리에이터를 위해 만들어졌습니다. 자료가 필요할 때는 브라우저 스니핑과 YT-DLP를 통한 강력한 다운로드 기능을 제공하고, 작업할 때는 온라인 음악을 백그라운드에서 재생합니다. 라이브러리, 트랜스코딩, 의존성 자동 관리, 계정 격리, 펫, 외관 사용자 지정을 바탕으로 XiaDown은 자료를 처리하는 도구이자 오래 쓰는 데스크톱 미디어 도구가 될 수 있습니다.
+콘텐츠 크리에이터를 위한 일상 도구입니다. 자료가 필요할 때는 스니핑과 YT-DLP로 다운로드하고, 집중이 필요할 때는 온라인 음악을 백그라운드에서 재생할 수 있습니다. 풍부한 사용자 지정 옵션은 오래 사용해도 편하고 새롭게 느껴지도록 돕습니다.
 
 ## 주요 기능
 
-- 📥 **듀얼 엔진 동영상 다운로드**: YT-DLP 다운로드 엔진과 CDP 기반 브라우저 스니핑 엔진을 함께 제공합니다. 일반 링크는 직접 분석해 다운로드할 수 있고, 연결 설정에 저장된 Cookies도 사용할 수 있습니다. 동적 로딩, 복잡한 사이트 구조, 실제 브라우저 세션이 필요한 리소스는 스니핑 모드로 동영상, 오디오, 자막, 커버와 기타 미디어 리소스를 포착하고, 다운로드 후 트랜스코딩과 라이브러리 관리로 이어갈 수 있습니다.
-- 🎧 **데스크톱 음악 플레이어**: 다운로드 리소스 안의 로컬 오디오를 자동으로 관리하고, YouTube Music의 곡, 아티스트, 플레이리스트 검색과 YouTube Live 라이브 라디오 재생 및 라이브 동영상 보기를 지원합니다. 플레이어는 대기열, 커버, 동기화 가사, 동아시아 로마자/병음 가사, 이퀄라이저, 스펙트럼 시각화를 제공합니다.
-- 🧩 **자유롭고 제어 가능한 사용 공간**: 의존성 도구는 앱이 자동으로 설치하고 업그레이드하며 시스템 환경을 오염시키지 않습니다. 계정, Cookies, 브라우저 Profile은 독립된 연결 설정으로 관리되며, 테마, 라이트/다크 모드, 강조 색상, 글꼴, 글꼴 크기, Codex Pets도 자유롭게 조정할 수 있습니다.
+### 📥 다운로드 및 트랜스코딩
 
-## 핵심 기능
+- **스니핑 다운로드**: CDP로 페이지의 동영상, 오디오, 라이브 스트림, 매니페스트, 이미지, 자막, API 응답을 관찰합니다. 실제 브라우저 세션이 필요한 TikTok, Douyin, Kuaishou, Xiaohongshu 같은 사이트에 적합합니다.
+- **YT-DLP 다운로드**: 링크를 붙여 넣으면 YouTube, Bilibili 같은 주요 플랫폼을 분석하고 동영상, 오디오, 자막, 커버를 저장합니다. 로그인된 신원을 사용해 접근 권한이 있는 콘텐츠를 다운로드할 수도 있습니다.
+- **오디오/동영상 트랜스코딩**: FFmpeg 기반으로 다운로드 후 연동 트랜스코딩과 로컬 파일 트랜스코딩을 지원하며, H.264, H.265, VP9, MP3, AAC, Opus, FLAC, WAV 등의 프리셋을 제공합니다.
 
-- **스니핑 다운로드**: 자체 개발한 CDP 기반 브라우저 스니핑 기능으로 페이지 안의 동영상, 오디오, 라이브 스트림, 매니페스트, 이미지, 자막, API 응답 등 다양한 리소스를 관찰할 수 있습니다. 사용자가 직접 로그인한 실제 브라우저 환경에서 TikTok, Douyin, Kuaishou, Xiaohongshu 등의 사이트 리소스를 식별하고 다운로드할 수 있으며, 다운로드가 끝난 뒤 자동으로 트랜스코딩 흐름으로 이어갈 수도 있습니다.
-- **YT-DLP 다운로드**: YT-DLP를 통합해 다양한 온라인 동영상 사이트의 자료를 다운로드할 수 있고, YouTube와 Bilibili 같은 자주 쓰는 플랫폼도 안정적으로 지원합니다. 링크를 붙여 넣으면 동영상, 오디오, 자막, 커버를 분석해 저장하고, 연결 설정에 저장된 Cookies를 사용해 사용자가 접근 권한을 가진 콘텐츠를 다운로드한 뒤 트랜스코딩과 라이브러리 관리로 이어갈 수 있습니다.
-- **오디오/동영상 트랜스코딩**: FFmpeg 기반으로 다운로드 후 연동 트랜스코딩과 로컬 파일 수동 선택 트랜스코딩을 지원합니다. H.264, H.265, VP9, MP3, AAC, Opus, FLAC, WAV 등 자주 쓰는 프리셋과 원본 크기, 2160p, 1080p, 720p, 480p 등 출력 시나리오를 제공합니다.
-- **다중 보기 리소스 관리**: 작업 보기와 파일 보기를 통해 다운로드, 트랜스코딩, 자막, 커버, 가져온 파일을 통합 관리합니다. 미디어 미리보기, 작업 상세, 파일 상세, 일괄 선택, 삭제, 실패 작업 복구, 파일 존재 여부 검사, 만료된 기록 정리를 지원합니다.
-- **로컬 음악 재생**: 라이브러리의 오디오 파일을 자동으로 인덱싱하고, 로컬 재생, 재생 대기열, 커버 표시, 동기화 가사, 동아시아 로마자/병음 가사, 이퀄라이저, 여러 스펙트럼 시각화 효과를 제공합니다.
-- **YouTube Music**: 데스크톱형 YouTube Music 경험을 제공합니다. 계정 연결, 곡/아티스트/플레이리스트 검색, 홈 추천, 플레이리스트 라이브러리, 팔로우한 아티스트, 좋아요한 음악, 재생 대기열, 가사를 지원하며, 광고 데이터 정리로 재생 방해를 줄입니다.
-- **YouTube Live**: YouTube Live 그룹과 채널을 자유롭게 추가하고, 라이브 상태 확인, 라이브 라디오 재생, 라이브 동영상 직접 보기를 지원합니다.
-- **의존성 자동 관리**: YT-DLP, FFmpeg, Bun 등의 도구 설치, 검증, 업그레이드를 자동으로 관리합니다. 도구 경로는 앱이 독립적으로 관리하므로 사용자의 전역 환경에 의존하지도, 영향을 주지도 않습니다.
-- **자격 증명과 사용자 환경 격리**: CDP를 통해 로컬 브라우저 기능을 호출하고 독립된 Profiles와 Cookies를 지속 저장할 수 있습니다. 데이터는 사용자가 직접 로그인한 것에서만 오며, 연결 설정은 일상적인 브라우저 사용 환경과 분리됩니다.
-- **외관 자유 설정**: 테마 팩, 라이트/다크/자동 모드, 강조 색상, 글꼴, 글꼴 크기, 사이드바 스타일 등 외관 설정을 지원합니다. 내장된 Codex Pets Gallery에서 온라인 및 로컬 Pets를 가져와 데스크톱 동반 요소로 설정할 수 있습니다.
+### 🗂️ 리소스 관리
+
+- **다중 보기 리소스 관리**: 작업 보기와 파일 보기로 다운로드, 트랜스코딩, 자막, 커버, 가져온 파일을 통합 관리합니다. 미리보기, 상세 정보, 일괄 선택, 삭제, 실패 복구, 만료 기록 정리를 지원합니다.
+
+### 🎧 플레이어
+
+- **로컬 음악 재생**: 라이브러리 오디오를 자동으로 인덱싱하고, 대기열, 커버, 동기화 가사, 동아시아 로마자/병음 가사, 이퀄라이저, 스펙트럼 시각화를 지원합니다.
+- **YouTube Music**: 데스크톱형 경험으로 곡, 아티스트, 플레이리스트를 검색하고, 홈 추천, 플레이리스트 라이브러리, 팔로우한 아티스트, 좋아요한 음악, 재생 대기열, 가사를 제공합니다.
+- **YouTube Live**: 라이브 그룹과 채널을 직접 만들고, 라이브 상태 확인, 라이브 라디오 재생, 라이브 동영상 직접 보기를 지원합니다.
+
+### 🔐 안전 및 격리
+
+- **의존성 자동 관리**: YT-DLP, FFmpeg, Bun 등의 도구를 자동으로 설치, 검증, 업그레이드합니다. 도구 경로는 앱이 독립적으로 관리하므로 시스템 환경을 오염시키지 않습니다.
+- **자격 증명과 사용자 환경 격리**: CDP를 통해 로컬 브라우저 기능을 호출하고 독립된 Profiles와 Cookies를 지속 저장합니다. 데이터는 사용자가 직접 로그인한 것에서만 오며, 연결 설정은 일상적인 브라우저 사용과 분리됩니다.
+
+### 🎨 자유도
+
+- **외관 자유 설정**: 테마 팩, 라이트/다크/자동 모드, 강조 색상, 글꼴, 글꼴 크기, 사이드바 스타일을 지원합니다. 내장된 Codex Pets Gallery에서 온라인 및 로컬 Pets를 가져올 수 있습니다.
 
 ## 제품 미리보기
 
 <p align="center">
-  <img src="./images/download.webp" alt="XiaDown 다운로드 작업 화면" width="88%" />
-  <br />
-  <sub>다운로드 및 트랜스코딩 작업</sub>
-</p>
-
-<p align="center">
-  <img src="./images/sniff-desk.webp" alt="XiaDown 스니핑 데스크 리소스 포착 화면" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="XiaDown 스니핑 데스크 리소스 포착 화면" width="92%" />
   <br />
   <sub>스니핑 데스크로 웹페이지 리소스 포착</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-music.webp" alt="XiaDown YouTube Music 재생 화면" width="88%" />
+  <img src="./images/youtube-music.webp" alt="XiaDown YouTube Music 재생 화면" width="92%" />
   <br />
   <sub>YouTube Music 데스크톱 재생</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-live.webp" alt="XiaDown YouTube Live 동영상 보기 화면" width="88%" />
-  <br />
-  <sub>YouTube Live 라이브 동영상 보기</sub>
-</p>
-
-<p align="center">
-  <img src="./images/library.webp" alt="XiaDown 라이브러리 화면" width="88%" />
+  <img src="./images/library.webp" alt="XiaDown 라이브러리 화면" width="92%" />
   <br />
   <sub>다운로드 및 트랜스코딩 콘텐츠를 라이브러리에서 통합 관리</sub>
 </p>
 
 <details>
-  <summary>더 많은 설정 및 개인화 화면</summary>
+  <summary><strong>더 많은 화면</strong></summary>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="XiaDown 연결 및 계정 격리 화면" width="88%" />
+    <img src="./images/youtube-live.webp" alt="XiaDown YouTube Live 동영상 보기 화면" width="92%" />
+    <br />
+    <sub>YouTube Live 라이브 동영상 보기</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="XiaDown 연결 및 계정 격리 화면" width="92%" />
     <br />
     <sub>연결 설정, Cookies, 브라우저 Profile 격리</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="XiaDown 의존성 도구 관리 화면" width="88%" />
+    <img src="./images/tools.webp" alt="XiaDown 의존성 도구 관리 화면" width="92%" />
     <br />
     <sub>YT-DLP, FFmpeg, Bun 의존성 자동 관리</sub>
   </p>
 
   <p align="center">
-    <img src="./images/appearance.webp" alt="XiaDown 외관 설정 화면" width="88%" />
+    <img src="./images/appearance.webp" alt="XiaDown 외관 설정 화면" width="92%" />
     <br />
     <sub>테마, 라이트/다크 모드, 강조 색상, 글꼴, 글꼴 크기 설정</sub>
   </p>
 
   <p align="center">
-    <img src="./images/codex-pets-gallery.webp" alt="XiaDown Codex Pets Gallery 화면" width="88%" />
+    <img src="./images/codex-pets-gallery.webp" alt="XiaDown Codex Pets Gallery 화면" width="92%" />
     <br />
     <sub>Codex Pets Gallery 및 로컬 Pet 가져오기</sub>
   </p>
 </details>
 
 ## 빠른 시작
-
-### 다운로드 및 설치
 
 아래에서 최신 설치 패키지를 바로 다운로드할 수 있습니다. 이전 버전은 [GitHub Releases](https://github.com/arnoldhao/xiadown/releases)에서 확인할 수 있습니다.
 
@@ -135,7 +146,7 @@ XiaDown은 온라인 음악 플레이어이자 듀얼 엔진 동영상 다운로
 
 ## 감사의 글
 
-XiaDown은 훌륭한 오픈 소스 프로젝트 위에 만들어졌습니다. 데스크톱 경험, 미디어 처리, 로컬 저장소, 브라우저 연결, 온라인 음악, 프론트엔드 인터페이스는 모두 이러한 기반에 의존합니다.
+XiaDown은 훌륭한 오픈 소스 프로젝트 위에 만들어졌습니다. 데스크톱 경험, 미디어 처리, 로컬 저장소, 브라우저 연결, 온라인 음악, 인터페이스 기능은 모두 이러한 기반에 의존합니다.
 
 | 분류 | 홈페이지 |
 | --- | --- |

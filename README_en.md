@@ -1,8 +1,19 @@
 <div align="center">
   <img src="./frontend/public/appicon.png" width="112" alt="XiaDown icon" />
   <h1>XiaDown</h1>
-  <p><strong>A dual-engine video download tool with online music support.</strong></p>
+  <p><strong>A dual-engine video downloader with online music support.</strong></p>
   <p>Listen Keep, Make it Yours</p>
+  <p>
+    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="Latest version" />
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Supported platforms" />
+    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Tech stack" />
+  </p>
+  <p>
+    <a href="https://xiadown.dreamapp.cc/">Website</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/releases">Releases</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a>
+  </p>
   <p>
     <a href="./README.md">简体中文</a> ·
     <a href="./README_zh-Hant.md">繁體中文</a> ·
@@ -14,94 +25,96 @@
     <a href="./README_id-ID.md">Bahasa Indonesia</a> ·
     <a href="./README_vi-VN.md">Tiếng Việt</a>
   </p>
-  <p>
-    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="Latest version" />
-    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License" />
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Supported platforms" />
-    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Tech stack" />
-  </p>
 </div>
 
-## Overview
-
-XiaDown is an online music player, and also a dual-engine video download tool.
-
-It is built for content creators: when you need source material, it provides powerful download capabilities through browser sniffing and YT-DLP; when you need to work, it keeps online music playing in the background. With a library, transcoding, dependency management, account isolation, pets, and appearance customization, XiaDown can handle media material and also serve as your everyday desktop media tool.
-
-## Main Capabilities
-
-- 📥 **Dual-engine video downloads**: XiaDown includes a YT-DLP download engine and a CDP-based browser sniffing engine. Regular links can be parsed and downloaded directly, including with Cookies saved in connection profiles; for dynamically loaded pages, complex site structures, or resources that require a real browser session, sniffing mode can capture video, audio, subtitles, covers, and other media resources, then continue into transcoding and library management.
-- 🎧 **Desktop music player**: automatically manages local audio from downloaded resources, supports YouTube Music search for songs, artists, and playlists, and supports YouTube Live radio playback with live video viewing. The player includes queues, artwork, synced lyrics, East Asian romanized/pinyin lyrics, an equalizer, and spectrum visualizations.
-- 🧩 **A flexible, controlled workspace**: dependency tools are installed and upgraded automatically without polluting the system environment; accounts, Cookies, and browser Profiles are managed through isolated connection settings; themes, light/dark mode, accent colors, fonts, font sizes, and Codex Pets can all be customized.
-
-## Core Capabilities
-
-- **Sniffing downloads**: a self-developed CDP-based browser sniffing capability that can observe video, audio, live streams, manifests, images, subtitles, API responses, and other resources on a page. In a real browser environment where the user has explicitly signed in, it can identify and download resources from TikTok, Douyin, Kuaishou, Xiaohongshu, and similar sites, and it can link downloads directly into transcoding.
-- **YT-DLP downloads**: integrates YT-DLP for downloading material from a wide range of online video sites, with stable support for common platforms such as YouTube and Bilibili. Paste a link to parse and save video, audio, subtitles, and covers; downloads can also use Cookies saved in connection profiles for content the user is authorized to access, then continue into transcoding and library management.
-- **Audio and video transcoding**: powered by FFmpeg, with support for transcoding right after download or manually selecting local files. Built-in presets include H.264, H.265, VP9, MP3, AAC, Opus, FLAC, WAV, and common output targets such as original size, 2160p, 1080p, 720p, and 480p.
-- **Multi-view resource management**: task and file views unify downloaded, transcoded, subtitle, cover, and imported files. Supports media preview, task details, file details, batch selection, deletion, failed-task recovery, file existence checks, and stale-record cleanup.
-- **Local music playback**: automatically indexes audio files in the library, with local playback, playback queue, artwork display, synced lyrics, East Asian romanized/pinyin lyrics, an equalizer, and multiple spectrum visualization styles.
-- **YouTube Music**: provides a desktop YouTube Music experience with account connections, song/artist/playlist search, home recommendations, playlist library, followed artists, liked music, playback queue, lyrics, and ad-data cleanup to reduce playback interruptions.
-- **YouTube Live**: supports custom YouTube Live groups and channels, live status viewing, live radio playback, and direct live video viewing.
-- **Automatic dependency management**: automatically maintains installation, verification, and upgrades for YT-DLP, FFmpeg, Bun, and related tools. Tool paths are managed independently by the app and do not depend on or pollute the user's global environment.
-- **Credential and user isolation**: supports calling local browser capabilities through CDP while persisting independent Profiles and Cookies. Data only comes from user-initiated sign-in, and connection settings stay isolated from everyday browser use.
-- **Appearance customization**: supports theme packs, light/dark/auto modes, accent colors, fonts, font sizes, sidebar styles, and more. The built-in Codex Pets Gallery can import online and local Pets as desktop companion elements.
-
-## Product Preview
-
 <p align="center">
-  <img src="./images/download.webp" alt="XiaDown download task view" width="88%" />
+  <img src="./images/download.webp" alt="XiaDown download task view" width="92%" />
   <br />
   <sub>Download and transcoding tasks</sub>
 </p>
 
+## Overview
+
+XiaDown is an online music player and a dual-engine video downloader.
+
+It is a daily tool built for content creators: when you need material, use sniffing and YT-DLP to download it; when you need to focus, keep online music playing in the background; rich customization options help long-term use stay easy and fresh.
+
+## Main Capabilities
+
+### 📥 Download and Transcode
+
+- **Sniffing downloads**: observes page videos, audio, live streams, manifests, images, subtitles, and API responses through CDP; suitable for sites such as TikTok, Douyin, Kuaishou, and Xiaohongshu that require a real browser session.
+- **YT-DLP downloads**: paste a link to parse common platforms such as YouTube and Bilibili, save video, audio, subtitles, and covers, and use a signed-in identity to download content you are authorized to access.
+- **Audio and video transcoding**: powered by FFmpeg, supports post-download transcoding and local file transcoding, with built-in presets such as H.264, H.265, VP9, MP3, AAC, Opus, FLAC, and WAV.
+
+### 🗂️ Resource Management
+
+- **Multi-view resource management**: task and file views unify downloads, transcodes, subtitles, covers, and imported files, with preview, details, batch selection, deletion, failed-task recovery, and stale-record cleanup.
+
+### 🎧 Player
+
+- **Local music playback**: automatically indexes library audio and supports queues, artwork, synced lyrics, East Asian romanized/pinyin lyrics, an equalizer, and spectrum visualizations.
+- **YouTube Music**: search songs, artists, and playlists in a desktop-style experience, with home recommendations, playlist library, followed artists, liked music, playback queue, and lyrics.
+- **YouTube Live**: create custom live groups and channels, view live status, play live radio, and open live video directly.
+
+### 🔐 Safety and Isolation
+
+- **Automatic dependency management**: installs, verifies, and updates YT-DLP, FFmpeg, Bun, and related tools automatically; tool paths are maintained by the app and do not pollute the system environment.
+- **Credential and user isolation**: calls local browser capabilities through CDP and persists independent Profiles and Cookies; data comes from user-initiated sign-in, and connection settings stay separate from everyday browsing.
+
+### 🎨 Freedom
+
+- **Appearance customization**: supports theme packs, light/dark/auto modes, accent colors, fonts, font sizes, and sidebar styles; the built-in Codex Pets Gallery can import online and local Pets.
+
+## Product Preview
+
 <p align="center">
-  <img src="./images/sniff-desk.webp" alt="XiaDown sniffing desk resource capture view" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="XiaDown sniffing desk resource capture view" width="92%" />
   <br />
   <sub>Sniffing desk for capturing page resources</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-music.webp" alt="XiaDown YouTube Music playback view" width="88%" />
+  <img src="./images/youtube-music.webp" alt="XiaDown YouTube Music playback view" width="92%" />
   <br />
   <sub>Desktop YouTube Music playback</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-live.webp" alt="XiaDown YouTube Live video view" width="88%" />
-  <br />
-  <sub>YouTube Live video viewing</sub>
-</p>
-
-<p align="center">
-  <img src="./images/library.webp" alt="XiaDown library view" width="88%" />
+  <img src="./images/library.webp" alt="XiaDown library view" width="92%" />
   <br />
   <sub>Unified library for downloaded and transcoded content</sub>
 </p>
 
 <details>
-  <summary>More settings and personalization views</summary>
+  <summary><strong>More Interface Screenshots</strong></summary>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="XiaDown connection and account isolation view" width="88%" />
+    <img src="./images/youtube-live.webp" alt="XiaDown YouTube Live video view" width="92%" />
+    <br />
+    <sub>YouTube Live video viewing</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="XiaDown connection and account isolation view" width="92%" />
     <br />
     <sub>Connection settings, Cookies, and browser Profile isolation</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="XiaDown dependency tool management view" width="88%" />
+    <img src="./images/tools.webp" alt="XiaDown dependency tool management view" width="92%" />
     <br />
     <sub>Automatic management for YT-DLP, FFmpeg, and Bun</sub>
   </p>
 
   <p align="center">
-    <img src="./images/appearance.webp" alt="XiaDown appearance settings view" width="88%" />
+    <img src="./images/appearance.webp" alt="XiaDown appearance settings view" width="92%" />
     <br />
     <sub>Themes, light/dark mode, accent colors, fonts, and font sizes</sub>
   </p>
 
   <p align="center">
-    <img src="./images/codex-pets-gallery.webp" alt="XiaDown Codex Pets Gallery view" width="88%" />
+    <img src="./images/codex-pets-gallery.webp" alt="XiaDown Codex Pets Gallery view" width="92%" />
     <br />
     <sub>Codex Pets Gallery and local pet imports</sub>
   </p>
@@ -109,9 +122,7 @@ It is built for content creators: when you need source material, it provides pow
 
 ## Quick Start
 
-### Download and install
-
-Download the latest installer directly below. Older releases are available on [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
+Download the latest package directly below. Older versions are available on [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
 
 | Platform | Architecture | Package | Download |
 | --- | --- | --- | --- |
@@ -120,7 +131,7 @@ Download the latest installer directly below. Older releases are available on [G
 | Windows | x64 | Installer | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | Portable | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
-### First launch
+### First Launch
 
 1. `macOS`: unzip the package and move `XiaDown.app` to the Applications folder. If macOS says the app cannot be opened or is damaged, run `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app`.
 2. `Windows`: run the `.exe` installer directly, or unzip the portable package and launch it. If SmartScreen appears on first launch, choose `More info -> Run anyway`.
@@ -135,7 +146,7 @@ Download the latest installer directly below. Older releases are available on [G
 
 ## Acknowledgements
 
-XiaDown is built on top of excellent open-source projects. The desktop experience, media pipeline, local storage, browser connections, online music, and frontend interface all depend on these foundations.
+XiaDown is built on top of excellent open-source projects. The desktop experience, media processing, local storage, browser connections, online music, and interface capabilities all depend on these foundations.
 
 | Category | Homepage |
 | --- | --- |

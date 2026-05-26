@@ -4,6 +4,17 @@
   <p><strong>一款支持在线音乐的双引擎视频下载工具</strong></p>
   <p>Listen Keep, Make it Yours · 随你，听存随心</p>
   <p>
+    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="最新版本" />
+    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="许可证" />
+    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="支持平台" />
+    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="技术栈" />
+  </p>
+  <p>
+    <a href="https://xiadown.dreamapp.cc/">官网</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/releases">发布页</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/issues">反馈问题</a>
+  </p>
+  <p>
     <strong>简体中文</strong> ·
     <a href="./README_zh-Hant.md">繁體中文</a> ·
     <a href="./README_en.md">English</a> ·
@@ -14,102 +25,102 @@
     <a href="./README_id-ID.md">Bahasa Indonesia</a> ·
     <a href="./README_vi-VN.md">Tiếng Việt</a>
   </p>
-  <p>
-    <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="最新版本" />
-    <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="许可证" />
-    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="支持平台" />
-    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="技术栈" />
-  </p>
 </div>
+
+<p align="center">
+  <img src="./images/download.webp" alt="下蛋下载任务界面" width="92%" />
+  <br />
+  <sub>下载与转码任务</sub>
+</p>
 
 ## 项目简介
 
 下蛋是一款在线音乐播放器，也是一款支持双引擎下载的视频下载工具。
 
-它是为内容创作者打造的：需要素材时，提供嗅探与 YT-DLP 的强大下载能力；需要工作时，在后台提供在线音乐播放能力。同时依托资源库、转码、依赖自动管理、账号隔离、宠物与自定义外观，让下蛋既能处理素材，也能长期作为自己的桌面媒体工具使用。
+它是为内容创作者打造的日常工具：需要素材时，用嗅探和 YT-DLP 下载；需要专注时，在后台播放在线音乐；丰富的自定义选项，也让长期使用保持轻松和新鲜。
 
 ## 主要能力
 
-- 📥 **双引擎视频下载**：内置 YT-DLP 下载引擎，也提供基于 CDP 的浏览器嗅探引擎。普通链接可直接解析下载，并可结合连接中保存的 Cookies；遇到动态加载、站点结构复杂或需要真实浏览器会话的资源，可通过嗅探模式捕获视频、音频、字幕、封面和其他媒体资源，下载后还能继续转码并进入资源库管理。
-- 🎧 **桌面音乐播放器**：自动管理下载资源中的本地音频，也支持 YouTube Music 搜索歌曲、艺人和歌单，以及 YouTube Live 直播电台播放与直播视频查看。播放器支持队列、封面、同步歌词、东亚罗马音/拼音歌词、均衡器和频谱可视化。
-- 🧩 **自由且可控的使用空间**：依赖工具由应用自动安装和升级，不污染系统环境；账号、Cookies 与浏览器 Profile 使用独立连接配置管理；主题、明暗模式、强调色、字体、字号和 Codex Pets 都可以自由调整。
+### 📥 下载与转码
 
-## 核心能力
+- **嗅探下载**：基于 CDP 观察网页视频、音频、直播流、清单、图片、字幕和 API 响应；适合 TikTok、抖音、快手、小红书等需要真实浏览器会话的站点。
+- **YT-DLP 下载**：粘贴链接即可解析 YouTube、哔哩哔哩等常用平台，保存视频、音频、字幕和封面，并支持使用已登录的身份下载有权访问的内容。
+- **音视频转码**：基于 FFmpeg 支持下载后联动转码和本地文件转码，内置 H.264、H.265、VP9、MP3、AAC、Opus、FLAC、WAV 等常用预设。
 
-- **嗅探下载**：自研基于 CDP 的浏览器嗅探能力，可观察网页中的视频、音频、直播流、清单、图片、字幕、API 响应等资源；支持在用户主动登录后的真实浏览器环境中识别与下载 TikTok、抖音、快手、小红书等站点资源，也可与转码联动，下载完成后自动进入转码流程。
-- **YT-DLP 下载**：集成 YT-DLP 下载能力，支持大量在线视频网站的素材下载，可稳定下载 YouTube、哔哩哔哩等常用平台资源；粘贴链接即可解析并保存视频、音频、字幕和封面，也可携带连接中保存的 Cookies 下载用户有权访问的内容，下载后可继续转码并在资源库里统一管理。
-- **音视频转码**：基于 FFmpeg，支持下载后联动转码和手动选择本地文件转码；内置 H.264、H.265、VP9、MP3、AAC、Opus、FLAC、WAV 等常用预设，覆盖原始尺寸、2160p、1080p、720p、480p 等输出场景。
-- **多视图资源管理**：支持任务视图与文件视图，统一管理下载、转码、字幕、封面和导入文件；支持媒体预览、任务详情、文件详情、批量选择、删除、失败任务恢复、文件存在性检测与失效记录清理。
-- **本地音乐播放**：自动索引资源库中的音频文件，支持本地播放、播放队列、封面展示、同步歌词、东亚罗马音/拼音歌词、均衡器和多种频谱可视化效果。
-- **YouTube Music**：提供桌面化 YouTube Music 播放体验，支持账号连接、歌曲/艺人/歌单搜索、首页推荐、歌单库、关注艺人、喜欢的音乐、播放队列与歌词，并通过广告数据清理减少播放干扰。
-- **YouTube Live**：支持自定义添加 YouTube Live 分组与频道，可查看直播状态、播放直播电台，也可以直接查看直播视频。
-- **依赖自动管理**：自动维护 YT-DLP、FFmpeg、Bun 等工具的安装、校验与升级；工具路径由应用独立管理，不依赖也不污染用户本机全局环境。
-- **凭证与用户隔离**：支持通过 CDP 调用本机浏览器能力并持久化独立的 Profiles 与 Cookies；数据仅来自用户主动登录，连接配置与日常浏览器使用场景相互隔离。
-- **外观自由定义**：支持主题包、明暗/自动模式、强调色、字体、字号、侧边栏样式等外观设置；内置 Codex Pets Gallery，可导入在线与本地 Pets 并设置为桌面陪伴元素。
+### 🗂️ 资源管理
+
+- **多视图资源管理**：用任务视图和文件视图统一管理下载、转码、字幕、封面和导入文件，支持预览、详情、批量选择、删除、失败恢复和失效记录清理。
+
+### 🎧 播放器
+
+- **本地音乐播放**：自动索引资源库音频，支持队列、封面、同步歌词、东亚罗马音/拼音歌词、均衡器和频谱可视化。
+- **YouTube Music**：桌面化搜索歌曲、艺人和歌单，支持首页推荐、歌单库、关注艺人、喜欢的音乐、播放队列与歌词。
+- **YouTube Live**：自定义直播分组与频道，查看直播状态，播放直播电台，也可以直接查看直播视频。
+
+### 🔐 安全隔离
+
+- **依赖自动管理**：自动安装、校验和升级 YT-DLP、FFmpeg、Bun 等工具，路径由应用独立维护，不污染系统环境。
+- **凭证与用户隔离**：通过 CDP 调用本机浏览器能力，并持久化独立 Profiles 与 Cookies；数据来自用户主动登录，连接配置与日常浏览器隔离。
+
+### 🎨 自由度
+
+- **外观自由定义**：支持主题包、明暗/自动模式、强调色、字体、字号和侧边栏样式；内置 Codex Pets Gallery，可导入在线与本地 Pets。
 
 ## 产品界面
 
 <p align="center">
-  <img src="./images/download.webp" alt="下蛋下载任务界面" width="88%" />
-  <br />
-  <sub>下载与转码任务</sub>
-</p>
-
-<p align="center">
-  <img src="./images/sniff-desk.webp" alt="下蛋嗅探台资源捕获界面" width="88%" />
+  <img src="./images/sniff-desk.webp" alt="下蛋嗅探台资源捕获界面" width="92%" />
   <br />
   <sub>嗅探台捕获网页资源</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-music.webp" alt="下蛋 YouTube Music 播放界面" width="88%" />
+  <img src="./images/youtube-music.webp" alt="下蛋 YouTube Music 播放界面" width="92%" />
   <br />
   <sub>YouTube Music 桌面播放</sub>
 </p>
 
 <p align="center">
-  <img src="./images/youtube-live.webp" alt="下蛋 YouTube Live 直播视频界面" width="88%" />
-  <br />
-  <sub>YouTube Live 直播视频查看</sub>
-</p>
-
-<p align="center">
-  <img src="./images/library.webp" alt="下蛋资源库界面" width="88%" />
+  <img src="./images/library.webp" alt="下蛋资源库界面" width="92%" />
   <br />
   <sub>资源库统一管理下载与转码内容</sub>
 </p>
 
 <details>
-  <summary>更多设置与个性化界面</summary>
+  <summary><strong>更多界面截图</strong></summary>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="下蛋连接与账号隔离界面" width="88%" />
+    <img src="./images/youtube-live.webp" alt="下蛋 YouTube Live 直播视频界面" width="92%" />
+    <br />
+    <sub>YouTube Live 直播视频查看</sub>
+  </p>
+
+  <p align="center">
+    <img src="./images/connector.webp" alt="下蛋连接与账号隔离界面" width="92%" />
     <br />
     <sub>连接配置、Cookies 与浏览器 Profile 隔离</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="下蛋依赖工具管理界面" width="88%" />
+    <img src="./images/tools.webp" alt="下蛋依赖工具管理界面" width="92%" />
     <br />
     <sub>YT-DLP、FFmpeg、Bun 依赖自动管理</sub>
   </p>
 
   <p align="center">
-    <img src="./images/appearance.webp" alt="下蛋外观设置界面" width="88%" />
+    <img src="./images/appearance.webp" alt="下蛋外观设置界面" width="92%" />
     <br />
     <sub>主题、明暗模式、强调色、字体与字号设置</sub>
   </p>
 
   <p align="center">
-    <img src="./images/codex-pets-gallery.webp" alt="下蛋 Codex Pets 宠物画廊界面" width="88%" />
+    <img src="./images/codex-pets-gallery.webp" alt="下蛋 Codex Pets 宠物画廊界面" width="92%" />
     <br />
     <sub>Codex Pets Gallery 与本地宠物导入</sub>
   </p>
 </details>
 
 ## 快速开始
-
-### 下载安装
 
 可直接下载最新安装包；历史版本见 [GitHub 发布页](https://github.com/arnoldhao/xiadown/releases)。
 
