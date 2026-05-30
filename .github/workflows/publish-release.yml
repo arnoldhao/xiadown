@@ -147,12 +147,23 @@ jobs:
           security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
-          security import "$certificate_path" -P "$MAC_CSC_KEY_PASSWORD" -A -t cert -f pkcs12 -k "$keychain_path"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
-          identity="$(security find-identity -v -p codesigning "$keychain_path" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
-          test -n "$identity" || { echo "Developer ID Application identity not found"; exit 1; }
-          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          existing_keychains=()
+          while IFS= read -r keychain; do
+            keychain="${keychain//\"/}"
+            existing_keychains+=("$keychain")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain_path" "${existing_keychains[@]}"
+          security default-keychain -d user -s "$keychain_path"
+          security import "$certificate_path" -P "$MAC_CSC_KEY_PASSWORD" -A -f pkcs12 -k "$keychain_path" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+          security find-identity -v -p codesigning "$keychain_path"
+          identity_hash="$(security find-identity -v -p codesigning "$keychain_path" | awk '/Developer ID Application/ {print $2; exit}')"
+          identity_name="$(security find-identity -v -p codesigning "$keychain_path" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          test -n "$identity_hash" || { echo "Developer ID Application identity not found"; exit 1; }
+          echo "Using signing identity: $identity_name"
+          echo "SIGN_IDENTITY=$identity_hash" >> "$GITHUB_ENV"
           echo "SIGN_KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+          echo "SIGN_KEYCHAIN_PASSWORD=$keychain_password" >> "$GITHUB_ENV"
 
       - name: Sign and notarize app
         shell: bash
@@ -163,6 +174,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::add-mask::$APPLE_APP_SPECIFIC_PASSWORD"
+          security unlock-keychain -p "$SIGN_KEYCHAIN_PASSWORD" "$SIGN_KEYCHAIN_PATH"
           codesign --force --deep --options runtime --timestamp \
             --keychain "$SIGN_KEYCHAIN_PATH" \
             --sign "$SIGN_IDENTITY" \
