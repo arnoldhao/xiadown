@@ -106,7 +106,10 @@
 .app-new-task-download-mode-switch {
   width: fit-content;
   max-width: 100%;
-  grid-template-columns: repeat(2, minmax(max-content, 1fr));
+  grid-template-columns: repeat(
+    var(--app-dream-segment-count, 2),
+    minmax(max-content, 1fr)
+  );
 }
 
 .app-new-task-mode-switch[data-count="1"],
