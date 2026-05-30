@@ -58,6 +58,69 @@ func TestExtractZipExecutableRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestValidateMacUpdateBundleAcceptsMatchingSignedBundle(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	currentBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Current.app"), "com.dreamapp.xiadown")
+	stagedBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Staged.app"), "com.dreamapp.xiadown")
+	installer := &PlatformInstaller{
+		commandOutput: fakeMacValidationCommands(map[string]string{
+			currentBundle: "ABCDE12345",
+			stagedBundle:  "ABCDE12345",
+		}),
+	}
+
+	validation, err := installer.validateMacUpdateBundle(context.Background(), currentBundle, stagedBundle)
+	if err != nil {
+		t.Fatalf("validateMacUpdateBundle failed: %v", err)
+	}
+	if validation.BundleID != "com.dreamapp.xiadown" {
+		t.Fatalf("unexpected bundle id %q", validation.BundleID)
+	}
+	if validation.TeamID != "ABCDE12345" {
+		t.Fatalf("unexpected team id %q", validation.TeamID)
+	}
+}
+
+func TestValidateMacUpdateBundleRejectsBundleIdentifierMismatch(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	currentBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Current.app"), "com.dreamapp.xiadown")
+	stagedBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Staged.app"), "com.example.other")
+	installer := &PlatformInstaller{
+		commandOutput: fakeMacValidationCommands(map[string]string{
+			currentBundle: "ABCDE12345",
+			stagedBundle:  "ABCDE12345",
+		}),
+	}
+
+	_, err := installer.validateMacUpdateBundle(context.Background(), currentBundle, stagedBundle)
+	if err == nil || !strings.Contains(err.Error(), "bundle identifier mismatch") {
+		t.Fatalf("expected bundle identifier mismatch, got %v", err)
+	}
+}
+
+func TestValidateMacUpdateBundleRejectsSigningTeamMismatch(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	currentBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Current.app"), "com.dreamapp.xiadown")
+	stagedBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Staged.app"), "com.dreamapp.xiadown")
+	installer := &PlatformInstaller{
+		commandOutput: fakeMacValidationCommands(map[string]string{
+			currentBundle: "ABCDE12345",
+			stagedBundle:  "VWXYZ67890",
+		}),
+	}
+
+	_, err := installer.validateMacUpdateBundle(context.Background(), currentBundle, stagedBundle)
+	if err == nil || !strings.Contains(err.Error(), "signing team mismatch") {
+		t.Fatalf("expected signing team mismatch, got %v", err)
+	}
+}
+
 func TestRestartDarwinUsesExplicitRelaunchAndFallbackPaths(t *testing.T) {
 	t.Parallel()
 
@@ -84,6 +147,8 @@ func TestRestartDarwinUsesExplicitRelaunchAndFallbackPaths(t *testing.T) {
 		RelaunchPath: "/Applications/xiadown.app",
 		FallbackPath: "/Users/test/bin/xiadown.app",
 		StageDir:     "/tmp/stage",
+		BundleID:     "com.dreamapp.xiadown",
+		TeamID:       "ABCDE12345",
 	}
 	if err := installer.restartDarwin(plan); err != nil {
 		t.Fatalf("restartDarwin failed: %v", err)
@@ -92,7 +157,7 @@ func TestRestartDarwinUsesExplicitRelaunchAndFallbackPaths(t *testing.T) {
 	if capturedName != "/bin/sh" {
 		t.Fatalf("unexpected restart helper: %q", capturedName)
 	}
-	if len(capturedArgs) != 9 {
+	if len(capturedArgs) != 11 {
 		t.Fatalf("unexpected helper args: %#v", capturedArgs)
 	}
 	if capturedArgs[4] != plan.RelaunchPath {
@@ -103,6 +168,54 @@ func TestRestartDarwinUsesExplicitRelaunchAndFallbackPaths(t *testing.T) {
 	}
 	if capturedArgs[8] != installer.whatsNewPendingPath {
 		t.Fatalf("expected pending what's new path %q, got %q", installer.whatsNewPendingPath, capturedArgs[8])
+	}
+	if capturedArgs[9] != plan.BundleID {
+		t.Fatalf("expected bundle id %q, got %q", plan.BundleID, capturedArgs[9])
+	}
+	if capturedArgs[10] != plan.TeamID {
+		t.Fatalf("expected team id %q, got %q", plan.TeamID, capturedArgs[10])
+	}
+}
+
+func writeTestMacBundle(t *testing.T, path string, bundleID string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(path, "Contents"), 0o755); err != nil {
+		t.Fatalf("create test bundle: %v", err)
+	}
+	infoPlist := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>` + bundleID + `</string>
+</dict>
+</plist>
+`
+	if err := os.WriteFile(filepath.Join(path, "Contents", "Info.plist"), []byte(infoPlist), 0o644); err != nil {
+		t.Fatalf("write test Info.plist: %v", err)
+	}
+	return path
+}
+
+func fakeMacValidationCommands(teamByBundle map[string]string) func(context.Context, string, ...string) ([]byte, error) {
+	return func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if len(args) == 0 {
+			return nil, os.ErrInvalid
+		}
+		bundlePath := args[len(args)-1]
+		switch {
+		case name == "/usr/bin/codesign" && args[0] == "--verify":
+			return []byte("valid"), nil
+		case name == "/usr/bin/codesign" && args[0] == "-dv":
+			teamID := teamByBundle[bundlePath]
+			return []byte("Executable=/Contents/MacOS/xiadown\nTeamIdentifier=" + teamID + "\n"), nil
+		case name == "/usr/sbin/spctl":
+			return []byte(bundlePath + ": accepted"), nil
+		case name == "/usr/libexec/PlistBuddy":
+			return nil, os.ErrInvalid
+		default:
+			return nil, os.ErrInvalid
+		}
 	}
 }
 
@@ -131,7 +244,7 @@ func TestRestartDarwinDefaultsRelaunchAndFallbackToTarget(t *testing.T) {
 		t.Fatalf("restartDarwin failed: %v", err)
 	}
 
-	if len(capturedArgs) != 9 {
+	if len(capturedArgs) != 11 {
 		t.Fatalf("unexpected helper args: %#v", capturedArgs)
 	}
 	if capturedArgs[4] != plan.TargetPath {
@@ -142,6 +255,9 @@ func TestRestartDarwinDefaultsRelaunchAndFallbackToTarget(t *testing.T) {
 	}
 	if capturedArgs[8] != installer.whatsNewPendingPath {
 		t.Fatalf("expected pending what's new path %q, got %q", installer.whatsNewPendingPath, capturedArgs[8])
+	}
+	if capturedArgs[9] != "" || capturedArgs[10] != "" {
+		t.Fatalf("expected empty signing validation args, got bundle=%q team=%q", capturedArgs[9], capturedArgs[10])
 	}
 }
 

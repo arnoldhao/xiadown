@@ -133,7 +133,7 @@ XiaDown은 온라인 음악 플레이어이자 듀얼 엔진 동영상 다운로
 
 ### 처음 실행
 
-1. `macOS`: 패키지를 압축 해제한 뒤 `XiaDown.app`을 응용 프로그램 폴더로 이동합니다. macOS에서 앱을 열 수 없거나 손상되었다고 표시되면 터미널에서 `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app`을 실행하세요.
+1. `macOS`: 패키지를 압축 해제한 뒤 `XiaDown.app`을 응용 프로그램 폴더로 이동하고 정상적으로 실행합니다.
 2. `Windows`: `.exe` 설치 프로그램을 직접 실행하거나 포터블 패키지를 압축 해제한 뒤 실행합니다. 처음 실행할 때 SmartScreen이 나타나면 `추가 정보 -> 실행`을 선택하세요.
 3. XiaDown은 언어, 테마, 프록시, 의존성 설정을 위한 온보딩 흐름을 엽니다. 주요 작업 흐름은 온보딩과 앱 UI에 모여 있습니다.
 

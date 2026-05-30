@@ -133,7 +133,7 @@ Download the latest package directly below. Older versions are available on [Git
 
 ### First Launch
 
-1. `macOS`: unzip the package and move `XiaDown.app` to the Applications folder. If macOS says the app cannot be opened or is damaged, run `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app`.
+1. `macOS`: unzip the package, move `XiaDown.app` to the Applications folder, and open it normally.
 2. `Windows`: run the `.exe` installer directly, or unzip the portable package and launch it. If SmartScreen appears on first launch, choose `More info -> Run anyway`.
 3. XiaDown opens an onboarding flow for language, theme, proxy, and dependency setup. The main workflows are in the onboarding flow and UI.
 

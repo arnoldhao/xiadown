@@ -133,7 +133,7 @@ Unduh paket terbaru secara langsung di bawah ini. Versi lama tersedia di [GitHub
 
 ### Peluncuran pertama
 
-1. `macOS`: ekstrak paket dan pindahkan `XiaDown.app` ke folder Applications. Jika macOS mengatakan aplikasi tidak dapat dibuka atau rusak, jalankan `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app` di terminal.
+1. `macOS`: ekstrak paket, pindahkan `XiaDown.app` ke folder Applications, lalu buka seperti biasa.
 2. `Windows`: jalankan installer `.exe` secara langsung, atau ekstrak paket portabel dan buka aplikasinya. Jika SmartScreen muncul saat pertama kali dibuka, pilih `More info -> Run anyway`.
 3. XiaDown membuka alur onboarding untuk pengaturan bahasa, tema, proxy, dan dependensi. Alur utama berada di onboarding dan UI aplikasi.
 

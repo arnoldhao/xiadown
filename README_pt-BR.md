@@ -133,7 +133,7 @@ Baixe diretamente o pacote mais recente abaixo. Versões anteriores estão dispo
 
 ### Primeira execução
 
-1. `macOS`: descompacte o pacote e mova `XiaDown.app` para a pasta Aplicativos. Se o macOS disser que o app não pode ser aberto ou está danificado, execute `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app` no terminal.
+1. `macOS`: descompacte o pacote, mova `XiaDown.app` para a pasta Aplicativos e abra normalmente.
 2. `Windows`: execute diretamente o instalador `.exe`, ou descompacte o pacote portátil e abra o app. Se o SmartScreen aparecer na primeira execução, escolha `Mais informações -> Executar assim mesmo`.
 3. O XiaDown abre um fluxo de boas-vindas para configurar idioma, tema, proxy e dependências. Os principais fluxos ficam na tela de boas-vindas e na interface.
 
