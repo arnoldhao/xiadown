@@ -36,16 +36,17 @@ type Command struct {
 }
 
 type CommandOptions struct {
-	ExecPath          string
-	Tools             ToolResolver
-	Request           dto.CreateYTDLPJobRequest
-	OutputTemplate    string
-	SubtitleTemplate  string
-	ThumbnailTemplate string
-	Headers           map[string]string
-	CookiesPath       string
-	ProxyURL          string
-	Timeout           time.Duration
+	ExecPath            string
+	Tools               ToolResolver
+	Request             dto.CreateYTDLPJobRequest
+	OutputTemplate      string
+	SubtitleTemplate    string
+	ThumbnailTemplate   string
+	Headers             map[string]string
+	CookiesPath         string
+	ProxyURL            string
+	ConcurrentFragments int
+	Timeout             time.Duration
 }
 
 type InfoOptions struct {

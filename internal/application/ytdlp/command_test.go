@@ -176,6 +176,48 @@ func TestBuildCommandAddsSafeCapturedHeaders(t *testing.T) {
 	}
 }
 
+func TestBuildCommandAddsConcurrentFragmentsOnlyWhenConfigured(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	defaultCommand, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: filepath.Join(tempDir, "yt-dlp"),
+		Request: dto.CreateYTDLPJobRequest{
+			URL: "https://media.example/replay/index.m3u8",
+		},
+		OutputTemplate: filepath.Join(tempDir, "downloads", "%(title)s.%(ext)s"),
+	})
+	if err != nil {
+		t.Fatalf("build default command: %v", err)
+	}
+	defer defaultCommand.Cancel()
+	if defaultCommand.Cleanup != nil {
+		defer defaultCommand.Cleanup()
+	}
+	if strings.Contains(strings.Join(defaultCommand.Args, "\n"), "--concurrent-fragments") {
+		t.Fatalf("expected default command to omit concurrent fragments, got %v", defaultCommand.Args)
+	}
+
+	configuredCommand, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: filepath.Join(tempDir, "yt-dlp"),
+		Request: dto.CreateYTDLPJobRequest{
+			URL: "https://media.example/replay/index.m3u8",
+		},
+		OutputTemplate:      filepath.Join(tempDir, "downloads", "%(title)s.%(ext)s"),
+		ConcurrentFragments: 8,
+	})
+	if err != nil {
+		t.Fatalf("build configured command: %v", err)
+	}
+	defer configuredCommand.Cancel()
+	if configuredCommand.Cleanup != nil {
+		defer configuredCommand.Cleanup()
+	}
+	if !strings.Contains(strings.Join(configuredCommand.Args, "\n"), "--concurrent-fragments\n8") {
+		t.Fatalf("expected configured command to include concurrent fragments, got %v", configuredCommand.Args)
+	}
+}
+
 func TestBuildSubtitleCommandUsesSubtitleArgsWithoutMutatingPATH(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 

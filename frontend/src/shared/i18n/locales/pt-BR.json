@@ -495,6 +495,7 @@
       "pinyinLyrics": "Letras em pinyin",
       "macOSOnly": "Disponível apenas no macOS 10.14 ou posterior",
       "downloadDirectory": "Pasta de downloads",
+      "ytdlpConcurrentFragments": "Fragmentos simultâneos",
       "defaultBrowser": "Navegador padrão",
       "refreshBrowsers": "Atualizar lista de navegadores",
       "language": "Idioma",

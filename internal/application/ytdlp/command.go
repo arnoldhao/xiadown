@@ -15,7 +15,7 @@ import (
 
 var quickManualSubtitleLanguages = []string{"all", "-live_chat"}
 
-func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFilePath string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string) []string {
+func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFilePath string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string, concurrentFragments int) []string {
 	args := []string{
 		"--no-playlist",
 		"--newline",
@@ -39,6 +39,9 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 	}
 	if strings.TrimSpace(proxyURL) != "" {
 		args = append(args, "--proxy", proxyURL)
+	}
+	if concurrentFragments > 1 {
+		args = append(args, "--concurrent-fragments", fmt.Sprintf("%d", concurrentFragments))
 	}
 	args = append(args, buildHeaderArgs(headers)...)
 	formatArg := ""
@@ -180,6 +183,7 @@ func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool
 			explicitToolArgs,
 			options.ProxyURL,
 			options.Headers,
+			options.ConcurrentFragments,
 		)
 	}
 

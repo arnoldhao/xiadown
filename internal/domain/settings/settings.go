@@ -26,63 +26,65 @@ type WindowBounds struct {
 }
 
 type Settings struct {
-	appearance            AppearanceMode
-	fontFamily            string
-	themeColor            string
-	colorScheme           ColorScheme
-	fontSize              int
-	language              Language
-	defaultBrowser        string
-	downloadDirectory     string
-	mainBounds            WindowBounds
-	settingsBounds        WindowBounds
-	version               int
-	logLevel              LogLevel
-	logMaxSizeMB          int
-	logMaxBackups         int
-	logMaxAgeDays         int
-	logCompress           bool
-	proxy                 ProxySettings
-	menuBarVisibility     MenuBarVisibility
-	autoStart             bool
-	minimizeToTrayOnStart bool
-	syncedLyricsEnabled   bool
-	romanizedLyrics       bool
-	pinyinLyrics          bool
-	resourceSniffScope    ResourceSniffScope
-	resourceSniffMinBytes int
-	resourceSniffRetain   int
-	appearanceConfig      map[string]any
+	appearance               AppearanceMode
+	fontFamily               string
+	themeColor               string
+	colorScheme              ColorScheme
+	fontSize                 int
+	language                 Language
+	defaultBrowser           string
+	downloadDirectory        string
+	mainBounds               WindowBounds
+	settingsBounds           WindowBounds
+	version                  int
+	logLevel                 LogLevel
+	logMaxSizeMB             int
+	logMaxBackups            int
+	logMaxAgeDays            int
+	logCompress              bool
+	proxy                    ProxySettings
+	menuBarVisibility        MenuBarVisibility
+	autoStart                bool
+	minimizeToTrayOnStart    bool
+	syncedLyricsEnabled      bool
+	romanizedLyrics          bool
+	pinyinLyrics             bool
+	resourceSniffScope       ResourceSniffScope
+	resourceSniffMinBytes    int
+	resourceSniffRetain      int
+	ytdlpConcurrentFragments int
+	appearanceConfig         map[string]any
 }
 
 type SettingsParams struct {
-	Appearance            string
-	FontFamily            string
-	ThemeColor            string
-	ColorScheme           string
-	FontSize              int
-	Language              string
-	DefaultBrowser        string
-	DownloadDirectory     string
-	MainBounds            WindowBounds
-	SettingsBounds        WindowBounds
-	Version               int
-	LogLevel              string
-	LogMaxSizeMB          int
-	LogMaxBackups         int
-	LogMaxAgeDays         int
-	LogCompress           *bool
-	Proxy                 ProxySettingsParams
-	MenuBarVisibility     *string
-	AutoStart             *bool
-	MinimizeToTrayOnStart *bool
-	SyncedLyricsEnabled   *bool
-	RomanizedLyrics       *bool
-	PinyinLyrics          *bool
-	ResourceSniffScope    string
-	ResourceSniffMinBytes int
-	ResourceSniffRetain   int
-	AppearanceConfig      map[string]any
+	Appearance               string
+	FontFamily               string
+	ThemeColor               string
+	ColorScheme              string
+	FontSize                 int
+	Language                 string
+	DefaultBrowser           string
+	DownloadDirectory        string
+	MainBounds               WindowBounds
+	SettingsBounds           WindowBounds
+	Version                  int
+	LogLevel                 string
+	LogMaxSizeMB             int
+	LogMaxBackups            int
+	LogMaxAgeDays            int
+	LogCompress              *bool
+	Proxy                    ProxySettingsParams
+	MenuBarVisibility        *string
+	AutoStart                *bool
+	MinimizeToTrayOnStart    *bool
+	SyncedLyricsEnabled      *bool
+	RomanizedLyrics          *bool
+	PinyinLyrics             *bool
+	ResourceSniffScope       string
+	ResourceSniffMinBytes    int
+	ResourceSniffRetain      int
+	YTDLPConcurrentFragments int
+	AppearanceConfig         map[string]any
 }
 
 const (
@@ -173,12 +175,14 @@ const (
 	ResourceSniffScopeAdvanced ResourceSniffScope = "advanced"
 	ResourceSniffScopeAll      ResourceSniffScope = "all"
 
-	DefaultResourceSniffScope    = ResourceSniffScopeDefault
-	DefaultResourceSniffMinBytes = 8 * 1024
-	DefaultResourceSniffRetain   = 1000
-	MaxResourceSniffMinBytes     = 10 * 1024 * 1024
-	MinResourceSniffRetain       = 100
-	MaxResourceSniffRetain       = 10000
+	DefaultResourceSniffScope       = ResourceSniffScopeDefault
+	DefaultResourceSniffMinBytes    = 8 * 1024
+	DefaultResourceSniffRetain      = 1000
+	MaxResourceSniffMinBytes        = 10 * 1024 * 1024
+	MinResourceSniffRetain          = 100
+	MaxResourceSniffRetain          = 10000
+	DefaultYTDLPConcurrentFragments = 1
+	MaxYTDLPConcurrentFragments     = 16
 )
 
 const (
@@ -363,34 +367,43 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		return Settings{}, fmt.Errorf("%w: resource sniff retain limit", ErrInvalidSettings)
 	}
 
+	ytdlpConcurrentFragments := params.YTDLPConcurrentFragments
+	if ytdlpConcurrentFragments <= 0 {
+		ytdlpConcurrentFragments = DefaultYTDLPConcurrentFragments
+	}
+	if ytdlpConcurrentFragments > MaxYTDLPConcurrentFragments {
+		return Settings{}, fmt.Errorf("%w: yt-dlp concurrent fragments", ErrInvalidSettings)
+	}
+
 	return Settings{
-		appearance:            appearance,
-		fontFamily:            strings.TrimSpace(params.FontFamily),
-		themeColor:            strings.TrimSpace(params.ThemeColor),
-		colorScheme:           colorScheme,
-		fontSize:              fontSize,
-		language:              parsedLanguage,
-		defaultBrowser:        normalizeDefaultBrowser(params.DefaultBrowser),
-		downloadDirectory:     downloadDirectory,
-		mainBounds:            params.MainBounds,
-		settingsBounds:        params.SettingsBounds,
-		version:               params.Version,
-		logLevel:              logLevel,
-		logMaxSizeMB:          logMaxSizeMB,
-		logMaxBackups:         logMaxBackups,
-		logMaxAgeDays:         logMaxAgeDays,
-		logCompress:           logCompress,
-		proxy:                 proxySettings,
-		menuBarVisibility:     menuBarVisibility,
-		autoStart:             autoStart,
-		minimizeToTrayOnStart: minimizeToTrayOnStart,
-		syncedLyricsEnabled:   syncedLyricsEnabled,
-		romanizedLyrics:       romanizedLyrics,
-		pinyinLyrics:          pinyinLyrics,
-		resourceSniffScope:    resourceSniffScope,
-		resourceSniffMinBytes: resourceSniffMinBytes,
-		resourceSniffRetain:   resourceSniffRetain,
-		appearanceConfig:      cloneAnyMap(params.AppearanceConfig),
+		appearance:               appearance,
+		fontFamily:               strings.TrimSpace(params.FontFamily),
+		themeColor:               strings.TrimSpace(params.ThemeColor),
+		colorScheme:              colorScheme,
+		fontSize:                 fontSize,
+		language:                 parsedLanguage,
+		defaultBrowser:           normalizeDefaultBrowser(params.DefaultBrowser),
+		downloadDirectory:        downloadDirectory,
+		mainBounds:               params.MainBounds,
+		settingsBounds:           params.SettingsBounds,
+		version:                  params.Version,
+		logLevel:                 logLevel,
+		logMaxSizeMB:             logMaxSizeMB,
+		logMaxBackups:            logMaxBackups,
+		logMaxAgeDays:            logMaxAgeDays,
+		logCompress:              logCompress,
+		proxy:                    proxySettings,
+		menuBarVisibility:        menuBarVisibility,
+		autoStart:                autoStart,
+		minimizeToTrayOnStart:    minimizeToTrayOnStart,
+		syncedLyricsEnabled:      syncedLyricsEnabled,
+		romanizedLyrics:          romanizedLyrics,
+		pinyinLyrics:             pinyinLyrics,
+		resourceSniffScope:       resourceSniffScope,
+		resourceSniffMinBytes:    resourceSniffMinBytes,
+		resourceSniffRetain:      resourceSniffRetain,
+		ytdlpConcurrentFragments: ytdlpConcurrentFragments,
+		appearanceConfig:         cloneAnyMap(params.AppearanceConfig),
 	}, nil
 }
 
@@ -399,32 +412,33 @@ func DefaultSettingsWithLanguage(language string) Settings {
 	settingsBounds, _ := NewSettingsWindowBounds(0, 0, DefaultSettingsWidth, DefaultSettingsHeight)
 	parsedLanguage, _ := ParseLanguage(language)
 	return Settings{
-		appearance:            AppearanceAuto,
-		themeColor:            ThemeColorSystem,
-		colorScheme:           DefaultColorScheme,
-		fontSize:              DefaultFontSize,
-		language:              parsedLanguage,
-		defaultBrowser:        "",
-		downloadDirectory:     DefaultDownloadDirectory(),
-		mainBounds:            mainBounds,
-		settingsBounds:        settingsBounds,
-		version:               1,
-		logLevel:              DefaultLogLevel,
-		logMaxSizeMB:          DefaultLogMaxSizeMB,
-		logMaxBackups:         DefaultLogMaxBackups,
-		logMaxAgeDays:         DefaultLogMaxAgeDays,
-		logCompress:           DefaultLogCompress,
-		proxy:                 DefaultProxySettings(),
-		menuBarVisibility:     DefaultMenuBarVisibility,
-		autoStart:             false,
-		minimizeToTrayOnStart: false,
-		syncedLyricsEnabled:   DefaultSyncedLyricsEnabled,
-		romanizedLyrics:       DefaultRomanizedLyrics,
-		pinyinLyrics:          DefaultPinyinLyrics,
-		resourceSniffScope:    DefaultResourceSniffScope,
-		resourceSniffMinBytes: DefaultResourceSniffMinBytes,
-		resourceSniffRetain:   DefaultResourceSniffRetain,
-		appearanceConfig:      nil,
+		appearance:               AppearanceAuto,
+		themeColor:               ThemeColorSystem,
+		colorScheme:              DefaultColorScheme,
+		fontSize:                 DefaultFontSize,
+		language:                 parsedLanguage,
+		defaultBrowser:           "",
+		downloadDirectory:        DefaultDownloadDirectory(),
+		mainBounds:               mainBounds,
+		settingsBounds:           settingsBounds,
+		version:                  1,
+		logLevel:                 DefaultLogLevel,
+		logMaxSizeMB:             DefaultLogMaxSizeMB,
+		logMaxBackups:            DefaultLogMaxBackups,
+		logMaxAgeDays:            DefaultLogMaxAgeDays,
+		logCompress:              DefaultLogCompress,
+		proxy:                    DefaultProxySettings(),
+		menuBarVisibility:        DefaultMenuBarVisibility,
+		autoStart:                false,
+		minimizeToTrayOnStart:    false,
+		syncedLyricsEnabled:      DefaultSyncedLyricsEnabled,
+		romanizedLyrics:          DefaultRomanizedLyrics,
+		pinyinLyrics:             DefaultPinyinLyrics,
+		resourceSniffScope:       DefaultResourceSniffScope,
+		resourceSniffMinBytes:    DefaultResourceSniffMinBytes,
+		resourceSniffRetain:      DefaultResourceSniffRetain,
+		ytdlpConcurrentFragments: DefaultYTDLPConcurrentFragments,
+		appearanceConfig:         nil,
 	}
 }
 
@@ -660,6 +674,9 @@ func (settings Settings) ResourceSniffScope() ResourceSniffScope {
 }
 func (settings Settings) ResourceSniffMinBytes() int { return settings.resourceSniffMinBytes }
 func (settings Settings) ResourceSniffRetain() int   { return settings.resourceSniffRetain }
+func (settings Settings) YTDLPConcurrentFragments() int {
+	return settings.ytdlpConcurrentFragments
+}
 func (settings Settings) AppearanceConfig() map[string]any {
 	return cloneAnyMap(settings.appearanceConfig)
 }

@@ -692,6 +692,7 @@ function buildText(language: SupportedLanguage) {
       pinyinLyrics: t("xiadown.settings.pinyinLyrics", language),
       macOSOnly: t("xiadown.settings.macOSOnly", language),
       downloadDirectory: t("xiadown.settings.downloadDirectory", language),
+      ytdlpConcurrentFragments: t("xiadown.settings.ytdlpConcurrentFragments", language),
       defaultBrowser: t("xiadown.settings.defaultBrowser", language),
       refreshBrowsers: t("xiadown.settings.refreshBrowsers", language),
       resourceSniffScope: t("xiadown.settings.resourceSniffScope", language),

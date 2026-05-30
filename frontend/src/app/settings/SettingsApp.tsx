@@ -647,6 +647,10 @@ export function SettingsApp() {
     { value: 2000, label: "2000" },
     { value: 5000, label: "5000" },
   ];
+  const ytdlpConcurrentFragmentOptions = [1, 2, 4, 8, 16].map((value) => ({
+    value,
+    label: String(value),
+  }));
   const dreamApps = [
     {
       id: "dreamcreator",
@@ -1170,6 +1174,20 @@ export function SettingsApp() {
                       </Button>
                     ) : null}
                   </div>
+                </SettingsCompactRow>
+                <SettingsCompactSeparator />
+                <SettingsCompactRow label={text.settings.ytdlpConcurrentFragments}>
+                  <Select
+                    value={String(currentSettings?.ytdlpConcurrentFragments ?? 1)}
+                    onChange={(event) => void saveSettingsPatch({ ytdlpConcurrentFragments: Number(event.target.value) })}
+                    className="w-48"
+                  >
+                    {ytdlpConcurrentFragmentOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
                 </SettingsCompactRow>
               </SettingsCompactListCard>
 

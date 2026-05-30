@@ -495,6 +495,7 @@
       "pinyinLyrics": "Lirik pinyin",
       "macOSOnly": "Hanya tersedia di macOS 10.14 atau lebih baru",
       "downloadDirectory": "Direktori unduhan",
+      "ytdlpConcurrentFragments": "Konkurensi fragmen",
       "defaultBrowser": "Browser default",
       "refreshBrowsers": "Segarkan daftar browser",
       "language": "Bahasa",

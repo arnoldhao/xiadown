@@ -169,6 +169,11 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		resourceSniffRetain = *request.ResourceSniffRetain
 	}
 
+	ytdlpConcurrentFragments := current.YTDLPConcurrentFragments()
+	if request.YTDLPConcurrentFragments != nil {
+		ytdlpConcurrentFragments = *request.YTDLPConcurrentFragments
+	}
+
 	proxyParams := proxySettingsParamsFromDomain(current.Proxy())
 	if request.Proxy != nil {
 		proxyParams = proxySettingsParamsFromDTO(*request.Proxy)
@@ -213,33 +218,34 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 	}
 
 	updated, err := settings.NewSettings(settings.SettingsParams{
-		Appearance:            appearance,
-		FontFamily:            fontFamily,
-		FontSize:              fontSize,
-		ThemeColor:            themeColor,
-		ColorScheme:           colorScheme,
-		Language:              language,
-		DefaultBrowser:        defaultBrowser,
-		DownloadDirectory:     downloadDirectory,
-		MainBounds:            mainBounds,
-		SettingsBounds:        settingsBounds,
-		Version:               nextVersion,
-		LogLevel:              logLevel,
-		LogMaxSizeMB:          logMaxSizeMB,
-		LogMaxBackups:         logMaxBackups,
-		LogMaxAgeDays:         logMaxAgeDays,
-		LogCompress:           &logCompress,
-		Proxy:                 proxyParams,
-		MenuBarVisibility:     &menuBarVisibility,
-		AutoStart:             &autoStart,
-		MinimizeToTrayOnStart: &minimizeToTrayOnStart,
-		SyncedLyricsEnabled:   &syncedLyricsEnabled,
-		RomanizedLyrics:       &romanizedLyrics,
-		PinyinLyrics:          &pinyinLyrics,
-		ResourceSniffScope:    resourceSniffScope,
-		ResourceSniffMinBytes: resourceSniffMinBytes,
-		ResourceSniffRetain:   resourceSniffRetain,
-		AppearanceConfig:      appearanceConfig,
+		Appearance:               appearance,
+		FontFamily:               fontFamily,
+		FontSize:                 fontSize,
+		ThemeColor:               themeColor,
+		ColorScheme:              colorScheme,
+		Language:                 language,
+		DefaultBrowser:           defaultBrowser,
+		DownloadDirectory:        downloadDirectory,
+		MainBounds:               mainBounds,
+		SettingsBounds:           settingsBounds,
+		Version:                  nextVersion,
+		LogLevel:                 logLevel,
+		LogMaxSizeMB:             logMaxSizeMB,
+		LogMaxBackups:            logMaxBackups,
+		LogMaxAgeDays:            logMaxAgeDays,
+		LogCompress:              &logCompress,
+		Proxy:                    proxyParams,
+		MenuBarVisibility:        &menuBarVisibility,
+		AutoStart:                &autoStart,
+		MinimizeToTrayOnStart:    &minimizeToTrayOnStart,
+		SyncedLyricsEnabled:      &syncedLyricsEnabled,
+		RomanizedLyrics:          &romanizedLyrics,
+		PinyinLyrics:             &pinyinLyrics,
+		ResourceSniffScope:       resourceSniffScope,
+		ResourceSniffMinBytes:    resourceSniffMinBytes,
+		ResourceSniffRetain:      resourceSniffRetain,
+		YTDLPConcurrentFragments: ytdlpConcurrentFragments,
+		AppearanceConfig:         appearanceConfig,
 	})
 	if err != nil {
 		return dto.Settings{}, err
@@ -317,23 +323,24 @@ func toDTO(current settings.Settings, effective settings.AppearanceMode, systemT
 			Width:  current.SettingsBounds().Width(),
 			Height: current.SettingsBounds().Height(),
 		},
-		Version:               current.Version(),
-		LogLevel:              current.LogLevel().String(),
-		LogMaxSizeMB:          current.LogMaxSizeMB(),
-		LogMaxBackups:         current.LogMaxBackups(),
-		LogMaxAgeDays:         current.LogMaxAgeDays(),
-		LogCompress:           current.LogCompress(),
-		MenuBarVisibility:     sanitizeMenuBarVisibility(current.MenuBarVisibility().String()),
-		AutoStart:             current.AutoStart(),
-		MinimizeToTrayOnStart: current.MinimizeToTrayOnStart(),
-		SyncedLyricsEnabled:   current.SyncedLyricsEnabled(),
-		RomanizedLyrics:       current.RomanizedLyrics(),
-		PinyinLyrics:          current.PinyinLyrics(),
-		ResourceSniffScope:    current.ResourceSniffScope().String(),
-		ResourceSniffMinBytes: current.ResourceSniffMinBytes(),
-		ResourceSniffRetain:   current.ResourceSniffRetain(),
-		Proxy:                 toProxyDTO(current.Proxy()),
-		AppearanceConfig:      current.AppearanceConfig(),
+		Version:                  current.Version(),
+		LogLevel:                 current.LogLevel().String(),
+		LogMaxSizeMB:             current.LogMaxSizeMB(),
+		LogMaxBackups:            current.LogMaxBackups(),
+		LogMaxAgeDays:            current.LogMaxAgeDays(),
+		LogCompress:              current.LogCompress(),
+		MenuBarVisibility:        sanitizeMenuBarVisibility(current.MenuBarVisibility().String()),
+		AutoStart:                current.AutoStart(),
+		MinimizeToTrayOnStart:    current.MinimizeToTrayOnStart(),
+		SyncedLyricsEnabled:      current.SyncedLyricsEnabled(),
+		RomanizedLyrics:          current.RomanizedLyrics(),
+		PinyinLyrics:             current.PinyinLyrics(),
+		ResourceSniffScope:       current.ResourceSniffScope().String(),
+		ResourceSniffMinBytes:    current.ResourceSniffMinBytes(),
+		ResourceSniffRetain:      current.ResourceSniffRetain(),
+		YTDLPConcurrentFragments: current.YTDLPConcurrentFragments(),
+		Proxy:                    toProxyDTO(current.Proxy()),
+		AppearanceConfig:         current.AppearanceConfig(),
 	}
 }
 

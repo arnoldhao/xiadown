@@ -19,6 +19,7 @@ import (
 	appytdlp "xiadown/internal/application/ytdlp"
 	"xiadown/internal/domain/dependencies"
 	"xiadown/internal/domain/library"
+	domainsettings "xiadown/internal/domain/settings"
 	ydlpinfr "xiadown/internal/infrastructure/ytdlp"
 )
 
@@ -352,13 +353,14 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 	reporter := newYTDLPProgressReporter(service, &operation)
 	thumbnailPrefetch := &ytdlpThumbnailPrefetch{}
 	command, err := appytdlp.BuildCommand(ctx, appytdlp.CommandOptions{
-		ExecPath:       execPath,
-		Tools:          service.tools,
-		Request:        request,
-		OutputTemplate: outputTemplate,
-		Headers:        normalizeResourceDownloadHeaders(headers, request.URL),
-		CookiesPath:    cookiesPath,
-		ProxyURL:       service.resolveYTDLPProxy(request.URL),
+		ExecPath:            execPath,
+		Tools:               service.tools,
+		Request:             request,
+		OutputTemplate:      outputTemplate,
+		Headers:             normalizeResourceDownloadHeaders(headers, request.URL),
+		CookiesPath:         cookiesPath,
+		ProxyURL:            service.resolveYTDLPProxy(request.URL),
+		ConcurrentFragments: service.resolveYTDLPConcurrentFragments(ctx),
 	})
 	if err != nil {
 		service.failYTDLPOperation(ctx, &operation, &history, err, resolveYTDLPErrorCode("", err), "")
@@ -528,6 +530,24 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 		service.syncListenLocalTrackFromFile(ctx, fileItem, nil)
 		service.publishFileUpdate(service.mustBuildFileDTO(ctx, fileItem))
 	}
+}
+
+func (service *LibraryService) resolveYTDLPConcurrentFragments(ctx context.Context) int {
+	if service == nil || service.settings == nil {
+		return domainsettings.DefaultYTDLPConcurrentFragments
+	}
+	current, err := service.settings.GetSettings(ctx)
+	if err != nil {
+		return domainsettings.DefaultYTDLPConcurrentFragments
+	}
+	value := current.YTDLPConcurrentFragments
+	if value <= 0 {
+		return domainsettings.DefaultYTDLPConcurrentFragments
+	}
+	if value > domainsettings.MaxYTDLPConcurrentFragments {
+		return domainsettings.MaxYTDLPConcurrentFragments
+	}
+	return value
 }
 
 func (service *LibraryService) persistOperationAndHistory(ctx context.Context, operation *library.LibraryOperation, history *library.HistoryRecord) error {
