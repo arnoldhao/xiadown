@@ -121,6 +121,28 @@ func TestValidateMacUpdateBundleRejectsSigningTeamMismatch(t *testing.T) {
 	}
 }
 
+func TestValidateMacUpdateBundleAllowsUnsignedCurrentBundleMigration(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	currentBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Current.app"), "com.dreamapp.xiadown")
+	stagedBundle := writeTestMacBundle(t, filepath.Join(stateDir, "Staged.app"), "com.dreamapp.xiadown")
+	installer := &PlatformInstaller{
+		commandOutput: fakeMacValidationCommands(map[string]string{
+			currentBundle: "not set",
+			stagedBundle:  "ABCDE12345",
+		}),
+	}
+
+	validation, err := installer.validateMacUpdateBundle(context.Background(), currentBundle, stagedBundle)
+	if err != nil {
+		t.Fatalf("validateMacUpdateBundle failed: %v", err)
+	}
+	if validation.TeamID != "ABCDE12345" {
+		t.Fatalf("unexpected team id %q", validation.TeamID)
+	}
+}
+
 func TestRestartDarwinUsesExplicitRelaunchAndFallbackPaths(t *testing.T) {
 	t.Parallel()
 
