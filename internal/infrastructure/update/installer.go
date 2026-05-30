@@ -503,10 +503,10 @@ func (installer *PlatformInstaller) validateMacUpdateBundle(ctx context.Context,
 	if err != nil {
 		return macUpdateBundleValidation{}, fmt.Errorf("read update mac code signing team: %w", err)
 	}
-	if stagedTeamID == "" || strings.EqualFold(stagedTeamID, "not set") {
+	if isUnsetMacTeamID(stagedTeamID) {
 		return macUpdateBundleValidation{}, fmt.Errorf("update mac app is not signed with a Developer ID team")
 	}
-	if currentTeamID, err := installer.macBundleTeamID(ctx, currentBundle); err == nil && currentTeamID != "" && currentTeamID != stagedTeamID {
+	if currentTeamID, err := installer.macBundleTeamID(ctx, currentBundle); err == nil && !isUnsetMacTeamID(currentTeamID) && currentTeamID != stagedTeamID {
 		return macUpdateBundleValidation{}, fmt.Errorf("update signing team mismatch: current=%q update=%q", currentTeamID, stagedTeamID)
 	}
 	if err := installer.assessMacGatekeeper(ctx, stagedBundle); err != nil {
@@ -514,6 +514,11 @@ func (installer *PlatformInstaller) validateMacUpdateBundle(ctx context.Context,
 	}
 
 	return macUpdateBundleValidation{BundleID: stagedBundleID, TeamID: stagedTeamID}, nil
+}
+
+func isUnsetMacTeamID(teamID string) bool {
+	trimmed := strings.TrimSpace(teamID)
+	return trimmed == "" || strings.EqualFold(trimmed, "not set")
 }
 
 func (installer *PlatformInstaller) macBundleIdentifier(ctx context.Context, bundlePath string) (string, error) {
