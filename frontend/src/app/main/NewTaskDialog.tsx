@@ -217,13 +217,6 @@ function hasDownloadableFormats(parsed: ParseYTDLPDownloadResponse) {
   return (parsed.formats ?? []).some((format) => format.id.trim().length > 0);
 }
 
-function usesProfileConnector(prepared: PrepareYTDLPDownloadResponse | null) {
-  return (
-    (prepared?.connectorCredentialMode ?? "").trim().toLowerCase() ===
-    "profile"
-  );
-}
-
 function normalizeResourceSniffPageUrl(value?: string) {
   const trimmed = (value ?? "").trim();
   if (!trimmed) {
@@ -433,9 +426,8 @@ export function NewTaskDialog(props: {
   const dialogClosingRef = React.useRef(false);
   const preserveResourceSniffOnCloseRef = React.useRef(false);
   const parseRequestVersionRef = React.useRef(0);
-  const resourceSniffTransferRequestVersionRef = React.useRef<number | null>(
-    null,
-  );
+  const resourceSniffStartVersionRef = React.useRef(0);
+  const resourceSniffTransferStartVersionRef = React.useRef<number | null>(null);
   const customParsePageObservedRef = React.useRef(false);
   const resourceSniffSessionIdRef = React.useRef("");
   const resourceSniffStartPromiseRef = React.useRef<Promise<string> | null>(
@@ -503,6 +495,7 @@ export function NewTaskDialog(props: {
     setClosingDialog(true);
     try {
       parseRequestVersionRef.current += 1;
+      resourceSniffStartVersionRef.current += 1;
       dialogOpenRef.current = false;
       void cancelActiveResourceSniff();
       props.onOpenChange(false);
@@ -614,9 +607,7 @@ export function NewTaskDialog(props: {
   )
     .trim()
     .toLowerCase();
-  const downloadUsesProfileConnector = usesProfileConnector(downloadPrepared);
-  const downloadShowsSniffMode =
-    downloadUsesProfileConnector || downloadTab === "sniff";
+  const downloadShowsSniffMode = downloadTab === "sniff";
   const downloadMatchesCookieConnector =
     Boolean(downloadPrepared?.connectorId?.trim()) &&
     downloadConnectorMode === "cookies";
@@ -626,8 +617,7 @@ export function NewTaskDialog(props: {
       ? "available"
       : "unavailable";
   const downloadConnectorCanUseCookies =
-    downloadCookieConnectorState === "available" &&
-    !downloadUsesProfileConnector;
+    downloadCookieConnectorState === "available";
   const downloadConnectorStatusLabel =
     downloadCookieConnectorState === "available"
       ? text.dialogs.connectorCanEnable
@@ -650,6 +640,14 @@ export function NewTaskDialog(props: {
       icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
     },
   ];
+  const activeDownloadMode =
+    activeMode === "download" || activeMode === "sniff";
+  const activeDownloadEntryMode: DownloadEntryMode =
+    activeMode === "sniff" ? "sniff" : "direct";
+  const activeDownloadActionLabel =
+    activeDownloadEntryMode === "sniff"
+      ? text.dialogs.startSniffMode
+      : text.dialogs.directDownload;
   const customParseErrorDescription =
     resolveParseErrorDescription(
       customParseError,
@@ -802,7 +800,7 @@ export function NewTaskDialog(props: {
   const resourceSniffSessionQuery = useResourceSniffSession(
     resourceSniffSessionId ? { sessionId: resourceSniffSessionId } : null,
     props.open &&
-      activeMode === "download" &&
+      activeMode === "sniff" &&
       downloadTab === "sniff" &&
       Boolean(resourceSniffSessionId),
   );
@@ -983,7 +981,7 @@ export function NewTaskDialog(props: {
     setDownloadUrl(props.initialUrl ?? "");
     setDownloadPrepared(null);
     setDownloadUseConnector(false);
-    setDownloadTab("quick");
+    setDownloadTab(initialMode === "sniff" ? "sniff" : "quick");
     setDownloadPrepareError("");
     setDownloadPrepareIntent(null);
     setDownloadSubmitError("");
@@ -1034,6 +1032,7 @@ export function NewTaskDialog(props: {
       return;
     }
     parseRequestVersionRef.current += 1;
+    resourceSniffStartVersionRef.current += 1;
     parseDownload.reset();
     parseResourceSniff.reset();
     if (preserveResourceSniffOnCloseRef.current) {
@@ -1151,14 +1150,13 @@ export function NewTaskDialog(props: {
   }, [selectedTranscodePreset?.id]);
 
   const resetDownloadConfig = () => {
-    void cancelActiveResourceSniff();
     parseRequestVersionRef.current += 1;
     parseDownload.reset();
     parseResourceSniff.reset();
     setDownloadPrepared(null);
     setDownloadStep("input");
     setDownloadUseConnector(false);
-    setDownloadTab("quick");
+    setDownloadTab(activeMode === "sniff" ? "sniff" : "quick");
     setDownloadPrepareIntent(null);
     setDownloadSubmitError("");
     setDownloadKeepOnlyTranscodedFile(true);
@@ -1167,7 +1165,6 @@ export function NewTaskDialog(props: {
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
-    setActiveResourceSniffSessionId("");
     setResourceSniffFailure(null);
     setResourceSniffTechnicalError("");
   };
@@ -1183,6 +1180,20 @@ export function NewTaskDialog(props: {
     setCustomParseError("");
   };
 
+  const handleActiveModeChange = (nextMode: NewTaskDialogMode) => {
+    if (nextMode === activeMode) {
+      return;
+    }
+    setActiveMode(nextMode);
+    if (nextMode === "download") {
+      setDownloadTab("quick");
+      return;
+    }
+    if (nextMode === "sniff") {
+      setDownloadTab("sniff");
+    }
+  };
+
   const startPreparedResourceSniff = React.useCallback(
     async (prepared: PrepareYTDLPDownloadResponse) => {
       const existingSessionID = resourceSniffSessionIdRef.current.trim();
@@ -1190,7 +1201,7 @@ export function NewTaskDialog(props: {
         await cancelResourceSniffSession(existingSessionID);
       }
       resetParsedDownloadSelection();
-      const requestVersion = parseRequestVersionRef.current;
+      const startVersion = ++resourceSniffStartVersionRef.current;
       setResourceSniffFailure(null);
       setResourceSniffTechnicalError("");
       const startMutationPromise = startResourceSniff.mutateAsync({
@@ -1205,14 +1216,14 @@ export function NewTaskDialog(props: {
         if (result.failure) {
           if (
             resolveResourceSniffStartResolution({
-              requestVersion,
-              currentVersion: parseRequestVersionRef.current,
+              requestVersion: startVersion,
+              currentVersion: resourceSniffStartVersionRef.current,
               dialogOpen: dialogOpenRef.current,
               transferRequestVersion:
-                resourceSniffTransferRequestVersionRef.current,
+                resourceSniffTransferStartVersionRef.current,
             }) === "preserve"
           ) {
-            resourceSniffTransferRequestVersionRef.current = null;
+            resourceSniffTransferStartVersionRef.current = null;
             return;
           }
           setResourceSniffFailure(result.failure);
@@ -1224,13 +1235,13 @@ export function NewTaskDialog(props: {
           throw new Error("resource sniff start returned no session");
         }
         const startResolution = resolveResourceSniffStartResolution({
-          requestVersion,
-          currentVersion: parseRequestVersionRef.current,
+          requestVersion: startVersion,
+          currentVersion: resourceSniffStartVersionRef.current,
           dialogOpen: dialogOpenRef.current,
-          transferRequestVersion: resourceSniffTransferRequestVersionRef.current,
+          transferRequestVersion: resourceSniffTransferStartVersionRef.current,
         });
         if (startResolution === "preserve") {
-          resourceSniffTransferRequestVersionRef.current = null;
+          resourceSniffTransferStartVersionRef.current = null;
           return;
         }
         if (startResolution === "cancel") {
@@ -1241,14 +1252,14 @@ export function NewTaskDialog(props: {
       } catch (error) {
         if (
           resolveResourceSniffStartResolution({
-            requestVersion,
-            currentVersion: parseRequestVersionRef.current,
+            requestVersion: startVersion,
+            currentVersion: resourceSniffStartVersionRef.current,
             dialogOpen: dialogOpenRef.current,
             transferRequestVersion:
-              resourceSniffTransferRequestVersionRef.current,
+              resourceSniffTransferStartVersionRef.current,
           }) === "preserve"
         ) {
-          resourceSniffTransferRequestVersionRef.current = null;
+          resourceSniffTransferStartVersionRef.current = null;
           return;
         }
         if (!dialogOpenRef.current && !preserveResourceSniffOnCloseRef.current) {
@@ -1291,13 +1302,17 @@ export function NewTaskDialog(props: {
       setResourceSniffTechnicalError("");
       try {
         const prepared = await prepareDownload.mutateAsync({ url });
-        const usesProfile = usesProfileConnector(prepared);
-        const nextTab: DownloadDialogTab =
-          mode === "sniff" || usesProfile ? "sniff" : "quick";
+        const nextTab: DownloadDialogTab = mode === "sniff" ? "sniff" : "quick";
+        setActiveMode(nextTab === "sniff" ? "sniff" : "download");
         setDownloadPrepared(prepared);
         setDownloadUrl(prepared.url || url);
         setDownloadUseConnector(
-          Boolean(prepared.connectorAvailable && !usesProfile),
+          Boolean(
+            prepared.connectorAvailable &&
+              (prepared.connectorCredentialMode ?? "")
+                .trim()
+                .toLowerCase() === "cookies",
+          ),
         );
         setDownloadStep("config");
         setDownloadTab(nextTab);
@@ -1422,8 +1437,8 @@ export function NewTaskDialog(props: {
     if (!props.onOpenSniffDesk) {
       return;
     }
-    resourceSniffTransferRequestVersionRef.current =
-      parseRequestVersionRef.current;
+    resourceSniffTransferStartVersionRef.current =
+      resourceSniffStartVersionRef.current;
     preserveResourceSniffOnCloseRef.current = true;
     parseRequestVersionRef.current += 1;
     setActiveResourceSniffSessionId("");
@@ -1726,9 +1741,11 @@ export function NewTaskDialog(props: {
           className={cn("space-y-0 text-left", closingDialog ? "pr-28" : "pr-10")}
         >
           <DialogTitle className="sr-only">
-            {activeMode === "download"
-              ? text.dialogs.downloadTitle
-              : text.dialogs.transcodeTitle}
+            {activeMode === "transcode"
+              ? text.dialogs.transcodeTitle
+              : activeMode === "sniff"
+                ? text.dialogs.sniffMode
+                : text.dialogs.downloadTitle}
           </DialogTitle>
           <DialogDescription className="sr-only">
             {text.productSubtitle}
@@ -1743,12 +1760,17 @@ export function NewTaskDialog(props: {
                 icon: <Download className="h-3.5 w-3.5" />,
               },
               {
+                value: "sniff",
+                label: text.dialogs.sniffMode,
+                icon: <Radar className="h-3.5 w-3.5" />,
+              },
+              {
                 value: "transcode",
                 label: text.actions.transcode,
                 icon: <FileCog className="h-3.5 w-3.5" />,
               },
             ]}
-            onValueChange={setActiveMode}
+            onValueChange={handleActiveModeChange}
           />
         </DialogHeader>
 
@@ -1767,14 +1789,14 @@ export function NewTaskDialog(props: {
           />
         ) : (
           <DialogScrollArea className="max-h-[min(68vh,34rem)] space-y-4">
-            {activeMode === "download" && downloadStep === "input" ? (
+            {activeDownloadMode && downloadStep === "input" ? (
               <DialogListCard className="app-new-task-panel">
                 <DialogListCardContent className="p-4">
                   <form
                     className="flex gap-2"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void handlePrepareDownload("direct");
+                      void handlePrepareDownload(activeDownloadEntryMode);
                     }}
                   >
                     <Input
@@ -1792,38 +1814,10 @@ export function NewTaskDialog(props: {
                       <TooltipTrigger asChild>
                         <span className="inline-flex shrink-0">
                           <Button
-                            type="button"
-                            size="compactIcon"
-                            title={text.dialogs.startSniffMode}
-                            aria-label={text.dialogs.startSniffMode}
-                            onClick={() => void handlePrepareDownload("sniff")}
-                            disabled={
-                              !downloadUrl.trim() ||
-                              !ytdlpInstalled ||
-                              prepareDownload.isPending
-                            }
-                          >
-                            {prepareDownload.isPending &&
-                            downloadPrepareIntent === "sniff" ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Radar className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {text.dialogs.startSniffMode}
-                      </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex shrink-0">
-                          <Button
                             type="submit"
                             size="compactIcon"
-                            title={text.dialogs.directDownload}
-                            aria-label={text.dialogs.directDownload}
+                            title={activeDownloadActionLabel}
+                            aria-label={activeDownloadActionLabel}
                             disabled={
                               !downloadUrl.trim() ||
                               !ytdlpInstalled ||
@@ -1831,8 +1825,10 @@ export function NewTaskDialog(props: {
                             }
                           >
                             {prepareDownload.isPending &&
-                            downloadPrepareIntent === "direct" ? (
+                            downloadPrepareIntent === activeDownloadEntryMode ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : activeDownloadEntryMode === "sniff" ? (
+                              <Radar className="h-4 w-4" />
                             ) : (
                               <Download className="h-4 w-4" />
                             )}
@@ -1840,7 +1836,7 @@ export function NewTaskDialog(props: {
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {text.dialogs.directDownload}
+                        {activeDownloadActionLabel}
                       </TooltipContent>
                     </Tooltip>
                   </form>
@@ -1861,7 +1857,7 @@ export function NewTaskDialog(props: {
               </DialogListCard>
             ) : null}
 
-            {activeMode === "download" && downloadStep === "config" ? (
+            {activeDownloadMode && downloadStep === "config" ? (
               <>
                 <DialogListCard className="app-new-task-panel">
                   <DialogListCardContent className="p-3">
@@ -1992,7 +1988,7 @@ export function NewTaskDialog(props: {
                   </DialogListCardContent>
                 </DialogListCard>
 
-                {!downloadUsesProfileConnector && downloadTab !== "sniff" ? (
+                {downloadTab !== "sniff" ? (
                   <div className="flex justify-center">
                     <DreamSegmentSwitch
                       value={downloadTab}
@@ -2626,7 +2622,7 @@ export function NewTaskDialog(props: {
         )}
 
         {taskDependenciesReady &&
-        activeMode === "download" &&
+        activeDownloadMode &&
         showDownloadFooter ? (
           <DialogFooter>
             <Button

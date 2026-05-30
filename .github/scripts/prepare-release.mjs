@@ -280,6 +280,7 @@ function releaseBody(version, pulls) {
   const tag = `v${version}`;
   const downloadBase = `https://github.com/${owner}/${repo}/releases/download/${tag}`;
   const sections = [
+    "<!-- dreamapp-release-header:start -->",
     "## Current Version",
     `\`${tag}\``,
     "",
@@ -293,6 +294,9 @@ function releaseBody(version, pulls) {
     "",
     "## macOS",
     "Move `XiaDown.app` to Applications and launch it normally.",
+    "",
+    "---",
+    "<!-- dreamapp-release-header:end -->",
     "",
     "## Changelog",
   ];

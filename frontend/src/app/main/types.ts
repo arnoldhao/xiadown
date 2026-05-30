@@ -61,7 +61,7 @@ export type SetupState = {
   completed: boolean;
 };
 
-export type NewTaskDialogMode = "download" | "transcode";
+export type NewTaskDialogMode = "download" | "sniff" | "transcode";
 export type NewTaskDialogTranscodeSource = {
   fileId?: string;
   inputPath: string;
