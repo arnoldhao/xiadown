@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ type PlatformInstaller struct {
 	goarch              string
 	executablePath      func() (string, error)
 	startDetached       func(name string, args []string) error
+	commandOutput       func(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
 type stagedPlan struct {
@@ -50,6 +52,8 @@ type stagedPlan struct {
 	RelaunchPath string `json:"relaunchPath"`
 	FallbackPath string `json:"fallbackPath,omitempty"`
 	InstallDir   string `json:"installDir,omitempty"`
+	BundleID     string `json:"bundleId,omitempty"`
+	TeamID       string `json:"teamId,omitempty"`
 	Version      string `json:"version,omitempty"`
 	Changelog    string `json:"changelog,omitempty"`
 }
@@ -81,6 +85,7 @@ func NewInstaller(statePath string) (*PlatformInstaller, error) {
 		goarch:              runtime.GOARCH,
 		executablePath:      os.Executable,
 		startDetached:       startDetachedCommand,
+		commandOutput:       defaultCommandOutput,
 	}, nil
 }
 
@@ -220,7 +225,10 @@ func (installer *PlatformInstaller) prepareMacUpdate(ctx context.Context, artifa
 	if err != nil {
 		return err
 	}
-	_ = removeMacQuarantine(stagedBundle)
+	validation, err := installer.validateMacUpdateBundle(ctx, currentBundle, stagedBundle)
+	if err != nil {
+		return err
+	}
 	targetBundle := resolveMacTargetBundle(currentBundle)
 
 	return installer.savePlan(stagedPlan{
@@ -231,6 +239,8 @@ func (installer *PlatformInstaller) prepareMacUpdate(ctx context.Context, artifa
 		TargetPath:   targetBundle,
 		RelaunchPath: targetBundle,
 		FallbackPath: currentBundle,
+		BundleID:     validation.BundleID,
+		TeamID:       validation.TeamID,
 		Version:      strings.TrimSpace(prepared.LatestVersion),
 		Changelog:    prepared.Changelog,
 	})
@@ -384,6 +394,8 @@ func (installer *PlatformInstaller) restartDarwin(plan stagedPlan) error {
 		plan.StageDir,
 		installer.planPath,
 		installer.whatsNewPendingPath,
+		plan.BundleID,
+		plan.TeamID,
 	}
 	return installer.startDetached("/bin/sh", args)
 }
@@ -403,6 +415,18 @@ func (installer *PlatformInstaller) currentExecutable() (string, error) {
 		path = resolved
 	}
 	return path, nil
+}
+
+func (installer *PlatformInstaller) output(ctx context.Context, name string, args ...string) ([]byte, error) {
+	if installer != nil && installer.commandOutput != nil {
+		return installer.commandOutput(ctx, name, args...)
+	}
+	return defaultCommandOutput(ctx, name, args...)
+}
+
+func defaultCommandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
 }
 
 func (installer *PlatformInstaller) newStageDir() (string, error) {
@@ -452,6 +476,149 @@ func (installer *PlatformInstaller) savePlan(plan stagedPlan) error {
 		return err
 	}
 	return os.WriteFile(installer.planPath, data, 0o600)
+}
+
+type macUpdateBundleValidation struct {
+	BundleID string
+	TeamID   string
+}
+
+func (installer *PlatformInstaller) validateMacUpdateBundle(ctx context.Context, currentBundle string, stagedBundle string) (macUpdateBundleValidation, error) {
+	currentBundleID, err := installer.macBundleIdentifier(ctx, currentBundle)
+	if err != nil {
+		return macUpdateBundleValidation{}, fmt.Errorf("read current mac app bundle identifier: %w", err)
+	}
+	stagedBundleID, err := installer.macBundleIdentifier(ctx, stagedBundle)
+	if err != nil {
+		return macUpdateBundleValidation{}, fmt.Errorf("read update mac app bundle identifier: %w", err)
+	}
+	if currentBundleID == "" || stagedBundleID == "" || currentBundleID != stagedBundleID {
+		return macUpdateBundleValidation{}, fmt.Errorf("update bundle identifier mismatch: current=%q update=%q", currentBundleID, stagedBundleID)
+	}
+
+	if err := installer.verifyMacCodeSignature(ctx, stagedBundle); err != nil {
+		return macUpdateBundleValidation{}, err
+	}
+	stagedTeamID, err := installer.macBundleTeamID(ctx, stagedBundle)
+	if err != nil {
+		return macUpdateBundleValidation{}, fmt.Errorf("read update mac code signing team: %w", err)
+	}
+	if stagedTeamID == "" || strings.EqualFold(stagedTeamID, "not set") {
+		return macUpdateBundleValidation{}, fmt.Errorf("update mac app is not signed with a Developer ID team")
+	}
+	if currentTeamID, err := installer.macBundleTeamID(ctx, currentBundle); err == nil && currentTeamID != "" && currentTeamID != stagedTeamID {
+		return macUpdateBundleValidation{}, fmt.Errorf("update signing team mismatch: current=%q update=%q", currentTeamID, stagedTeamID)
+	}
+	if err := installer.assessMacGatekeeper(ctx, stagedBundle); err != nil {
+		return macUpdateBundleValidation{}, err
+	}
+
+	return macUpdateBundleValidation{BundleID: stagedBundleID, TeamID: stagedTeamID}, nil
+}
+
+func (installer *PlatformInstaller) macBundleIdentifier(ctx context.Context, bundlePath string) (string, error) {
+	infoPath := filepath.Join(bundlePath, "Contents", "Info.plist")
+	if identifier, err := readXMLPlistString(infoPath, "CFBundleIdentifier"); err == nil && identifier != "" {
+		return identifier, nil
+	}
+
+	output, err := installer.output(ctx, "/usr/libexec/PlistBuddy", "-c", "Print :CFBundleIdentifier", infoPath)
+	if err != nil {
+		return "", commandOutputError("read bundle identifier", output, err)
+	}
+	identifier := strings.TrimSpace(string(output))
+	if identifier == "" {
+		return "", fmt.Errorf("bundle identifier is empty")
+	}
+	return identifier, nil
+}
+
+func readXMLPlistString(path string, key string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	decoder := xml.NewDecoder(file)
+	var lastKey string
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return "", err
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		switch start.Name.Local {
+		case "key":
+			var value string
+			if err := decoder.DecodeElement(&value, &start); err != nil {
+				return "", err
+			}
+			lastKey = strings.TrimSpace(value)
+		case "string":
+			var value string
+			if err := decoder.DecodeElement(&value, &start); err != nil {
+				return "", err
+			}
+			if lastKey == key {
+				return strings.TrimSpace(value), nil
+			}
+			lastKey = ""
+		default:
+			if lastKey != "" && start.Name.Local != "dict" && start.Name.Local != "plist" {
+				lastKey = ""
+			}
+		}
+	}
+	return "", fmt.Errorf("plist key %q not found", key)
+}
+
+func (installer *PlatformInstaller) verifyMacCodeSignature(ctx context.Context, bundlePath string) error {
+	output, err := installer.output(ctx, "/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", bundlePath)
+	if err != nil {
+		return commandOutputError("verify update code signature", output, err)
+	}
+	return nil
+}
+
+func (installer *PlatformInstaller) assessMacGatekeeper(ctx context.Context, bundlePath string) error {
+	output, err := installer.output(ctx, "/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=4", bundlePath)
+	if err != nil {
+		return commandOutputError("assess update with Gatekeeper", output, err)
+	}
+	return nil
+}
+
+func (installer *PlatformInstaller) macBundleTeamID(ctx context.Context, bundlePath string) (string, error) {
+	output, err := installer.output(ctx, "/usr/bin/codesign", "-dv", "--verbose=4", bundlePath)
+	if err != nil {
+		return "", commandOutputError("read code signing metadata", output, err)
+	}
+	return parseCodesignTeamID(string(output)), nil
+}
+
+func parseCodesignTeamID(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "TeamIdentifier=") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "TeamIdentifier="))
+		}
+	}
+	return ""
+}
+
+func commandOutputError(action string, output []byte, err error) error {
+	message := strings.TrimSpace(string(output))
+	if message != "" {
+		return fmt.Errorf("%s: %s", action, message)
+	}
+	return fmt.Errorf("%s: %w", action, err)
 }
 
 func resolveAppBundle(executablePath string) (string, error) {
@@ -564,11 +731,6 @@ func extractMacArchive(ctx context.Context, archivePath string, destDir string) 
 		return fmt.Errorf("extract mac archive: %s", message)
 	}
 	return nil
-}
-
-func removeMacQuarantine(path string) error {
-	cmd := exec.Command("xattr", "-dr", "com.apple.quarantine", path)
-	return cmd.Run()
 }
 
 func extractZipExecutable(archivePath, destDir, execName string) (string, error) {
@@ -870,6 +1032,8 @@ FALLBACK_APP="$5"
 STAGE_DIR="$6"
 PLAN_PATH="$7"
 PENDING_WHATS_NEW_PATH="$8"
+EXPECTED_BUNDLE_ID="${9:-}"
+EXPECTED_TEAM_ID="${10:-}"
 BACKUP_APP="${TARGET_APP}.old"
 
 while kill -0 "$PARENT_PID" 2>/dev/null; do
@@ -892,7 +1056,20 @@ restore_backup() {
   if [ -d "$BACKUP_APP" ]; then
     rm -rf "$TARGET_APP"
     mv "$BACKUP_APP" "$TARGET_APP"
+    return $?
   fi
+  return 1
+}
+
+restore_backup_privileged() {
+  /usr/bin/osascript - "$TARGET_APP" "$BACKUP_APP" <<'APPLESCRIPT'
+on run argv
+  set targetApp to item 1 of argv
+  set backupApp to item 2 of argv
+  set commandText to "set -e; rm -rf " & quoted form of targetApp & "; if [ -d " & quoted form of backupApp & " ]; then mv " & quoted form of backupApp & " " & quoted form of targetApp & "; fi"
+  do shell script commandText with administrator privileges
+end run
+APPLESCRIPT
 }
 
 relaunch_fallback() {
@@ -900,6 +1077,47 @@ relaunch_fallback() {
   if [ "$FALLBACK_APP" != "$TARGET_APP" ]; then
     relaunch_app "$TARGET_APP" "--skip-prepared-update-once"
   fi
+}
+
+bundle_identifier() {
+  APP_PATH="$1"
+  INFO_PLIST="$APP_PATH/Contents/Info.plist"
+  if [ ! -f "$INFO_PLIST" ]; then
+    return 1
+  fi
+  /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST" 2>/dev/null || \
+    /usr/bin/plutil -extract CFBundleIdentifier raw -o - "$INFO_PLIST" 2>/dev/null
+}
+
+team_identifier() {
+  /usr/bin/codesign -dv --verbose=4 "$1" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p' | /usr/bin/head -n 1
+}
+
+validate_app_bundle() {
+  APP_PATH="$1"
+  if [ ! -d "$APP_PATH" ]; then
+    return 1
+  fi
+
+  BUNDLE_ID="$(bundle_identifier "$APP_PATH" | /usr/bin/tr -d '\r\n')" || return 1
+  if [ -n "$EXPECTED_BUNDLE_ID" ] && [ "$BUNDLE_ID" != "$EXPECTED_BUNDLE_ID" ]; then
+    return 1
+  fi
+
+  /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH" >/dev/null 2>&1 || return 1
+  TEAM_ID="$(team_identifier "$APP_PATH" | /usr/bin/tr -d '\r\n')" || return 1
+  if [ -z "$TEAM_ID" ]; then
+    return 1
+  fi
+  if [ "$TEAM_ID" = "not set" ]; then
+    return 1
+  fi
+  if [ -n "$EXPECTED_TEAM_ID" ] && [ "$TEAM_ID" != "$EXPECTED_TEAM_ID" ]; then
+    return 1
+  fi
+
+  /usr/sbin/spctl --assess --type execute --verbose=4 "$APP_PATH" >/dev/null 2>&1 || return 1
+  return 0
 }
 
 install_direct() {
@@ -927,29 +1145,38 @@ on run argv
   set commandText to "set -e; rm -rf " & quoted form of backupApp & "; " & ¬
     "if [ -d " & quoted form of targetApp & " ]; then mv " & quoted form of targetApp & " " & quoted form of backupApp & "; fi; " & ¬
     "if /usr/bin/ditto " & quoted form of sourceApp & " " & quoted form of targetApp & "; then " & ¬
-    "/usr/bin/xattr -dr com.apple.quarantine " & quoted form of targetApp & " >/dev/null 2>&1 || true; " & ¬
-    "rm -rf " & quoted form of backupApp & "; " & ¬
+    "exit 0; " & ¬
     "else rm -rf " & quoted form of targetApp & "; if [ -d " & quoted form of backupApp & " ]; then mv " & quoted form of backupApp & " " & quoted form of targetApp & "; fi; exit 1; fi"
   do shell script commandText with administrator privileges
 end run
 APPLESCRIPT
 }
 
+if ! validate_app_bundle "$SOURCE_APP"; then
+  relaunch_fallback
+  exit 1
+fi
+
 if ! install_direct; then
   if ! install_privileged; then
-    restore_backup
+    restore_backup || restore_backup_privileged || true
     relaunch_fallback
     exit 1
   fi
 fi
 
-/usr/bin/xattr -dr com.apple.quarantine "$TARGET_APP" >/dev/null 2>&1 || true
+if ! validate_app_bundle "$TARGET_APP"; then
+  restore_backup || restore_backup_privileged || true
+  relaunch_fallback
+  exit 1
+fi
+
 cp "$PLAN_PATH" "$PENDING_WHATS_NEW_PATH" >/dev/null 2>&1 || true
 if ! open "$RELAUNCH_APP"; then
   relaunch_fallback
   exit 1
 fi
-rm -rf "$BACKUP_APP"
+rm -rf "$BACKUP_APP" >/dev/null 2>&1 || true
 rm -f "$PLAN_PATH"
 rm -rf "$STAGE_DIR"
 `

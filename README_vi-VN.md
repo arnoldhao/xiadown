@@ -133,7 +133,7 @@ Tải trực tiếp gói mới nhất bên dưới. Các phiên bản cũ có tr
 
 ### Lần chạy đầu tiên
 
-1. `macOS`: giải nén gói và chuyển `XiaDown.app` vào thư mục Applications. Nếu macOS báo ứng dụng không thể mở hoặc bị hỏng, hãy chạy `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app` trong terminal.
+1. `macOS`: giải nén gói, chuyển `XiaDown.app` vào thư mục Applications và mở như bình thường.
 2. `Windows`: chạy trực tiếp bộ cài `.exe`, hoặc giải nén gói portable rồi mở ứng dụng. Nếu SmartScreen xuất hiện trong lần chạy đầu tiên, chọn `More info -> Run anyway`.
 3. XiaDown mở luồng onboarding để thiết lập ngôn ngữ, chủ đề, proxy và các phụ thuộc. Các luồng chính nằm trong onboarding và giao diện ứng dụng.
 

@@ -133,7 +133,7 @@
 
 ### 首次打开
 
-1. `macOS`：解压后将 `XiaDown.app` 移动到“应用程序”目录。若系统提示“无法打开”或“已损坏”，请在终端执行 `sudo xattr -rd com.apple.quarantine /Applications/XiaDown.app`。
+1. `macOS`：解压后将 `XiaDown.app` 移动到“应用程序”目录并正常打开。
 2. `Windows`：安装版直接运行 `.exe`；便携版解压后直接启动。若首次启动出现 SmartScreen，选择“更多信息 -> 仍要运行”。
 3. 首次启动会进入欢迎引导，完成语言、主题、代理和依赖安装后即可进入主界面。主要流程都集中在欢迎引导和界面内。
 
