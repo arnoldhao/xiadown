@@ -3,7 +3,11 @@ import {
 getXiaText,
 resolveLibraryCoverURL,
 } from "@/features/xiadown/shared";
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import {
+COMPLETED_DEFAULT_COVER_IMAGE_URLS,
+DEFAULT_COVER_IMAGE_URL,
+type CompletedDefaultCoverImageKey,
+} from "@/shared/assets/default-cover";
 import type {
 LibraryDTO,
 LibraryMediaInfoDTO,
@@ -79,6 +83,39 @@ export const SUBTITLE_FILE_EXTENSIONS = new Set([
   "ssa",
   "ttml",
   "vtt",
+]);
+export const MANIFEST_FILE_EXTENSIONS = new Set([
+  "f4m",
+  "ism",
+  "m3u8",
+  "mpd",
+]);
+export const DOCUMENT_FILE_EXTENSIONS = new Set([
+  "doc",
+  "docx",
+  "pdf",
+  "ppt",
+  "pptx",
+  "xls",
+  "xlsx",
+]);
+export const FONT_FILE_EXTENSIONS = new Set([
+  "eot",
+  "otf",
+  "ttf",
+  "woff",
+  "woff2",
+]);
+export const API_FILE_EXTENSIONS = new Set([
+  "json",
+]);
+export const ARCHIVE_FILE_EXTENSIONS = new Set([
+  "7z",
+  "dmg",
+  "exe",
+  "pkg",
+  "rar",
+  "zip",
 ]);
 export const COMPLETED_TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 export const COMPLETED_IMAGE_PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
@@ -582,6 +619,220 @@ export function resolveCompletedPreviewGroupKind(
   return "other";
 }
 
+export type CompletedCoverFileKind =
+  | "video"
+  | "audio"
+  | "subtitle"
+  | "image"
+  | "live"
+  | "manifest"
+  | "api"
+  | "document"
+  | "font"
+  | "archive"
+  | "other";
+
+type CompletedCoverFileLike = Pick<
+  CompletedFileEntry,
+  "kind" | "path" | "format"
+> & {
+  media?: LibraryMediaInfoDTO | null;
+  previewURL?: string;
+};
+
+const COMPLETED_DEFAULT_COVER_NON_MEDIA_ORDER: CompletedCoverFileKind[] = [
+  "live",
+  "manifest",
+  "document",
+  "font",
+  "archive",
+  "api",
+  "other",
+];
+
+function completedFileExtension(
+  file: Pick<CompletedFileEntry, "path" | "format">,
+) {
+  return (extractExtensionFromPath(file.path) || file.format || "")
+    .trim()
+    .toLowerCase();
+}
+
+function completedCoverURLIsLegacyDefault(value?: string) {
+  return (value ?? "").trim() === DEFAULT_COVER_IMAGE_URL;
+}
+
+export function resolveCompletedCoverFileKind(
+  file: CompletedCoverFileLike,
+): CompletedCoverFileKind {
+  const normalizedKind = (file.kind ?? "").trim().toLowerCase();
+  const extension = completedFileExtension(file);
+  const hasVideoSignals = Boolean(
+    file.media?.videoCodec ||
+      file.media?.width ||
+      file.media?.height ||
+      file.media?.frameRate,
+  );
+  const hasAudioSignals = Boolean(
+    file.media?.audioCodec || file.media?.channels,
+  );
+
+  if (
+    normalizedKind === "image" ||
+    normalizedKind === "thumbnail" ||
+    IMAGE_FILE_EXTENSIONS.has(extension)
+  ) {
+    return "image";
+  }
+  if (normalizedKind === "subtitle" || SUBTITLE_FILE_EXTENSIONS.has(extension)) {
+    return "subtitle";
+  }
+  if (
+    normalizedKind === "audio" ||
+    AUDIO_FILE_EXTENSIONS.has(extension) ||
+    (normalizedKind === "transcode" && hasAudioSignals && !hasVideoSignals)
+  ) {
+    return "audio";
+  }
+  if (
+    normalizedKind === "video" ||
+    normalizedKind === "transcode" ||
+    VIDEO_FILE_EXTENSIONS.has(extension)
+  ) {
+    return "video";
+  }
+
+  switch (normalizedKind) {
+    case "live":
+      return "live";
+    case "manifest":
+      return "manifest";
+    case "api":
+      return "api";
+    case "document":
+      return "document";
+    case "font":
+      return "font";
+    case "archive":
+      return "archive";
+  }
+
+  if (MANIFEST_FILE_EXTENSIONS.has(extension)) {
+    return "manifest";
+  }
+  if (DOCUMENT_FILE_EXTENSIONS.has(extension)) {
+    return "document";
+  }
+  if (FONT_FILE_EXTENSIONS.has(extension)) {
+    return "font";
+  }
+  if (API_FILE_EXTENSIONS.has(extension)) {
+    return "api";
+  }
+  if (ARCHIVE_FILE_EXTENSIONS.has(extension)) {
+    return "archive";
+  }
+
+  return "other";
+}
+
+export function resolveCompletedDefaultCoverImageKey(
+  files: CompletedCoverFileLike[],
+): CompletedDefaultCoverImageKey {
+  const kinds = new Set(files.map(resolveCompletedCoverFileKind));
+  if (kinds.size === 0) {
+    return "other";
+  }
+  if (kinds.has("image")) {
+    return "image";
+  }
+
+  const hasVideo = kinds.has("video");
+  const hasAudio = kinds.has("audio");
+  const hasSubtitle = kinds.has("subtitle");
+  if (hasVideo && hasAudio && hasSubtitle) {
+    return "mediaSubtitle";
+  }
+  if (hasVideo && hasAudio) {
+    return "media";
+  }
+  if (hasVideo && hasSubtitle) {
+    return "videoSubtitle";
+  }
+  if (hasAudio && hasSubtitle) {
+    return "audioSubtitle";
+  }
+  if (hasVideo) {
+    return "video";
+  }
+  if (hasAudio) {
+    return "audio";
+  }
+  if (hasSubtitle) {
+    return "subtitle";
+  }
+
+  const nonMediaKinds = COMPLETED_DEFAULT_COVER_NON_MEDIA_ORDER.filter((kind) =>
+    kinds.has(kind),
+  );
+  if (nonMediaKinds.length === 1) {
+    return nonMediaKinds[0];
+  }
+  return nonMediaKinds.length > 1 ? "mixed" : "other";
+}
+
+export function resolveCompletedDefaultCoverImageURL(
+  files: CompletedCoverFileLike[],
+) {
+  return COMPLETED_DEFAULT_COVER_IMAGE_URLS[
+    resolveCompletedDefaultCoverImageKey(files)
+  ];
+}
+
+export function resolveCompletedRepresentativeImageCoverURL(
+  files: CompletedCoverFileLike[],
+) {
+  for (const file of files) {
+    if (resolveCompletedCoverFileKind(file) !== "image") {
+      continue;
+    }
+    const previewURL = file.previewURL?.trim() ?? "";
+    if (previewURL) {
+      return previewURL;
+    }
+  }
+  return "";
+}
+
+export function resolveCompletedTaskCoverURL(
+  files: CompletedCoverFileLike[],
+  preferredCoverURL?: string,
+) {
+  const preferred = preferredCoverURL?.trim() ?? "";
+  if (preferred && !completedCoverURLIsLegacyDefault(preferred)) {
+    return preferred;
+  }
+  return (
+    resolveCompletedRepresentativeImageCoverURL(files) ||
+    resolveCompletedDefaultCoverImageURL(files)
+  );
+}
+
+export function resolveCompletedFileCoverURL(
+  file: CompletedCoverFileLike,
+  preferredCoverURL?: string,
+) {
+  const imageCoverURL = resolveCompletedRepresentativeImageCoverURL([file]);
+  if (imageCoverURL) {
+    return imageCoverURL;
+  }
+  const preferred = preferredCoverURL?.trim() ?? "";
+  if (preferred && !completedCoverURLIsLegacyDefault(preferred)) {
+    return preferred;
+  }
+  return resolveCompletedDefaultCoverImageURL([file]);
+}
+
 export function resolveCompletedSelectionSummary(
   count: number,
   text: ReturnType<typeof getXiaText>,
@@ -1013,6 +1264,24 @@ export function resolveCompletedLibraryFileCoverURL(
   file: LibraryDTO["files"][number],
   coverLookup: ReturnType<typeof buildCompletedCoverLookup>,
 ) {
+  return (
+    resolveCompletedLibraryFileExplicitCoverURL(
+      baseURL,
+      library,
+      file,
+      coverLookup,
+    ) ||
+    resolveLibraryCoverURL(baseURL, library) ||
+    DEFAULT_COVER_IMAGE_URL
+  );
+}
+
+export function resolveCompletedLibraryFileExplicitCoverURL(
+  _baseURL: string,
+  _library: LibraryDTO,
+  file: LibraryDTO["files"][number],
+  coverLookup: ReturnType<typeof buildCompletedCoverLookup>,
+) {
   const operationKeys = [file.latestOperationId, file.origin.operationId]
     .map((value) => value?.trim() ?? "")
     .filter(Boolean);
@@ -1023,8 +1292,7 @@ export function resolveCompletedLibraryFileCoverURL(
   return (
     operationKeys.map((key) => coverLookup.byOperationId.get(key)).find(Boolean) ||
     rootKeys.map((key) => coverLookup.byRootFileId.get(key)).find(Boolean) ||
-    resolveLibraryCoverURL(baseURL, library) ||
-    DEFAULT_COVER_IMAGE_URL
+    ""
   );
 }
 
@@ -1033,19 +1301,24 @@ export function resolveCompletedOperationCoverURL(
   operation: OperationListItemDTO,
   library: LibraryDTO | null,
 ) {
-  const operationId = operation.operationId.trim();
-  const outputCoverURL =
-    library && operationId
-      ? buildCompletedCoverLookup(baseURL, library).byOperationId.get(
-          operationId,
-        )
-      : "";
-
   return (
-    outputCoverURL ||
+    resolveCompletedOperationExplicitCoverURL(baseURL, operation, library) ||
     (library ? resolveLibraryCoverURL(baseURL, library) : "") ||
     DEFAULT_COVER_IMAGE_URL
   );
+}
+
+export function resolveCompletedOperationExplicitCoverURL(
+  baseURL: string,
+  operation: OperationListItemDTO,
+  library: LibraryDTO | null,
+) {
+  const operationId = operation.operationId.trim();
+  return library && operationId
+    ? buildCompletedCoverLookup(baseURL, library).byOperationId.get(
+        operationId,
+      ) || ""
+    : "";
 }
 
 export function formatCodecLabel(codec?: string) {

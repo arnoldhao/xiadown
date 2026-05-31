@@ -21,7 +21,7 @@ import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripP
 import { CompletedFileDetailContent,CompletedFileDetailHeader,CompletedTaskDetailContent,CompletedTaskDetailHeader,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
-import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileCoverURL,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileExplicitCoverURL,resolveCompletedOperationExplicitCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTaskCoverURL,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
 import type { CompletedContextMenuTarget,CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedTaskEntry,CompletedViewMode } from "@/app/main/types";
 
@@ -362,7 +362,13 @@ export function CompletedPage(props: {
                 operationNameById.get(originOperationId),
                 operationNameById.get(latestOperationId),
               ) || "";
-            return {
+            const explicitCoverURL = resolveCompletedLibraryFileExplicitCoverURL(
+              props.httpBaseURL,
+              library,
+              file,
+              coverLookup,
+            );
+            const entry: CompletedFileEntry = {
               id: file.id,
               libraryId: library.id,
               libraryName: library.name || library.id,
@@ -397,15 +403,15 @@ export function CompletedPage(props: {
               previewURL: localPath
                 ? buildAssetPreviewURL(props.httpBaseURL, localPath)
                 : "",
-              coverURL: resolveCompletedLibraryFileCoverURL(
-                props.httpBaseURL,
-                library,
-                file,
-                coverLookup,
-              ),
+              coverURL: "",
               canDelete: true,
               media: file.media ?? null,
             };
+            entry.coverURL = resolveCompletedFileCoverURL(
+              entry,
+              explicitCoverURL,
+            );
+            return entry;
           });
       }),
     [operationNameById, operationUpdatedAtById, props.httpBaseURL, props.libraries],
@@ -418,7 +424,7 @@ export function CompletedPage(props: {
     });
     props.terminalOperations.forEach((operation) => {
       const library = librariesById.get(operation.libraryId) ?? null;
-      const operationCoverURL = resolveCompletedOperationCoverURL(
+      const operationCoverURL = resolveCompletedOperationExplicitCoverURL(
         props.httpBaseURL,
         operation,
         library,
@@ -431,7 +437,7 @@ export function CompletedPage(props: {
         const format = (output.format || output.kind || "file")
           .toString()
           .toUpperCase();
-        map.set(output.fileId, {
+        const entry: CompletedFileEntry = {
           id: output.fileId,
           libraryId: operation.libraryId,
           libraryName:
@@ -455,10 +461,15 @@ export function CompletedPage(props: {
           sizeBytes: output.sizeBytes ?? 0,
           updatedAt: resolveOperationUpdatedAt(operation),
           previewURL: "",
-          coverURL: operationCoverURL,
+          coverURL: "",
           canDelete: false,
           media: null,
-        });
+        };
+        entry.coverURL = resolveCompletedFileCoverURL(
+          entry,
+          operationCoverURL,
+        );
+        map.set(output.fileId, entry);
       });
     });
 
@@ -494,7 +505,7 @@ export function CompletedPage(props: {
       [...props.terminalOperations]
         .map((operation) => {
           const library = librariesById.get(operation.libraryId) ?? null;
-          const operationCoverURL = resolveCompletedOperationCoverURL(
+          const operationCoverURL = resolveCompletedOperationExplicitCoverURL(
             props.httpBaseURL,
             operation,
             library,
@@ -517,7 +528,7 @@ export function CompletedPage(props: {
               return;
             }
             const label = `${operation.name} ${index + 1}`;
-            filesMap.set(output.fileId, {
+            const entry: CompletedFileEntry = {
               id: output.fileId,
               libraryId: operation.libraryId,
               libraryName:
@@ -546,10 +557,15 @@ export function CompletedPage(props: {
               sizeBytes: output.sizeBytes ?? 0,
               updatedAt: resolveOperationUpdatedAt(operation),
               previewURL: "",
-              coverURL: operationCoverURL,
+              coverURL: "",
               canDelete: false,
               media: null,
-            });
+            };
+            entry.coverURL = resolveCompletedFileCoverURL(
+              entry,
+              operationCoverURL,
+            );
+            filesMap.set(output.fileId, entry);
           });
 
           const files = [...filesMap.values()];
@@ -579,7 +595,7 @@ export function CompletedPage(props: {
           return {
             operation,
             library,
-            coverURL: operationCoverURL,
+            coverURL: resolveCompletedTaskCoverURL(files, operationCoverURL),
             files,
             sourceFileId: transcodeSource.id,
             sourceFileName: transcodeSource.name,
