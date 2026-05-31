@@ -38,6 +38,8 @@ type ListenPlaybackObservationRequest struct {
 	State           listenplayback.PlaybackState `json:"state,omitempty"`
 	Progress        float64                      `json:"progress,omitempty"`
 	Duration        float64                      `json:"duration,omitempty"`
+	Paused          bool                         `json:"paused,omitempty"`
+	Ended           bool                         `json:"ended,omitempty"`
 }
 
 type ListenPlaybackSeekRequest struct {
@@ -86,7 +88,7 @@ func (handler *ListenPlayerHandler) PlayTrack(ctx context.Context, request Liste
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	handler.service.ConfirmPlaybackStarted()
+	handler.service.RecordPlaybackIntent()
 	err := handler.service.PlayTrack(ctx, request.Track, listenplayback.PlayOptions{
 		StartSeconds:     request.StartSeconds,
 		RestartFromStart: request.RestartFromStart,
@@ -107,8 +109,10 @@ func (handler *ListenPlayerHandler) ObservePlayback(ctx context.Context, request
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	isPlaying := request.State == listenplayback.PlaybackStatePlaying ||
-		request.State == listenplayback.PlaybackStateBuffering
+	isPlaying := (request.State == listenplayback.PlaybackStatePlaying ||
+		request.State == listenplayback.PlaybackStateBuffering) &&
+		!request.Paused &&
+		!request.Ended
 	if err := handler.service.UpdatePlaybackState(ctx, isPlaying, request.Progress, request.Duration); err != nil {
 		return handler.service.Snapshot(ctx), err
 	}
@@ -136,7 +140,7 @@ func (handler *ListenPlayerHandler) PlayQueue(ctx context.Context, request Liste
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	handler.service.ConfirmPlaybackStarted()
+	handler.service.RecordPlaybackIntent()
 	var err error
 	switch strings.TrimSpace(request.Kind) {
 	case "mix":
@@ -157,7 +161,7 @@ func (handler *ListenPlayerHandler) PlayPause(ctx context.Context) (listenplayba
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	handler.service.ConfirmPlaybackStarted()
+	handler.service.RecordPlaybackIntent()
 	err := handler.service.PlayPause(ctx)
 	return handler.service.Snapshot(ctx), err
 }
@@ -166,7 +170,7 @@ func (handler *ListenPlayerHandler) Next(ctx context.Context) (listenplayback.Sn
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	handler.service.ConfirmPlaybackStarted()
+	handler.service.RecordPlaybackIntent()
 	err := handler.service.Next(ctx)
 	return handler.service.Snapshot(ctx), err
 }
@@ -175,7 +179,7 @@ func (handler *ListenPlayerHandler) Previous(ctx context.Context) (listenplaybac
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	handler.service.ConfirmPlaybackStarted()
+	handler.service.RecordPlaybackIntent()
 	err := handler.service.Previous(ctx)
 	return handler.service.Snapshot(ctx), err
 }
@@ -192,7 +196,7 @@ func (handler *ListenPlayerHandler) PlaybackResume(ctx context.Context) (listenp
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	handler.service.ConfirmPlaybackStarted()
+	handler.service.RecordPlaybackIntent()
 	err := handler.service.Resume(ctx)
 	return handler.service.Snapshot(ctx), err
 }

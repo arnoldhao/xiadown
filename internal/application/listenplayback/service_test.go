@@ -148,6 +148,58 @@ func newTestService(transport *fakeTransport) *PlayerService {
 	return service
 }
 
+func TestRecordPlaybackIntentDoesNotConfirmPlaying(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := NewPlayerService(transport)
+
+	service.RecordPlaybackIntent()
+	if service.State() != PlaybackStateIdle {
+		t.Fatalf("expected playback intent to keep idle state, got %s", service.State())
+	}
+
+	if err := service.PlayQueue(ctx, makeTracks(), 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if service.State() != PlaybackStateLoading {
+		t.Fatalf("expected play request to wait for observed playback, got %s", service.State())
+	}
+	if len(transport.loads) != 1 || transport.loads[0].videoID != "video-one" {
+		t.Fatalf("expected user-intended playback to load first track, loads=%v", transport.loads)
+	}
+}
+
+func TestRestoredPlayPauseIntentStaysLoadingUntilObservedPlaying(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{currentVideoID: "video-one"}
+	service := NewPlayerService(transport)
+
+	service.ApplyRestoredPlaybackSession(makeTracks(), 0, 0, 180)
+	service.RecordPlaybackIntent()
+	if err := service.PlayPause(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if service.State() != PlaybackStateLoading {
+		t.Fatalf("expected restored play intent to stay loading, got %s", service.State())
+	}
+	if len(transport.actions) == 0 || transport.actions[len(transport.actions)-1] != "play" {
+		t.Fatalf("expected restored play intent to issue play, actions=%v", transport.actions)
+	}
+
+	if err := service.UpdatePlaybackState(ctx, false, 0, 180); err != nil {
+		t.Fatal(err)
+	}
+	if service.State() != PlaybackStateLoading {
+		t.Fatalf("expected paused observation during play intent to keep loading, got %s", service.State())
+	}
+	if err := service.UpdatePlaybackState(ctx, true, 1, 180); err != nil {
+		t.Fatal(err)
+	}
+	if service.State() != PlaybackStatePlaying {
+		t.Fatalf("expected observed playback to confirm playing, got %s", service.State())
+	}
+}
+
 func waitForTrackArtist(t *testing.T, service *PlayerService, videoID string, artist string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)

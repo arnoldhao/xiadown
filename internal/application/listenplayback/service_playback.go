@@ -47,7 +47,7 @@ func (service *PlayerService) PlayPause(ctx context.Context) error {
 	}
 	service.clearRestoredPlaybackSessionStateLocked()
 	if service.pendingPlayVideoID != "" {
-		service.state = PlaybackStateBuffering
+		service.state = PlaybackStateLoading
 		service.mu.Unlock()
 		return service.executeActions(ctx, transportAction{kind: "play"})
 	}
@@ -79,7 +79,7 @@ func (service *PlayerService) Resume(ctx context.Context) error {
 	pendingVideoID := service.pendingPlayVideoID
 	if pendingVideoID == "" {
 		service.clearRestoredPlaybackSessionStateLocked()
-		service.state = PlaybackStateBuffering
+		service.state = PlaybackStateLoading
 		service.mu.Unlock()
 		return service.executeActions(ctx, transportAction{kind: "play"})
 	}
@@ -115,7 +115,7 @@ func (service *PlayerService) Resume(ctx context.Context) error {
 		})
 	}
 
-	service.state = PlaybackStateBuffering
+	service.state = PlaybackStateLoading
 	service.mu.Unlock()
 	return service.executeActions(ctx, transportAction{kind: "play"})
 }

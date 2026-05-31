@@ -110,6 +110,8 @@ func TestListenBridgeAttemptsAutoplayRecoveryOnReadyMedia(t *testing.T) {
 	for _, expected := range []string{
 		"autoplayRecoveryPending",
 		"function attemptAutoplayRecovery(video, reason)",
+		"function shouldDelayPlaybackForStartPosition(video)",
+		`sendState(reason || "autoplay-waiting-for-start-position", true)`,
 		`attemptAutoplayRecovery(video, "autoplay-recovery-" + name)`,
 		`video.readyState >= 3`,
 		`".play-pause-button.ytmusic-player-bar, ytmusic-player-bar .play-pause-button"`,
@@ -117,6 +119,54 @@ func TestListenBridgeAttemptsAutoplayRecoveryOnReadyMedia(t *testing.T) {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("bridge script should include autoplay recovery %q", expected)
 		}
+	}
+}
+
+func TestListenBridgeUsesVideoPausedForPlayingState(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
+		VideoID: "TESTVID001A",
+	})
+	activeMediaIndex := strings.Index(script, `if (media && media.playing)`)
+	playSettlingIndex := strings.Index(script, `if (lastRequestedAction === "play")`)
+	if activeMediaIndex < 0 || playSettlingIndex < 0 || activeMediaIndex > playSettlingIndex {
+		t.Fatalf("bridge script should require active media before play-request loading fallback")
+	}
+	for _, expected := range []string{
+		`function playerApiMediaSnapshot()`,
+		`function effectiveMediaSnapshot(video, videoId)`,
+		`paused: media.paused`,
+		`ended: media.ended`,
+		`if (lastRequestedAction === "play") {
+      return media && (media.currentTime > 0.15 || media.bufferedTime > 0.15) ? "buffering" : "loading";
+    }`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("bridge script should expose media element playback truth %q", expected)
+		}
+	}
+	if strings.Contains(script, `if (apiState === 1) return "playing";`) {
+		t.Fatalf("bridge script should not trust the YouTube API playing state while the media element is paused")
+	}
+}
+
+func TestListenBridgeAutoplayRecoveryDoesNotTrustStalePlayerAPI(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
+		VideoID: "TESTVID001A",
+	})
+	for _, expected := range []string{
+		`if (!video || !video.paused)`,
+		`autoplayRecoveryPending = false;
+    lastRequestedAction = "play";`,
+		`const result = video.play();`,
+		`const recovery = attemptAutoplayRecovery(video, "autoplay-recovery-timer");`,
+		`if (recovery === "clicked" || recovery === "played")`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("bridge script should retry paused autoplay recovery from media state; missing %q", expected)
+		}
+	}
+	if strings.Contains(script, `!video.paused || playerStateCode() === 1`) {
+		t.Fatalf("bridge autoplay recovery should not skip a paused video because the player API reports playing")
 	}
 }
 
@@ -159,6 +209,21 @@ func TestListenPlayerStatusFallsBackToYouTubePoster(t *testing.T) {
 	status := player.Status()
 	if status.ThumbnailURL != "https://i.ytimg.com/vi/TESTVID001A/hqdefault.jpg" {
 		t.Fatalf("expected public YouTube thumbnail fallback, got %+v", status)
+	}
+}
+
+func TestListenPlaybackPayloadUsesPausedMediaElement(t *testing.T) {
+	if listenPlaybackPayloadIsPlaying("playing", map[string]any{"paused": true}) {
+		t.Fatal("expected paused media element to override playing state")
+	}
+	if listenPlaybackPayloadIsPlaying("buffering", map[string]any{"ended": true}) {
+		t.Fatal("expected ended media element to override buffering state")
+	}
+	if !listenPlaybackPayloadIsPlaying("buffering", map[string]any{"paused": false}) {
+		t.Fatal("expected active buffering media element to count as playing")
+	}
+	if !listenPlaybackPayloadIsPlaying("playing", map[string]any{}) {
+		t.Fatal("expected missing media element fields to preserve legacy playing state")
 	}
 }
 

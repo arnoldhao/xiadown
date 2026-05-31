@@ -67,6 +67,8 @@ export type ListenNativePlayerEvent = {
   currentTime?: number;
   duration?: number;
   bufferedTime?: number;
+  paused?: boolean;
+  ended?: boolean;
   videoWidth?: number;
   videoHeight?: number;
   advertising?: boolean;

@@ -155,7 +155,7 @@ func (service *PlayerService) applyObservedPlaybackStateLocked(isPlaying bool, p
 	service.currentTimeMs = int(progress*1000 + 0.5)
 	service.duration = duration
 	if isPlaying {
-		service.state = PlaybackStatePlaying
+		service.confirmPlaybackStartedLocked()
 	} else if service.state == PlaybackStatePlaying {
 		service.state = PlaybackStatePaused
 	}

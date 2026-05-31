@@ -127,7 +127,7 @@ func (handler *ListenPlayerHandler) Play(ctx context.Context, request ListenPlay
 		return fmt.Errorf("listen player unavailable")
 	}
 	if handler.service != nil {
-		handler.service.ConfirmPlaybackStarted()
+		handler.service.RecordPlaybackIntent()
 		return handler.service.PlayTrack(ctx, listenPlaybackTrackFromPlayRequest(request), listenplayback.PlayOptions{
 			StartSeconds:     request.StartSeconds,
 			RestartFromStart: request.RestartFromStart,
@@ -152,7 +152,7 @@ func (handler *ListenPlayerHandler) Resume(ctx context.Context) error {
 		return fmt.Errorf("listen player unavailable")
 	}
 	if handler.service != nil {
-		handler.service.ConfirmPlaybackStarted()
+		handler.service.RecordPlaybackIntent()
 		return handler.service.Resume(ctx)
 	}
 	return handler.player.Resume()
@@ -163,7 +163,7 @@ func (handler *ListenPlayerHandler) Replay(ctx context.Context) error {
 		return fmt.Errorf("listen player unavailable")
 	}
 	if handler.service != nil {
-		handler.service.ConfirmPlaybackStarted()
+		handler.service.RecordPlaybackIntent()
 		if err := handler.service.Seek(ctx, 0); err != nil {
 			return err
 		}
@@ -1043,7 +1043,7 @@ func (player *ListenYouTubeMusicPlayer) syncPlaybackServiceFromNativeEvent(
 	currentTime, hasCurrentTime := listenPayloadFloat(payload, "currentTime")
 	duration, hasDuration := listenPayloadFloat(payload, "duration")
 	if state != "" && (hasCurrentTime || hasDuration) {
-		_ = service.UpdatePlaybackState(ctx, state == "playing" || state == "buffering", currentTime, duration)
+		_ = service.UpdatePlaybackState(ctx, listenPlaybackPayloadIsPlaying(state, payload), currentTime, duration)
 	}
 	if videoID != "" || title != "" {
 		_ = service.UpdateTrackMetadata(ctx, listenplayback.ObservedTrack{
@@ -1060,6 +1060,19 @@ func (player *ListenYouTubeMusicPlayer) syncPlaybackServiceFromNativeEvent(
 
 func advertisingPayload(payload map[string]any) bool {
 	return listenPayloadBool(payload, "advertising") || listenPayloadBool(payload, "ad")
+}
+
+func listenPlaybackPayloadIsPlaying(state string, payload map[string]any) bool {
+	if state != "playing" && state != "buffering" {
+		return false
+	}
+	if paused, ok := listenPayloadBoolValue(payload, "paused"); ok && paused {
+		return false
+	}
+	if ended, ok := listenPayloadBoolValue(payload, "ended"); ok && ended {
+		return false
+	}
+	return true
 }
 
 func (player *ListenYouTubeMusicPlayer) currentWindow() *application.WebviewWindow {
@@ -1573,6 +1586,9 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   let lastObservedVideoId = "";
   let lastObservedTitle = "";
   let lastObservedArtist = "";
+  let lastEffectiveMediaVideoId = "";
+  let lastEffectiveMediaTime = 0;
+  let lastEffectiveMediaAdvancedAt = 0;
   let lastStrongAdAt = 0;
   let lastAdvertising = false;
   let lastStartSkipLogKey = "";
@@ -1914,6 +1930,110 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     return null;
   }
 
+  function apiNumber(api, names) {
+    if (!api) return 0;
+    for (const name of names) {
+      try {
+        if (typeof api[name] === "function") {
+          const value = finiteNumber(api[name](), NaN);
+          if (Number.isFinite(value) && value >= 0) return value;
+        }
+        const value = finiteNumber(api[name], NaN);
+        if (Number.isFinite(value) && value >= 0) return value;
+      } catch (error) {}
+    }
+    return 0;
+  }
+
+  function progressStateSnapshot(api) {
+    if (!api || typeof api.getProgressState !== "function") {
+      return { currentTime: 0, duration: 0, bufferedTime: 0 };
+    }
+    try {
+      const progress = api.getProgressState();
+      if (!progress || typeof progress !== "object") {
+        return { currentTime: 0, duration: 0, bufferedTime: 0 };
+      }
+      return {
+        currentTime: finiteNumber(progress.current ?? progress.currentTime ?? progress.elapsed ?? 0, 0),
+        duration: finiteNumber(progress.duration ?? progress.total ?? 0, 0),
+        bufferedTime: finiteNumber(progress.loaded ?? progress.buffered ?? progress.bufferedTime ?? 0, 0)
+      };
+    } catch (error) {
+      return { currentTime: 0, duration: 0, bufferedTime: 0 };
+    }
+  }
+
+  function playerApiMediaSnapshot() {
+    const api = playerApi();
+    const progress = progressStateSnapshot(api);
+    const moviePlayer = document.getElementById("movie_player");
+    const apiCurrent = Math.max(
+      progress.currentTime,
+      apiNumber(api, ["getCurrentTime", "currentTime"]),
+      apiNumber(moviePlayer, ["getCurrentTime", "currentTime"])
+    );
+    const apiDuration = Math.max(
+      progress.duration,
+      apiNumber(api, ["getDuration", "duration"]),
+      apiNumber(moviePlayer, ["getDuration", "duration"])
+    );
+    return {
+      currentTime: apiCurrent,
+      duration: apiDuration,
+      bufferedTime: progress.bufferedTime > 0 && progress.bufferedTime <= 1 && apiDuration > 0
+        ? progress.bufferedTime * apiDuration
+        : progress.bufferedTime
+    };
+  }
+
+  function effectiveMediaSnapshot(video, videoId) {
+    const apiState = playerStateCode();
+    const api = playerApiMediaSnapshot();
+    const videoCurrent = video ? finiteNumber(video.currentTime, 0) : 0;
+    const videoDuration = video ? finiteNumber(video.duration, 0) : 0;
+    const bufferedTime = Math.max(bufferedEnd(video), api.bufferedTime);
+    const currentTime = Math.max(videoCurrent, api.currentTime);
+    const duration = Math.max(videoDuration, api.duration);
+    const now = Date.now();
+    const key = videoId || currentVideoId();
+    if (key && key !== lastEffectiveMediaVideoId) {
+      lastEffectiveMediaVideoId = key;
+      lastEffectiveMediaTime = 0;
+      lastEffectiveMediaAdvancedAt = 0;
+    }
+    const previousMediaTime = lastEffectiveMediaTime;
+    if (previousMediaTime > 0 && currentTime + 1 < previousMediaTime) {
+      lastEffectiveMediaAdvancedAt = 0;
+    }
+    if (previousMediaTime > 0 && currentTime > previousMediaTime + 0.05) {
+      lastEffectiveMediaAdvancedAt = now;
+    }
+    if (currentTime >= 0) {
+      lastEffectiveMediaTime = currentTime;
+    }
+    const elementPlaying = Boolean(video && !video.paused && !video.ended);
+    const apiProgressAdvancing =
+      apiState === 1 &&
+      currentTime > 0.05 &&
+      lastEffectiveMediaAdvancedAt > 0 &&
+      now - lastEffectiveMediaAdvancedAt < 1800;
+    const playing = elementPlaying || apiProgressAdvancing;
+    return {
+      apiState,
+      currentTime,
+      duration,
+      bufferedTime,
+      playing,
+      paused: !playing,
+      ended: video ? video.ended : apiState === 0,
+      readyState: video ? video.readyState : (duration > 0 || currentTime > 0 ? 4 : 0),
+      networkState: video ? video.networkState : 0,
+      videoWidth: video ? finiteNumber(video.videoWidth, 0) : 0,
+      videoHeight: video ? finiteNumber(video.videoHeight, 0) : 0
+    };
+  }
+
   function currentVideoId() {
     const data = playerData();
     const fromAPI = data && (data.video_id || data.videoId);
@@ -2035,7 +2155,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   }
 
   function anyVideoPlaying() {
-    if (playerStateCode() === 1) return true;
     return videoElements().some((video) => !video.paused && !video.ended);
   }
 
@@ -2052,25 +2171,33 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     }
   }
 
-  function stateFromVideo(video, reason) {
+  function stateFromVideo(video, reason, media) {
     if (lastRequestedAction === "pause") return "paused";
-    const apiState = playerStateCode();
-    if (apiState === 1) return "playing";
-    if (apiState === 3) return "buffering";
+    const apiState = media ? media.apiState : playerStateCode();
+    if (video && video.error) return "error";
+    if (media && media.ended) return "ended";
+    if (media && media.playing) {
+      if (
+        apiState === 3 ||
+        media.readyState < 3 ||
+        Boolean(video && video.seeking) ||
+        reason === "waiting" ||
+        reason === "stalled" ||
+        reason === "seeking"
+      ) {
+        return "buffering";
+      }
+      return "playing";
+    }
     if (!video) return "loading";
-    if (video.error) return "error";
     if (lastRequestedAction === "play") {
-      return video.readyState < 3 ? "loading" : "buffering";
+      return media && (media.currentTime > 0.15 || media.bufferedTime > 0.15) ? "buffering" : "loading";
     }
     if (apiState === 2) return "paused";
     if (apiState === 0 || reason === "ended") return "ended";
-    if (video.ended) return "ended";
     if (reason === "loadstart" || reason === "emptied") return "loading";
     if (video.seeking || reason === "waiting" || reason === "stalled" || reason === "seeking") {
-      return "buffering";
-    }
-    if (!video.paused) {
-      return video.readyState < 3 ? "buffering" : "playing";
+      return "loading";
     }
     return "paused";
   }
@@ -2282,6 +2409,28 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     } catch (error) {}
   }
 
+  function shouldDelayPlaybackForStartPosition(video) {
+    if (!video) return false;
+    const request = readRequest();
+    const start = finiteNumber(Number(request.startSeconds || 0), 0);
+    if (start <= 0.5) return false;
+    const activeVideoId = currentVideoId();
+    const requestedVideoId = String(request.videoId || "");
+    if (activeVideoId && requestedVideoId && activeVideoId !== requestedVideoId) {
+      return false;
+    }
+    const applyKey = activeVideoId || requestedVideoId;
+    if (applyKey && startAppliedForVideo === applyKey) return false;
+    const duration = finiteNumber(video.duration, 0);
+    if (duration > 0 && start >= duration - 1) return false;
+    const current = finiteNumber(video.currentTime, 0);
+    if (Math.abs(current - start) <= START_POSITION_TOLERANCE_SECONDS || current > start) {
+      if (applyKey) startAppliedForVideo = applyKey;
+      return false;
+    }
+    return true;
+  }
+
   function installMediaSessionHandlers() {
     try {
       if (!navigator.mediaSession || typeof navigator.mediaSession.setActionHandler !== "function") return;
@@ -2342,9 +2491,10 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     installMediaSessionHandlers();
     const video = videoElement();
     const error = errorSnapshot(video);
-    const state = error.errored ? "error" : stateFromVideo(video, reason);
     const metadata = metadataSnapshot();
     const videoId = metadata.videoId;
+    const media = effectiveMediaSnapshot(video, videoId);
+    const state = error.errored ? "error" : stateFromVideo(video, reason, media);
     const videoIdChanged = Boolean(videoId && videoId !== lastObservedVideoId);
     const metadataChanged = Boolean(
       (metadata.title && metadata.title !== lastObservedTitle) ||
@@ -2354,10 +2504,6 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     if (videoId) lastObservedVideoId = videoId;
     if (metadata.title) lastObservedTitle = metadata.title;
     if (metadata.artist) lastObservedArtist = metadata.artist;
-    const duration = video ? finiteNumber(video.duration, 0) : 0;
-    const currentTime = video ? finiteNumber(video.currentTime, 0) : 0;
-    const videoWidth = video ? finiteNumber(video.videoWidth, 0) : 0;
-    const videoHeight = video ? finiteNumber(video.videoHeight, 0) : 0;
     const ad = adSnapshot();
     const payload = {
       type: "state",
@@ -2371,17 +2517,19 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       likeStatus: metadata.likeStatus,
       trackChanged,
       metadataSource: metadata.metadataSource,
-      currentTime,
-      duration,
-      bufferedTime: bufferedEnd(video),
-      videoWidth,
-      videoHeight,
+      currentTime: media.currentTime,
+      duration: media.duration,
+      bufferedTime: media.bufferedTime,
+      paused: media.paused,
+      ended: media.ended,
+      videoWidth: media.videoWidth,
+      videoHeight: media.videoHeight,
       advertising: ad.advertising,
       adLabel: ad.label,
       errorCode: error.code,
       errorMessage: error.message,
-      readyState: video ? video.readyState : 0,
-      networkState: video ? video.networkState : 0,
+      readyState: media.readyState,
+      networkState: media.networkState,
       url: window.location.href
     };
     if (error.errored) {
@@ -2414,6 +2562,8 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       currentTime: video ? finiteNumber(video.currentTime, 0) : 0,
       duration: video ? finiteNumber(video.duration, 0) : 0,
       bufferedTime: bufferedEnd(video),
+      paused: video ? video.paused : true,
+      ended: video ? video.ended : true,
       videoWidth: video ? finiteNumber(video.videoWidth, 0) : 0,
       videoHeight: video ? finiteNumber(video.videoHeight, 0) : 0,
       advertising: ad.advertising,
@@ -2479,11 +2629,16 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 
   function attemptAutoplayRecovery(video, reason) {
     if (!autoplayRecoveryPending || lastRequestedAction === "pause") return "noop";
-    if (!video || !video.paused || playerStateCode() === 1) {
+    if (!video || !video.paused) {
       autoplayRecoveryPending = false;
       return "noop";
     }
     if (video.readyState < 2) return "not-ready";
+    if (shouldDelayPlaybackForStartPosition(video)) {
+      applyStartPosition(video);
+      sendState(reason || "autoplay-waiting-for-start-position", true);
+      return "not-ready";
+    }
     autoplayRecoveryPending = false;
     lastRequestedAction = "play";
     scheduleVolumeBurst();
@@ -2497,8 +2652,21 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
         return "clicked";
       } catch (error) {}
     }
-    invokePlay(reason || "autoplay-recovery");
-    autoplayRecoveryPending = false;
+    try {
+      const result = video.play();
+      if (result && typeof result.catch === "function") {
+        result.catch(() => sendState("autoplay-recovery-rejected", true));
+      }
+    } catch (error) {}
+    const player = document.querySelector("ytmusic-player");
+    if (player && player.playerApi && typeof player.playerApi.playVideo === "function") {
+      try { player.playerApi.playVideo(); } catch (error) {}
+    }
+    const moviePlayer = document.getElementById("movie_player");
+    if (moviePlayer && typeof moviePlayer.playVideo === "function") {
+      try { moviePlayer.playVideo(); } catch (error) {}
+    }
+    sendState(reason || "autoplay-recovery", true);
     return "played";
   }
 
@@ -2511,6 +2679,11 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     applyVolume();
     if (video) {
       applyStartPosition(video);
+      if (shouldDelayPlaybackForStartPosition(video)) {
+        scheduleAutoplay();
+        sendState(reason || "play-waiting-for-start-position", true);
+        return;
+      }
       const result = video.play();
       if (result && typeof result.catch === "function") {
         result.catch(() => sendState("play-rejected", true));
@@ -2649,10 +2822,25 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       autoplayCount += 1;
       attachVideoListeners();
       const video = videoElement();
-      if (playerStateCode() === 1 || (video && !video.paused && video.readyState >= 2)) {
+      if (video && shouldDelayPlaybackForStartPosition(video)) {
+        applyStartPosition(video);
+        sendState("autoplay-waiting-for-start-position", true);
+        if (autoplayCount >= AUTOPLAY_ATTEMPTS) {
+          cancelAutoplay();
+          sendState("autoplay-timeout", true);
+        }
+        return;
+      }
+      const media = effectiveMediaSnapshot(video, currentVideoId());
+      if (media.playing && media.readyState >= 2) {
         cancelAutoplay();
         lastRequestedAction = "";
+        startPolling();
         sendState("autoplay-confirmed", true);
+        return;
+      }
+      const recovery = attemptAutoplayRecovery(video, "autoplay-recovery-timer");
+      if (recovery === "clicked" || recovery === "played") {
         return;
       }
       invokePlay("autoplay");
