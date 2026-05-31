@@ -51,6 +51,15 @@ func TestCheckYTDLPVersionAcceptsVersionOutputEvenWhenProcessReturnsError(t *tes
 	}
 }
 
+func TestResolveYTDLPErrorCodeClassifiesTooManyOpenFiles(t *testing.T) {
+	t.Parallel()
+
+	detail := "ERROR: unable to open for writing: [Errno 24] Too many open files: '/tmp/video.mp4.part-Frag594.part'"
+	if got := resolveYTDLPErrorCode(detail, nil); got != ytdlpErrorCodeResourceLimit {
+		t.Fatalf("expected resource limit error code, got %q", got)
+	}
+}
+
 func writeVersionScript(t *testing.T, version string, fail bool) string {
 	t.Helper()
 

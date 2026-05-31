@@ -218,6 +218,72 @@ func TestBuildCommandAddsConcurrentFragmentsOnlyWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestYTDLPFileLimitTargetRaisesWithinHardLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		current uint64
+		maximum uint64
+		minimum uint64
+		want    uint64
+	}{
+		{name: "already high enough", current: 8192, maximum: 8192, minimum: 4096, want: 8192},
+		{name: "raise to minimum", current: 256, maximum: 8192, minimum: 4096, want: 4096},
+		{name: "raise to hard limit", current: 256, maximum: 1024, minimum: 4096, want: 1024},
+		{name: "hard limit not higher", current: 1024, maximum: 512, minimum: 4096, want: 1024},
+		{name: "disabled", current: 256, maximum: 8192, minimum: 0, want: 256},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := ytdlpFileLimitTarget(test.current, test.maximum, test.minimum)
+			if got != test.want {
+				t.Fatalf("expected target %d, got %d", test.want, got)
+			}
+		})
+	}
+}
+
+func TestBuildCommandUsesStreamDownloadStrategy(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: filepath.Join(tempDir, "yt-dlp"),
+		Request: dto.CreateYTDLPJobRequest{
+			URL: "https://media.example/replay/index.m3u8",
+		},
+		OutputTemplate:      filepath.Join(tempDir, "downloads", "%(title)s.%(ext)s"),
+		ConcurrentFragments: 8,
+		StreamStrategy: StreamDownloadStrategy{
+			Downloader:    StreamDownloaderNativeM3U8,
+			ExtractorArgs: []string{"generic:hls_key=00112233445566778899aabbccddeeff"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	defer command.Cancel()
+	if command.Cleanup != nil {
+		defer command.Cleanup()
+	}
+	argsJoined := strings.Join(command.Args, "\n")
+	for _, expected := range []string{
+		"--downloader\nm3u8:native",
+		"--extractor-args\ngeneric:hls_key=00112233445566778899aabbccddeeff",
+		"--concurrent-fragments\n8",
+	} {
+		if !strings.Contains(argsJoined, expected) {
+			t.Fatalf("expected command args to contain %q, got %v", expected, command.Args)
+		}
+	}
+	sanitizedArgsJoined := strings.Join(command.SanitizedArgs, "\n")
+	if strings.Contains(sanitizedArgsJoined, "00112233445566778899aabbccddeeff") ||
+		!strings.Contains(sanitizedArgsJoined, "generic:hls_key=****") {
+		t.Fatalf("expected hls key extractor arg to be sanitized, got %v", command.SanitizedArgs)
+	}
+}
+
 func TestBuildSubtitleCommandUsesSubtitleArgsWithoutMutatingPATH(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 

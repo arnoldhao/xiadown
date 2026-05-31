@@ -3,6 +3,7 @@ import {
 AlertCircle,
 ArrowUpCircle,
 CheckCircle2,
+CircleHelp,
 Cog,
 Download,
 ExternalLink,
@@ -1176,7 +1177,29 @@ export function SettingsApp() {
                   </div>
                 </SettingsCompactRow>
                 <SettingsCompactSeparator />
-                <SettingsCompactRow label={text.settings.ytdlpConcurrentFragments}>
+                <SettingsCompactRow
+                  label={
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{text.settings.ytdlpConcurrentFragments}</span>
+                      <TooltipProvider delayDuration={0}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              aria-label={text.settings.ytdlpConcurrentFragmentsHelp}
+                            >
+                              <CircleHelp className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" multiline className="!max-w-[15rem] text-left leading-relaxed">
+                            {text.settings.ytdlpConcurrentFragmentsHelp}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </span>
+                  }
+                >
                   <Select
                     value={String(currentSettings?.ytdlpConcurrentFragments ?? 1)}
                     onChange={(event) => void saveSettingsPatch({ ytdlpConcurrentFragments: Number(event.target.value) })}

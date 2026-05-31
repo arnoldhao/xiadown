@@ -46,6 +46,7 @@ type CommandOptions struct {
 	CookiesPath         string
 	ProxyURL            string
 	ConcurrentFragments int
+	StreamStrategy      StreamDownloadStrategy
 	Timeout             time.Duration
 }
 

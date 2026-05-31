@@ -28,7 +28,7 @@ func (w *timestampWriter) Write(p []byte) (n int, err error) {
 		w.lastWriteStart = time.Now()
 	}
 
-	if i := bytes.IndexByte(p, '\n'); i >= 0 {
+	if i := bytes.IndexAny(p, "\n\r"); i >= 0 {
 		w.buf.Write(p[:i+1])
 		w.flush()
 		_, err = w.Write(p[i+1:])

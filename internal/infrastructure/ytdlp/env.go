@@ -19,9 +19,56 @@ func SanitizeArgs(args []string) []string {
 			copied[i+1] = MaskProxyURL(copied[i+1])
 		case "--add-header", "--add-headers":
 			copied[i+1] = MaskHeaderArg(copied[i+1])
+		case "--extractor-args":
+			copied[i+1] = MaskExtractorArgs(copied[i+1])
 		}
 	}
 	return copied
+}
+
+func MaskExtractorArgs(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return raw
+	}
+	masked := trimmed
+	for _, name := range []string{"hls_key", "key_query", "fragment_query", "variant_query"} {
+		masked = maskExtractorArgValue(masked, name)
+	}
+	return masked
+}
+
+func maskExtractorArgValue(raw string, name string) string {
+	target := strings.ToLower(strings.TrimSpace(name)) + "="
+	if target == "=" {
+		return raw
+	}
+	masked := raw
+	searchFrom := 0
+	for {
+		lower := strings.ToLower(masked)
+		if searchFrom >= len(lower) {
+			return masked
+		}
+		relativeIndex := strings.Index(lower[searchFrom:], target)
+		if relativeIndex < 0 {
+			return masked
+		}
+		index := searchFrom + relativeIndex
+		start := index + len(target)
+		end := len(masked)
+		for offset, r := range masked[start:] {
+			switch r {
+			case ';', ' ':
+				end = start + offset
+			}
+			if end != len(masked) {
+				break
+			}
+		}
+		masked = masked[:start] + "****" + masked[end:]
+		searchFrom = start + len("****")
+	}
 }
 
 func MaskHeaderArg(raw string) string {

@@ -42,6 +42,12 @@ func TestNormalizeProgressDetailUsesI18nForStageOnlyMessages(t *testing.T) {
 			want:  progressText("library.progress.downloadingVideo"),
 		},
 		{
+			name:  "m3u8 metadata line",
+			stage: "Fetching metadata",
+			line:  "[generic] stream: Downloading m3u8 information",
+			want:  progressText("library.progressDetail.ytdlpDownloadingStreamInfo"),
+		},
+		{
 			name:  "keeps detailed line",
 			stage: "Downloading subtitles",
 			line:  "subtitle download failed: network error",

@@ -21,6 +21,9 @@ const (
 	resourceDownloadRetryDelay       = 800 * time.Millisecond
 	resourceDownloadMinPartSize      = int64(1024 * 1024)
 	resourceDownloadDefaultParts     = 4
+	resourceDefaultUserAgent         = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+	resourceDefaultAccept            = "*/*"
+	resourceDefaultAcceptLanguage    = "zh-CN,zh;q=0.9,en;q=0.8"
 )
 
 var resourceForbiddenDownloadHeaders = map[string]struct{}{
@@ -547,7 +550,13 @@ func applyResourceRequestHeaders(req *http.Request, headers map[string]string) {
 		req.Header.Set(trimmedKey, trimmedValue)
 	}
 	if _, ok := findHeader(httpHeaderToStringMap(req.Header), "User-Agent"); !ok {
-		req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
+		req.Header.Set("User-Agent", resourceDefaultUserAgent)
+	}
+	if _, ok := findHeader(httpHeaderToStringMap(req.Header), "Accept"); !ok {
+		req.Header.Set("Accept", resourceDefaultAccept)
+	}
+	if _, ok := findHeader(httpHeaderToStringMap(req.Header), "Accept-Language"); !ok {
+		req.Header.Set("Accept-Language", resourceDefaultAcceptLanguage)
 	}
 }
 

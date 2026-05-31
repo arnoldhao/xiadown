@@ -23,14 +23,18 @@ const (
 )
 
 const (
-	ytdlpErrorCodeDependencyMissing = string(apperrors.CodeDependencyMissing)
-	ytdlpErrorCodeAuthRequired      = string(apperrors.CodeAuthRequired)
-	ytdlpErrorCodeRateLimited       = string(apperrors.CodeRateLimited)
-	ytdlpErrorCodeNetworkError      = string(apperrors.CodeNetworkError)
-	ytdlpErrorCodeOutputMissing     = "output_missing"
-	ytdlpErrorCodeMisconfig         = "misconfig"
-	ytdlpErrorCodeParsing           = string(apperrors.CodeParsing)
-	ytdlpErrorCodeExitCode          = "exit_code"
+	ytdlpErrorCodeDependencyMissing           = string(apperrors.CodeDependencyMissing)
+	ytdlpErrorCodeAuthRequired                = string(apperrors.CodeAuthRequired)
+	ytdlpErrorCodeRateLimited                 = string(apperrors.CodeRateLimited)
+	ytdlpErrorCodeNetworkError                = string(apperrors.CodeNetworkError)
+	ytdlpErrorCodeOutputMissing               = "output_missing"
+	ytdlpErrorCodeOutputInvalid               = "output_invalid"
+	ytdlpErrorCodeMisconfig                   = "misconfig"
+	ytdlpErrorCodeResourceLimit               = "resource_limit"
+	ytdlpErrorCodeParsing                     = string(apperrors.CodeParsing)
+	ytdlpErrorCodeExitCode                    = "exit_code"
+	ytdlpErrorCodeDRMProtected                = "drm_protected"
+	ytdlpErrorCodeUnsupportedStreamEncryption = "unsupported_stream_encryption"
 )
 
 func shouldAutoRetryYTDLP(request dto.CreateYTDLPJobRequest, detail string) bool {
@@ -405,6 +409,18 @@ func classifyYTDLPErrorCode(detail string) string {
 	if isYTDLPParsingError(lower) {
 		return ytdlpErrorCodeParsing
 	}
+	if isYTDLPOutputInvalid(lower) {
+		return ytdlpErrorCodeOutputInvalid
+	}
+	if isYTDLPResourceLimit(lower) {
+		return ytdlpErrorCodeResourceLimit
+	}
+	if isYTDLPDRMProtected(lower) {
+		return ytdlpErrorCodeDRMProtected
+	}
+	if isYTDLPUnsupportedStreamEncryption(lower) {
+		return ytdlpErrorCodeUnsupportedStreamEncryption
+	}
 	return ""
 }
 
@@ -499,6 +515,41 @@ func isYTDLPParsingError(lower string) bool {
 		"extractor error",
 		"json parse",
 		"failed to parse",
+	})
+}
+
+func isYTDLPOutputInvalid(lower string) bool {
+	return containsAny(lower, []string{
+		"ffprobe failed",
+		"moov atom not found",
+		"invalid data found when processing input",
+		"output file is not readable",
+	})
+}
+
+func isYTDLPResourceLimit(lower string) bool {
+	return containsAny(lower, []string{
+		"too many open files",
+		"errno 24",
+		"emfile",
+	})
+}
+
+func isYTDLPDRMProtected(lower string) bool {
+	return containsAny(lower, []string{
+		"drm-protected",
+		"drm protected",
+		"this video is drm protected",
+		"this format is drm protected",
+	})
+}
+
+func isYTDLPUnsupportedStreamEncryption(lower string) bool {
+	return containsAny(lower, []string{
+		"unsupported hls encryption method",
+		"encrypted dash streams",
+		"sample-aes",
+		"aes-256-gcm",
 	})
 }
 

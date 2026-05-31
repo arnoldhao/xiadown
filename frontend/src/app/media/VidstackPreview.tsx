@@ -30,9 +30,12 @@ import {
 } from "@/shared/styles/xiadown";
 
 export type VidstackPreviewLabels = {
+  loading?: string;
   noPreview: string;
   previewEnterFullscreen: string;
   previewExitFullscreen: string;
+  previewLoading?: string;
+  previewLoadingStream?: string;
   previewMute: string;
   previewPause: string;
   previewPlay: string;
@@ -89,6 +92,7 @@ const VIDSTACK_PREVIEW_RESUME_END_GAP_MS = 5000;
 const VIDSTACK_PREVIEW_RESUME_SEEK_TOLERANCE_MS = 750;
 const VIDSTACK_PREVIEW_RESUME_RETRY_WINDOW_MS = 8000;
 const VIDSTACK_PREVIEW_LOAD_TIMEOUT_MS = 5000;
+const VIDSTACK_PREVIEW_STREAM_LOAD_TIMEOUT_MS = 30000;
 
 function clampMs(value: number, durationMs: number) {
   if (!Number.isFinite(value)) {
@@ -413,6 +417,10 @@ export function VidstackPreview(props: VidstackPreviewProps) {
     () => resolveVideoSource(props.mediaUrl, props.title, props.sourceType),
     [props.mediaUrl, props.sourceType, props.title],
   );
+  const isStreamSource =
+    props.sourceType === "hls" ||
+    props.sourceType === "dash" ||
+    String(props.streamType ?? "").startsWith("live");
   const shouldPersistProgress =
     props.persistProgress ?? !String(props.streamType ?? "").startsWith("live");
   const progressStorageKey = React.useMemo(
@@ -853,10 +861,12 @@ export function VidstackPreview(props: VidstackPreviewProps) {
           reason: "stalled",
         }),
       );
-    }, VIDSTACK_PREVIEW_LOAD_TIMEOUT_MS);
+    }, isStreamSource
+      ? VIDSTACK_PREVIEW_STREAM_LOAD_TIMEOUT_MS
+      : VIDSTACK_PREVIEW_LOAD_TIMEOUT_MS);
 
     return clearLoadWatchdog;
-  }, [clearLoadWatchdog, markPreviewUnavailable, props.mediaUrl]);
+  }, [clearLoadWatchdog, isStreamSource, markPreviewUnavailable, props.mediaUrl]);
 
   React.useEffect(() => {
     mediaRemote.setPlayer(playerElement);
@@ -1417,6 +1427,14 @@ export function VidstackPreview(props: VidstackPreviewProps) {
     previewReady && effectiveDurationMs > 0
       ? formatMediaTime(effectiveDurationMs)
       : "--:--";
+  const loadingLabel =
+    isStreamSource
+      ? props.labels.previewLoadingStream ||
+        props.labels.loading ||
+        props.labels.noPreview
+      : props.labels.previewLoading ||
+        props.labels.loading ||
+        props.labels.noPreview;
   const windowedFullscreenLabel = windowedFullscreen
     ? props.labels.previewWindowRestore
     : props.labels.previewWindowFullscreen;
@@ -1479,8 +1497,11 @@ export function VidstackPreview(props: VidstackPreviewProps) {
                 />
               </MediaPlayer>
               {previewLoading ? (
-                <div className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                <div className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-8 text-center">
                   <Loader2 className="h-6 w-6 animate-spin" />
+                  <div className="app-completed-preview-state-text text-sm font-medium">
+                    {loadingLabel}
+                  </div>
                 </div>
               ) : null}
               {previewUnavailable ? (

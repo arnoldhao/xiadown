@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -242,7 +243,7 @@ func TestPrepareYTDLPOutputAddsXiadownUnderCustomParentDirectory(t *testing.T) {
 	}
 }
 
-func TestPersistYTDLPLogsDoesNotWriteLogFile(t *testing.T) {
+func TestPersistYTDLPLogsWritesLogFileWhenPolicyAllows(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -268,14 +269,15 @@ func TestPersistYTDLPLogsDoesNotWriteLogFile(t *testing.T) {
 		nil,
 	)
 
-	if snapshot.Path != "" || snapshot.SizeBytes != 0 || snapshot.LineCount != 0 {
-		t.Fatalf("expected empty log snapshot when log persistence is disabled, got %#v", snapshot)
+	if snapshot.Path == "" || snapshot.SizeBytes == 0 || snapshot.LineCount != 1 {
+		t.Fatalf("expected populated log snapshot, got %#v", snapshot)
 	}
-	logDir := filepath.Join(downloadDirectory, "xiadown", "yt-dlp", "logs")
-	if _, err := os.Stat(logDir); err == nil {
-		t.Fatalf("expected yt-dlp log directory not to be created: %s", logDir)
-	} else if !os.IsNotExist(err) {
-		t.Fatalf("stat log directory: %v", err)
+	content, err := os.ReadFile(snapshot.Path)
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if !strings.Contains(string(content), "ERROR: sample failure") {
+		t.Fatalf("expected log content to include failure, got %q", string(content))
 	}
 }
 

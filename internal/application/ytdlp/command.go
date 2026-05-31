@@ -15,7 +15,7 @@ import (
 
 var quickManualSubtitleLanguages = []string{"all", "-live_chat"}
 
-func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFilePath string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string, concurrentFragments int) []string {
+func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFilePath string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string, concurrentFragments int, streamStrategy StreamDownloadStrategy) []string {
 	args := []string{
 		"--no-playlist",
 		"--newline",
@@ -37,8 +37,24 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 	if len(explicitToolArgs) > 0 {
 		args = append(args, explicitToolArgs...)
 	}
+	for _, extractorArg := range streamStrategy.ExtractorArgs {
+		if trimmed := strings.TrimSpace(extractorArg); trimmed != "" {
+			args = append(args, "--extractor-args", trimmed)
+		}
+	}
+	if strings.TrimSpace(streamStrategy.Downloader) != "" {
+		args = append(args, "--downloader", strings.TrimSpace(streamStrategy.Downloader))
+	}
+	for _, downloaderArg := range streamStrategy.DownloaderArgs {
+		if trimmed := strings.TrimSpace(downloaderArg); trimmed != "" {
+			args = append(args, "--downloader-args", trimmed)
+		}
+	}
 	if strings.TrimSpace(proxyURL) != "" {
 		args = append(args, "--proxy", proxyURL)
+	}
+	if streamStrategy.DisableConcurrentFragments {
+		concurrentFragments = 1
 	}
 	if concurrentFragments > 1 {
 		args = append(args, "--concurrent-fragments", fmt.Sprintf("%d", concurrentFragments))
@@ -184,12 +200,16 @@ func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool
 			options.ProxyURL,
 			options.Headers,
 			options.ConcurrentFragments,
+			options.StreamStrategy,
 		)
 	}
 
 	timeout := options.Timeout
 	if timeout <= 0 {
 		timeout = 2 * time.Hour
+	}
+	if !subtitleOnly && options.ConcurrentFragments > 1 {
+		ensureYTDLPFileLimit(minYTDLPFileLimit)
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	command := exec.CommandContext(runCtx, execPath, args...)
