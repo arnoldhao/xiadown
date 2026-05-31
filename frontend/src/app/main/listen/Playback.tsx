@@ -1069,7 +1069,10 @@ export function ListenPlayback(props: {
   }
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden">
+    <div className={cn(
+      "relative h-full min-h-0",
+      localArtworkVisualizerVisible ? "overflow-visible" : "overflow-hidden",
+    )}>
       <MediaPlayer
         ref={playerRef}
         key={track.id}
@@ -2705,7 +2708,10 @@ export function ListenYouTubePlayback(props: {
     : props.progress;
 
   return (
-    <div className="relative h-full min-h-0 overflow-hidden">
+    <div className={cn(
+      "relative h-full min-h-0",
+      artworkVisualizerVisible ? "overflow-visible" : "overflow-hidden",
+    )}>
       <ListenPlayerChrome
         mediaMode={mediaMode}
         listOpen={props.listOpen}
@@ -3077,7 +3083,11 @@ function ListenPlayerChrome(props: {
       <div
         ref={rootRef}
         data-listen-player-root="true"
-        className="relative flex h-full min-h-0 flex-col overflow-hidden"
+        data-artwork-visualizer-visible={visualizerEnabled ? "true" : "false"}
+        className={cn(
+          "relative flex h-full min-h-0 flex-col",
+          visualizerEnabled ? "overflow-visible" : "overflow-hidden",
+        )}
       >
         {props.fullscreenLive ? (
           <ListenLiveVideoShell
@@ -3108,7 +3118,12 @@ function ListenPlayerChrome(props: {
             onVolumeChange={props.onVolumeChange}
           />
         ) : (
-        <div className="min-h-0 flex-1 overflow-hidden px-3 pb-2 pt-1 sm:px-5 sm:pb-4">
+        <div
+          className={cn(
+            "min-h-0 flex-1 px-3 pb-2 pt-1 sm:px-5 sm:pb-4",
+            visualizerEnabled ? "overflow-visible" : "overflow-hidden",
+          )}
+        >
           <div
             className={cn(
               "mx-auto grid h-full min-h-0 w-full items-center gap-6",

@@ -4,17 +4,62 @@ export const VISUALIZER_CLOCK_LATENCY_COMPENSATION_SECONDS = 0;
 export const MAX_VISUALIZER_CANVAS_DIMENSION = 4096;
 export const MAX_VISUALIZER_CANVAS_PIXELS = 8_388_608;
 export const MAX_VISUALIZER_FRAME_TIME_OFFSET_SECONDS = 0.25;
-export const ARTWORK_PULSE_MIN_PEAK_INTERVAL_SECONDS = 0.16;
-export const ARTWORK_PULSE_MIN_AMBIENT_INTERVAL_SECONDS = 1.35;
-export const ARTWORK_PULSE_AMBIENT_MIN_EVENT_ENERGY = 0.035;
-export const ARTWORK_PULSE_MIN_EVENT_ENERGY = 0.085;
-export const ARTWORK_PULSE_DYNAMIC_THRESHOLD_OFFSET = 0.032;
-export const ARTWORK_PULSE_MIN_ENERGY_RISE = 0.014;
-export const ARTWORK_PULSE_MIN_CUMULATIVE_ENERGY_RISE = 0.042;
-export const ARTWORK_PULSE_MIN_SPECTRAL_FLUX = 0.095;
-export const ARTWORK_PULSE_BASELINE_ATTACK_RATIO = 0.045;
-export const ARTWORK_PULSE_BASELINE_RELEASE_RATIO = 0.16;
-export const ARTWORK_PULSE_REFERENCE_RELEASE_RATIO = 0.12;
+export const ARTWORK_PULSE_TIMING_CONFIG = {
+  attackSeconds: 0.11,
+  baselineAttackRatio: 0.045,
+  baselineReleaseRatio: 0.16,
+  duration: {
+    baseSeconds: 0.88,
+    energySeconds: 0.28,
+  },
+  dynamicThresholdOffset: 0.032,
+  maxStartCatchupSeconds: 0.12,
+  minCumulativeEnergyRise: 0.042,
+  minEnergyRise: 0.014,
+  minEventEnergy: 0.085,
+  minPeakIntervalSeconds: 0.16,
+  minSpectralFlux: 0.095,
+  neon: {
+    dynamicThresholdOffset: 0.010,
+    minCumulativeEnergyRise: 0.018,
+    minEnergyRise: 0.006,
+    minEventEnergy: 0.028,
+    minSpectralFlux: 0.052,
+    quietMaxEnergy: 0.18,
+    quietMinSpectralFlux: 0.018,
+    spectralFluxRampEndEnergy: 0.36,
+  },
+  referenceReleaseRatio: 0.12,
+  spectralFlux: {
+    averageEnergyWeight: 0.05,
+    averageRiseWeight: 2.8,
+    strongestRiseWeight: 0.36,
+  },
+  startLookbackSeconds: 0.045,
+  targetScale: {
+    base: 1.06,
+    energy: 0.44,
+  },
+} as const;
+
+export const ARTWORK_PULSE_MIN_PEAK_INTERVAL_SECONDS = ARTWORK_PULSE_TIMING_CONFIG.minPeakIntervalSeconds;
+export const ARTWORK_PULSE_START_LOOKBACK_SECONDS = ARTWORK_PULSE_TIMING_CONFIG.startLookbackSeconds;
+export const ARTWORK_PULSE_MAX_START_CATCHUP_SECONDS = ARTWORK_PULSE_TIMING_CONFIG.maxStartCatchupSeconds;
+export const ARTWORK_PULSE_MIN_EVENT_ENERGY = ARTWORK_PULSE_TIMING_CONFIG.minEventEnergy;
+export const ARTWORK_PULSE_NEON_MIN_EVENT_ENERGY = ARTWORK_PULSE_TIMING_CONFIG.neon.minEventEnergy;
+export const ARTWORK_PULSE_DYNAMIC_THRESHOLD_OFFSET = ARTWORK_PULSE_TIMING_CONFIG.dynamicThresholdOffset;
+export const ARTWORK_PULSE_NEON_DYNAMIC_THRESHOLD_OFFSET = ARTWORK_PULSE_TIMING_CONFIG.neon.dynamicThresholdOffset;
+export const ARTWORK_PULSE_MIN_ENERGY_RISE = ARTWORK_PULSE_TIMING_CONFIG.minEnergyRise;
+export const ARTWORK_PULSE_NEON_MIN_ENERGY_RISE = ARTWORK_PULSE_TIMING_CONFIG.neon.minEnergyRise;
+export const ARTWORK_PULSE_MIN_CUMULATIVE_ENERGY_RISE = ARTWORK_PULSE_TIMING_CONFIG.minCumulativeEnergyRise;
+export const ARTWORK_PULSE_NEON_MIN_CUMULATIVE_ENERGY_RISE =
+  ARTWORK_PULSE_TIMING_CONFIG.neon.minCumulativeEnergyRise;
+export const ARTWORK_PULSE_MIN_SPECTRAL_FLUX = ARTWORK_PULSE_TIMING_CONFIG.minSpectralFlux;
+export const ARTWORK_PULSE_NEON_MIN_SPECTRAL_FLUX = ARTWORK_PULSE_TIMING_CONFIG.neon.minSpectralFlux;
+export const ARTWORK_PULSE_NEON_QUIET_MIN_SPECTRAL_FLUX = ARTWORK_PULSE_TIMING_CONFIG.neon.quietMinSpectralFlux;
+export const ARTWORK_PULSE_BASELINE_ATTACK_RATIO = ARTWORK_PULSE_TIMING_CONFIG.baselineAttackRatio;
+export const ARTWORK_PULSE_BASELINE_RELEASE_RATIO = ARTWORK_PULSE_TIMING_CONFIG.baselineReleaseRatio;
+export const ARTWORK_PULSE_REFERENCE_RELEASE_RATIO = ARTWORK_PULSE_TIMING_CONFIG.referenceReleaseRatio;
 
 export type ArtworkPulseEvent = {
   durationSeconds: number;
@@ -55,7 +100,8 @@ export function resolveArtworkPulseProgress(
 }
 
 export function resolveArtworkPulseTargetScale(energy: number) {
-  return 1.06 + clampVisualizerUnit(energy) * 0.44;
+  const targetScale = ARTWORK_PULSE_TIMING_CONFIG.targetScale;
+  return targetScale.base + clampVisualizerUnit(energy) * targetScale.energy;
 }
 
 export function resolveArtworkPulseEnergyBaseline(energy: number, previousBaseline: number) {
@@ -86,15 +132,23 @@ export function resolveArtworkPulseSpectralFlux(
   }
   let positiveRise = 0;
   let currentEnergy = 0;
+  let strongestRise = 0;
   for (let index = 0; index < length; index += 1) {
     const current = clampVisualizerUnit(bands[index] ?? 0);
     const previous = clampVisualizerUnit(previousBands[index] ?? 0);
-    positiveRise += Math.max(0, current - previous);
+    const rise = Math.max(0, current - previous);
+    positiveRise += rise;
+    strongestRise = Math.max(strongestRise, rise);
     currentEnergy += current;
   }
   const averageRise = positiveRise / length;
   const averageEnergy = currentEnergy / length;
-  return clampVisualizerUnit(averageRise * 3.4 + averageEnergy * 0.08);
+  const spectralFlux = ARTWORK_PULSE_TIMING_CONFIG.spectralFlux;
+  return clampVisualizerUnit(
+    averageRise * spectralFlux.averageRiseWeight +
+      strongestRise * spectralFlux.strongestRiseWeight +
+      averageEnergy * spectralFlux.averageEnergyWeight,
+  );
 }
 
 export function resolveArtworkPulseTimingDecision(
@@ -104,7 +158,11 @@ export function resolveArtworkPulseTimingDecision(
     return null;
   }
   const energy = clampVisualizerUnit(input.energy);
-  if (energy < ARTWORK_PULSE_AMBIENT_MIN_EVENT_ENERGY) {
+  const isNeonPulse = input.mode === "neonPulse";
+  const minEventEnergy = isNeonPulse ? ARTWORK_PULSE_NEON_MIN_EVENT_ENERGY : ARTWORK_PULSE_MIN_EVENT_ENERGY;
+  const spectralFlux = clampVisualizerUnit(input.spectralFlux);
+  const minSpectralFlux = resolveArtworkPulseMinSpectralFlux(isNeonPulse, energy);
+  if (energy < minEventEnergy && (!isNeonPulse || spectralFlux < minSpectralFlux)) {
     return null;
   }
   const startTimeSeconds = resolveArtworkPulseStartTime(
@@ -117,29 +175,33 @@ export function resolveArtworkPulseTimingDecision(
   const secondsSincePulse = startTimeSeconds - input.lastPulseTimeSeconds;
   const peakIntervalElapsed =
     !Number.isFinite(secondsSincePulse) || secondsSincePulse >= ARTWORK_PULSE_MIN_PEAK_INTERVAL_SECONDS;
-  const ambientIntervalElapsed =
-    !Number.isFinite(secondsSincePulse) || secondsSincePulse >= ARTWORK_PULSE_MIN_AMBIENT_INTERVAL_SECONDS;
   const previousEnergy = clampVisualizerUnit(input.previousEnergy);
   const energyBaseline = clampVisualizerUnit(input.energyBaseline);
-  const spectralFlux = clampVisualizerUnit(input.spectralFlux);
+  const dynamicThresholdOffset = isNeonPulse
+    ? ARTWORK_PULSE_NEON_DYNAMIC_THRESHOLD_OFFSET
+    : ARTWORK_PULSE_DYNAMIC_THRESHOLD_OFFSET;
+  const minEnergyRise = isNeonPulse
+    ? (energy < 0.26 ? ARTWORK_PULSE_NEON_MIN_ENERGY_RISE : ARTWORK_PULSE_MIN_ENERGY_RISE)
+    : ARTWORK_PULSE_MIN_ENERGY_RISE;
+  const minCumulativeEnergyRise = isNeonPulse
+    ? ARTWORK_PULSE_NEON_MIN_CUMULATIVE_ENERGY_RISE
+    : ARTWORK_PULSE_MIN_CUMULATIVE_ENERGY_RISE;
   const triggerThreshold = Math.max(
-    ARTWORK_PULSE_MIN_EVENT_ENERGY,
-    energyBaseline + ARTWORK_PULSE_DYNAMIC_THRESHOLD_OFFSET,
+    minEventEnergy,
+    energyBaseline + dynamicThresholdOffset,
   );
   const energyRise = energy - previousEnergy;
   const crossesThreshold = previousEnergy < triggerThreshold && energy >= triggerThreshold;
   const cumulativeRise = energy - clampVisualizerUnit(input.lastPulseEnergy);
-  const accumulatesNewPeak = cumulativeRise >= ARTWORK_PULSE_MIN_CUMULATIVE_ENERGY_RISE;
+  const accumulatesNewPeak = cumulativeRise >= minCumulativeEnergyRise;
   const energyPeak =
     energy >= triggerThreshold &&
-    (crossesThreshold || accumulatesNewPeak || energyRise >= ARTWORK_PULSE_MIN_ENERGY_RISE);
-  const fluxPeak = energy >= ARTWORK_PULSE_MIN_EVENT_ENERGY && spectralFlux >= ARTWORK_PULSE_MIN_SPECTRAL_FLUX;
-  const ambientPulse = energy >= ARTWORK_PULSE_AMBIENT_MIN_EVENT_ENERGY && ambientIntervalElapsed;
-  if (energyPeak || fluxPeak) {
-    if (!peakIntervalElapsed) {
-      return null;
-    }
-  } else if (!ambientPulse) {
+    (crossesThreshold || accumulatesNewPeak || energyRise >= minEnergyRise);
+  const fluxPeak = spectralFlux >= minSpectralFlux && (isNeonPulse || energy >= minEventEnergy);
+  if (!energyPeak && !fluxPeak) {
+    return null;
+  }
+  if (!peakIntervalElapsed) {
     return null;
   }
   return {
@@ -148,18 +210,45 @@ export function resolveArtworkPulseTimingDecision(
   };
 }
 
+function resolveArtworkPulseMinSpectralFlux(isNeonPulse: boolean, energy: number) {
+  if (!isNeonPulse) {
+    return ARTWORK_PULSE_MIN_SPECTRAL_FLUX;
+  }
+  const neon = ARTWORK_PULSE_TIMING_CONFIG.neon;
+  const clampedEnergy = clampVisualizerUnit(energy);
+  if (clampedEnergy <= neon.quietMaxEnergy) {
+    return ARTWORK_PULSE_NEON_QUIET_MIN_SPECTRAL_FLUX;
+  }
+  if (clampedEnergy >= neon.spectralFluxRampEndEnergy) {
+    return ARTWORK_PULSE_NEON_MIN_SPECTRAL_FLUX;
+  }
+  const progress = (clampedEnergy - neon.quietMaxEnergy) / (neon.spectralFluxRampEndEnergy - neon.quietMaxEnergy);
+  return ARTWORK_PULSE_NEON_QUIET_MIN_SPECTRAL_FLUX +
+    (ARTWORK_PULSE_NEON_MIN_SPECTRAL_FLUX - ARTWORK_PULSE_NEON_QUIET_MIN_SPECTRAL_FLUX) * progress;
+}
+
 function resolveArtworkPulseStartTime(
   analysisTimeSeconds: number,
   visualizerTimeSeconds: number,
 ) {
-  if (visualizerTimeSeconds > 0) {
-    return visualizerTimeSeconds;
+  const hasAnalysisTime = analysisTimeSeconds > 0;
+  const hasVisualizerTime = visualizerTimeSeconds > 0;
+  if (hasAnalysisTime && hasVisualizerTime) {
+    const analyzedFrameTime = Math.max(0, analysisTimeSeconds - ARTWORK_PULSE_START_LOOKBACK_SECONDS);
+    const earliestCatchupTime = Math.max(0, visualizerTimeSeconds - ARTWORK_PULSE_MAX_START_CATCHUP_SECONDS);
+    return Math.max(earliestCatchupTime, Math.min(visualizerTimeSeconds, analyzedFrameTime));
   }
-  return analysisTimeSeconds > 0 ? analysisTimeSeconds : 0;
+  if (hasAnalysisTime) {
+    return Math.max(0, analysisTimeSeconds - ARTWORK_PULSE_START_LOOKBACK_SECONDS);
+  }
+  if (hasVisualizerTime) {
+    return Math.max(0, visualizerTimeSeconds - ARTWORK_PULSE_START_LOOKBACK_SECONDS);
+  }
+  return 0;
 }
 
 export function artworkPulseAttackSeconds() {
-  return 0.18;
+  return ARTWORK_PULSE_TIMING_CONFIG.attackSeconds;
 }
 
 export function resolveVisualizerAudioTime(
@@ -219,7 +308,8 @@ export function resolveVisualizerCanvasPixelSize(
 
 export function artworkPulseDurationSeconds(energy: number) {
   const clampedEnergy = clampVisualizerUnit(energy);
-  return 1.05 + clampedEnergy * 0.34;
+  return ARTWORK_PULSE_TIMING_CONFIG.duration.baseSeconds +
+    clampedEnergy * ARTWORK_PULSE_TIMING_CONFIG.duration.energySeconds;
 }
 
 function clampVisualizerUnit(value: number) {
