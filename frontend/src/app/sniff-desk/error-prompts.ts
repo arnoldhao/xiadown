@@ -98,6 +98,13 @@ export function resolveSniffDeskErrorDescription(text: XiaText, error: unknown) 
   if (resolvedCode === "resource_no_media_detected") {
     return text.dialogs.resourceNoMediaDetected;
   }
+  if (
+    resolvedCode === "resource_browser_unavailable" ||
+    normalizedMessage.includes("no supported browser detected") ||
+    normalizedMessage.includes("resource sniff browser unavailable")
+  ) {
+    return text.sniffDesk.errors.browserUnavailable;
+  }
   if (resolvedCode === "resource_browser_launch_failed") {
     if (normalizedMessage.includes("resource sniff browser is closed")) {
       return text.sniffDesk.errors.browserClosed;

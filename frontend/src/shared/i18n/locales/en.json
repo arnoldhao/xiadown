@@ -1105,6 +1105,7 @@
         "browserClosed": "Sniff browser is closed",
         "browserClosing": "Sniff browser is closing",
         "tabUnavailable": "Sniff tab is unavailable",
+        "browserUnavailable": "No usable browser is available on this device",
         "browserLaunchFailed": "Unable to start the sniff browser",
         "resolveFailed": "Unable to resolve this resource"
       },

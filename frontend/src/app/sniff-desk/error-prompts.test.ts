@@ -28,4 +28,15 @@ describe("sniff desk error prompts", () => {
       ),
     ).toBe(text.sniffDesk.urlUnsupportedDomain.replace("{domain}", "youtube.com"));
   });
+
+  test("localizes unavailable browser errors", () => {
+    const text = getXiaText("zh-CN");
+
+    expect(
+      resolveSniffDeskErrorDescription(
+        text,
+        "[resource_browser_unavailable] resource sniff browser unavailable: no supported browser detected",
+      ),
+    ).toBe(text.sniffDesk.errors.browserUnavailable);
+  });
 });

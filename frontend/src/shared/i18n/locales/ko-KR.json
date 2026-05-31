@@ -1105,6 +1105,7 @@
         "browserClosed": "스니프 브라우저가 닫혔습니다",
         "browserClosing": "스니프 브라우저를 닫는 중입니다",
         "tabUnavailable": "스니프 탭을 사용할 수 없습니다",
+        "browserUnavailable": "현재 기기에서 사용할 수 있는 브라우저가 없습니다",
         "browserLaunchFailed": "스니프 브라우저를 시작할 수 없습니다",
         "resolveFailed": "이 리소스를 해석할 수 없습니다"
       },

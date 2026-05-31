@@ -1105,6 +1105,7 @@
         "browserClosed": "嗅探浏览器已关闭",
         "browserClosing": "嗅探浏览器正在关闭",
         "tabUnavailable": "嗅探标签页不可用",
+        "browserUnavailable": "当前设备无可用的浏览器",
         "browserLaunchFailed": "无法启动嗅探浏览器",
         "resolveFailed": "无法解析这个资源"
       },

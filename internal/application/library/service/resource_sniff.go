@@ -153,6 +153,9 @@ func (service *LibraryService) StartResourceSniff(ctx context.Context, request d
 		PersistentProfile: persistentProfile,
 	})
 	if err != nil {
+		if errors.Is(err, browsercdp.ErrNoSupportedBrowser) {
+			return dto.StartResourceSniffResult{}, apperrors.Wrap(apperrors.CodeResourceBrowserUnavailable, "resource sniff browser unavailable", err)
+		}
 		return dto.StartResourceSniffResult{}, apperrors.Wrap(apperrors.CodeResourceBrowserLaunchFailed, "start resource browser", err)
 	}
 	runtimeInfo := runtime.ProcessInfo()

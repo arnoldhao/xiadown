@@ -18,6 +18,7 @@ const (
 	CodeParsing           Code = "parsing_error"
 
 	CodeResourceUnsupportedDomain    Code = "resource_unsupported_domain"
+	CodeResourceBrowserUnavailable   Code = "resource_browser_unavailable"
 	CodeResourceBrowserLaunchFailed  Code = "resource_browser_launch_failed"
 	CodeResourceResolveFailed        Code = "resource_resolve_failed"
 	CodeResourceVerificationRequired Code = "resource_verification_required"

@@ -1105,6 +1105,7 @@
         "browserClosed": "Trình duyệt sniff đã đóng",
         "browserClosing": "Trình duyệt sniff đang đóng",
         "tabUnavailable": "Tab sniff không khả dụng",
+        "browserUnavailable": "Không có trình duyệt khả dụng trên thiết bị này",
         "browserLaunchFailed": "Không thể khởi động trình duyệt sniff",
         "resolveFailed": "Không thể phân giải tài nguyên này"
       },

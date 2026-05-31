@@ -1105,6 +1105,7 @@
         "browserClosed": "Sniff ブラウザーは閉じています",
         "browserClosing": "Sniff ブラウザーを閉じています",
         "tabUnavailable": "Sniff タブは利用できません",
+        "browserUnavailable": "このデバイスには利用可能なブラウザーがありません",
         "browserLaunchFailed": "Sniff ブラウザーを起動できません",
         "resolveFailed": "このリソースを解析できません"
       },

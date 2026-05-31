@@ -1105,6 +1105,7 @@
         "browserClosed": "嗅探瀏覽器已關閉",
         "browserClosing": "嗅探瀏覽器正在關閉",
         "tabUnavailable": "嗅探分頁不可用",
+        "browserUnavailable": "目前裝置沒有可用的瀏覽器",
         "browserLaunchFailed": "無法啟動嗅探瀏覽器",
         "resolveFailed": "無法解析這個資源"
       },

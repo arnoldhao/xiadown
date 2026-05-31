@@ -1105,6 +1105,7 @@
         "browserClosed": "Browser sniff sudah ditutup",
         "browserClosing": "Browser sniff sedang ditutup",
         "tabUnavailable": "Tab sniff tidak tersedia",
+        "browserUnavailable": "Tidak ada browser yang dapat digunakan di perangkat ini",
         "browserLaunchFailed": "Tidak dapat memulai browser sniff",
         "resolveFailed": "Tidak dapat mengurai resource ini"
       },

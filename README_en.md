@@ -137,6 +137,14 @@ Download the latest package directly below. Older versions are available on [Git
 2. `Windows`: run the `.exe` installer directly, or unzip the portable package and launch it. If SmartScreen appears on first launch, choose `More info -> Run anyway`.
 3. XiaDown opens an onboarding flow for language, theme, proxy, and dependency setup. The main workflows are in the onboarding flow and UI.
 
+### CDP Browser Support
+
+Currently supported browsers:
+
+| Mainstream | Privacy and Productivity | Specialty and Regional |
+| --- | --- | --- |
+| Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
 ## Disclaimer
 
 - XiaDown is provided as a media management and download assistant, for learning, research, and saving content that you are authorized to access and use.

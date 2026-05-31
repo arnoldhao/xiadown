@@ -455,6 +455,7 @@ function buildText(language: SupportedLanguage) {
         browserClosed: t("xiadown.sniffDesk.errors.browserClosed", language),
         browserClosing: t("xiadown.sniffDesk.errors.browserClosing", language),
         tabUnavailable: t("xiadown.sniffDesk.errors.tabUnavailable", language),
+        browserUnavailable: t("xiadown.sniffDesk.errors.browserUnavailable", language),
         browserLaunchFailed: t("xiadown.sniffDesk.errors.browserLaunchFailed", language),
         resolveFailed: t("xiadown.sniffDesk.errors.resolveFailed", language),
       },

@@ -137,6 +137,14 @@ Unduh paket terbaru secara langsung di bawah ini. Versi lama tersedia di [GitHub
 2. `Windows`: jalankan installer `.exe` secara langsung, atau ekstrak paket portabel dan buka aplikasinya. Jika SmartScreen muncul saat pertama kali dibuka, pilih `More info -> Run anyway`.
 3. XiaDown membuka alur onboarding untuk pengaturan bahasa, tema, proxy, dan dependensi. Alur utama berada di onboarding dan UI aplikasi.
 
+### Dukungan Browser CDP
+
+Browser yang saat ini didukung:
+
+| Utama | Privasi dan efisiensi | Khusus dan regional |
+| --- | --- | --- |
+| Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
 ## Penafian
 
 - XiaDown disediakan sebagai alat bantu manajemen media dan pengunduhan, untuk pembelajaran, riset, dan penyimpanan konten yang memang berhak Anda akses dan gunakan.
