@@ -40,8 +40,22 @@ export type CompletedFileEntry = {
   media: LibraryMediaInfoDTO | null;
 };
 
-export type CompletedFileType = "video" | "audio" | "subtitle" | "image" | "other";
-export type CompletedPreviewGroupKind = "media" | "subtitle" | "image" | "other";
+export type CompletedFileType =
+  | "video"
+  | "audio"
+  | "subtitle"
+  | "image"
+  | "manifest"
+  | "api"
+  | "document"
+  | "font"
+  | "archive"
+  | "other";
+export type CompletedPreviewGroupKind = CompletedFileType;
+export type CompletedTaskFileTypeSummary = {
+  type: CompletedFileType;
+  count: number;
+};
 
 export type CompletedTaskEntry = {
   operation: OperationListItemDTO;
@@ -50,11 +64,7 @@ export type CompletedTaskEntry = {
   files: CompletedFileEntry[];
   sourceFileId: string;
   sourceFileName: string;
-  counts: {
-    media: number;
-    subtitle: number;
-    image: number;
-  };
+  fileTypeSummaries: CompletedTaskFileTypeSummary[];
   updatedAt: string;
 };
 

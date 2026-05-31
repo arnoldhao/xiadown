@@ -209,7 +209,15 @@ func probeLocalMedia(path string) mediaProbe {
 		probe.HasAudio = true
 	case "srt", "vtt", "ass", "ssa", "ttml", "xml":
 		probe.Codec = probe.Format
-	default:
+	case "jpg", "jpeg", "png", "webp", "gif", "avif", "bmp", "ico", "svg",
+		"m3u8", "mpd", "f4m", "ism",
+		"pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+		"woff", "woff2", "ttf", "otf", "eot",
+		"json",
+		"zip", "rar", "7z", "dmg", "pkg", "exe":
+		// Non-media files still need format and size metadata, but codec fields
+		// would be misleading in completed/file detail views.
+	case "avi", "flv", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "mts", "ogv", "ts", "webm", "wmv":
 		probe.VideoCodec = probe.Format
 		probe.AudioCodec = "aac"
 		probe.Codec = probe.Format

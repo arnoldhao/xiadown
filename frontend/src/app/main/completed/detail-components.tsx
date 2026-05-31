@@ -19,20 +19,11 @@ import { PetDisplay } from "@/shared/ui/pet-player";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { formatBytes } from "@/shared/utils/formatBytes";
 
-import { COMPLETED_TEXT_PREVIEW_MAX_BYTES,canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatLocalDateTime,formatRelativeTime,isCompletedPreviewTooLarge,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { COMPLETED_FILE_TYPE_ORDER,COMPLETED_TASK_FILE_TYPE_LIMIT,COMPLETED_TEXT_PREVIEW_MAX_BYTES,canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatLocalDateTime,formatRelativeTime,isCompletedPreviewTooLarge,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import type { CompletedFileEntry,CompletedPreviewGroupKind,CompletedTaskEntry } from "@/app/main/types";
 
-const TASK_DETAIL_GROUP_ORDER: CompletedPreviewGroupKind[] = [
-  "media",
-  "subtitle",
-  "image",
-  "other",
-];
-const TASK_DETAIL_TAB_KINDS: CompletedPreviewGroupKind[] = [
-  "media",
-  "subtitle",
-  "image",
-];
+const TASK_DETAIL_GROUP_ORDER: CompletedPreviewGroupKind[] =
+  COMPLETED_FILE_TYPE_ORDER;
 
 type TaskDTOInfoRow = {
   key?: string;
@@ -798,21 +789,33 @@ function useCompletedTaskDetailFileGroups(
       })).filter((group) => group.files.length > 0),
     [groupedFiles],
   );
+  const visibleGroups = React.useMemo(
+    () => previewGroups.slice(0, COMPLETED_TASK_FILE_TYPE_LIMIT),
+    [previewGroups],
+  );
+  const visibleGroupKinds = React.useMemo(
+    () => new Set(visibleGroups.map((group) => group.kind)),
+    [visibleGroups],
+  );
 
   const selectedFile =
-    task.files.find((file) => file.id === selectedPreviewFileId) ??
-    previewGroups[0]?.files[0] ??
+    task.files.find(
+      (file) =>
+        file.id === selectedPreviewFileId &&
+        visibleGroupKinds.has(resolveCompletedPreviewGroupKind(file)),
+    ) ??
+    visibleGroups[0]?.files[0] ??
     null;
   const activeGroup =
-    previewGroups.find((group) =>
+    visibleGroups.find((group) =>
       group.files.some((file) => file.id === selectedFile?.id),
     ) ??
-    previewGroups[0] ??
+    visibleGroups[0] ??
     null;
 
   return {
     groupedFiles,
-    previewGroups,
+    previewGroups: visibleGroups,
     selectedFile,
     activeGroup,
     activeGroupFiles: activeGroup?.files ?? [],
@@ -1149,7 +1152,7 @@ export function CompletedTaskFilePicker(props: {
   className?: string;
 }) {
   const {
-    groupedFiles,
+    previewGroups,
     selectedFile,
     activeGroup,
     activeGroupFiles,
@@ -1168,26 +1171,25 @@ export function CompletedTaskFilePicker(props: {
       <div className="grid h-[var(--app-control-height-compact)] grid-cols-2">
         <div
           role="tablist"
-          className="app-completed-task-file-tabs grid min-w-0 grid-cols-3 items-center overflow-hidden"
+          className="app-completed-task-file-tabs grid min-w-0 items-center overflow-hidden"
+          style={{
+            gridTemplateColumns: `repeat(${Math.max(previewGroups.length, 1)}, minmax(0, 1fr))`,
+          }}
         >
-          {TASK_DETAIL_TAB_KINDS.map((kind) => {
-            const files = groupedFiles.get(kind) ?? [];
+          {previewGroups.map(({ kind, files }) => {
             const Icon = resolveCompletedPreviewGroupIcon(kind);
             const active = activeGroup?.kind === kind;
-            const enabled = files.length > 0;
             return (
               <Tooltip key={kind}>
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
                     role="tab"
-                    aria-selected={enabled && active}
-                    aria-disabled={!enabled}
-                    disabled={!enabled}
+                    aria-selected={active}
                     variant="ghost"
                     size="compact"
                     className={cn(
-                      "app-completed-task-file-tab !h-full w-full min-w-0 justify-center px-1 text-2xs disabled:pointer-events-auto",
+                      "app-completed-task-file-tab !h-full w-full min-w-0 justify-center px-1 text-2xs",
                       active && "app-completed-task-file-tab-active",
                     )}
                     onClick={() =>

@@ -21,6 +21,11 @@ buildAssetPreviewURL,
 extractExtensionFromPath
 } from "@/shared/utils/resourceHelpers";
 import {
+FileArchive,
+FileBraces,
+FileCode,
+FileText,
+FileType,
 FileVideo,
 ImageIcon,
 Languages,
@@ -29,7 +34,7 @@ Music2,
 } from "lucide-react";
 
 import { COMPLETED_PREVIEW_SUPPORT_CACHE } from "@/app/main/main-constants";
-import type { CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedPreviewGroupKind,CompletedViewMode } from "@/app/main/types";
+import type { CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedPreviewGroupKind,CompletedTaskFileTypeSummary,CompletedViewMode } from "@/app/main/types";
 
 export const AUDIO_FILE_EXTENSIONS = new Set([
   "aac",
@@ -117,6 +122,19 @@ export const ARCHIVE_FILE_EXTENSIONS = new Set([
   "rar",
   "zip",
 ]);
+export const COMPLETED_TASK_FILE_TYPE_LIMIT = 4;
+export const COMPLETED_FILE_TYPE_ORDER: CompletedFileType[] = [
+  "video",
+  "audio",
+  "subtitle",
+  "image",
+  "manifest",
+  "document",
+  "font",
+  "archive",
+  "api",
+  "other",
+];
 export const COMPLETED_TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 export const COMPLETED_IMAGE_PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
 export const CONNECTOR_TYPES = new Set([
@@ -570,22 +588,33 @@ export function canPreviewCompletedFile(
 }
 
 export function resolveCompletedFileType(
-  file: Pick<CompletedFileEntry, "kind" | "path" | "format">,
+  file: Pick<CompletedFileEntry, "kind" | "path" | "format"> & {
+    media?: LibraryMediaInfoDTO | null;
+  },
 ): CompletedFileType {
-  const previewKind = resolveCompletedPreviewKind(file);
-  if (
-    previewKind === "video" ||
-    previewKind === "audio" ||
-    previewKind === "image" ||
-    previewKind === "subtitle"
-  ) {
-    return previewKind;
+  switch (resolveCompletedCoverFileKind(file)) {
+    case "video":
+      return "video";
+    case "audio":
+      return "audio";
+    case "subtitle":
+      return "subtitle";
+    case "image":
+      return "image";
+    case "manifest":
+    case "live":
+      return "manifest";
+    case "api":
+      return "api";
+    case "document":
+      return "document";
+    case "font":
+      return "font";
+    case "archive":
+      return "archive";
+    default:
+      return "other";
   }
-  const normalizedKind = (file.kind ?? "").trim().toLowerCase();
-  if (normalizedKind === "subtitle") {
-    return "subtitle";
-  }
-  return "other";
 }
 
 export function resolveCompletedFileTypeLabel(
@@ -601,6 +630,16 @@ export function resolveCompletedFileTypeLabel(
       return text.completed.typeSubtitle;
     case "image":
       return text.completed.typeImage;
+    case "manifest":
+      return text.completed.typeManifest;
+    case "api":
+      return text.completed.typeApi;
+    case "document":
+      return text.completed.typeDocument;
+    case "font":
+      return text.completed.typeFont;
+    case "archive":
+      return text.completed.typeArchive;
     default:
       return text.completed.typeOther;
   }
@@ -609,14 +648,29 @@ export function resolveCompletedFileTypeLabel(
 export function resolveCompletedPreviewGroupKind(
   file: Pick<CompletedFileEntry, "kind" | "path" | "format">,
 ): CompletedPreviewGroupKind {
-  const type = resolveCompletedFileType(file);
-  if (type === "video" || type === "audio") {
-    return "media";
-  }
-  if (type === "subtitle" || type === "image") {
-    return type;
-  }
-  return "other";
+  return resolveCompletedFileType(file);
+}
+
+export function resolveCompletedTaskFileTypeSummaries(
+  files: Array<
+    Pick<CompletedFileEntry, "kind" | "path" | "format"> & {
+      media?: LibraryMediaInfoDTO | null;
+    }
+  >,
+  limit = COMPLETED_TASK_FILE_TYPE_LIMIT,
+): CompletedTaskFileTypeSummary[] {
+  const counts = new Map<CompletedFileType, number>();
+  files.forEach((file) => {
+    const type = resolveCompletedFileType(file);
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+  });
+  const maxItems = Math.max(0, limit);
+  return COMPLETED_FILE_TYPE_ORDER.map((type) => ({
+    type,
+    count: counts.get(type) ?? 0,
+  }))
+    .filter((item) => item.count > 0)
+    .slice(0, maxItems);
 }
 
 export type CompletedCoverFileKind =
@@ -687,6 +741,21 @@ export function resolveCompletedCoverFileKind(
   if (normalizedKind === "subtitle" || SUBTITLE_FILE_EXTENSIONS.has(extension)) {
     return "subtitle";
   }
+  if (MANIFEST_FILE_EXTENSIONS.has(extension)) {
+    return "manifest";
+  }
+  if (DOCUMENT_FILE_EXTENSIONS.has(extension)) {
+    return "document";
+  }
+  if (FONT_FILE_EXTENSIONS.has(extension)) {
+    return "font";
+  }
+  if (API_FILE_EXTENSIONS.has(extension)) {
+    return "api";
+  }
+  if (ARCHIVE_FILE_EXTENSIONS.has(extension)) {
+    return "archive";
+  }
   if (
     normalizedKind === "audio" ||
     AUDIO_FILE_EXTENSIONS.has(extension) ||
@@ -715,22 +784,6 @@ export function resolveCompletedCoverFileKind(
       return "font";
     case "archive":
       return "archive";
-  }
-
-  if (MANIFEST_FILE_EXTENSIONS.has(extension)) {
-    return "manifest";
-  }
-  if (DOCUMENT_FILE_EXTENSIONS.has(extension)) {
-    return "document";
-  }
-  if (FONT_FILE_EXTENSIONS.has(extension)) {
-    return "font";
-  }
-  if (API_FILE_EXTENSIONS.has(extension)) {
-    return "api";
-  }
-  if (ARCHIVE_FILE_EXTENSIONS.has(extension)) {
-    return "archive";
   }
 
   return "other";
@@ -1140,7 +1193,7 @@ export function resolveCompletedFileDetailFooterItems(
       ]);
     default:
       return compactItems([
-        { label: text.completed.info, value: resolveCompletedCodecSummary(file.media) },
+        { label: text.completed.fileFormat, value: fileFormat },
         { label: text.completed.fileSize, value: fileSize },
       ]);
   }
@@ -1151,12 +1204,24 @@ export function resolveCompletedPreviewGroupLabel(
   text: ReturnType<typeof getXiaText>,
 ) {
   switch (kind) {
-    case "media":
-      return text.completed.videoCount;
+    case "video":
+      return text.completed.typeVideo;
+    case "audio":
+      return text.completed.typeAudio;
     case "subtitle":
       return text.completed.typeSubtitle;
     case "image":
       return text.completed.typeImage;
+    case "manifest":
+      return text.completed.typeManifest;
+    case "api":
+      return text.completed.typeApi;
+    case "document":
+      return text.completed.typeDocument;
+    case "font":
+      return text.completed.typeFont;
+    case "archive":
+      return text.completed.typeArchive;
     default:
       return text.completed.typeOther;
   }
@@ -1172,22 +1237,23 @@ export function resolveCompletedPreviewTabIcon(kind: CompletedFileType) {
       return Languages;
     case "image":
       return ImageIcon;
+    case "manifest":
+      return FileCode;
+    case "api":
+      return FileBraces;
+    case "document":
+      return FileText;
+    case "font":
+      return FileType;
+    case "archive":
+      return FileArchive;
     default:
       return Link2;
   }
 }
 
 export function resolveCompletedPreviewGroupIcon(kind: CompletedPreviewGroupKind) {
-  switch (kind) {
-    case "media":
-      return FileVideo;
-    case "subtitle":
-      return Languages;
-    case "image":
-      return ImageIcon;
-    default:
-      return Link2;
-  }
+  return resolveCompletedPreviewTabIcon(kind);
 }
 
 export function resolveCompletedFileIcon(file: CompletedFileEntry) {
