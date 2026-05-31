@@ -126,14 +126,14 @@
 
 | 平台 | 架构 | 形式 | 下载 |
 | --- | --- | --- | --- |
-| macOS | Apple 芯片 | 压缩包 | [点击下载](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.zip) |
-| macOS | Intel | 压缩包 | [点击下载](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.zip) |
+| macOS | Apple 芯片 | DMG | [点击下载](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
+| macOS | Intel | DMG | [点击下载](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | 安装版 | [点击下载](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | 便携版 | [点击下载](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
 ### 首次打开
 
-1. `macOS`：解压后将 `XiaDown.app` 移动到“应用程序”目录并正常打开。
+1. `macOS`：打开 `.dmg`，将 `XiaDown.app` 拖到“应用程序”目录并打开。
 2. `Windows`：安装版直接运行 `.exe`；便携版解压后直接启动。若首次启动出现 SmartScreen，选择“更多信息 -> 仍要运行”。
 3. 首次启动会进入欢迎引导，完成语言、主题、代理和依赖安装后即可进入主界面。主要流程都集中在欢迎引导和界面内。
 

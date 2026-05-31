@@ -126,14 +126,14 @@ Download the latest package directly below. Older versions are available on [Git
 
 | Platform | Architecture | Package | Download |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon | Archive | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.zip) |
-| macOS | Intel | Archive | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.zip) |
+| macOS | Apple Silicon | DMG | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
+| macOS | Intel | DMG | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | Installer | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | Portable | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
 ### First Launch
 
-1. `macOS`: unzip the package, move `XiaDown.app` to the Applications folder, and open it normally.
+1. `macOS`: open the `.dmg`, drag `XiaDown.app` to the Applications folder, and open it.
 2. `Windows`: run the `.exe` installer directly, or unzip the portable package and launch it. If SmartScreen appears on first launch, choose `More info -> Run anyway`.
 3. XiaDown opens an onboarding flow for language, theme, proxy, and dependency setup. The main workflows are in the onboarding flow and UI.
 

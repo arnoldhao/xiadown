@@ -126,14 +126,14 @@ Unduh paket terbaru secara langsung di bawah ini. Versi lama tersedia di [GitHub
 
 | Platform | Arsitektur | Paket | Unduh |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon | Arsip | [Unduh](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.zip) |
-| macOS | Intel | Arsip | [Unduh](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.zip) |
+| macOS | Apple Silicon | DMG | [Unduh](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
+| macOS | Intel | DMG | [Unduh](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | Installer | [Unduh](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | Portabel | [Unduh](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
 ### Peluncuran pertama
 
-1. `macOS`: ekstrak paket, pindahkan `XiaDown.app` ke folder Applications, lalu buka seperti biasa.
+1. `macOS`: buka `.dmg`, tarik `XiaDown.app` ke folder Applications, lalu buka aplikasinya.
 2. `Windows`: jalankan installer `.exe` secara langsung, atau ekstrak paket portabel dan buka aplikasinya. Jika SmartScreen muncul saat pertama kali dibuka, pilih `More info -> Run anyway`.
 3. XiaDown membuka alur onboarding untuk pengaturan bahasa, tema, proxy, dan dependensi. Alur utama berada di onboarding dan UI aplikasi.
 

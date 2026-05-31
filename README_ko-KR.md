@@ -126,14 +126,14 @@ XiaDown은 온라인 음악 플레이어이자 듀얼 엔진 동영상 다운로
 
 | 플랫폼 | 아키텍처 | 패키지 | 다운로드 |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon | 압축 파일 | [다운로드](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.zip) |
-| macOS | Intel | 압축 파일 | [다운로드](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.zip) |
+| macOS | Apple Silicon | DMG | [다운로드](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
+| macOS | Intel | DMG | [다운로드](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | 설치 프로그램 | [다운로드](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | 포터블 | [다운로드](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
 ### 처음 실행
 
-1. `macOS`: 패키지를 압축 해제한 뒤 `XiaDown.app`을 응용 프로그램 폴더로 이동하고 정상적으로 실행합니다.
+1. `macOS`: `.dmg`를 열고 `XiaDown.app`을 응용 프로그램 폴더로 드래그한 뒤 실행합니다.
 2. `Windows`: `.exe` 설치 프로그램을 직접 실행하거나 포터블 패키지를 압축 해제한 뒤 실행합니다. 처음 실행할 때 SmartScreen이 나타나면 `추가 정보 -> 실행`을 선택하세요.
 3. XiaDown은 언어, 테마, 프록시, 의존성 설정을 위한 온보딩 흐름을 엽니다. 주요 작업 흐름은 온보딩과 앱 UI에 모여 있습니다.
 

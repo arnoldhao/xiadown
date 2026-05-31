@@ -126,14 +126,14 @@ XiaDownはオンライン音楽プレーヤーであり、デュアルエンジ�
 
 | プラットフォーム | アーキテクチャ | パッケージ | ダウンロード |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon | アーカイブ | [ダウンロード](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.zip) |
-| macOS | Intel | アーカイブ | [ダウンロード](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.zip) |
+| macOS | Apple Silicon | DMG | [ダウンロード](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
+| macOS | Intel | DMG | [ダウンロード](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | インストーラー | [ダウンロード](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | ポータブル | [ダウンロード](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
 ### 初回起動
 
-1. `macOS`: パッケージを展開し、`XiaDown.app`をアプリケーションフォルダへ移動して通常どおり開きます。
+1. `macOS`: `.dmg`を開き、`XiaDown.app`をアプリケーションフォルダへドラッグして開きます。
 2. `Windows`: `.exe`インストーラーを直接実行するか、ポータブルパッケージを展開して起動します。初回起動時にSmartScreenが表示された場合は、`詳細情報 -> 実行`を選択します。
 3. XiaDownは言語、テーマ、プロキシ、依存関係を設定するオンボーディングを開きます。主要な操作はオンボーディングとアプリ内UIにまとまっています。
 
