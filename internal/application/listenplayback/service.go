@@ -260,8 +260,22 @@ func (service *PlayerService) RepeatMode() RepeatMode {
 func (service *PlayerService) ConfirmPlaybackStarted() {
 	service.mu.Lock()
 	defer service.mu.Unlock()
+	service.confirmPlaybackStartedLocked()
+}
+
+func (service *PlayerService) RecordPlaybackIntent() {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.recordPlaybackIntentLocked()
+}
+
+func (service *PlayerService) recordPlaybackIntentLocked() {
 	service.showMiniPlayer = false
 	service.hasUserInteractedThisSession = true
+}
+
+func (service *PlayerService) confirmPlaybackStartedLocked() {
+	service.recordPlaybackIntentLocked()
 	service.state = PlaybackStatePlaying
 }
 

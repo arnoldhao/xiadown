@@ -274,6 +274,8 @@ export async function callListenPlaybackObserveNativeEvent(
     state: event.state ?? "idle",
     progress: Math.max(0, Number(event.currentTime || 0)),
     duration: Math.max(0, Number(event.duration || 0)),
+    paused: event.paused === true,
+    ended: event.ended === true,
   });
 }
 
