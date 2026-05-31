@@ -126,14 +126,14 @@ Tải trực tiếp gói mới nhất bên dưới. Các phiên bản cũ có tr
 
 | Nền tảng | Kiến trúc | Gói | Tải xuống |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon | Tệp nén | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.zip) |
-| macOS | Intel | Tệp nén | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.zip) |
+| macOS | Apple Silicon | DMG | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
+| macOS | Intel | DMG | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | Bộ cài | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | Bản portable | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
 ### Lần chạy đầu tiên
 
-1. `macOS`: giải nén gói, chuyển `XiaDown.app` vào thư mục Applications và mở như bình thường.
+1. `macOS`: mở `.dmg`, kéo `XiaDown.app` vào thư mục Applications rồi mở ứng dụng.
 2. `Windows`: chạy trực tiếp bộ cài `.exe`, hoặc giải nén gói portable rồi mở ứng dụng. Nếu SmartScreen xuất hiện trong lần chạy đầu tiên, chọn `More info -> Run anyway`.
 3. XiaDown mở luồng onboarding để thiết lập ngôn ngữ, chủ đề, proxy và các phụ thuộc. Các luồng chính nằm trong onboarding và giao diện ứng dụng.
 

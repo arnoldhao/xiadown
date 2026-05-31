@@ -203,14 +203,53 @@ jobs:
           grep -q "TeamIdentifier=${APPLE_TEAM_ID}" "$RUNNER_TEMP/codesign.txt"
           spctl --assess --type execute --verbose=4 bin/XiaDown.app
 
-      - name: Prepare artifact
+      - name: Prepare artifacts
         shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          echo "::add-mask::$APPLE_APP_SPECIFIC_PASSWORD"
+          security unlock-keychain -p "$SIGN_KEYCHAIN_PASSWORD" "$SIGN_KEYCHAIN_PATH"
+
           mkdir -p dist
-          artifact="xiadown-macos-${{ matrix.artifact_suffix }}-${VERSION}.zip"
-          ditto -c -k --sequesterRsrc --keepParent bin/XiaDown.app "dist/$artifact"
-          (cd dist && shasum -a 256 "$artifact" > "$artifact.sha256")
+          zip_artifact="xiadown-macos-${{ matrix.artifact_suffix }}-${VERSION}.zip"
+          dmg_artifact="xiadown-macos-${{ matrix.artifact_suffix }}-${VERSION}.dmg"
+
+          ditto -c -k --sequesterRsrc --keepParent bin/XiaDown.app "dist/$zip_artifact"
+
+          dmg_root="$RUNNER_TEMP/xiadown-dmg-root"
+          rm -rf "$dmg_root"
+          mkdir -p "$dmg_root"
+          ditto bin/XiaDown.app "$dmg_root/XiaDown.app"
+          ln -s /Applications "$dmg_root/Applications"
+
+          unsigned_dmg="$RUNNER_TEMP/$dmg_artifact"
+          rm -f "$unsigned_dmg"
+          hdiutil create \
+            -volname "XiaDown" \
+            -srcfolder "$dmg_root" \
+            -format UDZO \
+            -ov \
+            "$unsigned_dmg"
+
+          codesign --force --timestamp \
+            --keychain "$SIGN_KEYCHAIN_PATH" \
+            --sign "$SIGN_IDENTITY" \
+            "$unsigned_dmg"
+          xcrun notarytool submit "$unsigned_dmg" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+          xcrun stapler staple "$unsigned_dmg"
+          xcrun stapler validate "$unsigned_dmg"
+          mv "$unsigned_dmg" "dist/$dmg_artifact"
+
+          (cd dist && shasum -a 256 "$zip_artifact" > "$zip_artifact.sha256")
+          (cd dist && shasum -a 256 "$dmg_artifact" > "$dmg_artifact.sha256")
 
       - name: List dist artifacts
         shell: bash
@@ -223,6 +262,8 @@ jobs:
           path: |
             dist/xiadown-macos-${{ matrix.artifact_suffix }}-${{ needs.prepare.outputs.version }}.zip
             dist/xiadown-macos-${{ matrix.artifact_suffix }}-${{ needs.prepare.outputs.version }}.zip.sha256
+            dist/xiadown-macos-${{ matrix.artifact_suffix }}-${{ needs.prepare.outputs.version }}.dmg
+            dist/xiadown-macos-${{ matrix.artifact_suffix }}-${{ needs.prepare.outputs.version }}.dmg.sha256
           if-no-files-found: error
 
       - name: Delete signing keychain
@@ -375,8 +416,12 @@ jobs:
           expected=(
             "xiadown-macos-arm64-${VERSION}.zip"
             "xiadown-macos-arm64-${VERSION}.zip.sha256"
+            "xiadown-macos-arm64-${VERSION}.dmg"
+            "xiadown-macos-arm64-${VERSION}.dmg.sha256"
             "xiadown-macos-x64-${VERSION}.zip"
             "xiadown-macos-x64-${VERSION}.zip.sha256"
+            "xiadown-macos-x64-${VERSION}.dmg"
+            "xiadown-macos-x64-${VERSION}.dmg.sha256"
             "xiadown-windows-x64-${VERSION}.zip"
             "xiadown-windows-x64-${VERSION}.zip.sha256"
             "xiadown-windows-x64-${VERSION}-installer.exe"
@@ -388,7 +433,9 @@ jobs:
           (cd release-assets && sha256sum -c "xiadown-windows-x64-${VERSION}.zip.sha256")
           (cd release-assets && sha256sum -c "xiadown-windows-x64-${VERSION}-installer.exe.sha256")
           (cd release-assets && shasum -a 256 -c "xiadown-macos-arm64-${VERSION}.zip.sha256")
+          (cd release-assets && shasum -a 256 -c "xiadown-macos-arm64-${VERSION}.dmg.sha256")
           (cd release-assets && shasum -a 256 -c "xiadown-macos-x64-${VERSION}.zip.sha256")
+          (cd release-assets && shasum -a 256 -c "xiadown-macos-x64-${VERSION}.dmg.sha256")
 
       - name: Write release notes
         shell: bash

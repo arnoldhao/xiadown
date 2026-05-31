@@ -126,14 +126,14 @@ Baixe diretamente o pacote mais recente abaixo. Versões anteriores estão dispo
 
 | Plataforma | Arquitetura | Pacote | Download |
 | --- | --- | --- | --- |
-| macOS | Apple Silicon | Arquivo compactado | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.zip) |
-| macOS | Intel | Arquivo compactado | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.zip) |
+| macOS | Apple Silicon | DMG | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
+| macOS | Intel | DMG | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | Instalador | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | Portátil | [Download](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
 ### Primeira execução
 
-1. `macOS`: descompacte o pacote, mova `XiaDown.app` para a pasta Aplicativos e abra normalmente.
+1. `macOS`: abra o `.dmg`, arraste `XiaDown.app` para a pasta Aplicativos e abra o app.
 2. `Windows`: execute diretamente o instalador `.exe`, ou descompacte o pacote portátil e abra o app. Se o SmartScreen aparecer na primeira execução, escolha `Mais informações -> Executar assim mesmo`.
 3. O XiaDown abre um fluxo de boas-vindas para configurar idioma, tema, proxy e dependências. Os principais fluxos ficam na tela de boas-vindas e na interface.
 
