@@ -8,10 +8,14 @@ import {
   parseAppErrorMessage,
   resolveCompletedDefaultCoverImageKey,
   resolveCompletedFileCoverURL,
+  resolveCompletedFileDetailFooterItems,
+  resolveCompletedFileType,
   resolveCompletedPreviewKind,
   resolveCompletedTaskCoverURL,
+  resolveCompletedTaskFileTypeSummaries,
   resolveUnknownErrorMessage,
 } from "@/app/main/helpers";
+import { getXiaText } from "@/features/xiadown/shared";
 
 describe("app error helpers", () => {
   test("resolves Wails JSON error payloads to readable messages", () => {
@@ -108,6 +112,56 @@ describe("completed preview helpers", () => {
         sizeBytes: 1024,
       }),
     ).toBe(false);
+  });
+
+  test("summarizes completed task file types with audio and video separated", () => {
+    const summaries = resolveCompletedTaskFileTypeSummaries([
+      { kind: "video", path: "clip.mp4", format: "MP4" },
+      { kind: "audio", path: "track.m4a", format: "M4A" },
+      { kind: "subtitle", path: "captions.vtt", format: "VTT" },
+      { kind: "thumbnail", path: "cover.webp", format: "WEBP" },
+      { kind: "font", path: "font.woff2", format: "WOFF2" },
+    ]);
+
+    expect(summaries).toEqual([
+      { type: "video", count: 1 },
+      { type: "audio", count: 1 },
+      { type: "subtitle", count: 1 },
+      { type: "image", count: 1 },
+    ]);
+  });
+
+  test("resolves non-media completed file types without using preview support", () => {
+    expect(
+      resolveCompletedFileType({
+        kind: "audio",
+        path: "font.woff2",
+        format: "WOFF2",
+      }),
+    ).toBe("font");
+    expect(
+      resolveCompletedFileType({
+        kind: "manifest",
+        path: "stream.m3u8",
+        format: "M3U8",
+      }),
+    ).toBe("manifest");
+  });
+
+  test("does not show stale codec metadata for non-media file details", () => {
+    const text = getXiaText("en");
+    const footerItems = resolveCompletedFileDetailFooterItems(
+      {
+        kind: "font",
+        path: "font.woff2",
+        format: "WOFF2",
+        media: { format: "woff2", codec: "aac", audioCodec: "aac" },
+        sizeBytes: 2048,
+      } as any,
+      text,
+    );
+
+    expect(footerItems.map((item) => item.value)).toEqual(["WOFF2", "2.0 KB"]);
   });
 
   test("selects completed default covers from task file combinations", () => {

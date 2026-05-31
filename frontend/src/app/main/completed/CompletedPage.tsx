@@ -1,5 +1,5 @@
 import { System } from "@wailsio/runtime";
-import { CheckCircle2, CheckSquare, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, PencilLine, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
+import { CheckCircle2, CheckSquare, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, LayoutGrid, Loader2, PencilLine, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 import * as React from "react";
 
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -21,7 +21,7 @@ import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripP
 import { CompletedFileDetailContent,CompletedFileDetailHeader,CompletedTaskDetailContent,CompletedTaskDetailHeader,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
-import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileCoverURL,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileExplicitCoverURL,resolveCompletedOperationExplicitCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTaskCoverURL,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { COMPLETED_FILE_TYPE_ORDER,buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileCoverURL,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileExplicitCoverURL,resolveCompletedOperationExplicitCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTaskCoverURL,resolveCompletedTaskFileTypeSummaries,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
 import type { CompletedContextMenuTarget,CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedTaskEntry,CompletedViewMode } from "@/app/main/types";
 
@@ -226,26 +226,12 @@ function buildCompletedTaskFileSummaryItems(
   entry: CompletedTaskEntry,
   text: ReturnType<typeof getXiaText>,
 ) {
-  return [
-    {
-      count: entry.counts.media,
-      icon: FileVideo,
-      key: "media",
-      label: text.completed.videoCount,
-    },
-    {
-      count: entry.counts.subtitle,
-      icon: Languages,
-      key: "subtitle",
-      label: text.completed.subtitleCount,
-    },
-    {
-      count: entry.counts.image,
-      icon: ImageIcon,
-      key: "image",
-      label: text.completed.imageCount,
-    },
-  ].filter(Boolean);
+  return entry.fileTypeSummaries.map((item) => ({
+    count: item.count,
+    icon: resolveCompletedPreviewGroupIcon(item.type),
+    key: item.type,
+    label: resolveCompletedPreviewGroupLabel(item.type, text),
+  }));
 }
 
 export function CompletedPage(props: {
@@ -574,23 +560,7 @@ export function CompletedPage(props: {
             library,
             files,
           );
-          const counts = files.reduce(
-            (summary, file) => {
-              const previewGroupKind = resolveCompletedPreviewGroupKind(file);
-              if (previewGroupKind === "media") {
-                summary.media += 1;
-              } else if (previewGroupKind === "image") {
-                summary.image += 1;
-              } else if (
-                (file.kind ?? "").trim().toLowerCase() === "subtitle" ||
-                previewGroupKind === "subtitle"
-              ) {
-                summary.subtitle += 1;
-              }
-              return summary;
-            },
-            { media: 0, subtitle: 0, image: 0 },
-          );
+          const fileTypeSummaries = resolveCompletedTaskFileTypeSummaries(files);
 
           return {
             operation,
@@ -599,7 +569,7 @@ export function CompletedPage(props: {
             files,
             sourceFileId: transcodeSource.id,
             sourceFileName: transcodeSource.name,
-            counts,
+            fileTypeSummaries,
             updatedAt: resolveOperationUpdatedAt(operation),
           };
         })
@@ -650,20 +620,10 @@ export function CompletedPage(props: {
   }, [taskEntries]);
 
   const fileTypeOptions = React.useMemo<CompletedFileType[]>(() => {
-    const order: CompletedFileType[] = [
-      "video",
-      "audio",
-      "subtitle",
-      "image",
-    ];
-    const visibleTypes = new Set<CompletedFileType>(order);
     const seen = new Set<string>();
     const types = allFiles
       .map((file) => resolveCompletedFileType(file))
       .filter((type) => {
-        if (!visibleTypes.has(type)) {
-          return false;
-        }
         if (seen.has(type)) {
           return false;
         }
@@ -671,7 +631,9 @@ export function CompletedPage(props: {
         return true;
       });
     return types.sort(
-      (left, right) => order.indexOf(left) - order.indexOf(right),
+      (left, right) =>
+        COMPLETED_FILE_TYPE_ORDER.indexOf(left) -
+        COMPLETED_FILE_TYPE_ORDER.indexOf(right),
     );
   }, [allFiles]);
 
@@ -2129,16 +2091,7 @@ export function CompletedPage(props: {
                 const isChecked = selectedFileIdsSet.has(file.id);
                 const isActive =
                   !fileSelectionMode && selectedFileId === file.id;
-                const FileIcon =
-                  previewKind === "video"
-                    ? FileVideo
-                    : previewKind === "audio"
-                      ? Music2
-                      : previewKind === "image"
-                        ? ImageIcon
-                        : previewKind === "subtitle"
-                          ? Languages
-                          : Link2;
+                const FileIcon = resolveCompletedFileIcon(file);
                 const fileTaskLabel =
                   file.operationName ||
                   formatCompletedTranscodedFromLabel(

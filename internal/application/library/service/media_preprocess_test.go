@@ -99,6 +99,29 @@ func TestParseFFprobeMediaProbe(t *testing.T) {
 	}
 }
 
+func TestProbeLocalMediaDoesNotInventCodecsForNonMediaFiles(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "inter.woff2")
+	if err := os.WriteFile(path, []byte("font-data"), 0o644); err != nil {
+		t.Fatalf("write font file: %v", err)
+	}
+
+	got := probeLocalMedia(path)
+	if got.Format != "woff2" {
+		t.Fatalf("expected format woff2, got %q", got.Format)
+	}
+	if got.Codec != "" || got.VideoCodec != "" || got.AudioCodec != "" {
+		t.Fatalf("expected no invented codecs, got codec=%q video=%q audio=%q", got.Codec, got.VideoCodec, got.AudioCodec)
+	}
+	if got.HasVideo || got.HasAudio {
+		t.Fatalf("expected no invented tracks, got video=%v audio=%v", got.HasVideo, got.HasAudio)
+	}
+	if got.SizeBytes != int64(len("font-data")) {
+		t.Fatalf("expected size %d, got %d", len("font-data"), got.SizeBytes)
+	}
+}
+
 func TestResolveFFprobeExecPathUsesDependenciesOnly(t *testing.T) {
 	t.Parallel()
 
