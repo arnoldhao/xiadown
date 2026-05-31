@@ -7,7 +7,6 @@ import {
   resolveArtworkPulseProgress,
   resolveArtworkPulseReferenceEnergy,
   resolveArtworkPulseSpectralFlux,
-  resolveArtworkPulseTargetScale,
   resolveArtworkPulseTimingDecision,
   resolveVisualizerCanvasPixelSize,
   resolveVisualizerAudioTime,
@@ -22,13 +21,231 @@ import {
 } from "@/shared/contracts/equalizer";
 
 type VisualizerVariant = "artwork" | "inline";
-const MAX_ARTWORK_PULSE_EVENTS = 7;
-const ARTWORK_PULSE_CLEANUP_GRACE_SECONDS = 0.16;
-const NEON_PULSE_INNER_SHADOW_BLUR_MAX_RATIO = 0.032;
-const NEON_PULSE_OUTER_SHADOW_BLUR_MAX_RATIO = 0.026;
+type ArtworkPulseVisualizerMode = "neonPulse" | "pondRipple";
+
+type ArtworkFrameEnergyConfig = {
+  averageWeight: number;
+  fallbackLevelWeight: number;
+  levelWeight: number;
+  midAverageWeight: number;
+  midEndRatio: number;
+  midStartRatio: number;
+  outputExponent?: number;
+  peakWeight: number;
+};
+
+const ARTWORK_FRAME_ENERGY_CONFIG = {
+  averageWeight: 1.9,
+  fallbackLevelWeight: 1,
+  levelWeight: 1.1,
+  midAverageWeight: 1.55,
+  midEndRatio: 0.72,
+  midStartRatio: 0.22,
+  outputExponent: 0.72,
+  peakWeight: 0.72,
+} as const satisfies ArtworkFrameEnergyConfig;
+
+const ARTWORK_PULSE_RENDER_CONFIG = {
+  cleanupGraceSeconds: 0.16,
+  maxEvents: 7,
+} as const;
+
+const AMBIENT_HALO_CONFIG = {
+  breath: {
+    baselineAttackRatio: 0.028,
+    baselineReleaseRatio: 0.14,
+    body: {
+      edgeEnd: 0.92,
+      edgeStart: 0.14,
+      exponent: 1.24,
+      scale: 0.34,
+    },
+    frameEnergy: {
+      averageWeight: 1.36,
+      fallbackLevelWeight: 1,
+      levelWeight: 0.92,
+      midAverageWeight: 1.20,
+      midEndRatio: 0.76,
+      midStartRatio: 0.20,
+      peakWeight: 0.62,
+    },
+    initial: {
+      edgeEnd: 0.90,
+      edgeStart: 0.12,
+      exponent: 1.32,
+      scale: 0.36,
+    },
+    transient: {
+      edgeEnd: 0.20,
+      edgeStart: 0.018,
+      exponent: 0.82,
+      instantRiseWeight: 0.80,
+      relativeLiftWeight: 0.95,
+      scale: 0.66,
+      spectralFluxWeight: 0.86,
+    },
+  },
+  glow: {
+    base: 0.22,
+    exponent: 0.82,
+    range: 0.78,
+  },
+  style: {
+    halo: {
+      accentAlpha: { base: 0.070, breath: 0.12, fallbackBase: 0.14, fallbackGlow: 0.24, glow: 0.20 },
+      accentBlur: { base: 18, breath: 12, fallback: 14 },
+      accentSpread: { base: 5, breath: 5, fallback: 3 },
+      opacity: { base: 0.38, breath: 0.24, fallbackBase: 0.34, fallbackGlow: 0.52, glow: 0.30 },
+      secondaryAlpha: { base: 0.024, breath: 0.080, fallbackBase: 0.05, fallbackGlow: 0.16, glow: 0.12 },
+      secondaryBlur: { base: 34, breath: 22, fallback: 20 },
+      secondarySpread: { base: 10, breath: 8, fallback: 5 },
+      tertiaryAlpha: { base: 0.016, breath: 0.065, fallbackBase: 0.04, fallbackGlow: 0.13, glow: 0.10 },
+      tertiaryBlur: { base: 42, breath: 30, fallback: 24 },
+      tertiarySpread: { base: 12, breath: 11, fallback: 6 },
+    },
+    rim: {
+      opacity: { base: 0.12, breath: 0.18, fallbackBase: 0.12, fallbackGlow: 0.34, glow: 0.20 },
+      shadowAlpha: { base: 0.036, breath: 0.10, fallbackBase: 0.08, fallbackGlow: 0.24, glow: 0.13 },
+      shadowBlur: { base: 14, breath: 16, fallback: 18 },
+    },
+  },
+} as const;
+
+const NEON_PULSE_CONFIG = {
+  eventEnergy: {
+    chorusEdgeEnd: 0.72,
+    chorusEdgeStart: 0.42,
+    chorusExponent: 1.42,
+    chorusScale: 0.46,
+    climaxEnergyEdgeEnd: 0.94,
+    climaxEnergyEdgeStart: 0.70,
+    climaxEnergyExponent: 1.26,
+    climaxScale: 0.96,
+    climaxTransientEdgeEnd: 0.82,
+    climaxTransientEdgeStart: 0.32,
+    climaxTransientExponent: 0.92,
+    fluxBase: 0.060,
+    fluxRange: 0.22,
+    fluxScale: 0.30,
+    min: 0.14,
+    quietEdgeEnd: 0.34,
+    quietEdgeStart: 0.045,
+    quietScale: 0.18,
+    relativeBase: 0.012,
+    relativeRange: 0.40,
+    relativeScale: 0.32,
+  },
+  frameEnergy: {
+    averageWeight: 1.46,
+    fallbackLevelWeight: 0.62,
+    levelWeight: 0.82,
+    midAverageWeight: 1.20,
+    midEndRatio: 0.72,
+    midStartRatio: 0.24,
+    peakWeight: 0.48,
+  },
+  response: {
+    auraEdgeEnd: 0.58,
+    auraEdgeStart: 0.30,
+    auraExponent: 1.25,
+    bloomEdgeEnd: 0.86,
+    bloomEdgeStart: 0.64,
+    bloomExponent: 2.28,
+    burstEdgeEnd: 0.965,
+    burstEdgeStart: 0.78,
+    burstExponent: 2.58,
+    expansionEdgeEnd: 0.92,
+    expansionEdgeStart: 0.16,
+    midGlowEdgeEnd: 0.58,
+    midGlowEdgeStart: 0.38,
+    midGlowExponent: 0.86,
+    tubeEdgeEnd: 0.32,
+    tubeEdgeStart: 0.04,
+  },
+  render: {
+    alphaBase: 0.105,
+    alphaEnergyEdgeEnd: 0.92,
+    alphaEnergyEdgeStart: 0.08,
+    alphaEnergyExponent: 1.22,
+    alphaEnergyScale: 0.45,
+    expansionProgressRange: 0.46,
+    fadeExponentBase: 1.78,
+    fadeExponentExpansion: 0.42,
+    fadeOutBase: 0.48,
+    fadeOutBurst: 0.08,
+    glowOffsetAura: 0.003,
+    glowOffsetBase: 0.002,
+    glowOffsetBloom: 0.005,
+    glowOffsetBurst: 0.006,
+    scaleBase: 1.01,
+  },
+  sourceEnergy: {
+    fullBodyEdgeEnd: 0.76,
+    fullBodyEdgeStart: 0.045,
+    fullBodyExponent: 1.08,
+    quietKeyRatio: 0.55,
+  },
+  targetScale: {
+    edgeEnd: 0.92,
+    edgeStart: 0.16,
+    max: 1.185,
+    min: 1.075,
+  },
+  shadowBlurMaxRatio: {
+    bloom: 0.086,
+    inner: 0.044,
+    outer: 0.058,
+  },
+} as const;
+
+const POND_RIPPLE_CONFIG = {
+  alpha: {
+    base: 0.18,
+    energy: 0.34,
+    expansionBase: 0.72,
+    expansion: 0.28,
+    fadeExponent: 1.36,
+    max: 0.72,
+    secondaryMax: 0.34,
+    secondaryScale: 0.66,
+  },
+  lineWidth: {
+    baseRatio: 0.0042,
+    energyRatio: 0.0012,
+    secondaryRatio: 0.0030,
+  },
+  radius: {
+    baseRatio: 0.505,
+    initialScale: 0.985,
+    secondaryMinRatio: 0.506,
+    secondaryOffsetRatio: 0.032,
+    targetBase: 1.015,
+    targetEnergy: 0.17,
+  },
+  shadowBlur: {
+    baseRatio: 0.012,
+    energyRatio: 0.010,
+  },
+} as const;
+
 type RenderedArtworkPulseEvent = ArtworkPulseEvent & {
   createdAtMs: number;
 };
+type ArtworkCanvasFrameMetrics = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  radius: number;
+};
+
+function isAmbientHaloMode(mode: EqualizerVisualizerMode) {
+  return mode === "halo" || mode === "neonPulse" || mode === "pondRipple";
+}
+
+function isArtworkPulseMode(mode: EqualizerVisualizerMode): mode is ArtworkPulseVisualizerMode {
+  return mode === "neonPulse" || mode === "pondRipple";
+}
 
 export function ListenArtworkVisualizer(props: {
   mode: EqualizerVisualizerMode;
@@ -39,7 +256,7 @@ export function ListenArtworkVisualizer(props: {
   const active = props.active && props.frame.running;
   const level = active ? props.frame.level : 0;
   const effectEnergy =
-    (props.mode === "halo" || props.mode === "neonPulse" || props.mode === "pondRipple") && active
+    isAmbientHaloMode(props.mode) && active
       ? resolveArtworkEnergy(props.frame)
       : level;
   const reducedMotion = usePrefersReducedMotion();
@@ -47,7 +264,7 @@ export function ListenArtworkVisualizer(props: {
     active &&
     props.visible &&
     !reducedMotion &&
-    (props.mode === "neonPulse" || props.mode === "pondRipple");
+    isArtworkPulseMode(props.mode);
   const audioClock = useVisualizerAudioClock(
     props.frame.analysisTimeSeconds,
     props.frame.receivedAtMs,
@@ -56,35 +273,49 @@ export function ListenArtworkVisualizer(props: {
   const pulseEvents = useArtworkPulseEvents(
     props.mode,
     pulseActive,
-    active ? effectEnergy : 0,
+    active ? resolveArtworkPulseSourceEnergy(props.mode, props.frame, effectEnergy) : 0,
     active ? props.frame.bands : [],
     props.frame.analysisTimeSeconds,
     audioClock.resolveNow,
   );
-  const style = {
-    "--listen-artwork-visualizer-effect-energy": effectEnergy.toFixed(3),
-    "--listen-artwork-visualizer-halo-accent-alpha": formatVisualizerAlpha(0.14 + effectEnergy * 0.24),
-    "--listen-artwork-visualizer-halo-opacity": formatVisualizerAlpha(0.34 + effectEnergy * 0.52),
-    "--listen-artwork-visualizer-halo-secondary-alpha": formatVisualizerAlpha(0.05 + effectEnergy * 0.16),
-    "--listen-artwork-visualizer-halo-tertiary-alpha": formatVisualizerAlpha(0.04 + effectEnergy * 0.13),
-    "--listen-artwork-visualizer-level": level.toFixed(3),
-    "--listen-artwork-visualizer-rim-opacity": formatVisualizerAlpha(0.12 + effectEnergy * 0.34),
-    "--listen-artwork-visualizer-rim-shadow-alpha": formatVisualizerAlpha(0.08 + effectEnergy * 0.24),
-  } as React.CSSProperties;
+  const hasAmbientHalo = isAmbientHaloMode(props.mode);
+  const glowEnergy = hasAmbientHalo ? resolveArtworkAmbientGlowEnergy(effectEnergy) : effectEnergy;
+  const breathEnergy = useArtworkAmbientBreathEnergy(hasAmbientHalo && active, props.frame, effectEnergy);
+  const style = resolveArtworkAmbientHaloStyle(hasAmbientHalo, {
+    breathEnergy,
+    effectEnergy,
+    glowEnergy,
+    level,
+  });
   if (!isEqualizerArtworkVisualizerMode(props.mode) || !props.visible) {
     return null;
   }
   return (
     <div
-      className="listen-artwork-visualizer pointer-events-none absolute inset-0 z-[2] rounded-[2.85rem] text-[hsl(var(--primary))] transition-[transform] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)]"
+      className={cn(
+        "listen-artwork-visualizer pointer-events-none absolute z-[2] overflow-visible rounded-[2.85rem] text-[hsl(var(--primary))] transition-[transform] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)]",
+        hasAmbientHalo ? "-inset-16" : "inset-0",
+      )}
       data-active={active ? "true" : "false"}
       data-mode={props.mode}
       style={style}
       aria-hidden="true"
     >
-      <span className="listen-artwork-visualizer-halo absolute inset-8 rounded-[2rem]" />
-      <span className="listen-artwork-visualizer-rim absolute inset-8 rounded-[2rem]" />
-      {props.mode === "neonPulse" || props.mode === "pondRipple" ? (
+      <span className="listen-artwork-visualizer-ambient absolute inset-0 overflow-visible">
+        <span
+          className={cn(
+            "listen-artwork-visualizer-halo absolute rounded-[2rem]",
+            hasAmbientHalo ? "inset-24" : "inset-8",
+          )}
+        />
+        <span
+          className={cn(
+            "listen-artwork-visualizer-rim absolute rounded-[2rem]",
+            hasAmbientHalo ? "inset-24" : "inset-8",
+          )}
+        />
+      </span>
+      {isArtworkPulseMode(props.mode) ? (
         <ListenArtworkPulseCanvas
           mode={props.mode}
           active={pulseActive}
@@ -106,19 +337,255 @@ export function ListenArtworkVisualizer(props: {
   );
 }
 
+function resolveArtworkAmbientHaloStyle(
+  hasAmbientHalo: boolean,
+  energy: {
+    breathEnergy: number;
+    effectEnergy: number;
+    glowEnergy: number;
+    level: number;
+  },
+) {
+  const halo = AMBIENT_HALO_CONFIG.style.halo;
+  const rim = AMBIENT_HALO_CONFIG.style.rim;
+  return {
+    "--listen-artwork-visualizer-ambient-breath": energy.breathEnergy.toFixed(3),
+    "--listen-artwork-visualizer-effect-energy": energy.effectEnergy.toFixed(3),
+    "--listen-artwork-visualizer-halo-accent-alpha": resolveAmbientAlpha(
+      halo.accentAlpha,
+      hasAmbientHalo,
+      energy.glowEnergy,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-accent-blur": resolveAmbientPixels(
+      halo.accentBlur,
+      hasAmbientHalo,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-accent-spread": resolveAmbientPixels(
+      halo.accentSpread,
+      hasAmbientHalo,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-opacity": resolveAmbientAlpha(
+      halo.opacity,
+      hasAmbientHalo,
+      energy.glowEnergy,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-secondary-alpha": resolveAmbientAlpha(
+      halo.secondaryAlpha,
+      hasAmbientHalo,
+      energy.glowEnergy,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-secondary-blur": resolveAmbientPixels(
+      halo.secondaryBlur,
+      hasAmbientHalo,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-secondary-spread": resolveAmbientPixels(
+      halo.secondarySpread,
+      hasAmbientHalo,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-tertiary-alpha": resolveAmbientAlpha(
+      halo.tertiaryAlpha,
+      hasAmbientHalo,
+      energy.glowEnergy,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-tertiary-blur": resolveAmbientPixels(
+      halo.tertiaryBlur,
+      hasAmbientHalo,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-halo-tertiary-spread": resolveAmbientPixels(
+      halo.tertiarySpread,
+      hasAmbientHalo,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-level": energy.level.toFixed(3),
+    "--listen-artwork-visualizer-rim-opacity": resolveAmbientAlpha(
+      rim.opacity,
+      hasAmbientHalo,
+      energy.glowEnergy,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-rim-shadow-alpha": resolveAmbientAlpha(
+      rim.shadowAlpha,
+      hasAmbientHalo,
+      energy.glowEnergy,
+      energy.breathEnergy,
+    ),
+    "--listen-artwork-visualizer-rim-shadow-blur": resolveAmbientPixels(
+      rim.shadowBlur,
+      hasAmbientHalo,
+      energy.breathEnergy,
+    ),
+  } as React.CSSProperties;
+}
+
+function resolveAmbientAlpha(
+  config: {
+    base: number;
+    breath: number;
+    fallbackBase: number;
+    fallbackGlow: number;
+    glow: number;
+  },
+  hasAmbientHalo: boolean,
+  glowEnergy: number,
+  breathEnergy: number,
+) {
+  return formatVisualizerAlpha(
+    hasAmbientHalo
+      ? config.base + glowEnergy * config.glow + breathEnergy * config.breath
+      : config.fallbackBase + glowEnergy * config.fallbackGlow,
+  );
+}
+
+function resolveAmbientPixels(
+  config: {
+    base: number;
+    breath: number;
+    fallback: number;
+  },
+  hasAmbientHalo: boolean,
+  breathEnergy: number,
+) {
+  return formatVisualizerPixels(hasAmbientHalo ? config.base + breathEnergy * config.breath : config.fallback);
+}
+
 function resolveArtworkEnergy(frame: EqualizerVisualizerFrame) {
+  return resolveWeightedFrameEnergy(frame, ARTWORK_FRAME_ENERGY_CONFIG);
+}
+
+function resolveWeightedFrameEnergy(
+  frame: EqualizerVisualizerFrame,
+  config: ArtworkFrameEnergyConfig,
+  fallbackEnergy?: number,
+) {
   const bands = frame.bands.filter(Number.isFinite);
   if (bands.length === 0) {
-    return clampVisualizerUnit(frame.level);
+    return clampVisualizerUnit((fallbackEnergy ?? frame.level) * config.fallbackLevelWeight);
   }
   const peak = bands.reduce((current, value) => Math.max(current, value), 0);
   const average = bands.reduce((sum, value) => sum + value, 0) / bands.length;
-  const midStart = Math.floor(bands.length * 0.22);
-  const midEnd = Math.max(midStart + 1, Math.ceil(bands.length * 0.72));
+  const midStart = Math.floor(bands.length * config.midStartRatio);
+  const midEnd = Math.max(midStart + 1, Math.ceil(bands.length * config.midEndRatio));
   const mids = bands.slice(midStart, midEnd);
   const midAverage = mids.reduce((sum, value) => sum + value, 0) / Math.max(1, mids.length);
-  const energy = Math.max(frame.level * 1.1, peak * 0.72, average * 1.9, midAverage * 1.55);
-  return Math.min(1, Math.pow(Math.max(0, energy), 0.72));
+  const energy = Math.max(
+    frame.level * config.levelWeight,
+    peak * config.peakWeight,
+    average * config.averageWeight,
+    midAverage * config.midAverageWeight,
+  );
+  const clampedEnergy = clampVisualizerUnit(energy);
+  return config.outputExponent
+    ? clampVisualizerUnit(Math.pow(clampedEnergy, config.outputExponent))
+    : clampedEnergy;
+}
+
+function resolveNeonAmbientFrameEnergy(frame: EqualizerVisualizerFrame) {
+  return resolveWeightedFrameEnergy(frame, NEON_PULSE_CONFIG.frameEnergy);
+}
+
+function resolveArtworkPulseSourceEnergy(
+  mode: EqualizerVisualizerMode,
+  frame: EqualizerVisualizerFrame,
+  artworkEnergy: number,
+) {
+  if (mode !== "neonPulse") {
+    return artworkEnergy;
+  }
+  const rawEnergy = resolveNeonAmbientFrameEnergy(frame);
+  const source = NEON_PULSE_CONFIG.sourceEnergy;
+  const quietKeyEnergy = rawEnergy * source.quietKeyRatio;
+  const fullBodyEnergy = Math.pow(
+    smoothStep(source.fullBodyEdgeStart, source.fullBodyEdgeEnd, rawEnergy),
+    source.fullBodyExponent,
+  );
+  return clampVisualizerUnit(Math.max(quietKeyEnergy, fullBodyEnergy));
+}
+
+function resolveArtworkAmbientGlowEnergy(energy: number) {
+  const clampedEnergy = clampVisualizerUnit(energy);
+  const glow = AMBIENT_HALO_CONFIG.glow;
+  return clampVisualizerUnit(glow.base + Math.pow(clampedEnergy, glow.exponent) * glow.range);
+}
+
+function useArtworkAmbientBreathEnergy(active: boolean, frame: EqualizerVisualizerFrame, fallbackEnergy: number) {
+  const stateRef = React.useRef({
+    baseline: 0,
+    initialized: false,
+    previousBands: [] as number[],
+    previousEnergy: 0,
+    sequence: -1,
+    value: 0,
+  });
+  const state = stateRef.current;
+  if (!active) {
+    state.baseline = 0;
+    state.initialized = false;
+    state.previousBands = [];
+    state.previousEnergy = 0;
+    state.sequence = -1;
+    state.value = 0;
+    return 0;
+  }
+  if (state.sequence === frame.sequence) {
+    return state.value;
+  }
+
+  const frameEnergy = resolveArtworkAmbientBreathFrameEnergy(frame, fallbackEnergy);
+  const bands = frame.bands.map(clampVisualizerUnit);
+  if (!state.initialized) {
+    state.baseline = frameEnergy;
+    state.initialized = true;
+    state.previousBands = bands;
+    state.previousEnergy = frameEnergy;
+    state.sequence = frame.sequence;
+    const initial = AMBIENT_HALO_CONFIG.breath.initial;
+    state.value = Math.pow(
+      smoothStep(initial.edgeStart, initial.edgeEnd, frameEnergy),
+      initial.exponent,
+    ) * initial.scale;
+    return state.value;
+  }
+
+  const breath = AMBIENT_HALO_CONFIG.breath;
+  const spectralFlux = resolveArtworkPulseSpectralFlux(bands, state.previousBands);
+  const instantRise = Math.max(0, frameEnergy - state.previousEnergy);
+  const relativeLift = Math.max(0, frameEnergy - state.baseline);
+  const body = Math.pow(
+    smoothStep(breath.body.edgeStart, breath.body.edgeEnd, frameEnergy),
+    breath.body.exponent,
+  ) * breath.body.scale;
+  const transient = Math.pow(
+    smoothStep(
+      breath.transient.edgeStart,
+      breath.transient.edgeEnd,
+      relativeLift * breath.transient.relativeLiftWeight +
+        instantRise * breath.transient.instantRiseWeight +
+        spectralFlux * breath.transient.spectralFluxWeight,
+    ),
+    breath.transient.exponent,
+  ) * breath.transient.scale;
+  const nextBaselineRatio = frameEnergy > state.baseline
+    ? breath.baselineAttackRatio
+    : breath.baselineReleaseRatio;
+  state.baseline += (frameEnergy - state.baseline) * nextBaselineRatio;
+  state.previousBands = bands;
+  state.previousEnergy = frameEnergy;
+  state.sequence = frame.sequence;
+  state.value = clampVisualizerUnit(body + transient);
+  return state.value;
+}
+
+function resolveArtworkAmbientBreathFrameEnergy(frame: EqualizerVisualizerFrame, fallbackEnergy: number) {
+  return resolveWeightedFrameEnergy(frame, AMBIENT_HALO_CONFIG.breath.frameEnergy, fallbackEnergy);
 }
 
 function useVisualizerAudioClock(analysisTimeSeconds: number, receivedAtMs: number, frameTimeOffsetSeconds: number) {
@@ -205,9 +672,11 @@ function useArtworkPulseEvents(
   const pulseRef = React.useRef({
     energyBaseline: 0,
     energyReference: 0,
+    initialized: false,
     lastPulseTimeSeconds: -Number.POSITIVE_INFINITY,
     mode: "" as EqualizerVisualizerMode | "",
     nextId: 1,
+    previousAnalysisTimeSeconds: 0,
     previousBands: [] as number[],
     previousEnergy: 0,
     tone: 0,
@@ -218,15 +687,19 @@ function useArtworkPulseEvents(
     if (state.mode !== mode) {
       state.energyBaseline = 0;
       state.energyReference = 0;
+      state.initialized = false;
       state.lastPulseTimeSeconds = -Number.POSITIVE_INFINITY;
       state.mode = mode;
+      state.previousAnalysisTimeSeconds = 0;
       state.previousBands = [];
       state.previousEnergy = 0;
       setEvents((current) => (current.length > 0 ? [] : current));
     }
-    if (mode !== "neonPulse" && mode !== "pondRipple") {
+    if (!isArtworkPulseMode(mode)) {
       state.energyBaseline = 0;
       state.energyReference = 0;
+      state.initialized = false;
+      state.previousAnalysisTimeSeconds = 0;
       state.previousBands = [];
       state.previousEnergy = 0;
       setEvents((current) => (current.length > 0 ? [] : current));
@@ -235,21 +708,47 @@ function useArtworkPulseEvents(
     if (!active) {
       state.energyBaseline = 0;
       state.energyReference = 0;
+      state.initialized = false;
       state.lastPulseTimeSeconds = -Number.POSITIVE_INFINITY;
+      state.previousAnalysisTimeSeconds = 0;
       state.previousBands = [];
       state.previousEnergy = 0;
       setEvents((current) => (current.length > 0 ? [] : current));
       return;
     }
 
+    const analysisRewound =
+      state.previousAnalysisTimeSeconds > 0 &&
+      analysisTimeSeconds > 0 &&
+      analysisTimeSeconds + 0.25 < state.previousAnalysisTimeSeconds;
+    if (analysisRewound) {
+      state.energyBaseline = 0;
+      state.energyReference = 0;
+      state.initialized = false;
+      state.lastPulseTimeSeconds = -Number.POSITIVE_INFINITY;
+      state.previousBands = [];
+      state.previousEnergy = 0;
+      setEvents((current) => (current.length > 0 ? [] : current));
+    }
+    state.previousAnalysisTimeSeconds = analysisTimeSeconds;
+
     const clampedEnergy = clampVisualizerUnit(energy);
     const bandSnapshot = resolveArtworkPulseBandSnapshot(bands);
+    if (!state.initialized) {
+      state.energyBaseline = clampedEnergy;
+      state.energyReference = clampedEnergy;
+      state.previousBands = bandSnapshot;
+      state.previousEnergy = clampedEnergy;
+      state.initialized = true;
+      return;
+    }
     const spectralFlux = resolveArtworkPulseSpectralFlux(bandSnapshot, state.previousBands);
     const visualizerTimeSeconds = resolveVisualizerTimeSeconds();
+    const energyBaseline = state.energyBaseline;
     const candidate = resolveArtworkPulseTimingDecision({
       analysisTimeSeconds,
       energy: clampedEnergy,
-      energyBaseline: state.energyBaseline,
+      energyBaseline,
       lastPulseEnergy: state.energyReference,
       lastPulseTimeSeconds: state.lastPulseTimeSeconds,
       mode,
@@ -264,7 +763,7 @@ function useArtworkPulseEvents(
       state.energyReference = resolveArtworkPulseReferenceEnergy(clampedEnergy, state.energyReference);
       return;
     }
-    const eventEnergy = Math.max(0.16, candidate.energy);
+    const eventEnergy = resolveArtworkPulseEventEnergy(mode, candidate.energy, energyBaseline, spectralFlux);
     const durationSeconds = artworkPulseDurationSeconds(eventEnergy);
     const event = {
       createdAtMs: performance.now(),
@@ -278,7 +777,7 @@ function useArtworkPulseEvents(
     state.tone += 1;
     state.energyReference = candidate.energy;
     state.lastPulseTimeSeconds = candidate.startTimeSeconds;
-    setEvents((current) => [...current, event].slice(-MAX_ARTWORK_PULSE_EVENTS));
+    setEvents((current) => [...current, event].slice(-ARTWORK_PULSE_RENDER_CONFIG.maxEvents));
   }, [
     active,
     analysisTimeSeconds,
@@ -313,6 +812,45 @@ function useArtworkPulseEvents(
   return events;
 }
 
+function resolveArtworkPulseEventEnergy(
+  mode: EqualizerVisualizerMode,
+  energy: number,
+  energyBaseline: number,
+  spectralFlux: number,
+) {
+  const clampedEnergy = clampVisualizerUnit(energy);
+  if (mode !== "neonPulse") {
+    return clampedEnergy;
+  }
+  const config = NEON_PULSE_CONFIG.eventEnergy;
+  const quietLine = smoothStep(config.quietEdgeStart, config.quietEdgeEnd, clampedEnergy) * config.quietScale;
+  const relativeLift = clampVisualizerUnit(
+    (clampedEnergy - clampVisualizerUnit(energyBaseline) - config.relativeBase) / config.relativeRange,
+  );
+  const fluxLift = clampVisualizerUnit((clampVisualizerUnit(spectralFlux) - config.fluxBase) / config.fluxRange);
+  const chorusLift =
+    Math.pow(smoothStep(config.chorusEdgeStart, config.chorusEdgeEnd, clampedEnergy), config.chorusExponent) *
+    config.chorusScale;
+  const transientLift = Math.max(relativeLift, fluxLift);
+  const climaxLift =
+    Math.pow(
+      smoothStep(config.climaxEnergyEdgeStart, config.climaxEnergyEdgeEnd, clampedEnergy),
+      config.climaxEnergyExponent,
+    ) *
+    Math.pow(
+      smoothStep(config.climaxTransientEdgeStart, config.climaxTransientEdgeEnd, transientLift),
+      config.climaxTransientExponent,
+    );
+  return Math.max(
+    config.min,
+    quietLine,
+    relativeLift * config.relativeScale,
+    fluxLift * config.fluxScale,
+    chorusLift,
+    climaxLift * config.climaxScale,
+  );
+}
+
 function resolveArtworkPulseBandSnapshot(bands: readonly number[]) {
   return bands.map(clampVisualizerUnit);
 }
@@ -325,18 +863,18 @@ function artworkPulseCleanupRemainingSeconds(
   if (visualizerTimeSeconds > 0) {
     return Math.max(
       0,
-      event.startTimeSeconds +
+        event.startTimeSeconds +
         event.durationSeconds +
-        ARTWORK_PULSE_CLEANUP_GRACE_SECONDS -
+        ARTWORK_PULSE_RENDER_CONFIG.cleanupGraceSeconds -
         visualizerTimeSeconds,
     );
   }
   const wallElapsedSeconds = Math.max(0, (nowMs - event.createdAtMs) / 1000);
-  return Math.max(0, event.durationSeconds + ARTWORK_PULSE_CLEANUP_GRACE_SECONDS - wallElapsedSeconds);
+  return Math.max(0, event.durationSeconds + ARTWORK_PULSE_RENDER_CONFIG.cleanupGraceSeconds - wallElapsedSeconds);
 }
 
 function ListenArtworkPulseCanvas(props: {
-  mode: "neonPulse" | "pondRipple";
+  mode: ArtworkPulseVisualizerMode;
   active: boolean;
   events: RenderedArtworkPulseEvent[];
   resolveVisualizerTimeSeconds: () => number;
@@ -410,11 +948,11 @@ function ListenArtworkPulseCanvas(props: {
         const visualizerTimeSeconds = resolveVisualizerTimeSecondsRef.current();
         const nowMs = performance.now();
         const palette = resolveCanvasPalette(computed, rootStyle);
+        const frame = resolveArtworkFrameCanvasMetrics(canvas, rect, width, height);
         if (modeRef.current === "neonPulse") {
-          const cornerRadius = resolveArtworkFrameCanvasRadius(canvas, rect, width, height);
-          drawNeonPulseEvents(context, width, height, events, visualizerTimeSeconds, nowMs, palette, cornerRadius);
+          drawNeonPulseEvents(context, frame, events, visualizerTimeSeconds, nowMs, palette);
         } else {
-          drawPondRippleEvents(context, width, height, events, visualizerTimeSeconds, nowMs, palette);
+          drawPondRippleEvents(context, frame, events, visualizerTimeSeconds, nowMs, palette);
         }
       }
       scheduleDraw();
@@ -483,86 +1021,237 @@ function resolveArtworkPulseElapsedSecondsForEvent(
 
 function drawNeonPulseEvents(
   context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
+  frame: ArtworkCanvasFrameMetrics,
   events: RenderedArtworkPulseEvent[],
   visualizerTimeSeconds: number,
   nowMs: number,
   palette: CanvasPalette,
-  cornerRadius: number,
 ) {
-  const base = Math.min(width, height);
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const baseSize = base * 0.62;
-  const fadeOutProgress = 0.82;
+  const base = Math.min(frame.width, frame.height);
+  const centerX = frame.x + frame.width / 2;
+  const centerY = frame.y + frame.height / 2;
+  const baseSize = base;
   context.save();
   context.lineJoin = "round";
+  context.lineCap = "round";
+  context.globalCompositeOperation = "lighter";
+  const render = NEON_PULSE_CONFIG.render;
   for (const event of events) {
     const progress = resolveArtworkPulseProgressForEvent(event, visualizerTimeSeconds, nowMs);
     if (progress <= 0 || progress >= 1) {
       continue;
     }
-    const expansion = easeOutCubic(progress);
-    const fadeProgress = clampVisualizerUnit(progress / fadeOutProgress);
-    const fade = Math.pow(1 - fadeProgress, 1.48);
     const energy = clampVisualizerUnit(event.energy);
-    const scale = 0.985 + (resolveArtworkPulseTargetScale(energy) - 0.985) * expansion;
+    const neon = resolveNeonPulseResponse(energy);
+    const expansion = easeOutCubic(progress / render.expansionProgressRange);
+    const fadeOutProgress = render.fadeOutBase + neon.burst * render.fadeOutBurst;
+    const fadeProgress = clampVisualizerUnit(progress / fadeOutProgress);
+    const fade = Math.pow(
+      1 - fadeProgress,
+      render.fadeExponentBase + neon.expansion * render.fadeExponentExpansion,
+    );
+    const targetScale = resolveNeonPulseTargetScale(energy);
+    const scale = render.scaleBase + (targetScale - render.scaleBase) * expansion;
     const size = baseSize * scale;
     const x = centerX - size / 2;
     const y = centerY - size / 2;
-    const radius = Math.max(0, cornerRadius);
-    const alpha = (0.24 + energy * 0.46) * fade;
+    const radius = Math.max(0, frame.radius * (size / Math.max(1, base)));
+    const alpha = (
+      render.alphaBase +
+      Math.pow(
+        smoothStep(render.alphaEnergyEdgeStart, render.alphaEnergyEdgeEnd, energy),
+        render.alphaEnergyExponent,
+      ) * render.alphaEnergyScale
+    ) * fade;
     if (alpha <= 0.01) {
       continue;
     }
-    context.globalAlpha = Math.min(0.82, alpha);
-    context.strokeStyle = canvasTone(palette, event.tone);
-    context.shadowColor = canvasTone(palette, event.tone);
-    context.lineWidth = Math.max(1, base * (0.0032 + energy * 0.0022) * (0.62 + fade * 0.38));
+    const tone = canvasTone(palette, event.tone);
+    const sideTone = canvasTone(palette, event.tone === 2 ? 0 : event.tone + 1);
+    const glowOffset = base * (
+      render.glowOffsetBase +
+      neon.aura * render.glowOffsetAura +
+      neon.bloom * render.glowOffsetBloom +
+      neon.burst * render.glowOffsetBurst
+    );
+    const glowX = x - glowOffset;
+    const glowY = y - glowOffset;
+    const glowSize = size + glowOffset * 2;
+    const glowRadius = radius + glowOffset;
+
+    if (neon.bloom > 0.01) {
+      context.globalAlpha = Math.min(0.34, alpha * (neon.bloom * 0.56 + neon.burst * 0.36));
+      context.strokeStyle = sideTone;
+      context.shadowColor = sideTone;
+      context.lineWidth = Math.max(1, base * (0.004 + neon.bloom * 0.026 + neon.burst * 0.014));
+      context.shadowBlur = Math.min(
+        base * (0.012 + neon.bloom * 0.046 + neon.burst * 0.024) * (0.32 + fade * 0.68),
+        base * NEON_PULSE_CONFIG.shadowBlurMaxRatio.bloom,
+      );
+      roundRect(context, glowX, glowY, glowSize, glowSize, glowRadius);
+      context.stroke();
+    }
+
+    if (neon.midGlow > 0.01) {
+      context.globalAlpha = Math.min(0.34, alpha * (neon.midGlow * 0.38 + neon.bloom * 0.12));
+      context.strokeStyle = tone;
+      context.shadowColor = tone;
+      context.lineWidth = Math.max(1, base * (0.003 + neon.midGlow * 0.010 + neon.bloom * 0.008));
+      context.shadowBlur = Math.min(
+        base * (0.014 + neon.midGlow * 0.036 + neon.bloom * 0.018) * (0.32 + fade * 0.68),
+        base * NEON_PULSE_CONFIG.shadowBlurMaxRatio.outer,
+      );
+      roundRect(context, glowX, glowY, glowSize, glowSize, glowRadius);
+      context.stroke();
+    }
+
+    if (neon.aura > 0.01) {
+      context.globalAlpha = Math.min(0.34, alpha * (0.08 + neon.aura * 0.28 + neon.midGlow * 0.10));
+      context.strokeStyle = tone;
+      context.shadowColor = tone;
+      context.lineWidth = Math.max(1, base * (0.002 + neon.aura * 0.006 + neon.midGlow * 0.004));
+      context.shadowBlur = Math.min(
+        base * (0.008 + neon.aura * 0.022 + neon.midGlow * 0.014) * (0.28 + fade * 0.72),
+        base * NEON_PULSE_CONFIG.shadowBlurMaxRatio.outer,
+      );
+      roundRect(context, glowX, glowY, glowSize, glowSize, glowRadius);
+      context.stroke();
+    }
+
+    context.globalAlpha = Math.min(0.72, alpha * (0.52 + neon.tube * 0.34));
+    context.strokeStyle = tone;
+    context.shadowColor = tone;
+    context.lineWidth = Math.max(1, base * (0.0031 + neon.tube * 0.0038) * (0.62 + fade * 0.38));
     context.shadowBlur = Math.min(
-      base * (0.014 + energy * 0.024) * (0.30 + fade * 0.70),
-      base * NEON_PULSE_INNER_SHADOW_BLUR_MAX_RATIO,
+      base * (0.0022 + neon.tube * 0.005 + neon.aura * 0.014) * (0.30 + fade * 0.70),
+      base * NEON_PULSE_CONFIG.shadowBlurMaxRatio.inner,
     );
     roundRect(context, x, y, size, size, radius);
     context.stroke();
 
-    context.globalAlpha = Math.min(0.42, alpha * (0.38 + fade * 0.20));
-    const glowOffset = base * 0.006;
-    const glowX = x - glowOffset;
-    const glowY = y - glowOffset;
-    const glowSize = size + glowOffset * 2;
-    context.shadowBlur = Math.min(
-      base * (0.030 + energy * 0.035) * (0.28 + fade * 0.72),
-      base * NEON_PULSE_OUTER_SHADOW_BLUR_MAX_RATIO,
-    );
-    roundRect(context, glowX, glowY, glowSize, glowSize, radius);
+    context.globalAlpha = Math.min(0.48, alpha * (0.08 + neon.tube * 0.22 + neon.aura * 0.10) * (0.72 + fade * 0.28));
+    context.strokeStyle = "rgba(255, 255, 255, 0.92)";
+    context.shadowColor = "rgba(255, 255, 255, 0.82)";
+    context.lineWidth = Math.max(1, base * (0.0008 + neon.tube * 0.0018));
+    context.shadowBlur = Math.min(base * (0.001 + neon.tube * 0.004 + neon.aura * 0.006), base * 0.020);
+    roundRect(context, x, y, size, size, radius);
     context.stroke();
+
+    drawNeonPulseLightStreaks(context, x, y, size, radius, base, alpha, fade, neon, tone, sideTone);
   }
   context.restore();
 }
 
-function resolveArtworkFrameCanvasRadius(
+function resolveNeonPulseResponse(energy: number) {
+  const response = NEON_PULSE_CONFIG.response;
+  const clampedEnergy = clampVisualizerUnit(energy);
+  const tube = smoothStep(response.tubeEdgeStart, response.tubeEdgeEnd, clampedEnergy);
+  const expansion = linearStep(response.expansionEdgeStart, response.expansionEdgeEnd, clampedEnergy);
+  const aura = Math.pow(
+    smoothStep(response.auraEdgeStart, response.auraEdgeEnd, clampedEnergy),
+    response.auraExponent,
+  );
+  const midGlow =
+    Math.pow(
+      smoothStep(response.midGlowEdgeStart, response.midGlowEdgeEnd, clampedEnergy),
+      response.midGlowExponent,
+    );
+  const bloom = Math.pow(
+    smoothStep(response.bloomEdgeStart, response.bloomEdgeEnd, clampedEnergy),
+    response.bloomExponent,
+  );
+  const burst = Math.pow(
+    smoothStep(response.burstEdgeStart, response.burstEdgeEnd, clampedEnergy),
+    response.burstExponent,
+  );
+  return { aura, bloom, burst, expansion, midGlow, tube };
+}
+
+function resolveNeonPulseTargetScale(energy: number) {
+  const targetScale = NEON_PULSE_CONFIG.targetScale;
+  const expansion = linearStep(targetScale.edgeStart, targetScale.edgeEnd, energy);
+  return targetScale.min + (targetScale.max - targetScale.min) * expansion;
+}
+
+function drawNeonPulseLightStreaks(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  radius: number,
+  base: number,
+  alpha: number,
+  fade: number,
+  neon: ReturnType<typeof resolveNeonPulseResponse>,
+  tone: string,
+  sideTone: string,
+) {
+  if (neon.aura <= 0.08) {
+    return;
+  }
+  const inset = Math.max(radius * 0.55, base * 0.028);
+  const run = Math.max(base * 0.10, size * 0.22);
+  const lift = base * 0.026;
+  context.lineWidth = Math.max(1, base * (0.001 + neon.bloom * 0.0018));
+  context.shadowBlur = base * (0.003 + neon.aura * 0.010 + neon.bloom * 0.026);
+
+  context.globalAlpha = Math.min(0.20, alpha * fade * (neon.aura * 0.10 + neon.bloom * 0.24));
+  context.strokeStyle = tone;
+  context.shadowColor = tone;
+  context.beginPath();
+  context.moveTo(x + inset, y - lift);
+  context.lineTo(Math.min(x + size - inset, x + inset + run), y - lift);
+  context.moveTo(x + size + lift, y + inset);
+  context.lineTo(x + size + lift, Math.min(y + size - inset, y + inset + run * 0.88));
+  context.stroke();
+
+  context.globalAlpha = Math.min(0.16, alpha * fade * (neon.aura * 0.07 + neon.bloom * 0.20));
+  context.strokeStyle = sideTone;
+  context.shadowColor = sideTone;
+  context.beginPath();
+  context.moveTo(Math.max(x + inset, x + size - inset - run * 0.72), y + size + lift);
+  context.lineTo(x + size - inset, y + size + lift);
+  context.moveTo(x - lift, Math.max(y + inset, y + size - inset - run * 0.58));
+  context.lineTo(x - lift, y + size - inset);
+  context.stroke();
+}
+
+function resolveArtworkFrameCanvasMetrics(
   canvas: HTMLCanvasElement,
   rect: DOMRect,
   width: number,
   height: number,
 ) {
-  const fallback = Math.min(width, height) * 0.082;
+  const fallbackBase = Math.min(width, height) * 0.68;
+  const fallback = {
+    x: width / 2 - fallbackBase / 2,
+    y: height / 2 - fallbackBase / 2,
+    width: fallbackBase,
+    height: fallbackBase,
+    radius: fallbackBase * 0.11,
+  };
   const shell = canvas.closest(".listen-artwork-shell");
   const frame = shell?.querySelector(".listen-artwork-frame");
   if (!(frame instanceof HTMLElement)) {
     return fallback;
   }
-  const frameStyle = window.getComputedStyle(frame);
-  const cssRadius = parseCssPixelValue(frameStyle.borderTopLeftRadius);
-  if (cssRadius <= 0) {
+  const frameRect = frame.getBoundingClientRect();
+  if (frameRect.width <= 0 || frameRect.height <= 0 || rect.width <= 0 || rect.height <= 0) {
     return fallback;
   }
-  const pixelRatio = rect.width > 0 && rect.height > 0
-    ? Math.min(width / rect.width, height / rect.height)
-    : window.devicePixelRatio || 1;
-  return cssRadius * pixelRatio;
+  const pixelRatioX = width / rect.width;
+  const pixelRatioY = height / rect.height;
+  const frameStyle = window.getComputedStyle(frame);
+  const cssRadius = parseCssPixelValue(frameStyle.borderTopLeftRadius);
+  const frameWidth = frameRect.width * pixelRatioX;
+  const frameHeight = frameRect.height * pixelRatioY;
+  return {
+    x: (frameRect.left - rect.left) * pixelRatioX,
+    y: (frameRect.top - rect.top) * pixelRatioY,
+    width: frameWidth,
+    height: frameHeight,
+    radius: cssRadius > 0 ? cssRadius * Math.min(pixelRatioX, pixelRatioY) : Math.min(frameWidth, frameHeight) * 0.11,
+  };
 }
 
 function parseCssPixelValue(value: string) {
@@ -572,20 +1261,23 @@ function parseCssPixelValue(value: string) {
 
 function drawPondRippleEvents(
   context: CanvasRenderingContext2D,
-  width: number,
-  height: number,
+  frame: ArtworkCanvasFrameMetrics,
   events: RenderedArtworkPulseEvent[],
   visualizerTimeSeconds: number,
   nowMs: number,
   palette: CanvasPalette,
 ) {
-  const base = Math.min(width, height);
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const baseRadius = base * 0.305;
+  const base = Math.min(frame.width, frame.height);
+  if (base <= 0) {
+    return;
+  }
+  const centerX = frame.x + frame.width / 2;
+  const centerY = frame.y + frame.height / 2;
+  const baseRadius = base * POND_RIPPLE_CONFIG.radius.baseRatio;
   context.save();
   context.lineCap = "round";
   context.lineJoin = "round";
+  context.globalCompositeOperation = "lighter";
   for (const event of events) {
     const progress = resolveArtworkPulseProgressForEvent(event, visualizerTimeSeconds, nowMs);
     if (progress <= 0 || progress >= 1) {
@@ -594,27 +1286,53 @@ function drawPondRippleEvents(
     const elapsedSeconds = resolveArtworkPulseElapsedSecondsForEvent(event, visualizerTimeSeconds, nowMs);
     const expansion = easeOutCubic(elapsedSeconds / artworkPulseAttackSeconds());
     const energy = clampVisualizerUnit(event.energy);
-    const targetScale = resolveArtworkPulseTargetScale(energy);
-    const radius = baseRadius * (0.92 + (targetScale - 0.92) * expansion);
-    const alpha = (0.12 + energy * 0.32) * Math.pow(1 - progress, 1.46) * (0.70 + expansion * 0.30);
+    const targetScale = resolvePondRippleTargetScale(energy);
+    const radius = baseRadius * (
+      POND_RIPPLE_CONFIG.radius.initialScale +
+      (targetScale - POND_RIPPLE_CONFIG.radius.initialScale) * expansion
+    );
+    const secondaryRadius = Math.max(
+      base * POND_RIPPLE_CONFIG.radius.secondaryMinRatio,
+      radius - base * POND_RIPPLE_CONFIG.radius.secondaryOffsetRatio,
+    );
+    const alpha =
+      (POND_RIPPLE_CONFIG.alpha.base + energy * POND_RIPPLE_CONFIG.alpha.energy) *
+      Math.pow(1 - progress, POND_RIPPLE_CONFIG.alpha.fadeExponent) *
+      (POND_RIPPLE_CONFIG.alpha.expansionBase + expansion * POND_RIPPLE_CONFIG.alpha.expansion);
     if (alpha <= 0.01) {
       continue;
     }
     const tone = canvasTone(palette, event.tone);
     context.strokeStyle = tone;
     context.shadowColor = canvasTone(palette, event.tone);
-    context.shadowBlur = base * 0.010;
-    context.lineWidth = Math.max(1, base * 0.0038);
-    context.globalAlpha = Math.min(0.64, alpha);
+    context.shadowBlur = base * (
+      POND_RIPPLE_CONFIG.shadowBlur.baseRatio +
+      energy * POND_RIPPLE_CONFIG.shadowBlur.energyRatio
+    );
+    context.lineWidth = Math.max(
+      1,
+      base * (
+        POND_RIPPLE_CONFIG.lineWidth.baseRatio +
+        energy * POND_RIPPLE_CONFIG.lineWidth.energyRatio
+      ),
+    );
+    context.globalAlpha = Math.min(POND_RIPPLE_CONFIG.alpha.max, alpha);
     drawIrregularRipplePath(context, centerX, centerY, radius, event.id, 1);
     context.stroke();
 
-    context.globalAlpha = Math.min(0.28, alpha * 0.58);
-    context.lineWidth = Math.max(1, base * 0.0026);
-    drawIrregularRipplePath(context, centerX, centerY, radius * 0.82, event.id, -1);
+    context.globalAlpha = Math.min(
+      POND_RIPPLE_CONFIG.alpha.secondaryMax,
+      alpha * POND_RIPPLE_CONFIG.alpha.secondaryScale,
+    );
+    context.lineWidth = Math.max(1, base * POND_RIPPLE_CONFIG.lineWidth.secondaryRatio);
+    drawIrregularRipplePath(context, centerX, centerY, secondaryRadius, event.id, -1);
     context.stroke();
   }
   context.restore();
+}
+
+function resolvePondRippleTargetScale(energy: number) {
+  return POND_RIPPLE_CONFIG.radius.targetBase + clampVisualizerUnit(energy) * POND_RIPPLE_CONFIG.radius.targetEnergy;
 }
 
 function drawIrregularRipplePath(
@@ -651,12 +1369,31 @@ function easeOutCubic(value: number) {
   return 1 - Math.pow(1 - clamped, 3);
 }
 
+function smoothStep(edge0: number, edge1: number, value: number) {
+  if (edge0 === edge1) {
+    return value >= edge1 ? 1 : 0;
+  }
+  const progress = clampVisualizerUnit((value - edge0) / (edge1 - edge0));
+  return progress * progress * (3 - 2 * progress);
+}
+
+function linearStep(edge0: number, edge1: number, value: number) {
+  if (edge0 === edge1) {
+    return value >= edge1 ? 1 : 0;
+  }
+  return clampVisualizerUnit((value - edge0) / (edge1 - edge0));
+}
+
 function clampVisualizerUnit(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 }
 
 function formatVisualizerAlpha(value: number) {
   return clampVisualizerUnit(value).toFixed(3);
+}
+
+function formatVisualizerPixels(value: number) {
+  return `${Math.max(0, value).toFixed(2)}px`;
 }
 
 export function ListenInlineVisualizer(props: {

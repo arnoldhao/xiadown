@@ -64,11 +64,22 @@
   }
 
   .listen-artwork-shell[data-visualizer-visible="true"] {
+    overflow: visible;
     padding: 2rem;
+  }
+
+  .listen-artwork-shell[data-visualizer-visible="true"] .listen-artwork-visualizer,
+  .listen-artwork-shell[data-visualizer-visible="true"] .listen-artwork-visualizer-ambient {
+    contain: none;
+    overflow: visible;
   }
 
   .listen-artwork-shell[data-visualizer-visible="true"] .listen-artwork-shadow {
     opacity: 0;
+  }
+
+  .listen-artwork-shell[data-visualizer-visible="true"] .listen-artwork-frame {
+    box-shadow: none;
   }
 
   .listen-artwork-shell[data-frame-active="true"] .listen-artwork-shadow {
@@ -170,27 +181,41 @@
   .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-halo,
   .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-halo,
   .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-halo {
+    inset: calc(6rem + 2px);
+    border-radius: calc(2rem - 2px);
     box-shadow:
-      0 0 22px 7px hsl(var(--primary) / var(--listen-artwork-visualizer-halo-accent-alpha)),
-      0 0 38px 12px hsl(var(--primary) / var(--listen-artwork-visualizer-halo-secondary-alpha)),
-      0 0 46px 14px hsl(var(--accent-foreground) / var(--listen-artwork-visualizer-halo-tertiary-alpha));
+      0 0 var(--listen-artwork-visualizer-halo-accent-blur) var(--listen-artwork-visualizer-halo-accent-spread) hsl(var(--primary) / var(--listen-artwork-visualizer-halo-accent-alpha)),
+      0 0 var(--listen-artwork-visualizer-halo-secondary-blur) var(--listen-artwork-visualizer-halo-secondary-spread) hsl(var(--primary) / var(--listen-artwork-visualizer-halo-secondary-alpha)),
+      0 0 var(--listen-artwork-visualizer-halo-tertiary-blur) var(--listen-artwork-visualizer-halo-tertiary-spread) hsl(var(--accent-foreground) / var(--listen-artwork-visualizer-halo-tertiary-alpha));
     opacity: var(--listen-artwork-visualizer-halo-opacity);
     transform: none;
+    transition:
+      opacity 120ms ease-out,
+      box-shadow 120ms ease-out;
   }
 
   .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-rim,
   .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-rim,
   .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-rim {
-    border-color: hsl(var(--primary) / 0.10);
+    inset: calc(6rem + 2px);
+    border-radius: calc(2rem - 2px);
+    border-color: transparent;
     box-shadow:
-      0 0 0 1px rgb(255 255 255 / 0.06),
-      0 0 18px hsl(var(--primary) / var(--listen-artwork-visualizer-rim-shadow-alpha));
+      0 0 var(--listen-artwork-visualizer-rim-shadow-blur) hsl(var(--primary) / var(--listen-artwork-visualizer-rim-shadow-alpha));
     opacity: var(--listen-artwork-visualizer-rim-opacity);
     transform: none;
+    transition:
+      opacity 120ms ease-out,
+      box-shadow 120ms ease-out;
   }
 
   .listen-artwork-visualizer-pulse-canvas {
     opacity: 0.96;
+  }
+
+  .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-pulse-canvas {
+    mix-blend-mode: screen;
+    opacity: 1;
   }
 
   .dark .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-halo,
@@ -208,6 +233,19 @@
   .dark .listen-artwork-visualizer[data-mode="ring"] canvas {
     filter: brightness(0.78) saturate(0.86);
     opacity: 0.76;
+  }
+
+  .dark .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-pulse-canvas {
+    filter: brightness(1.08) saturate(1.35);
+  }
+
+  .dark .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-halo,
+  .dark .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-halo,
+  .dark .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-halo,
+  .dark .listen-artwork-visualizer[data-mode="halo"] .listen-artwork-visualizer-rim,
+  .dark .listen-artwork-visualizer[data-mode="neonPulse"] .listen-artwork-visualizer-rim,
+  .dark .listen-artwork-visualizer[data-mode="pondRipple"] .listen-artwork-visualizer-rim {
+    filter: none;
   }
 
   @media (prefers-reduced-motion: reduce) {

@@ -110,12 +110,38 @@ describe("artwork visualizer timing helpers", () => {
       energyBaseline: 0.18,
       lastPulseEnergy: 0.18,
       lastPulseTimeSeconds: 9.2,
-      mode: "neonPulse",
+      mode: "pondRipple",
       previousEnergy: 0.08,
       spectralFlux: 0,
       visualizerTimeSeconds: 10,
     });
     expect(belowDynamicThreshold).toBeNull();
+
+    const quietNeonLinePulse = resolveArtworkPulseTimingDecision({
+      analysisTimeSeconds: 10,
+      energy: 0.13,
+      energyBaseline: 0.1,
+      lastPulseEnergy: 0.1,
+      lastPulseTimeSeconds: 9.2,
+      mode: "neonPulse",
+      previousEnergy: 0.108,
+      spectralFlux: 0,
+      visualizerTimeSeconds: 10,
+    });
+    expect(quietNeonLinePulse?.energy).toBeCloseTo(0.13, 6);
+
+    const quietPianoKeyPulse = resolveArtworkPulseTimingDecision({
+      analysisTimeSeconds: 10,
+      energy: 0.018,
+      energyBaseline: 0.03,
+      lastPulseEnergy: 0.03,
+      lastPulseTimeSeconds: 9.2,
+      mode: "neonPulse",
+      previousEnergy: 0.018,
+      spectralFlux: 0.020,
+      visualizerTimeSeconds: 10,
+    });
+    expect(quietPianoKeyPulse?.energy).toBeCloseTo(0.020, 6);
 
     const firstPulse = resolveArtworkPulseTimingDecision({
       analysisTimeSeconds: 10,
@@ -128,9 +154,7 @@ describe("artwork visualizer timing helpers", () => {
       spectralFlux: 0,
       visualizerTimeSeconds: 10,
     });
-    expect(firstPulse).toMatchObject({
-      startTimeSeconds: 10,
-    });
+    expect(firstPulse?.startTimeSeconds).toBeCloseTo(9.955, 6);
     expect(firstPulse?.energy).toBeCloseTo(0.42, 6);
 
     const tooSoon = resolveArtworkPulseTimingDecision({
@@ -138,7 +162,7 @@ describe("artwork visualizer timing helpers", () => {
       energy: 0.9,
       energyBaseline: 0.3,
       lastPulseEnergy: 0.42,
-      lastPulseTimeSeconds: 10,
+      lastPulseTimeSeconds: 9.955,
       mode: "neonPulse",
       previousEnergy: 0.42,
       spectralFlux: 0,
@@ -151,22 +175,20 @@ describe("artwork visualizer timing helpers", () => {
       energy: 0.55,
       energyBaseline: 0.3,
       lastPulseEnergy: 0.42,
-      lastPulseTimeSeconds: 10,
+      lastPulseTimeSeconds: 9.955,
       mode: "pondRipple",
       previousEnergy: 0.45,
       spectralFlux: 0,
       visualizerTimeSeconds: 10.17,
     });
-    expect(closerPeak).toMatchObject({
-      startTimeSeconds: 10.17,
-    });
+    expect(closerPeak?.startTimeSeconds).toBeCloseTo(10.125, 6);
 
     const sustainedEnergyWithoutPeak = resolveArtworkPulseTimingDecision({
       analysisTimeSeconds: 10.3,
       energy: 0.43,
       energyBaseline: 0.3,
       lastPulseEnergy: 0.42,
-      lastPulseTimeSeconds: 10,
+      lastPulseTimeSeconds: 9.955,
       mode: "neonPulse",
       previousEnergy: 0.42,
       spectralFlux: 0,
@@ -179,15 +201,13 @@ describe("artwork visualizer timing helpers", () => {
       energy: 0.5,
       energyBaseline: 0.3,
       lastPulseEnergy: 0.42,
-      lastPulseTimeSeconds: 10,
+      lastPulseTimeSeconds: 9.955,
       mode: "neonPulse",
       previousEnergy: 0.43,
       spectralFlux: 0,
       visualizerTimeSeconds: 10.3,
     });
-    expect(risingPeak).toMatchObject({
-      startTimeSeconds: 10.3,
-    });
+    expect(risingPeak?.startTimeSeconds).toBeCloseTo(10.255, 6);
     expect(risingPeak?.energy).toBeCloseTo(0.5, 6);
   });
 
@@ -203,9 +223,7 @@ describe("artwork visualizer timing helpers", () => {
       spectralFlux: 0,
       visualizerTimeSeconds: 12,
     });
-    expect(slowSwell).toMatchObject({
-      startTimeSeconds: 12,
-    });
+    expect(slowSwell?.startTimeSeconds).toBeCloseTo(11.955, 6);
     expect(slowSwell?.energy).toBeCloseTo(0.21, 6);
   });
 
@@ -221,13 +239,11 @@ describe("artwork visualizer timing helpers", () => {
       spectralFlux: 0.115,
       visualizerTimeSeconds: 20,
     });
-    expect(rockHit).toMatchObject({
-      startTimeSeconds: 20,
-    });
+    expect(rockHit?.startTimeSeconds).toBeCloseTo(19.955, 6);
     expect(rockHit?.energy).toBeCloseTo(0.88, 6);
   });
 
-  test("keeps low-tide music breathing with sparse ambient pulses", () => {
+  test("does not invent off-beat ambient pulses without a peak", () => {
     const tooSoonAmbient = resolveArtworkPulseTimingDecision({
       analysisTimeSeconds: 30,
       energy: 0.05,
@@ -241,7 +257,7 @@ describe("artwork visualizer timing helpers", () => {
     });
     expect(tooSoonAmbient).toBeNull();
 
-    const ambientPulse = resolveArtworkPulseTimingDecision({
+    const steadyLowEnergy = resolveArtworkPulseTimingDecision({
       analysisTimeSeconds: 30.6,
       energy: 0.05,
       energyBaseline: 0.05,
@@ -252,9 +268,7 @@ describe("artwork visualizer timing helpers", () => {
       spectralFlux: 0,
       visualizerTimeSeconds: 30.6,
     });
-    expect(ambientPulse).toMatchObject({
-      startTimeSeconds: 30.6,
-    });
+    expect(steadyLowEnergy).toBeNull();
   });
 
   test("keeps non-cover pulse modes out of pulse scheduling", () => {
@@ -284,8 +298,12 @@ describe("artwork visualizer timing helpers", () => {
 
   test("measures positive spectral movement between visualizer bands", () => {
     expect(resolveArtworkPulseSpectralFlux([0.8, 0.6, 0.9, 0.7], [0.55, 0.6, 0.72, 0.7]))
-      .toBeCloseTo(0.4255, 6);
-    expect(resolveArtworkPulseSpectralFlux([0.4, 0.4], [0.6, 0.5])).toBeCloseTo(0.032, 6);
+      .toBeCloseTo(0.4285, 6);
+    expect(resolveArtworkPulseSpectralFlux([0.4, 0.4], [0.6, 0.5])).toBeCloseTo(0.02, 6);
+    expect(resolveArtworkPulseSpectralFlux(
+      [0.02, 0.03, 0.17, 0.02, 0.03, 0.02, 0.03, 0.02],
+      [0.02, 0.03, 0.03, 0.02, 0.03, 0.02, 0.03, 0.02],
+    )).toBeGreaterThan(0.018);
     expect(resolveArtworkPulseSpectralFlux([0.4], [])).toBe(0);
   });
 
@@ -300,9 +318,9 @@ describe("artwork visualizer timing helpers", () => {
   });
 
   test("keeps pulse expansion duration bounded", () => {
-    expect(artworkPulseAttackSeconds()).toBeCloseTo(0.18, 6);
-    expect(artworkPulseDurationSeconds(0)).toBeCloseTo(1.05, 6);
-    expect(artworkPulseDurationSeconds(1)).toBeCloseTo(1.39, 6);
-    expect(artworkPulseDurationSeconds(pulse({ energy: 0.5 }).energy)).toBeCloseTo(1.22, 6);
+    expect(artworkPulseAttackSeconds()).toBeCloseTo(0.11, 6);
+    expect(artworkPulseDurationSeconds(0)).toBeCloseTo(0.88, 6);
+    expect(artworkPulseDurationSeconds(1)).toBeCloseTo(1.16, 6);
+    expect(artworkPulseDurationSeconds(pulse({ energy: 0.5 }).energy)).toBeCloseTo(1.02, 6);
   });
 });
