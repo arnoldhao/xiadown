@@ -565,6 +565,38 @@ function buildText(language: SupportedLanguage) {
       copyDownloadUrl: t("xiadown.completed.copyDownloadUrl", language),
       downloadUrlCopied: t("xiadown.completed.downloadUrlCopied", language),
       copyFailed: t("xiadown.completed.copyFailed", language),
+      renameTask: t("xiadown.completed.renameTask", language),
+      renameTaskTitle: t("xiadown.completed.renameTaskTitle", language),
+      renameTaskNameLabel: t(
+        "xiadown.completed.renameTaskNameLabel",
+        language,
+      ),
+      renameTaskNamePlaceholder: t(
+        "xiadown.completed.renameTaskNamePlaceholder",
+        language,
+      ),
+      renameFile: t("xiadown.completed.renameFile", language),
+      renameFileTitle: t("xiadown.completed.renameFileTitle", language),
+      renameFileNameLabel: t(
+        "xiadown.completed.renameFileNameLabel",
+        language,
+      ),
+      renameFileNamePlaceholder: t(
+        "xiadown.completed.renameFileNamePlaceholder",
+        language,
+      ),
+      renameNameRequired: t(
+        "xiadown.completed.renameNameRequired",
+        language,
+      ),
+      renameNameInvalid: t(
+        "xiadown.completed.renameNameInvalid",
+        language,
+      ),
+      renameNameTooLong: t(
+        "xiadown.completed.renameNameTooLong",
+        language,
+      ),
       taskDataFields: {
         name: t("xiadown.completed.taskDataFields.name", language),
         url: t("xiadown.completed.taskDataFields.url", language),
