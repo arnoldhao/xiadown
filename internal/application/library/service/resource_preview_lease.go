@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"mime"
@@ -18,10 +19,12 @@ import (
 
 	"xiadown/internal/application/apperrors"
 	"xiadown/internal/application/library/dto"
+	appytdlp "xiadown/internal/application/ytdlp"
 )
 
 const resourceSniffPreviewLeaseTTL = 15 * time.Minute
 const resourceSniffPreviewProxyURLQueryParam = "url"
+const resourceSniffPreviewManifestQueryParam = "manifest_query"
 
 var (
 	resourceSniffHLSDoubleQuotedURIPattern = regexp.MustCompile(`URI="([^"]+)"`)
@@ -29,18 +32,27 @@ var (
 )
 
 type resourceSniffPreviewLease struct {
-	ID          string
-	SessionID   string
-	ResourceID  string
+	ID              string
+	SessionID       string
+	ResourceID      string
+	URL             string
+	PageURL         string
+	Kind            string
+	MimeType        string
+	ContentType     string
+	FileName        string
+	SizeBytes       int64
+	Headers         map[string]string
+	HLSKeyOverrides map[string]resourceSniffHLSKeyOverride
+	ExpiresAt       time.Time
+}
+
+type resourceSniffHLSKeyOverride struct {
 	URL         string
-	PageURL     string
-	Kind        string
-	MimeType    string
-	ContentType string
-	FileName    string
-	SizeBytes   int64
-	Headers     map[string]string
-	ExpiresAt   time.Time
+	Key         []byte
+	Source      string
+	Rule        string
+	NonStandard bool
 }
 
 func (service *LibraryService) PrepareResourceSniffRawPreview(
@@ -131,34 +143,26 @@ func (service *LibraryService) ServeResourceSniffPreview(w http.ResponseWriter, 
 		http.Error(w, "invalid preview target url", http.StatusBadRequest)
 		return
 	}
-
-	outgoing, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, nil)
-	if err != nil {
-		http.Error(w, "invalid preview url", http.StatusBadRequest)
+	if override, ok := service.resourceSniffPreviewHLSKeyOverride(lease.ID, targetURL); ok {
+		serveResourceSniffPreviewHLSKeyOverride(w, r, override)
 		return
 	}
-	applyResourceRequestHeaders(outgoing, lease.Headers)
-	if rangeHeader := strings.TrimSpace(r.Header.Get("Range")); rangeHeader != "" {
-		outgoing.Header.Set("Range", rangeHeader)
-	}
-	if _, ok := findHeader(httpHeaderToStringMap(outgoing.Header), "Accept"); !ok {
-		outgoing.Header.Set("Accept", resourceSniffPreviewAcceptHeader(lease.Kind))
-	}
 
-	resp, err := resourceSniffPreviewHTTPClient(service.ytdlpAuxiliaryHTTPClient()).Do(outgoing)
+	resp, effectiveURL, err := service.fetchResourceSniffPreviewTarget(r.Context(), r.Method, targetURL, r, lease)
 	if err != nil {
 		http.Error(w, "failed to fetch preview resource", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
-	if r.Method != http.MethodHead && resourceSniffPreviewShouldRewriteHLS(lease, targetURL, resp.Header) {
+	if r.Method != http.MethodHead && resourceSniffPreviewShouldRewriteHLS(lease, effectiveURL, resp.Header) {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			http.Error(w, "failed to read preview manifest", http.StatusBadGateway)
 			return
 		}
-		rewritten := []byte(rewriteResourceSniffHLSManifest(string(body), targetURL, r, lease))
+		service.prepareResourceSniffPreviewHLSKeyOverride(r.Context(), lease, effectiveURL, resp.Header.Get("Content-Type"), body)
+		rewritten := []byte(rewriteResourceSniffHLSManifest(string(body), effectiveURL, r, lease))
 		copyResourceSniffPreviewHeaders(w.Header(), resp.Header, lease)
 		w.Header().Del("Content-Length")
 		w.Header().Set("Content-Length", strconv.Itoa(len(rewritten)))
@@ -175,6 +179,47 @@ func (service *LibraryService) ServeResourceSniffPreview(w http.ResponseWriter, 
 	_, _ = io.Copy(w, resp.Body)
 }
 
+func (service *LibraryService) fetchResourceSniffPreviewTarget(ctx context.Context, method string, targetURL string, r *http.Request, lease resourceSniffPreviewLease) (*http.Response, string, error) {
+	resp, err := service.fetchResourceSniffPreviewTargetOnce(ctx, method, targetURL, r, lease)
+	if err == nil && !resourceSniffPreviewShouldRetryWithManifestQuery(resp.StatusCode) {
+		return resp, targetURL, nil
+	}
+	if retryURL := resourceSniffPreviewFallbackTargetURL(targetURL, r); retryURL != "" && retryURL != strings.TrimSpace(targetURL) {
+		retryResp, retryErr := service.fetchResourceSniffPreviewTargetOnce(ctx, method, retryURL, r, lease)
+		if retryErr == nil {
+			if resp != nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+			}
+			return retryResp, retryURL, nil
+		}
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	return resp, targetURL, nil
+}
+
+func (service *LibraryService) fetchResourceSniffPreviewTargetOnce(ctx context.Context, method string, targetURL string, r *http.Request, lease resourceSniffPreviewLease) (*http.Response, error) {
+	outgoing, err := http.NewRequestWithContext(ctx, method, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	applyResourceRequestHeaders(outgoing, lease.Headers)
+	if r != nil {
+		if rangeHeader := strings.TrimSpace(r.Header.Get("Range")); rangeHeader != "" {
+			outgoing.Header.Set("Range", rangeHeader)
+		}
+	}
+	if _, ok := findHeader(httpHeaderToStringMap(outgoing.Header), "Accept"); !ok {
+		outgoing.Header.Set("Accept", resourceSniffPreviewAcceptHeader(lease.Kind))
+	}
+	return resourceSniffPreviewHTTPClient(service.ytdlpAuxiliaryHTTPClient()).Do(outgoing)
+}
+
 func (service *LibraryService) resourceSniffPreviewLease(leaseID string) (resourceSniffPreviewLease, bool) {
 	if service == nil {
 		return resourceSniffPreviewLease{}, false
@@ -188,6 +233,7 @@ func (service *LibraryService) resourceSniffPreviewLease(leaseID string) (resour
 		return resourceSniffPreviewLease{}, false
 	}
 	lease.Headers = cloneStringMap(lease.Headers)
+	lease.HLSKeyOverrides = cloneResourceSniffHLSKeyOverrides(lease.HLSKeyOverrides)
 	return lease, true
 }
 
@@ -201,6 +247,113 @@ func (service *LibraryService) pruneResourceSniffPreviewLeasesLocked(now time.Ti
 		}
 		delete(service.resourcePreviewLeases, id)
 	}
+}
+
+func cloneResourceSniffHLSKeyOverrides(overrides map[string]resourceSniffHLSKeyOverride) map[string]resourceSniffHLSKeyOverride {
+	if len(overrides) == 0 {
+		return nil
+	}
+	result := make(map[string]resourceSniffHLSKeyOverride, len(overrides))
+	for key, override := range overrides {
+		cloned := override
+		cloned.Key = append([]byte(nil), override.Key...)
+		result[key] = cloned
+	}
+	return result
+}
+
+func (service *LibraryService) resourceSniffPreviewHLSKeyOverride(leaseID string, targetURL string) (resourceSniffHLSKeyOverride, bool) {
+	if service == nil {
+		return resourceSniffHLSKeyOverride{}, false
+	}
+	service.resourceSniffMu.Lock()
+	defer service.resourceSniffMu.Unlock()
+	now := service.now()
+	service.pruneResourceSniffPreviewLeasesLocked(now)
+	lease, ok := service.resourcePreviewLeases[strings.TrimSpace(leaseID)]
+	if !ok || len(lease.HLSKeyOverrides) == 0 {
+		return resourceSniffHLSKeyOverride{}, false
+	}
+	override, ok := lease.HLSKeyOverrides[strings.TrimSpace(targetURL)]
+	if !ok || len(override.Key) == 0 {
+		return resourceSniffHLSKeyOverride{}, false
+	}
+	override.Key = append([]byte(nil), override.Key...)
+	return override, true
+}
+
+func (service *LibraryService) setResourceSniffPreviewHLSKeyOverride(leaseID string, override resourceSniffHLSKeyOverride) {
+	targetURL := strings.TrimSpace(override.URL)
+	if service == nil || strings.TrimSpace(leaseID) == "" || targetURL == "" || len(override.Key) == 0 {
+		return
+	}
+	service.resourceSniffMu.Lock()
+	defer service.resourceSniffMu.Unlock()
+	now := service.now()
+	service.pruneResourceSniffPreviewLeasesLocked(now)
+	lease, ok := service.resourcePreviewLeases[strings.TrimSpace(leaseID)]
+	if !ok {
+		return
+	}
+	if lease.HLSKeyOverrides == nil {
+		lease.HLSKeyOverrides = make(map[string]resourceSniffHLSKeyOverride)
+	}
+	normalized := override
+	normalized.URL = targetURL
+	normalized.Key = append([]byte(nil), override.Key...)
+	lease.HLSKeyOverrides[targetURL] = normalized
+	service.resourcePreviewLeases[strings.TrimSpace(leaseID)] = lease
+}
+
+func serveResourceSniffPreviewHLSKeyOverride(w http.ResponseWriter, r *http.Request, override resourceSniffHLSKeyOverride) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(override.Key)))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(override.Key)
+}
+
+func (service *LibraryService) prepareResourceSniffPreviewHLSKeyOverride(ctx context.Context, lease resourceSniffPreviewLease, manifestURL string, contentType string, body []byte) {
+	if strings.TrimSpace(lease.Kind) != "live" || len(body) == 0 {
+		return
+	}
+	preflight := appytdlp.AnalyzeStreamManifest(manifestURL, body, contentType, nil)
+	if preflight.Kind != appytdlp.StreamManifestKindHLS ||
+		preflight.EncryptionType != appytdlp.StreamEncryptionAES128 ||
+		preflight.DRM ||
+		preflight.KeyURICount != 1 ||
+		strings.TrimSpace(preflight.KeyURI) == "" {
+		return
+	}
+	keyProbe := service.probeYTDLPHLSKey(ctx, preflight, body, lease.Headers)
+	if keyProbe == nil {
+		return
+	}
+	preflight = appytdlp.AnalyzeStreamManifest(manifestURL, body, contentType, keyProbe)
+	if preflight.IsUnsupported() ||
+		preflight.KeyProbe == nil ||
+		!preflight.KeyProbe.ManifestKeyOverride ||
+		strings.TrimSpace(preflight.KeyProbe.NormalizedKeyHex) == "" {
+		return
+	}
+	key, err := hex.DecodeString(strings.TrimSpace(preflight.KeyProbe.NormalizedKeyHex))
+	if err != nil || len(key) != 16 {
+		return
+	}
+	targetURL := resourceSniffPreviewReferenceTargetURL(manifestURL, preflight.KeyURI)
+	if strings.TrimSpace(targetURL) == "" {
+		return
+	}
+	service.setResourceSniffPreviewHLSKeyOverride(lease.ID, resourceSniffHLSKeyOverride{
+		URL:         targetURL,
+		Key:         key,
+		Source:      preflight.KeyProbe.NormalizedKeySource,
+		Rule:        preflight.KeyProbe.NormalizedKeyRule,
+		NonStandard: preflight.KeyProbe.NormalizedKeyNonStandard,
+	})
 }
 
 func resourceSniffPreviewLeaseKind(resource dto.ResourceSniffRawResource) string {
@@ -406,16 +559,83 @@ func rewriteResourceSniffHLSURIAttributes(line string, baseURL string, r *http.R
 }
 
 func resourceSniffPreviewProxyURLForReference(reference string, baseURL string, _ *http.Request, _ resourceSniffPreviewLease) string {
-	targetURL, err := resourceSniffResolvePreviewTargetURL(baseURL, reference)
-	if err != nil {
+	targetURL := resourceSniffPreviewReferenceTargetURL(baseURL, reference)
+	if strings.TrimSpace(targetURL) == "" {
 		return reference
 	}
 	values := url.Values{}
 	values.Set(resourceSniffPreviewProxyURLQueryParam, targetURL)
+	if manifestQuery := appytdlp.ManifestRawQuery(baseURL); strings.TrimSpace(manifestQuery) != "" {
+		values.Set(resourceSniffPreviewManifestQueryParam, manifestQuery)
+	}
 	return (&url.URL{
 		Path:     "proxy",
 		RawQuery: values.Encode(),
 	}).String()
+}
+
+func resourceSniffPreviewReferenceTargetURL(baseURL string, reference string) string {
+	targetURL, err := resourceSniffResolvePreviewTargetURL(baseURL, reference)
+	if err != nil {
+		return ""
+	}
+	return targetURL
+}
+
+func resourceSniffPreviewFallbackTargetURL(targetURL string, r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	manifestQuery := strings.TrimSpace(r.URL.Query().Get(resourceSniffPreviewManifestQueryParam))
+	if manifestQuery == "" {
+		return ""
+	}
+	return resourceSniffPreviewApplyRawQuery(targetURL, manifestQuery)
+}
+
+func resourceSniffPreviewApplyRawQuery(targetURL string, rawQuery string) string {
+	manifestQuery := strings.TrimSpace(rawQuery)
+	if strings.TrimSpace(manifestQuery) == "" {
+		return targetURL
+	}
+	parsed, err := url.Parse(strings.TrimSpace(targetURL))
+	if err != nil {
+		return targetURL
+	}
+	if strings.TrimSpace(parsed.RawQuery) == "" {
+		return appytdlp.AppendRawQuery(targetURL, manifestQuery)
+	}
+	existing, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return targetURL
+	}
+	extra, err := url.ParseQuery(manifestQuery)
+	if err != nil {
+		return targetURL
+	}
+	changed := false
+	for key, values := range extra {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		if _, ok := existing[key]; ok {
+			continue
+		}
+		existing[key] = values
+		changed = true
+	}
+	if !changed {
+		return targetURL
+	}
+	parsed.RawQuery = existing.Encode()
+	return parsed.String()
+}
+
+func resourceSniffPreviewShouldRetryWithManifestQuery(statusCode int) bool {
+	return statusCode == http.StatusUnauthorized ||
+		statusCode == http.StatusForbidden ||
+		statusCode == http.StatusNotFound ||
+		statusCode == http.StatusGone
 }
 
 func resourceSniffPreviewAcceptHeader(kind string) string {

@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -603,7 +605,7 @@ func TestRewriteResourceSniffHLSManifestProxiesReferences(t *testing.T) {
 		request,
 		lease,
 	)
-	if !strings.Contains(got, "proxy?url=") {
+	if !strings.Contains(got, "proxy?") || !strings.Contains(got, "url=") {
 		t.Fatalf("expected rewritten manifest to proxy references, got:\n%s", got)
 	}
 	if strings.Contains(got, "/api/sniff/resource-preview/lease-id/proxy") {
@@ -611,6 +613,137 @@ func TestRewriteResourceSniffHLSManifestProxiesReferences(t *testing.T) {
 	}
 	if strings.Contains(got, "\nsegment-1.m4s") || strings.Contains(got, `URI="init.mp4"`) {
 		t.Fatalf("expected relative references to be rewritten, got:\n%s", got)
+	}
+	if !strings.Contains(got, url.QueryEscape("https://cdn.example/live/init.mp4")) {
+		t.Fatalf("expected init map target to keep original URL, got:\n%s", got)
+	}
+	if !strings.Contains(got, url.QueryEscape("https://cdn.example/live/segment-1.m4s?token=2")) {
+		t.Fatalf("expected segment to preserve its own query, got:\n%s", got)
+	}
+	if !strings.Contains(got, resourceSniffPreviewManifestQueryParam+"=auth%3D1") {
+		t.Fatalf("expected manifest query to be carried as a fallback, got:\n%s", got)
+	}
+}
+
+func TestResourceSniffPreviewServesNormalizedHLSKeyOverride(t *testing.T) {
+	t.Parallel()
+
+	keyText := "ba9bf05693b9fa202d922dd43a08f281"
+	segmentBody := encryptHLSProbeFixture(t, []byte(keyText[:16]), make([]byte, 16))
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/stream.m3u8":
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = w.Write([]byte(`#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="/key",IV=0x00000000000000000000000000000000
+#EXTINF:4.0,
+/segment/0
+#EXT-X-ENDLIST
+`))
+		case "/key":
+			if r.URL.Query().Get("sig") != "1" {
+				http.Error(w, "missing query", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write([]byte(keyText))
+		case "/segment/0":
+			if r.URL.Query().Get("sig") != "1" {
+				http.Error(w, "missing query", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(segmentBody)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer origin.Close()
+
+	service := &LibraryService{
+		resourcePreviewLeases: map[string]resourceSniffPreviewLease{
+			"lease-id": {
+				ID:        "lease-id",
+				Kind:      "live",
+				URL:       origin.URL + "/stream.m3u8?sig=1",
+				FileName:  "stream.m3u8",
+				ExpiresAt: time.Now().Add(time.Hour),
+			},
+		},
+		nowFunc: func() time.Time { return time.Now() },
+	}
+
+	manifestRequest := httptest.NewRequest("GET", "/api/sniff/resource-preview/lease-id/stream.m3u8", nil)
+	manifestResponse := httptest.NewRecorder()
+	service.ServeResourceSniffPreview(manifestResponse, manifestRequest)
+
+	if manifestResponse.Code != http.StatusOK {
+		t.Fatalf("expected manifest preview status 200, got %d: %s", manifestResponse.Code, manifestResponse.Body.String())
+	}
+	if got := manifestResponse.Body.String(); !strings.Contains(got, "proxy?") || !strings.Contains(got, "url=") {
+		t.Fatalf("expected HLS references to be proxied, got:\n%s", got)
+	}
+
+	keyRequest := httptest.NewRequest(
+		"GET",
+		"/api/sniff/resource-preview/lease-id/proxy?url="+url.QueryEscape(origin.URL+"/key")+"&manifest_query="+url.QueryEscape("sig=1"),
+		nil,
+	)
+	keyResponse := httptest.NewRecorder()
+	service.ServeResourceSniffPreview(keyResponse, keyRequest)
+
+	if keyResponse.Code != http.StatusOK {
+		t.Fatalf("expected key preview status 200, got %d: %s", keyResponse.Code, keyResponse.Body.String())
+	}
+	if got := keyResponse.Body.String(); got != keyText[:16] {
+		t.Fatalf("expected preview key to use normalized first 16 bytes, got %q", got)
+	}
+}
+
+func TestResourceSniffPreviewRetriesProxyTargetWithManifestQuery(t *testing.T) {
+	t.Parallel()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/segment/0":
+			if r.URL.Query().Get("sig") != "1" {
+				http.Error(w, "missing query", http.StatusForbidden)
+				return
+			}
+			w.Header().Set("Content-Type", "video/mp2t")
+			_, _ = w.Write([]byte("segment"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer origin.Close()
+
+	service := &LibraryService{
+		resourcePreviewLeases: map[string]resourceSniffPreviewLease{
+			"lease-id": {
+				ID:        "lease-id",
+				Kind:      "live",
+				URL:       origin.URL + "/stream.m3u8?sig=1",
+				FileName:  "stream.m3u8",
+				ExpiresAt: time.Now().Add(time.Hour),
+			},
+		},
+		nowFunc: func() time.Time { return time.Now() },
+	}
+	request := httptest.NewRequest(
+		"GET",
+		"/api/sniff/resource-preview/lease-id/proxy?url="+url.QueryEscape(origin.URL+"/segment/0")+"&manifest_query="+url.QueryEscape("sig=1"),
+		nil,
+	)
+	response := httptest.NewRecorder()
+
+	service.ServeResourceSniffPreview(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected retry with manifest query to succeed, got %d: %s", response.Code, response.Body.String())
+	}
+	if got := response.Body.String(); got != "segment" {
+		t.Fatalf("expected segment body, got %q", got)
 	}
 }
 

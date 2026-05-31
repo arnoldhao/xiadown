@@ -110,66 +110,68 @@ func (repo *SQLiteSettingsRepository) Get(ctx context.Context) (settings.Setting
 			TestSuccess:    testSuccess,
 			TestMessage:    stringOrEmpty(row.ProxyTestMessage),
 		},
-		MenuBarVisibility:     &menuBarVisibility,
-		AutoStart:             &autoStart,
-		MinimizeToTrayOnStart: &minimizeToTrayOnStart,
-		SyncedLyricsEnabled:   &syncedLyricsEnabled,
-		RomanizedLyrics:       &romanizedLyrics,
-		PinyinLyrics:          &pinyinLyrics,
-		ResourceSniffScope:    resourceSniffScope,
-		ResourceSniffMinBytes: clampResourceSniffMinBytes(row.ResourceSniffMinBytes),
-		ResourceSniffRetain:   clampResourceSniffRetain(row.ResourceSniffRetain),
-		AppearanceConfig:      parseAnyMap(row.AppearanceConfigJSON),
+		MenuBarVisibility:        &menuBarVisibility,
+		AutoStart:                &autoStart,
+		MinimizeToTrayOnStart:    &minimizeToTrayOnStart,
+		SyncedLyricsEnabled:      &syncedLyricsEnabled,
+		RomanizedLyrics:          &romanizedLyrics,
+		PinyinLyrics:             &pinyinLyrics,
+		ResourceSniffScope:       resourceSniffScope,
+		ResourceSniffMinBytes:    clampResourceSniffMinBytes(row.ResourceSniffMinBytes),
+		ResourceSniffRetain:      clampResourceSniffRetain(row.ResourceSniffRetain),
+		YTDLPConcurrentFragments: clampYTDLPConcurrentFragments(row.YTDLPConcurrentFragments),
+		AppearanceConfig:         parseAnyMap(row.AppearanceConfigJSON),
 	})
 }
 
 func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings.Settings) error {
 	proxy := current.Proxy()
 	row := settingsRow{
-		ID:                    1,
-		Appearance:            current.Appearance().String(),
-		FontFamily:            nullString(current.FontFamily()),
-		FontSize:              nullInt64(current.FontSize()),
-		ThemeColor:            nullString(current.ThemeColor()),
-		ColorScheme:           nullString(current.ColorScheme().String()),
-		Language:              nullString(current.Language().String()),
-		DefaultBrowser:        nullString(current.DefaultBrowser()),
-		DownloadDirectory:     nullString(current.DownloadDirectory()),
-		LogLevel:              nullString(current.LogLevel().String()),
-		LogMaxSize:            nullInt64(current.LogMaxSizeMB()),
-		LogBackups:            nullInt64(current.LogMaxBackups()),
-		LogAge:                nullInt64(current.LogMaxAgeDays()),
-		LogCompress:           nullBool(current.LogCompress()),
-		MenuBarVisibility:     nullString(current.MenuBarVisibility().String()),
-		AutoStart:             nullBool(current.AutoStart()),
-		MinimizeToTrayOnStart: nullBool(current.MinimizeToTrayOnStart()),
-		SyncedLyricsEnabled:   nullBool(current.SyncedLyricsEnabled()),
-		RomanizedLyrics:       nullBool(current.RomanizedLyrics()),
-		PinyinLyrics:          nullBool(current.PinyinLyrics()),
-		ResourceSniffScope:    nullString(current.ResourceSniffScope().String()),
-		ResourceSniffMinBytes: nullInt64(current.ResourceSniffMinBytes()),
-		ResourceSniffRetain:   nullInt64(current.ResourceSniffRetain()),
-		AppearanceConfigJSON:  jsonAnyMap(current.AppearanceConfig()),
-		MainX:                 nullInt64(current.MainBounds().X()),
-		MainY:                 nullInt64(current.MainBounds().Y()),
-		MainWidth:             nullInt64(current.MainBounds().Width()),
-		MainHeight:            nullInt64(current.MainBounds().Height()),
-		SettingsX:             nullInt64(current.SettingsBounds().X()),
-		SettingsY:             nullInt64(current.SettingsBounds().Y()),
-		SettingsWidth:         nullInt64(current.SettingsBounds().Width()),
-		SettingsHeight:        nullInt64(current.SettingsBounds().Height()),
-		Version:               current.Version(),
-		ProxyMode:             nullString(proxy.Mode().String()),
-		ProxyScheme:           nullString(proxy.Scheme().String()),
-		ProxyHost:             nullString(proxy.Host()),
-		ProxyPort:             nullInt64(proxy.Port()),
-		ProxyUsername:         nullString(proxy.Username()),
-		ProxyPassword:         nullString(proxy.Password()),
-		ProxyNoProxy:          jsonStringSlice(proxy.NoProxy()),
-		ProxyTimeoutSeconds:   nullInt64(int(proxy.Timeout().Seconds())),
-		ProxyTestedAt:         nullTime(proxy.LastTestedAt()),
-		ProxyTestSuccess:      nullBool(proxy.TestSuccess()),
-		ProxyTestMessage:      nullString(proxy.TestMessage()),
+		ID:                       1,
+		Appearance:               current.Appearance().String(),
+		FontFamily:               nullString(current.FontFamily()),
+		FontSize:                 nullInt64(current.FontSize()),
+		ThemeColor:               nullString(current.ThemeColor()),
+		ColorScheme:              nullString(current.ColorScheme().String()),
+		Language:                 nullString(current.Language().String()),
+		DefaultBrowser:           nullString(current.DefaultBrowser()),
+		DownloadDirectory:        nullString(current.DownloadDirectory()),
+		LogLevel:                 nullString(current.LogLevel().String()),
+		LogMaxSize:               nullInt64(current.LogMaxSizeMB()),
+		LogBackups:               nullInt64(current.LogMaxBackups()),
+		LogAge:                   nullInt64(current.LogMaxAgeDays()),
+		LogCompress:              nullBool(current.LogCompress()),
+		MenuBarVisibility:        nullString(current.MenuBarVisibility().String()),
+		AutoStart:                nullBool(current.AutoStart()),
+		MinimizeToTrayOnStart:    nullBool(current.MinimizeToTrayOnStart()),
+		SyncedLyricsEnabled:      nullBool(current.SyncedLyricsEnabled()),
+		RomanizedLyrics:          nullBool(current.RomanizedLyrics()),
+		PinyinLyrics:             nullBool(current.PinyinLyrics()),
+		ResourceSniffScope:       nullString(current.ResourceSniffScope().String()),
+		ResourceSniffMinBytes:    nullInt64(current.ResourceSniffMinBytes()),
+		ResourceSniffRetain:      nullInt64(current.ResourceSniffRetain()),
+		YTDLPConcurrentFragments: nullInt64(current.YTDLPConcurrentFragments()),
+		AppearanceConfigJSON:     jsonAnyMap(current.AppearanceConfig()),
+		MainX:                    nullInt64(current.MainBounds().X()),
+		MainY:                    nullInt64(current.MainBounds().Y()),
+		MainWidth:                nullInt64(current.MainBounds().Width()),
+		MainHeight:               nullInt64(current.MainBounds().Height()),
+		SettingsX:                nullInt64(current.SettingsBounds().X()),
+		SettingsY:                nullInt64(current.SettingsBounds().Y()),
+		SettingsWidth:            nullInt64(current.SettingsBounds().Width()),
+		SettingsHeight:           nullInt64(current.SettingsBounds().Height()),
+		Version:                  current.Version(),
+		ProxyMode:                nullString(proxy.Mode().String()),
+		ProxyScheme:              nullString(proxy.Scheme().String()),
+		ProxyHost:                nullString(proxy.Host()),
+		ProxyPort:                nullInt64(proxy.Port()),
+		ProxyUsername:            nullString(proxy.Username()),
+		ProxyPassword:            nullString(proxy.Password()),
+		ProxyNoProxy:             jsonStringSlice(proxy.NoProxy()),
+		ProxyTimeoutSeconds:      nullInt64(int(proxy.Timeout().Seconds())),
+		ProxyTestedAt:            nullTime(proxy.LastTestedAt()),
+		ProxyTestSuccess:         nullBool(proxy.TestSuccess()),
+		ProxyTestMessage:         nullString(proxy.TestMessage()),
 	}
 
 	_, err := repo.db.NewInsert().Model(&row).
@@ -196,6 +198,7 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		Set("resource_sniff_scope = EXCLUDED.resource_sniff_scope").
 		Set("resource_sniff_min_bytes = EXCLUDED.resource_sniff_min_bytes").
 		Set("resource_sniff_retain = EXCLUDED.resource_sniff_retain").
+		Set("ytdlp_concurrent_fragments = EXCLUDED.ytdlp_concurrent_fragments").
 		Set("appearance_config_json = EXCLUDED.appearance_config_json").
 		Set("main_x = EXCLUDED.main_x").
 		Set("main_y = EXCLUDED.main_y").
@@ -324,6 +327,20 @@ func clampResourceSniffRetain(value sql.NullInt64) int {
 	}
 	if val > settings.MaxResourceSniffRetain {
 		return settings.MaxResourceSniffRetain
+	}
+	return val
+}
+
+func clampYTDLPConcurrentFragments(value sql.NullInt64) int {
+	if !value.Valid {
+		return settings.DefaultYTDLPConcurrentFragments
+	}
+	val := int(value.Int64)
+	if val <= 0 {
+		return settings.DefaultYTDLPConcurrentFragments
+	}
+	if val > settings.MaxYTDLPConcurrentFragments {
+		return settings.MaxYTDLPConcurrentFragments
 	}
 	return val
 }

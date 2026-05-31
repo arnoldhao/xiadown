@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	resource_sniff_scope TEXT,
 	resource_sniff_min_bytes INTEGER,
 	resource_sniff_retain INTEGER,
+	ytdlp_concurrent_fragments INTEGER,
 		agent_model_provider_id TEXT,
 	agent_model_name TEXT,
 	chat_stream_enabled BOOLEAN,
@@ -1030,6 +1031,11 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			table:     "settings",
 			column:    "resource_sniff_retain",
 			statement: "ALTER TABLE settings ADD COLUMN resource_sniff_retain INTEGER",
+		},
+		{
+			table:     "settings",
+			column:    "ytdlp_concurrent_fragments",
+			statement: "ALTER TABLE settings ADD COLUMN ytdlp_concurrent_fragments INTEGER",
 		},
 		{
 			table:     "connectors",

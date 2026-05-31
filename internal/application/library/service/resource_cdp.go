@@ -1756,7 +1756,13 @@ func normalizeResourceDownloadHeaders(headers map[string]string, rawURL string) 
 		result[trimmedKey] = trimmedValue
 	}
 	if _, ok := findHeader(result, "User-Agent"); !ok {
-		result["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+		result["User-Agent"] = resourceDefaultUserAgent
+	}
+	if _, ok := findHeader(result, "Accept"); !ok {
+		result["Accept"] = resourceDefaultAccept
+	}
+	if _, ok := findHeader(result, "Accept-Language"); !ok {
+		result["Accept-Language"] = resourceDefaultAcceptLanguage
 	}
 	if _, ok := findHeader(result, "Referer"); !ok {
 		if parsed, err := url.Parse(strings.TrimSpace(rawURL)); err == nil && parsed.Scheme != "" && parsed.Host != "" {

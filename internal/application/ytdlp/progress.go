@@ -197,6 +197,7 @@ func DetectStage(line string) (string, int, int, bool) {
 		return "", 0, 0, false
 	case strings.Contains(lower, "downloading webpage"),
 		strings.Contains(lower, "downloading api json"),
+		strings.Contains(lower, "downloading dash manifest"),
 		strings.Contains(lower, "downloading m3u8 information"),
 		strings.Contains(lower, "downloading m3u8 info"),
 		strings.Contains(lower, "downloading m3u8"):

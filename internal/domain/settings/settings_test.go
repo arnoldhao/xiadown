@@ -63,18 +63,22 @@ func TestResourceSniffSettingsDefaultsAndValidation(t *testing.T) {
 	if current.ResourceSniffRetain() != DefaultResourceSniffRetain {
 		t.Fatalf("expected default resource sniff retain limit, got %d", current.ResourceSniffRetain())
 	}
+	if current.YTDLPConcurrentFragments() != DefaultYTDLPConcurrentFragments {
+		t.Fatalf("expected default yt-dlp concurrent fragments, got %d", current.YTDLPConcurrentFragments())
+	}
 
 	updated, err := NewSettings(SettingsParams{
-		Appearance:            AppearanceAuto.String(),
-		ColorScheme:           DefaultColorScheme.String(),
-		Language:              LanguageEnglish.String(),
-		LogLevel:              DefaultLogLevel.String(),
-		MainBounds:            DefaultSettings().MainBounds(),
-		SettingsBounds:        DefaultSettings().SettingsBounds(),
-		MenuBarVisibility:     stringPtr(DefaultMenuBarVisibility.String()),
-		ResourceSniffScope:    ResourceSniffScopeAll.String(),
-		ResourceSniffMinBytes: 64 * 1024,
-		ResourceSniffRetain:   2000,
+		Appearance:               AppearanceAuto.String(),
+		ColorScheme:              DefaultColorScheme.String(),
+		Language:                 LanguageEnglish.String(),
+		LogLevel:                 DefaultLogLevel.String(),
+		MainBounds:               DefaultSettings().MainBounds(),
+		SettingsBounds:           DefaultSettings().SettingsBounds(),
+		MenuBarVisibility:        stringPtr(DefaultMenuBarVisibility.String()),
+		ResourceSniffScope:       ResourceSniffScopeAll.String(),
+		ResourceSniffMinBytes:    64 * 1024,
+		ResourceSniffRetain:      2000,
+		YTDLPConcurrentFragments: 8,
 	})
 	if err != nil {
 		t.Fatalf("NewSettings() error = %v", err)
@@ -88,9 +92,24 @@ func TestResourceSniffSettingsDefaultsAndValidation(t *testing.T) {
 	if updated.ResourceSniffRetain() != 2000 {
 		t.Fatalf("expected custom resource sniff retain limit, got %d", updated.ResourceSniffRetain())
 	}
+	if updated.YTDLPConcurrentFragments() != 8 {
+		t.Fatalf("expected custom yt-dlp concurrent fragments, got %d", updated.YTDLPConcurrentFragments())
+	}
 
 	if _, err := ParseResourceSniffScope("everything"); err == nil {
 		t.Fatal("expected invalid resource sniff scope to fail")
+	}
+	if _, err := NewSettings(SettingsParams{
+		Appearance:               AppearanceAuto.String(),
+		ColorScheme:              DefaultColorScheme.String(),
+		Language:                 LanguageEnglish.String(),
+		LogLevel:                 DefaultLogLevel.String(),
+		MainBounds:               DefaultSettings().MainBounds(),
+		SettingsBounds:           DefaultSettings().SettingsBounds(),
+		MenuBarVisibility:        stringPtr(DefaultMenuBarVisibility.String()),
+		YTDLPConcurrentFragments: MaxYTDLPConcurrentFragments + 1,
+	}); err == nil {
+		t.Fatal("expected invalid yt-dlp concurrent fragments to fail")
 	}
 }
 

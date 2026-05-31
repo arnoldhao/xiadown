@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"math"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -94,6 +96,21 @@ func (reporter *ytdlpProgressReporter) updateStage(stage string, current int, to
 	reporter.persistProgress(currentPtr, totalPtr, nil, normalizeProgressDetail(stage, line), "")
 }
 
+func (reporter *ytdlpProgressReporter) updateDetail(stage string, message string) {
+	if reporter == nil {
+		return
+	}
+	stageCode := ytdlpStageCode(stage)
+	if stageCode == "" {
+		stageCode = reporter.stageCode
+	}
+	if stageCode == "" {
+		return
+	}
+	reporter.stageCode = stageCode
+	reporter.persistProgress(nil, nil, nil, strings.TrimSpace(message), "")
+}
+
 func (reporter *ytdlpProgressReporter) emitJSONProgress(progress appytdlp.JSONProgress) {
 	if reporter == nil {
 		return
@@ -119,14 +136,14 @@ func (reporter *ytdlpProgressReporter) emitJSONProgress(progress appytdlp.JSONPr
 		if !reporter.shouldPublish(*percent) {
 			return
 		}
-		reporter.persistProgress(progress.DownloadedBytes, totalBytes, percent, buildProgressMessage("", progress.Speed), progress.Speed)
+		reporter.persistProgress(progress.DownloadedBytes, totalBytes, percent, buildProgressMessage(progressFragmentMessage(progress), progress.Speed), progress.Speed)
 		return
 	}
 
 	if !reporter.lastPublish.IsZero() && time.Since(reporter.lastPublish) < 500*time.Millisecond {
 		return
 	}
-	reporter.persistProgress(progress.DownloadedBytes, totalBytes, nil, buildProgressMessage("", progress.Speed), progress.Speed)
+	reporter.persistProgress(progress.DownloadedBytes, totalBytes, nil, buildProgressMessage(progressFragmentMessage(progress), progress.Speed), progress.Speed)
 }
 
 func (reporter *ytdlpProgressReporter) Finalize() {
@@ -414,6 +431,9 @@ func progressTotal(progress *library.OperationProgress) int64 {
 }
 
 func normalizeProgressDetail(stage string, line string) string {
+	if detail := normalizeYTDLPProgressLineDetail(line); detail != "" {
+		return detail
+	}
 	stageText := normalizeProgressStageText(stage)
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
@@ -426,6 +446,31 @@ func normalizeProgressDetail(stage string, line string) string {
 		return stageText
 	}
 	return trimmed
+}
+
+func normalizeYTDLPProgressLineDetail(line string) string {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	switch {
+	case strings.Contains(lower, "downloading webpage"):
+		return progressText("library.progressDetail.ytdlpDownloadingWebpage")
+	case strings.Contains(lower, "downloading api json"):
+		return progressText("library.progressDetail.ytdlpDownloadingApi")
+	case strings.Contains(lower, "downloading m3u8 information"),
+		strings.Contains(lower, "downloading m3u8 info"),
+		strings.Contains(lower, "downloading m3u8"):
+		return progressText("library.progressDetail.ytdlpDownloadingStreamInfo")
+	case strings.Contains(lower, "downloading dash manifest"):
+		return progressText("library.progressDetail.ytdlpDownloadingDashManifest")
+	case strings.Contains(lower, "merging formats"):
+		return progressText("library.progressDetail.muxingFormats")
+	case strings.Contains(lower, "post-process"),
+		strings.Contains(lower, "postprocessing"),
+		strings.Contains(lower, "fixup"),
+		strings.Contains(lower, "remuxing"):
+		return progressText("library.progressDetail.postProcessingOutput")
+	default:
+		return ""
+	}
 }
 
 func normalizeProgressStageText(stage string) string {
@@ -450,9 +495,23 @@ func buildProgressMessage(detail string, speed string) string {
 	return strings.Join(parts, " · ")
 }
 
+func progressFragmentMessage(progress appytdlp.JSONProgress) string {
+	if progress.FragmentIndex == nil || progress.FragmentCount == nil || *progress.FragmentIndex <= 0 || *progress.FragmentCount <= 0 {
+		return ""
+	}
+	return progressTextParams("library.progressDetail.downloadingFragments", map[string]string{
+		"current": intString(*progress.FragmentIndex),
+		"total":   intString(*progress.FragmentCount),
+	})
+}
+
 func floatPtr(value float64) *float64 {
 	copyValue := value
 	return &copyValue
+}
+
+func intString(value int) string {
+	return strconv.Itoa(value)
 }
 
 func progressText(key string) string {
@@ -461,6 +520,26 @@ func progressText(key string) string {
 		return ""
 	}
 	return progressI18nPrefix + key
+}
+
+func progressTextParams(key string, params map[string]string) string {
+	base := progressText(key)
+	if base == "" || len(params) == 0 {
+		return base
+	}
+	values := url.Values{}
+	for paramKey, paramValue := range params {
+		trimmedKey := strings.TrimSpace(paramKey)
+		if trimmedKey == "" {
+			continue
+		}
+		values.Set(trimmedKey, strings.TrimSpace(paramValue))
+	}
+	encoded := values.Encode()
+	if encoded == "" {
+		return base
+	}
+	return base + "?" + encoded
 }
 
 func progressStageLocaleKey(code string) string {
@@ -508,6 +587,8 @@ func ytdlpStageCode(stage string) string {
 	switch strings.ToLower(strings.TrimSpace(stage)) {
 	case "starting":
 		return "starting"
+	case "preparing":
+		return "preparing"
 	case "downloading":
 		return "downloading"
 	case "fetching metadata":

@@ -19,6 +19,7 @@ import (
 	appytdlp "xiadown/internal/application/ytdlp"
 	"xiadown/internal/domain/dependencies"
 	"xiadown/internal/domain/library"
+	domainsettings "xiadown/internal/domain/settings"
 	ydlpinfr "xiadown/internal/infrastructure/ytdlp"
 )
 
@@ -313,7 +314,7 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 	operation.Progress = &library.OperationProgress{
 		Stage:     progressText("library.progress.preparing"),
 		UpdatedAt: started.Format(time.RFC3339),
-		Message:   progressText("library.progressDetail.preparingDownload"),
+		Message:   progressText("library.progressDetail.checkingDownloadTool"),
 	}
 	history.Status = string(operation.Status)
 	history.DisplayName = operation.DisplayName
@@ -322,11 +323,13 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 		return
 	}
 
+	reporter := newYTDLPProgressReporter(service, &operation)
 	execPath, err := service.resolveTool(ctx, dependencies.DependencyYTDLP)
 	if err != nil {
 		service.failYTDLPOperation(ctx, &operation, &history, err, ytdlpErrorCodeDependencyMissing, "")
 		return
 	}
+	reporter.updateDetail("Preparing", progressText("library.progressDetail.preparingOutput"))
 	outputTemplate, subtitleTemplate, _, err := service.prepareYTDLPOutput(ctx)
 	if err != nil {
 		service.failYTDLPOperation(ctx, &operation, &history, err, resolveYTDLPErrorCode("", err), "")
@@ -336,6 +339,7 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 	cookiesPath := strings.TrimSpace(request.CookiesPath)
 	cleanupCookies := func() {}
 	if request.UseConnector && strings.TrimSpace(request.ConnectorID) != "" && service.connectors != nil {
+		reporter.updateDetail("Preparing", progressText("library.progressDetail.exportingCookies"))
 		exported, exportErr := service.connectors.ExportConnectorCookies(ctx, request.ConnectorID, connectorsservice.CookiesExportTXT)
 		if exportErr != nil {
 			service.failYTDLPOperation(ctx, &operation, &history, exportErr, resolveYTDLPErrorCode("", exportErr), "")
@@ -349,16 +353,29 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 	logPolicy := resolveYTDLPLogPolicy(request)
 	persistLogsOnFailure := logPolicy != ytdlpLogPolicyNever
 	persistLogsOnSuccess := logPolicy == ytdlpLogPolicyAlways
-	reporter := newYTDLPProgressReporter(service, &operation)
 	thumbnailPrefetch := &ytdlpThumbnailPrefetch{}
+	downloadHeaders := normalizeResourceDownloadHeaders(headers, request.URL)
+	streamPreflight := service.preflightYTDLPStream(ctx, request.URL, downloadHeaders, reporter, operation.ID)
+	if streamPreflight.IsUnsupported() {
+		metadataPayload := appendYTDLPStreamPreflightMetadata(nil, streamPreflight)
+		errorCode := ytdlpErrorCodeUnsupportedStreamEncryption
+		if streamPreflight.DRM {
+			errorCode = ytdlpErrorCodeDRMProtected
+		}
+		service.failYTDLPOperation(ctx, &operation, &history, fmt.Errorf("%s", streamPreflight.UnsupportedReason), errorCode, buildOperationOutputPayload("", nil, nil, nil, metadataPayload, appytdlp.LogSnapshot{}))
+		return
+	}
+	reporter.updateDetail("Starting", progressText("library.progressDetail.startingYtdlp"))
 	command, err := appytdlp.BuildCommand(ctx, appytdlp.CommandOptions{
-		ExecPath:       execPath,
-		Tools:          service.tools,
-		Request:        request,
-		OutputTemplate: outputTemplate,
-		Headers:        normalizeResourceDownloadHeaders(headers, request.URL),
-		CookiesPath:    cookiesPath,
-		ProxyURL:       service.resolveYTDLPProxy(request.URL),
+		ExecPath:            execPath,
+		Tools:               service.tools,
+		Request:             request,
+		OutputTemplate:      outputTemplate,
+		Headers:             downloadHeaders,
+		CookiesPath:         cookiesPath,
+		ProxyURL:            service.resolveYTDLPProxy(request.URL),
+		ConcurrentFragments: service.resolveYTDLPConcurrentFragments(ctx),
+		StreamStrategy:      streamPreflight.Strategy,
 	})
 	if err != nil {
 		service.failYTDLPOperation(ctx, &operation, &history, err, resolveYTDLPErrorCode("", err), "")
@@ -395,10 +412,18 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 		logSnapshot := service.persistYTDLPLogs(ctx, operation, result, persistLogsOnFailure, persistLogsOnSuccess, runErr)
 		origin := appytdlp.Origin{Source: strings.TrimSpace(request.Source), RunID: strings.TrimSpace(request.RunID), Caller: strings.TrimSpace(request.Caller)}
 		metadataPayload := appytdlp.BuildMetadataPayload(result, logSnapshot, command.Cmd.Env, command.SanitizedArgs, origin)
+		metadataPayload = appendYTDLPStreamPreflightMetadata(metadataPayload, streamPreflight)
 		service.applyYTDLPMetadata(&operation, &request, metadataPayload)
-		_, _, afterMovePaths, outputPaths := appytdlp.ResolveOutputPath(outputTemplate, result)
+		outputPath, _, afterMovePaths, outputPaths := appytdlp.ResolveOutputPath(outputTemplate, result)
+		outputPath = resolveExistingOutputPath(outputPath, outputPaths)
 		detail := buildYTDLPFailureDetailFromLogs(result.Output, result.Stderr, result.Warnings, 2000)
 		errorCode := resolveYTDLPErrorCode(detail, runErr)
+		if invalidDetail := service.describeInvalidYTDLPOutput(ctx, outputPath); invalidDetail != "" {
+			detail = buildYTDLPFailureDetail(detail, invalidDetail, 2000)
+			if errorCode == "" || errorCode == ytdlpErrorCodeExitCode {
+				errorCode = ytdlpErrorCodeOutputInvalid
+			}
+		}
 		if retryID, ok := service.scheduleAutoRetryYTDLP(context.Background(), operation, request, detail); ok {
 			detail = buildYTDLPFailureDetail(detail, fmt.Sprintf("auto-retry scheduled: %s", retryID), 2000)
 		}
@@ -417,6 +442,7 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 		logSnapshot := service.persistYTDLPLogs(ctx, operation, result, persistLogsOnFailure, persistLogsOnSuccess, nil)
 		origin := appytdlp.Origin{Source: strings.TrimSpace(request.Source), RunID: strings.TrimSpace(request.RunID), Caller: strings.TrimSpace(request.Caller)}
 		metadataPayload := appytdlp.BuildMetadataPayload(result, logSnapshot, command.Cmd.Env, command.SanitizedArgs, origin)
+		metadataPayload = appendYTDLPStreamPreflightMetadata(metadataPayload, streamPreflight)
 		service.applyYTDLPMetadata(&operation, &request, metadataPayload)
 		detail := buildYTDLPFailureDetailFromLogs(result.Output, result.Stderr, result.Warnings, 2000)
 		errorCode := resolveYTDLPErrorCode(detail, nil)
@@ -436,8 +462,9 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 		logSnapshot := service.persistYTDLPLogs(ctx, operation, result, persistLogsOnFailure, persistLogsOnSuccess, nil)
 		origin := appytdlp.Origin{Source: strings.TrimSpace(request.Source), RunID: strings.TrimSpace(request.RunID), Caller: strings.TrimSpace(request.Caller)}
 		metadataPayload := appytdlp.BuildMetadataPayload(result, logSnapshot, command.Cmd.Env, command.SanitizedArgs, origin)
+		metadataPayload = appendYTDLPStreamPreflightMetadata(metadataPayload, streamPreflight)
 		service.applyYTDLPMetadata(&operation, &request, metadataPayload)
-		service.failYTDLPOperation(ctx, &operation, &history, err, resolveYTDLPErrorCode("", err), buildOperationOutputPayload(outputPath, afterMovePaths, outputPaths, nil, metadataPayload, logSnapshot))
+		service.failYTDLPOperation(ctx, &operation, &history, err, resolveYTDLPErrorCode(err.Error(), err), buildOperationOutputPayload(outputPath, afterMovePaths, outputPaths, nil, metadataPayload, logSnapshot))
 		return
 	}
 
@@ -466,6 +493,7 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 	logSnapshot := service.persistYTDLPLogs(ctx, operation, result, persistLogsOnFailure, persistLogsOnSuccess, nil)
 	origin := appytdlp.Origin{Source: strings.TrimSpace(request.Source), RunID: strings.TrimSpace(request.RunID), Caller: strings.TrimSpace(request.Caller)}
 	metadataPayload := appytdlp.BuildMetadataPayload(result, logSnapshot, command.Cmd.Env, command.SanitizedArgs, origin)
+	metadataPayload = appendYTDLPStreamPreflightMetadata(metadataPayload, streamPreflight)
 	if len(auxiliaryWarnings) > 0 {
 		if metadataPayload == nil {
 			metadataPayload = map[string]any{}
@@ -528,6 +556,24 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 		service.syncListenLocalTrackFromFile(ctx, fileItem, nil)
 		service.publishFileUpdate(service.mustBuildFileDTO(ctx, fileItem))
 	}
+}
+
+func (service *LibraryService) resolveYTDLPConcurrentFragments(ctx context.Context) int {
+	if service == nil || service.settings == nil {
+		return domainsettings.DefaultYTDLPConcurrentFragments
+	}
+	current, err := service.settings.GetSettings(ctx)
+	if err != nil {
+		return domainsettings.DefaultYTDLPConcurrentFragments
+	}
+	value := current.YTDLPConcurrentFragments
+	if value <= 0 {
+		return domainsettings.DefaultYTDLPConcurrentFragments
+	}
+	if value > domainsettings.MaxYTDLPConcurrentFragments {
+		return domainsettings.MaxYTDLPConcurrentFragments
+	}
+	return value
 }
 
 func (service *LibraryService) persistOperationAndHistory(ctx context.Context, operation *library.LibraryOperation, history *library.HistoryRecord) error {
@@ -628,9 +674,29 @@ func (service *LibraryService) executeYTDLPCommand(
 }
 
 func (service *LibraryService) persistYTDLPLogs(ctx context.Context, operation library.LibraryOperation, result ydlpinfr.RunResult, persistOnFailure bool, persistOnSuccess bool, runErr error) appytdlp.LogSnapshot {
-	// yt-dlp stdout/stderr stays in memory for progress, metadata, and error summaries.
-	// Avoid persisting full command logs so downloads do not create extra log folders.
-	return appytdlp.LogSnapshot{}
+	if (runErr != nil && !persistOnFailure) || (runErr == nil && !persistOnSuccess) {
+		return appytdlp.LogSnapshot{}
+	}
+	entries := ydlpinfr.SortLogs(result.Logs)
+	if len(entries) == 0 {
+		entries = syntheticYTDLPLogEntries(service.now(), result)
+	}
+	if len(entries) == 0 {
+		return appytdlp.LogSnapshot{}
+	}
+	downloadDirectory, err := service.resolveDownloadDirectory(ctx)
+	if err != nil || strings.TrimSpace(downloadDirectory) == "" {
+		return appytdlp.LogSnapshot{}
+	}
+	logPath, err := ydlpinfr.BuildLogPath(downloadDirectory, operation.ID)
+	if err != nil {
+		return appytdlp.LogSnapshot{}
+	}
+	sizeBytes, err := ydlpinfr.WriteLogFile(logPath, entries)
+	if err != nil || sizeBytes <= 0 {
+		return appytdlp.LogSnapshot{}
+	}
+	return appytdlp.LogSnapshot{Path: logPath, SizeBytes: sizeBytes, LineCount: len(entries)}
 }
 
 func (service *LibraryService) prepareYTDLPOutput(ctx context.Context) (string, string, string, error) {
@@ -1000,6 +1066,34 @@ func pathExists(path string) bool {
 	}
 	_, err := os.Stat(trimmed)
 	return err == nil
+}
+
+func (service *LibraryService) describeInvalidYTDLPOutput(ctx context.Context, outputPath string) string {
+	trimmed := strings.TrimSpace(outputPath)
+	if trimmed == "" || !pathExists(trimmed) {
+		return ""
+	}
+	if _, err := service.probeRequiredMedia(ctx, trimmed); err != nil {
+		return fmt.Sprintf("output file is not readable: %s", err)
+	}
+	return ""
+}
+
+func syntheticYTDLPLogEntries(timestamp time.Time, result ydlpinfr.RunResult) []ydlpinfr.LogEntry {
+	entries := make([]ydlpinfr.LogEntry, 0, 8)
+	appendLines := func(pipe string, value string) {
+		for _, line := range strings.Split(strings.TrimSpace(value), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			entries = append(entries, ydlpinfr.LogEntry{Timestamp: timestamp, Pipe: pipe, Line: trimmed})
+		}
+	}
+	appendLines("stderr", result.Stderr)
+	appendLines("stdout", result.Output)
+	appendLines("warning", result.Warnings)
+	return entries
 }
 
 func buildOperationOutputPayload(mainPath string, afterMovePaths []string, outputPaths []string, outputFiles []library.OperationOutputFile, metadataPayload map[string]any, logSnapshot appytdlp.LogSnapshot) string {

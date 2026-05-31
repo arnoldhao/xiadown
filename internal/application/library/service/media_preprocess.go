@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -232,9 +233,15 @@ func (service *LibraryService) ffprobeLocalMedia(ctx context.Context, path strin
 		strings.TrimSpace(path),
 	)
 	configureProcessGroup(command)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
 	output, err := command.Output()
 	if err != nil {
-		return mediaProbe{}, err
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		return mediaProbe{}, fmt.Errorf("ffprobe failed: %s", detail)
 	}
 	return parseFFprobeMediaProbe(output, path)
 }

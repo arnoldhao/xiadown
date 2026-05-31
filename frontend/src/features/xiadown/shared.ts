@@ -98,6 +98,50 @@ function buildText(language: SupportedLanguage) {
       },
       progressDetail: {
         preparingDownload: t("library.progressDetail.preparingDownload", language),
+        checkingDownloadTool: t(
+          "library.progressDetail.checkingDownloadTool",
+          language,
+        ),
+        preparingOutput: t("library.progressDetail.preparingOutput", language),
+        exportingCookies: t("library.progressDetail.exportingCookies", language),
+        checkingStreamManifest: t(
+          "library.progressDetail.checkingStreamManifest",
+          language,
+        ),
+        checkingMediaPlaylist: t(
+          "library.progressDetail.checkingMediaPlaylist",
+          language,
+        ),
+        checkingStreamKey: t(
+          "library.progressDetail.checkingStreamKey",
+          language,
+        ),
+        startingYtdlp: t("library.progressDetail.startingYtdlp", language),
+        ytdlpDownloadingWebpage: t(
+          "library.progressDetail.ytdlpDownloadingWebpage",
+          language,
+        ),
+        ytdlpDownloadingApi: t(
+          "library.progressDetail.ytdlpDownloadingApi",
+          language,
+        ),
+        ytdlpDownloadingStreamInfo: t(
+          "library.progressDetail.ytdlpDownloadingStreamInfo",
+          language,
+        ),
+        ytdlpDownloadingDashManifest: t(
+          "library.progressDetail.ytdlpDownloadingDashManifest",
+          language,
+        ),
+        downloadingFragments: t(
+          "library.progressDetail.downloadingFragments",
+          language,
+        ),
+        muxingFormats: t("library.progressDetail.muxingFormats", language),
+        postProcessingOutput: t(
+          "library.progressDetail.postProcessingOutput",
+          language,
+        ),
         preparingFfmpegTranscode: t(
           "library.progressDetail.preparingFfmpegTranscode",
           language,
@@ -633,6 +677,11 @@ function buildText(language: SupportedLanguage) {
         "xiadown.completed.previewExitFullscreen",
         language,
       ),
+      previewLoading: t("xiadown.completed.previewLoading", language),
+      previewLoadingStream: t(
+        "xiadown.completed.previewLoadingStream",
+        language,
+      ),
       previewPlaybackStalled: t(
         "xiadown.completed.previewPlaybackStalled",
         language,
@@ -692,6 +741,8 @@ function buildText(language: SupportedLanguage) {
       pinyinLyrics: t("xiadown.settings.pinyinLyrics", language),
       macOSOnly: t("xiadown.settings.macOSOnly", language),
       downloadDirectory: t("xiadown.settings.downloadDirectory", language),
+      ytdlpConcurrentFragments: t("xiadown.settings.ytdlpConcurrentFragments", language),
+      ytdlpConcurrentFragmentsHelp: t("xiadown.settings.ytdlpConcurrentFragmentsHelp", language),
       defaultBrowser: t("xiadown.settings.defaultBrowser", language),
       refreshBrowsers: t("xiadown.settings.refreshBrowsers", language),
       resourceSniffScope: t("xiadown.settings.resourceSniffScope", language),

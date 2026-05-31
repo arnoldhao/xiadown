@@ -65,6 +65,7 @@ export interface Settings {
   resourceSniffScope: ResourceSniffScope;
   resourceSniffMinBytes: number;
   resourceSniffRetain: number;
+  ytdlpConcurrentFragments: number;
   mainBounds: WindowBounds;
   settingsBounds: WindowBounds;
   proxy: Proxy;
@@ -95,6 +96,7 @@ export interface UpdateSettingsRequest {
   resourceSniffScope?: ResourceSniffScope;
   resourceSniffMinBytes?: number;
   resourceSniffRetain?: number;
+  ytdlpConcurrentFragments?: number;
   mainBounds?: WindowBounds;
   settingsBounds?: WindowBounds;
   proxy?: Proxy;

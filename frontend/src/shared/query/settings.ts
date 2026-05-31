@@ -160,6 +160,7 @@ function toSettings(raw: Partial<Settings>): Settings {
     resourceSniffScope: normalizeResourceSniffScope(raw.resourceSniffScope),
     resourceSniffMinBytes: normalizeResourceSniffMinBytes(raw.resourceSniffMinBytes),
     resourceSniffRetain: normalizeResourceSniffRetain(raw.resourceSniffRetain),
+    ytdlpConcurrentFragments: normalizeYTDLPConcurrentFragments(raw.ytdlpConcurrentFragments),
     mainBounds: { ...(raw.mainBounds ?? { x: 0, y: 0, width: 0, height: 0 }) },
     settingsBounds: { ...(raw.settingsBounds ?? { x: 0, y: 0, width: 0, height: 0 }) },
     proxy: toProxySettings(BindingsProxy.createFrom(raw.proxy ?? {})),
@@ -269,6 +270,13 @@ function normalizeResourceSniffRetain(value?: number) {
     return 1000;
   }
   return Math.min(Math.max(Math.round(value), 100), 10000);
+}
+
+function normalizeYTDLPConcurrentFragments(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 1;
+  }
+  return Math.min(Math.max(Math.round(value), 1), 16);
 }
 
 function normalizeProxyMode(value: string): ProxySettings["mode"] {
