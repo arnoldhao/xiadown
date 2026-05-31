@@ -1,5 +1,5 @@
 import { System } from "@wailsio/runtime";
-import { CheckCircle2, CheckSquare, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
+import { CheckCircle2, CheckSquare, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, FileVideo, ImageIcon, Languages, LayoutGrid, Link2, Loader2, Music2, PencilLine, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 import * as React from "react";
 
 import { WindowControls } from "@/components/layout/WindowControls";
@@ -7,7 +7,7 @@ import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import type { LibraryDTO, OperationListItemDTO } from "@/shared/contracts/library";
 import type { Pet } from "@/shared/contracts/pets";
-import { useDeleteFiles, useDeleteOperations } from "@/shared/query/library";
+import { useDeleteFiles, useDeleteOperations, useRenameFile, useRenameOperation } from "@/shared/query/library";
 import { Button } from "@/shared/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/shared/ui/dialog";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
@@ -21,7 +21,7 @@ import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripP
 import { CompletedFileDetailContent,CompletedFileDetailHeader,CompletedTaskDetailContent,CompletedTaskDetailHeader,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
-import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileCoverURL,resolveCompletedOperationCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileCoverURL,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileExplicitCoverURL,resolveCompletedOperationExplicitCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupKind,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTaskCoverURL,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
 import type { CompletedContextMenuTarget,CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedTaskEntry,CompletedViewMode } from "@/app/main/types";
 
@@ -31,6 +31,64 @@ const COMPLETED_FILTER_MENU_CHECKBOX_CLASS =
   "app-completed-filter-menu-checkbox";
 const COMPLETED_FILTER_MENU_ICON_CLASS =
   "app-completed-filter-menu-icon flex h-4 w-4 shrink-0 items-center justify-center";
+
+type RenameDisplayNameTarget = {
+  kind: "task" | "file";
+  id: string;
+  name: string;
+};
+
+const COMPLETED_RENAME_DISPLAY_NAME_MAX_LENGTH = 160;
+const COMPLETED_RENAME_INVALID_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001f\u007f]/;
+const COMPLETED_RENAME_RESERVED_NAMES = new Set([
+  "CON",
+  "PRN",
+  "AUX",
+  "NUL",
+  "COM1",
+  "COM2",
+  "COM3",
+  "COM4",
+  "COM5",
+  "COM6",
+  "COM7",
+  "COM8",
+  "COM9",
+  "LPT1",
+  "LPT2",
+  "LPT3",
+  "LPT4",
+  "LPT5",
+  "LPT6",
+  "LPT7",
+  "LPT8",
+  "LPT9",
+]);
+
+function validateCompletedRenameDisplayName(
+  name: string,
+  text: ReturnType<typeof getXiaText>,
+) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return text.completed.renameNameRequired;
+  }
+  if ([...trimmed].length > COMPLETED_RENAME_DISPLAY_NAME_MAX_LENGTH) {
+    return text.completed.renameNameTooLong;
+  }
+  if (
+    COMPLETED_RENAME_INVALID_NAME_PATTERN.test(trimmed) ||
+    trimmed.replace(/\./g, "") === "" ||
+    trimmed.endsWith(".")
+  ) {
+    return text.completed.renameNameInvalid;
+  }
+  const reservedCandidate = trimmed.split(".")[0]?.toUpperCase() ?? "";
+  if (COMPLETED_RENAME_RESERVED_NAMES.has(reservedCandidate)) {
+    return text.completed.renameNameInvalid;
+  }
+  return "";
+}
 
 function resolveCompletedLibrarySourceFileLabel(
   file: LibraryDTO["files"][number],
@@ -202,6 +260,8 @@ export function CompletedPage(props: {
   const isWindows = System.IsWindows();
   const deleteOperations = useDeleteOperations();
   const deleteFiles = useDeleteFiles();
+  const renameOperation = useRenameOperation();
+  const renameFile = useRenameFile();
   const [viewMode, setViewMode] = React.useState<CompletedViewMode>("tasks");
   const [query, setQuery] = React.useState("");
   const [searchFocused, setSearchFocused] = React.useState(false);
@@ -215,6 +275,10 @@ export function CompletedPage(props: {
   const [deleteConfirmTarget, setDeleteConfirmTarget] =
     React.useState<CompletedDeleteConfirmation | null>(null);
   const [deleteConfirmError, setDeleteConfirmError] = React.useState("");
+  const [renameTarget, setRenameTarget] =
+    React.useState<RenameDisplayNameTarget | null>(null);
+  const [renameDraft, setRenameDraft] = React.useState("");
+  const [renameError, setRenameError] = React.useState("");
   const [selectedTaskIds, setSelectedTaskIds] = React.useState<string[]>([]);
   const [selectedFileIds, setSelectedFileIds] = React.useState<string[]>([]);
   const [previewPresentationModeActive, setPreviewPresentationModeActive] =
@@ -234,6 +298,7 @@ export function CompletedPage(props: {
     COMPLETED_FILE_PAGE_SIZE_OPTIONS[0],
   );
   const searchInputRef = React.useRef<HTMLInputElement | null>(null);
+  const renameInputRef = React.useRef<HTMLInputElement | null>(null);
   const detailPaneRef = React.useRef<HTMLElement | null>(null);
   const searchHasText = query.length > 0;
   const trimmedQuery = query.trim().toLowerCase();
@@ -247,6 +312,14 @@ export function CompletedPage(props: {
     const map = new Map<string, string>();
     props.terminalOperations.forEach((operation) => {
       map.set(operation.operationId, resolveOperationUpdatedAt(operation));
+    });
+    return map;
+  }, [props.terminalOperations]);
+
+  const operationNameById = React.useMemo(() => {
+    const map = new Map<string, string>();
+    props.terminalOperations.forEach((operation) => {
+      map.set(operation.operationId, operation.name.trim());
     });
     return map;
   }, [props.terminalOperations]);
@@ -268,8 +341,8 @@ export function CompletedPage(props: {
             const label = resolveCompletedLibrarySourceFileLabel(file);
             const title =
               firstCompletedText(
-                file.metadata.title,
                 stripPathExtension(label),
+                file.metadata.title,
               ) || label;
             const latestOperationId = file.latestOperationId?.trim() ?? "";
             const originOperationId = file.origin.operationId?.trim() ?? "";
@@ -284,10 +357,22 @@ export function CompletedPage(props: {
             const operationUpdatedAt =
               operationUpdatedAtById.get(latestOperationId) ||
               operationUpdatedAtById.get(originOperationId);
-            return {
+            const operationName =
+              firstCompletedText(
+                operationNameById.get(originOperationId),
+                operationNameById.get(latestOperationId),
+              ) || "";
+            const explicitCoverURL = resolveCompletedLibraryFileExplicitCoverURL(
+              props.httpBaseURL,
+              library,
+              file,
+              coverLookup,
+            );
+            const entry: CompletedFileEntry = {
               id: file.id,
               libraryId: library.id,
               libraryName: library.name || library.id,
+              operationName,
               operationId: originOperationId || latestOperationId,
               latestOperationId,
               originOperationId,
@@ -318,18 +403,18 @@ export function CompletedPage(props: {
               previewURL: localPath
                 ? buildAssetPreviewURL(props.httpBaseURL, localPath)
                 : "",
-              coverURL: resolveCompletedLibraryFileCoverURL(
-                props.httpBaseURL,
-                library,
-                file,
-                coverLookup,
-              ),
+              coverURL: "",
               canDelete: true,
               media: file.media ?? null,
             };
+            entry.coverURL = resolveCompletedFileCoverURL(
+              entry,
+              explicitCoverURL,
+            );
+            return entry;
           });
       }),
-    [operationUpdatedAtById, props.httpBaseURL, props.libraries],
+    [operationNameById, operationUpdatedAtById, props.httpBaseURL, props.libraries],
   );
 
   const allFiles = React.useMemo<CompletedFileEntry[]>(() => {
@@ -339,7 +424,7 @@ export function CompletedPage(props: {
     });
     props.terminalOperations.forEach((operation) => {
       const library = librariesById.get(operation.libraryId) ?? null;
-      const operationCoverURL = resolveCompletedOperationCoverURL(
+      const operationCoverURL = resolveCompletedOperationExplicitCoverURL(
         props.httpBaseURL,
         operation,
         library,
@@ -352,11 +437,12 @@ export function CompletedPage(props: {
         const format = (output.format || output.kind || "file")
           .toString()
           .toUpperCase();
-        map.set(output.fileId, {
+        const entry: CompletedFileEntry = {
           id: output.fileId,
           libraryId: operation.libraryId,
           libraryName:
             operation.libraryName || library?.name || operation.libraryId,
+          operationName: operation.name,
           operationId: operation.operationId,
           latestOperationId: operation.operationId,
           originOperationId: operation.operationId,
@@ -375,10 +461,15 @@ export function CompletedPage(props: {
           sizeBytes: output.sizeBytes ?? 0,
           updatedAt: resolveOperationUpdatedAt(operation),
           previewURL: "",
-          coverURL: operationCoverURL,
+          coverURL: "",
           canDelete: false,
           media: null,
-        });
+        };
+        entry.coverURL = resolveCompletedFileCoverURL(
+          entry,
+          operationCoverURL,
+        );
+        map.set(output.fileId, entry);
       });
     });
 
@@ -414,7 +505,7 @@ export function CompletedPage(props: {
       [...props.terminalOperations]
         .map((operation) => {
           const library = librariesById.get(operation.libraryId) ?? null;
-          const operationCoverURL = resolveCompletedOperationCoverURL(
+          const operationCoverURL = resolveCompletedOperationExplicitCoverURL(
             props.httpBaseURL,
             operation,
             library,
@@ -437,11 +528,12 @@ export function CompletedPage(props: {
               return;
             }
             const label = `${operation.name} ${index + 1}`;
-            filesMap.set(output.fileId, {
+            const entry: CompletedFileEntry = {
               id: output.fileId,
               libraryId: operation.libraryId,
               libraryName:
                 operation.libraryName || library?.name || operation.libraryId,
+              operationName: operation.name,
               operationId: operation.operationId,
               latestOperationId: operation.operationId,
               originOperationId: operation.operationId,
@@ -465,10 +557,15 @@ export function CompletedPage(props: {
               sizeBytes: output.sizeBytes ?? 0,
               updatedAt: resolveOperationUpdatedAt(operation),
               previewURL: "",
-              coverURL: operationCoverURL,
+              coverURL: "",
               canDelete: false,
               media: null,
-            });
+            };
+            entry.coverURL = resolveCompletedFileCoverURL(
+              entry,
+              operationCoverURL,
+            );
+            filesMap.set(output.fileId, entry);
           });
 
           const files = [...filesMap.values()];
@@ -498,7 +595,7 @@ export function CompletedPage(props: {
           return {
             operation,
             library,
-            coverURL: operationCoverURL,
+            coverURL: resolveCompletedTaskCoverURL(files, operationCoverURL),
             files,
             sourceFileId: transcodeSource.id,
             sourceFileName: transcodeSource.name,
@@ -615,7 +712,7 @@ export function CompletedPage(props: {
         if (!trimmedQuery) {
           return true;
         }
-        return [file.name, file.sourceFileName, file.libraryName, file.kind, file.format, file.path]
+        return [file.name, file.operationName, file.sourceFileName, file.libraryName, file.kind, file.format, file.path]
           .join(" ")
           .toLowerCase()
           .includes(trimmedQuery);
@@ -660,6 +757,17 @@ export function CompletedPage(props: {
     taskStatusFilters,
     viewMode,
   ]);
+
+  React.useEffect(() => {
+    if (!renameTarget) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [renameTarget]);
 
   React.useEffect(() => {
     setTaskPage((current) => Math.min(current, taskPageCount));
@@ -817,12 +925,25 @@ export function CompletedPage(props: {
       : contextMenuTarget?.kind === "file"
         ? Boolean(contextMenuFile?.canDelete) && !deleteFiles.isPending
         : false;
+  const renamePending = renameOperation.isPending || renameFile.isPending;
+  const canRenameContextMenuTarget =
+    contextMenuTarget?.kind === "task"
+      ? Boolean(contextMenuTask) && !renamePending
+      : contextMenuTarget?.kind === "file"
+        ? Boolean(contextMenuFile?.canDelete) && !renamePending
+        : false;
   const isDeleteConfirmPending =
     deleteConfirmTarget?.kind === "tasks"
       ? deleteOperations.isPending
       : deleteConfirmTarget?.kind === "files"
         ? deleteFiles.isPending
         : false;
+  const trimmedRenameDraft = renameDraft.trim();
+  const canSaveRename =
+    Boolean(renameTarget) &&
+    trimmedRenameDraft.length > 0 &&
+    trimmedRenameDraft !== (renameTarget?.name.trim() ?? "") &&
+    !renamePending;
 
   const toggleFileSelection = (fileId: string) => {
     setSelectedFileIds((current) =>
@@ -924,6 +1045,86 @@ export function CompletedPage(props: {
       setSelectedFileId(contextMenuFile.id);
     }
     setContextMenuTarget(null);
+  };
+
+  const openRenameTaskDialog = (task: CompletedTaskEntry) => {
+    const name = task.operation.name.trim() || task.operation.operationId;
+    setContextMenuTarget(null);
+    setRenameError("");
+    setRenameDraft(name);
+    setRenameTarget({
+      kind: "task",
+      id: task.operation.operationId,
+      name,
+    });
+  };
+
+  const openRenameFileDialog = (file: CompletedFileEntry) => {
+    const name = file.name.trim() || file.id;
+    setContextMenuTarget(null);
+    setRenameError("");
+    setRenameDraft(name);
+    setRenameTarget({
+      kind: "file",
+      id: file.id,
+      name,
+    });
+  };
+
+  const handleRenameContextMenuTarget = () => {
+    if (!canRenameContextMenuTarget) {
+      return;
+    }
+    if (contextMenuTarget?.kind === "task" && contextMenuTask) {
+      openRenameTaskDialog(contextMenuTask);
+    } else if (contextMenuTarget?.kind === "file" && contextMenuFile) {
+      openRenameFileDialog(contextMenuFile);
+    }
+  };
+
+  const closeRenameDialog = () => {
+    if (renamePending) {
+      return;
+    }
+    setRenameTarget(null);
+    setRenameDraft("");
+    setRenameError("");
+  };
+
+  const executeRename = async () => {
+    const target = renameTarget;
+    const name = trimmedRenameDraft;
+    if (!target || renamePending) {
+      return;
+    }
+    const validationError = validateCompletedRenameDisplayName(name, props.text);
+    if (validationError) {
+      setRenameError(validationError);
+      return;
+    }
+    if (name === target.name.trim()) {
+      return;
+    }
+    setRenameError("");
+    try {
+      if (target.kind === "task") {
+        await renameOperation.mutateAsync({
+          operationId: target.id,
+          name,
+        });
+      } else {
+        await renameFile.mutateAsync({
+          fileId: target.id,
+          name,
+        });
+      }
+      setRenameTarget(null);
+      setRenameDraft("");
+    } catch (error) {
+      setRenameError(
+        resolveUnknownErrorMessage(error, props.text.common.unknown),
+      );
+    }
   };
 
   const handleDeleteContextMenuTarget = () => {
@@ -1074,6 +1275,20 @@ export function CompletedPage(props: {
             </DropdownMenuItem>
             <DropdownMenuItem
               className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
+              disabled={!canRenameContextMenuTarget}
+              onSelect={handleRenameContextMenuTarget}
+            >
+              <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
+                <PencilLine className="h-4 w-4 text-muted-foreground" />
+              </div>
+              <span className="truncate font-medium text-muted-foreground">
+                {contextMenuTarget?.kind === "file"
+                  ? props.text.completed.renameFile
+                  : props.text.completed.renameTask}
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
               disabled={!canDeleteContextMenuTarget}
               onSelect={() => void handleDeleteContextMenuTarget()}
             >
@@ -1158,6 +1373,87 @@ export function CompletedPage(props: {
       </DialogContent>
     </Dialog>
   );
+
+  const renderRenameDialog = () => {
+    const isFileRename = renameTarget?.kind === "file";
+    return (
+      <Dialog
+        open={Boolean(renameTarget)}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeRenameDialog();
+          }
+        }}
+      >
+        <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(26rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_auto_auto] gap-3 overflow-hidden">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="truncate pr-6 text-left">
+              {isFileRename
+                ? props.text.completed.renameFileTitle
+                : props.text.completed.renameTaskTitle}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="grid min-w-0 gap-2">
+            <label
+              htmlFor="completed-rename-name"
+              className="text-xs font-medium text-muted-foreground"
+            >
+              {isFileRename
+                ? props.text.completed.renameFileNameLabel
+                : props.text.completed.renameTaskNameLabel}
+            </label>
+            <Input
+              id="completed-rename-name"
+              ref={renameInputRef}
+              value={renameDraft}
+              placeholder={
+                isFileRename
+                  ? props.text.completed.renameFileNamePlaceholder
+                  : props.text.completed.renameTaskNamePlaceholder
+              }
+              disabled={renamePending}
+              onChange={(event) => {
+                setRenameDraft(event.target.value);
+                if (renameError) {
+                  setRenameError("");
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void executeRename();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeRenameDialog();
+                }
+              }}
+            />
+            {renameError ? (
+              <div
+                className="app-dream-status-message overflow-hidden break-words px-3 py-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+                data-intent="danger"
+              >
+                {renameError}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="app-dialog-footer flex flex-nowrap items-center justify-between gap-2">
+            <DialogClose asChild>
+              <Button variant="outline" disabled={renamePending}>
+                {props.text.actions.cancelDialog}
+              </Button>
+            </DialogClose>
+            <Button disabled={!canSaveRename} onClick={() => void executeRename()}>
+              {renamePending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {props.text.actions.save}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  };
 
   const renderFilterDropdownContent = () => {
     const filterLabel =
@@ -1547,6 +1843,8 @@ export function CompletedPage(props: {
             fallbackIcon={<ContentHeaderIcon className="h-5 w-5" />}
             selectedPreviewFileId={selectedPreviewFileId}
             onSelectedPreviewFileIdChange={setSelectedPreviewFileId}
+            onRenameTask={openRenameTaskDialog}
+            renameTaskDisabled={renamePending}
           />
         ) : viewMode === "files" && selectedFile ? (
           <CompletedFileDetailHeader
@@ -1555,6 +1853,8 @@ export function CompletedPage(props: {
             coverURL={detailCoverURL}
             title={contentTitle}
             fallbackIcon={<ContentHeaderIcon className="h-5 w-5" />}
+            onRenameFile={selectedFile.canDelete ? openRenameFileDialog : undefined}
+            renameFileDisabled={renamePending}
           />
         ) : null}
         <div className="min-h-0 flex-1 overflow-hidden">{detailContent}</div>
@@ -1839,11 +2139,13 @@ export function CompletedPage(props: {
                         : previewKind === "subtitle"
                           ? Languages
                           : Link2;
-                const transcodeSourceLabel =
+                const fileTaskLabel =
+                  file.operationName ||
                   formatCompletedTranscodedFromLabel(
                     props.text,
                     file.sourceFileName,
-                  );
+                  ) ||
+                  file.libraryName;
 
                 return (
                   <button
@@ -1898,7 +2200,7 @@ export function CompletedPage(props: {
                         {file.name}
                       </div>
                       <div className="app-completed-file-subtitle mt-0.5 truncate text-xs leading-4">
-                        {transcodeSourceLabel || file.libraryName}
+                        {fileTaskLabel}
                       </div>
                     </div>
                     <div className="app-completed-file-meta flex shrink-0 items-center gap-2 text-xs">
@@ -2002,6 +2304,7 @@ export function CompletedPage(props: {
       </div>
 
       {renderItemContextMenu()}
+      {renderRenameDialog()}
       {renderDeleteConfirmationDialog()}
     </div>
   );

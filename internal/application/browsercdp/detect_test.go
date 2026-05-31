@@ -113,6 +113,33 @@ func TestChooseCandidateUsesPreferredBrowserWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestStartReturnsNoSupportedBrowserErrorWhenNoCandidateAvailable(t *testing.T) {
+	originalScan := detectCandidatesScan
+	detectCandidatesScan = func() []Candidate {
+		return []Candidate{
+			{
+				ID:        BrowserChrome,
+				Label:     "Chrome",
+				Available: false,
+				Error:     "browser executable not found",
+			},
+		}
+	}
+	resetDetectCandidatesCache()
+	t.Cleanup(func() {
+		detectCandidatesScan = originalScan
+		resetDetectCandidatesCache()
+	})
+
+	runtime, err := Start(context.Background(), LaunchOptions{})
+	if runtime != nil {
+		t.Fatal("expected no runtime to be started")
+	}
+	if !errors.Is(err, ErrNoSupportedBrowser) {
+		t.Fatalf("expected ErrNoSupportedBrowser, got %v", err)
+	}
+}
+
 func TestWaitForCDPHonorsCancelledContext(t *testing.T) {
 	t.Parallel()
 

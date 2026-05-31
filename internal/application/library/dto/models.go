@@ -393,6 +393,16 @@ type GetOperationRequest struct {
 	OperationID string `json:"operationId"`
 }
 
+type RenameOperationRequest struct {
+	OperationID string `json:"operationId"`
+	Name        string `json:"name"`
+}
+
+type RenameFileRequest struct {
+	FileID string `json:"fileId"`
+	Name   string `json:"name"`
+}
+
 type CancelOperationRequest struct {
 	OperationID string `json:"operationId"`
 }

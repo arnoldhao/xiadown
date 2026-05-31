@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleSlash, Clock3, Copy, FileCog, FolderOpen, Loader2, RotateCcw, XCircle } from "lucide-react";
+import { CheckCircle2, CircleSlash, Clock3, Copy, FileCog, FolderOpen, Loader2, PencilLine, RotateCcw, XCircle } from "lucide-react";
 import * as React from "react";
 
 import { MediaPreviewDialog, MediaPreviewSurface } from "@/app/media";
@@ -35,6 +35,7 @@ const TASK_DETAIL_TAB_KINDS: CompletedPreviewGroupKind[] = [
 ];
 
 type TaskDTOInfoRow = {
+  key?: string;
   label: string;
   value: string;
   valueTooltip?: string;
@@ -162,6 +163,7 @@ function buildTaskDTOInfoRows(
   const failureReason = errorMessage || errorCode || text.common.unknown;
   return [
     {
+      key: "name",
       label: labels.name,
       value: formatTaskDTOValue(operation.name),
       always: true,
@@ -686,10 +688,12 @@ function buildFileDetailInfoRows(
   const labels = text.completed.taskDataFields;
   const infoLabel = resolveCompletedFileDetailInfo(file, text).join(" / ");
   const sourceLabel =
+    file.operationName ||
     formatCompletedTranscodedFromLabel(text, file.sourceFileName) ||
     file.libraryName;
   return [
     {
+      key: "name",
       label: labels.name,
       value: formatTaskDTOValue(file.name),
       always: true,
@@ -822,6 +826,9 @@ function CompletedDetailInfoDialog(props: {
   title: string;
   description: string;
   rows: TaskDTOInfoRow[];
+  onRenameName?: () => void;
+  renameNameDisabled?: boolean;
+  renameLabel?: string;
 }) {
   const handleCopyValue = React.useCallback(
     async (value: string) => {
@@ -867,6 +874,10 @@ function CompletedDetailInfoDialog(props: {
             <DialogListCardContent>
               {props.rows.map((row, index) => {
                 const copyValue = row.copyValue;
+                const canRenameName =
+                  row.key === "name" && Boolean(props.onRenameName);
+                const renameLabel =
+                  props.renameLabel ?? props.text.completed.renameTask;
                 return (
                   <div
                     key={`${row.label}-${index}`}
@@ -917,6 +928,26 @@ function CompletedDetailInfoDialog(props: {
                           </TooltipTrigger>
                           <TooltipContent side="top" align="center" sideOffset={6}>
                             {props.text.completed.copyDownloadUrl}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                      {canRenameName ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild openOnFocus={false}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="compactIcon"
+                              className="app-completed-clipboard-action !h-6 !w-6 shrink-0"
+                              aria-label={renameLabel}
+                              disabled={props.renameNameDisabled}
+                              onClick={props.onRenameName}
+                            >
+                              <PencilLine className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" align="center" sideOffset={6}>
+                            {renameLabel}
                           </TooltipContent>
                         </Tooltip>
                       ) : null}
@@ -1069,10 +1100,13 @@ export function CompletedFileDetailHeaderMeta(props: {
     props.text,
     props.file.sourceFileName,
   );
-  const sourceLabel = transcodeSourceLabel || props.file.libraryName;
-  const sourceTooltipLabel = transcodeSourceLabel
-    ? props.text.completed.transcodedFrom
-    : props.text.completed.source;
+  const sourceLabel =
+    props.file.operationName || transcodeSourceLabel || props.file.libraryName;
+  const sourceTooltipLabel = props.file.operationName
+    ? props.text.views.tasks
+    : transcodeSourceLabel
+      ? props.text.completed.transcodedFrom
+      : props.text.completed.source;
   const updatedLabel = props.file.updatedAt
     ? formatRelativeTime(props.file.updatedAt)
     : props.text.common.unknown;
@@ -1210,6 +1244,8 @@ export function CompletedTaskDetailHeader(props: {
   fallbackIcon: React.ReactNode;
   selectedPreviewFileId: string;
   onSelectedPreviewFileIdChange: (fileId: string) => void;
+  onRenameTask?: (task: CompletedTaskEntry) => void;
+  renameTaskDisabled?: boolean;
 }) {
   const [taskInfoDialogOpen, setTaskInfoDialogOpen] = React.useState(false);
   const taskDTOInfoRows = React.useMemo(
@@ -1222,6 +1258,10 @@ export function CompletedTaskDetailHeader(props: {
     [props.task.operation, props.task.sourceFileName, props.text],
   );
   const openTaskInfoDialog = () => setTaskInfoDialogOpen(true);
+  const openRenameTaskDialog = () => {
+    setTaskInfoDialogOpen(false);
+    props.onRenameTask?.(props.task);
+  };
 
   return (
     <>
@@ -1255,31 +1295,53 @@ export function CompletedTaskDetailHeader(props: {
             </TooltipContent>
           </Tooltip>
           <div className="min-w-0 flex-1">
-            <div className="app-completed-detail-title-shell relative">
-              <div
-                className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
-                aria-hidden="true"
-              >
-                {props.title}
-              </div>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
-                    aria-label={props.title}
-                    onClick={openTaskInfoDialog}
-                  />
-                </TooltipTrigger>
-                <TooltipContent
-                  side="top"
-                  align="start"
-                  multiline
-                  className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+            <div className="flex min-w-0 items-start gap-1.5">
+              <div className="app-completed-detail-title-shell relative min-w-0 flex-1">
+                <div
+                  className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+                  aria-hidden="true"
                 >
                   {props.title}
-                </TooltipContent>
-              </Tooltip>
+                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
+                      aria-label={props.title}
+                      onClick={openTaskInfoDialog}
+                    />
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    align="start"
+                    multiline
+                    className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+                  >
+                    {props.title}
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              {props.onRenameTask ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="app-completed-detail-inline-action !h-6 !w-6 shrink-0 p-0"
+                      aria-label={props.text.completed.renameTask}
+                      disabled={props.renameTaskDisabled}
+                      onClick={() => props.onRenameTask?.(props.task)}
+                    >
+                      <PencilLine className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {props.text.completed.renameTask}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
             </div>
             <CompletedTaskDetailHeaderMeta
               text={props.text}
@@ -1302,6 +1364,11 @@ export function CompletedTaskDetailHeader(props: {
         title={props.text.completed.taskDtoTitle}
         description={props.text.completed.taskDtoDescription}
         rows={taskDTOInfoRows}
+        onRenameName={
+          props.onRenameTask ? openRenameTaskDialog : undefined
+        }
+        renameNameDisabled={props.renameTaskDisabled}
+        renameLabel={props.text.completed.renameTask}
       />
     </>
   );
@@ -1313,6 +1380,8 @@ export function CompletedFileDetailHeader(props: {
   coverURL: string;
   title: string;
   fallbackIcon: React.ReactNode;
+  onRenameFile?: (file: CompletedFileEntry) => void;
+  renameFileDisabled?: boolean;
 }) {
   const [fileInfoDialogOpen, setFileInfoDialogOpen] = React.useState(false);
   const fileInfoRows = React.useMemo(
@@ -1320,6 +1389,10 @@ export function CompletedFileDetailHeader(props: {
     [props.file, props.text],
   );
   const openFileInfoDialog = () => setFileInfoDialogOpen(true);
+  const openRenameFileDialog = () => {
+    setFileInfoDialogOpen(false);
+    props.onRenameFile?.(props.file);
+  };
 
   return (
     <>
@@ -1352,31 +1425,53 @@ export function CompletedFileDetailHeader(props: {
           </TooltipContent>
         </Tooltip>
         <div className="min-w-0 flex-1">
-          <div className="app-completed-detail-title-shell relative">
-            <div
-              className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
-              aria-hidden="true"
-            >
-              {props.title}
-            </div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
-                  aria-label={props.title}
-                  onClick={openFileInfoDialog}
-                />
-              </TooltipTrigger>
-              <TooltipContent
-                side="top"
-                align="start"
-                multiline
-                className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+          <div className="flex min-w-0 items-start gap-1.5">
+            <div className="app-completed-detail-title-shell relative min-w-0 flex-1">
+              <div
+                className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+                aria-hidden="true"
               >
                 {props.title}
-              </TooltipContent>
-            </Tooltip>
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
+                    aria-label={props.title}
+                    onClick={openFileInfoDialog}
+                  />
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="start"
+                  multiline
+                  className="app-completed-detail-value-tooltip !max-w-[min(42rem,calc(100vw-1rem))] !px-2.5 !py-1.5"
+                >
+                  {props.title}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            {props.onRenameFile ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="app-completed-detail-inline-action !h-6 !w-6 shrink-0 p-0"
+                    aria-label={props.text.completed.renameFile}
+                    disabled={props.renameFileDisabled}
+                    onClick={() => props.onRenameFile?.(props.file)}
+                  >
+                    <PencilLine className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {props.text.completed.renameFile}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
           </div>
           <CompletedFileDetailHeaderMeta
             text={props.text}
@@ -1392,6 +1487,9 @@ export function CompletedFileDetailHeader(props: {
         title={props.text.completed.fileDetail}
         description={props.text.completed.fileDetail}
         rows={fileInfoRows}
+        onRenameName={props.onRenameFile ? openRenameFileDialog : undefined}
+        renameNameDisabled={props.renameFileDisabled}
+        renameLabel={props.text.completed.renameFile}
       />
     </>
   );

@@ -384,6 +384,7 @@ function buildText(language: SupportedLanguage) {
       downloadableOnly: t("xiadown.sniffDesk.downloadableOnly", language),
       emptySessions: t("xiadown.sniffDesk.emptySessions", language),
       emptyResources: t("xiadown.sniffDesk.emptyResources", language),
+      emptyFilteredResources: t("xiadown.sniffDesk.emptyFilteredResources", language),
       loading: t("xiadown.sniffDesk.loading", language),
       currentPage: t("xiadown.sniffDesk.currentPage", language),
       tabCount: t("xiadown.sniffDesk.tabCount", language),
@@ -454,6 +455,7 @@ function buildText(language: SupportedLanguage) {
         browserClosed: t("xiadown.sniffDesk.errors.browserClosed", language),
         browserClosing: t("xiadown.sniffDesk.errors.browserClosing", language),
         tabUnavailable: t("xiadown.sniffDesk.errors.tabUnavailable", language),
+        browserUnavailable: t("xiadown.sniffDesk.errors.browserUnavailable", language),
         browserLaunchFailed: t("xiadown.sniffDesk.errors.browserLaunchFailed", language),
         resolveFailed: t("xiadown.sniffDesk.errors.resolveFailed", language),
       },
@@ -565,6 +567,38 @@ function buildText(language: SupportedLanguage) {
       copyDownloadUrl: t("xiadown.completed.copyDownloadUrl", language),
       downloadUrlCopied: t("xiadown.completed.downloadUrlCopied", language),
       copyFailed: t("xiadown.completed.copyFailed", language),
+      renameTask: t("xiadown.completed.renameTask", language),
+      renameTaskTitle: t("xiadown.completed.renameTaskTitle", language),
+      renameTaskNameLabel: t(
+        "xiadown.completed.renameTaskNameLabel",
+        language,
+      ),
+      renameTaskNamePlaceholder: t(
+        "xiadown.completed.renameTaskNamePlaceholder",
+        language,
+      ),
+      renameFile: t("xiadown.completed.renameFile", language),
+      renameFileTitle: t("xiadown.completed.renameFileTitle", language),
+      renameFileNameLabel: t(
+        "xiadown.completed.renameFileNameLabel",
+        language,
+      ),
+      renameFileNamePlaceholder: t(
+        "xiadown.completed.renameFileNamePlaceholder",
+        language,
+      ),
+      renameNameRequired: t(
+        "xiadown.completed.renameNameRequired",
+        language,
+      ),
+      renameNameInvalid: t(
+        "xiadown.completed.renameNameInvalid",
+        language,
+      ),
+      renameNameTooLong: t(
+        "xiadown.completed.renameNameTooLong",
+        language,
+      ),
       taskDataFields: {
         name: t("xiadown.completed.taskDataFields.name", language),
         url: t("xiadown.completed.taskDataFields.url", language),

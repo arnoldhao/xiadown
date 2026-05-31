@@ -26,6 +26,7 @@ const (
 	BrowserOperaGX  BrowserID = "opera-gx"
 	BrowserArc      BrowserID = "arc"
 	BrowserYandex   BrowserID = "yandex"
+	BrowserHelium   BrowserID = "helium"
 )
 
 type Candidate struct {
@@ -159,6 +160,7 @@ func scanCandidates() []Candidate {
 		BrowserOperaGX,
 		BrowserVivaldi,
 		BrowserYandex,
+		BrowserHelium,
 	}
 	result := make([]Candidate, 0, len(order))
 	for _, id := range order {
@@ -212,6 +214,8 @@ func labelForID(id BrowserID) string {
 		return "Arc"
 	case BrowserYandex:
 		return "Yandex Browser"
+	case BrowserHelium:
+		return "Helium"
 	default:
 		return titleASCII(string(id))
 	}
@@ -271,6 +275,8 @@ func candidatesForID(id BrowserID) []string {
 				darwinApp{"Yandex Browser", "Yandex Browser"},
 				darwinApp{"Yandex Browser", "Yandex"},
 			)
+		case BrowserHelium:
+			return darwinAppCandidates(darwinApp{"Helium", "Helium"})
 		}
 	case "windows":
 		localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
@@ -355,6 +361,23 @@ func candidatesForID(id BrowserID) []string {
 				filepath.Join(programFiles, "Yandex", "YandexBrowser", "Application", "browser.exe"),
 				filepath.Join(programFilesX86, "Yandex", "YandexBrowser", "Application", "browser.exe"),
 			})
+		case BrowserHelium:
+			return compact([]string{
+				"helium.exe",
+				"Helium.exe",
+				filepath.Join(localAppData, "Helium", "Application", "helium.exe"),
+				filepath.Join(localAppData, "Helium", "Application", "Helium.exe"),
+				filepath.Join(localAppData, "Helium", "Application", "chrome.exe"),
+				filepath.Join(localAppData, "Programs", "Helium", "helium.exe"),
+				filepath.Join(localAppData, "Programs", "Helium", "Helium.exe"),
+				filepath.Join(localAppData, "Programs", "Helium", "Application", "chrome.exe"),
+				filepath.Join(programFiles, "Helium", "Application", "helium.exe"),
+				filepath.Join(programFiles, "Helium", "Application", "Helium.exe"),
+				filepath.Join(programFiles, "Helium", "Application", "chrome.exe"),
+				filepath.Join(programFilesX86, "Helium", "Application", "helium.exe"),
+				filepath.Join(programFilesX86, "Helium", "Application", "Helium.exe"),
+				filepath.Join(programFilesX86, "Helium", "Application", "chrome.exe"),
+			})
 		}
 	default:
 		switch id {
@@ -374,6 +397,8 @@ func candidatesForID(id BrowserID) []string {
 			return []string{"opera-gx"}
 		case BrowserYandex:
 			return []string{"yandex-browser", "yandex-browser-stable", "yandex-browser-beta"}
+		case BrowserHelium:
+			return []string{"helium", "helium-browser"}
 		}
 	}
 	return nil

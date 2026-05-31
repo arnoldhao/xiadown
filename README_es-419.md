@@ -137,6 +137,14 @@ Descarga directamente el paquete más reciente a continuación. Las versiones an
 2. `Windows`: ejecuta directamente el instalador `.exe`, o descomprime el paquete portable y ábrelo. Si SmartScreen aparece en el primer inicio, elige `Más información -> Ejecutar de todas formas`.
 3. XiaDown abre un flujo de bienvenida para configurar idioma, tema, proxy y dependencias. Los flujos principales están en la bienvenida y en la interfaz.
 
+### Compatibilidad de Navegadores CDP
+
+Navegadores compatibles actualmente:
+
+| Principales | Privacidad y eficiencia | Especializados y regionales |
+| --- | --- | --- |
+| Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
 ## Aviso Legal
 
 - XiaDown se ofrece como una herramienta auxiliar para gestión de medios y descargas, destinada al aprendizaje, la investigación y el guardado de contenido al que tengas autorización para acceder y usar.

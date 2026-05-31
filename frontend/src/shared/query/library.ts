@@ -35,6 +35,8 @@ import type {
   PrepareYTDLPDownloadResponse,
   ProbeTranscodeInputRequest,
   ProbeTranscodeInputResponse,
+  RenameFileRequest,
+  RenameOperationRequest,
   ResourceSniffPreviewResponse,
   ResourceSniffSession,
   ResumeOperationRequest,
@@ -119,6 +121,30 @@ export function useResumeOperation() {
       )) as LibraryOperationDTO;
     },
     onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+  });
+}
+
+export function useRenameOperation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: RenameOperationRequest): Promise<LibraryOperationDTO> => {
+      return (await LibraryHandler.RenameOperation(
+        LibraryBindings.RenameOperationRequest.createFrom(request),
+      )) as LibraryOperationDTO;
+    },
+    onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+  });
+}
+
+export function useRenameFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: RenameFileRequest): Promise<LibraryDTO["files"][number]> => {
+      return (await LibraryHandler.RenameFile(
+        LibraryBindings.RenameFileRequest.createFrom(request),
+      )) as LibraryDTO["files"][number];
+    },
+    onSuccess: (file) => invalidateLibraryQueries(queryClient, file.libraryId),
   });
 }
 

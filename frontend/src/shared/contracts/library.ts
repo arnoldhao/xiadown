@@ -374,6 +374,16 @@ export interface RenameLibraryRequest {
   name: string
 }
 
+export interface RenameOperationRequest {
+  operationId: string
+  name: string
+}
+
+export interface RenameFileRequest {
+  fileId: string
+  name: string
+}
+
 export interface DeleteLibraryRequest {
   libraryId: string
 }

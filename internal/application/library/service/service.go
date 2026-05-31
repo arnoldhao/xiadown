@@ -556,6 +556,81 @@ func (service *LibraryService) GetOperation(ctx context.Context, request dto.Get
 	return toOperationDTO(item), nil
 }
 
+func (service *LibraryService) RenameOperation(ctx context.Context, request dto.RenameOperationRequest) (dto.LibraryOperationDTO, error) {
+	operationID := strings.TrimSpace(request.OperationID)
+	if operationID == "" {
+		return dto.LibraryOperationDTO{}, library.ErrInvalidLibraryOperation
+	}
+	name, err := normalizeLibraryDisplayName(request.Name)
+	if err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+	item, err := service.operations.Get(ctx, operationID)
+	if err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+	if item.DisplayName == name {
+		return toOperationDTO(item), nil
+	}
+
+	item.DisplayName = name
+	if err := service.operations.Save(ctx, item); err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+
+	now := service.now()
+	if history, ok := service.findHistoryByOperationID(ctx, item.LibraryID, item.ID); ok {
+		history.DisplayName = name
+		history.UpdatedAt = now
+		if err := service.histories.Save(ctx, history); err != nil {
+			return dto.LibraryOperationDTO{}, err
+		}
+		service.publishHistoryUpdate(toHistoryDTO(history))
+	}
+	if err := service.touchLibrary(ctx, item.LibraryID, now); err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+
+	operationDTO := toOperationDTO(item)
+	service.publishOperationUpdate(operationDTO)
+	return operationDTO, nil
+}
+
+func (service *LibraryService) RenameFile(ctx context.Context, request dto.RenameFileRequest) (dto.LibraryFileDTO, error) {
+	fileID := strings.TrimSpace(request.FileID)
+	if fileID == "" {
+		return dto.LibraryFileDTO{}, library.ErrInvalidLibraryFile
+	}
+	name, err := normalizeLibraryDisplayName(request.Name)
+	if err != nil {
+		return dto.LibraryFileDTO{}, err
+	}
+	item, err := service.files.Get(ctx, fileID)
+	if err != nil {
+		return dto.LibraryFileDTO{}, err
+	}
+	if item.DisplayName == name {
+		return service.buildFileDTO(ctx, item)
+	}
+
+	now := service.now()
+	item.DisplayName = name
+	item.UpdatedAt = now
+	if err := service.files.Save(ctx, item); err != nil {
+		return dto.LibraryFileDTO{}, err
+	}
+	if err := service.touchLibrary(ctx, item.LibraryID, now); err != nil {
+		return dto.LibraryFileDTO{}, err
+	}
+
+	fileDTO, err := service.buildFileDTO(ctx, item)
+	if err != nil {
+		return dto.LibraryFileDTO{}, err
+	}
+	service.publishFileUpdate(fileDTO)
+	return fileDTO, nil
+}
+
 func (service *LibraryService) CancelOperation(ctx context.Context, request dto.CancelOperationRequest) (dto.LibraryOperationDTO, error) {
 	operationID := strings.TrimSpace(request.OperationID)
 	if operationID == "" {

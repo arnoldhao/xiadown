@@ -19,6 +19,7 @@ export type CompletedFileEntry = {
   id: string;
   libraryId: string;
   libraryName: string;
+  operationName: string;
   operationId: string;
   latestOperationId: string;
   originOperationId: string;

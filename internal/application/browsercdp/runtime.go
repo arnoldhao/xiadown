@@ -2,6 +2,7 @@ package browsercdp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -67,6 +68,8 @@ type Runtime struct {
 
 const runtimeCDPNoTopLevelFrameMessage = "received DOM.documentUpdated when there's no top-level frame"
 
+var ErrNoSupportedBrowser = errors.New("no supported browser detected")
+
 func runtimeCDPErrorf(string, ...any) {}
 
 func runtimeShouldSuppressCDPError(message string) bool {
@@ -82,7 +85,7 @@ func ResolveStatus(preferred string, headless bool) Status {
 	}
 	candidate, ok := ChooseCandidate(candidates, preferred)
 	if !ok {
-		status.DetectError = "no supported browser detected"
+		status.DetectError = ErrNoSupportedBrowser.Error()
 		return status
 	}
 	status.ChosenBrowser = string(candidate.ID)
@@ -98,7 +101,7 @@ func Start(ctx context.Context, options LaunchOptions) (*Runtime, error) {
 	candidates := DetectCandidates()
 	candidate, ok := ChooseCandidate(candidates, options.PreferredBrowser)
 	if !ok {
-		return nil, fmt.Errorf("no supported browser detected")
+		return nil, ErrNoSupportedBrowser
 	}
 
 	port := 0

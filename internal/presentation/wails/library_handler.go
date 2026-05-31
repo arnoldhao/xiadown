@@ -55,6 +55,14 @@ func (handler *LibraryHandler) GetOperation(ctx context.Context, request dto.Get
 	return handler.service.GetOperation(ctx, request)
 }
 
+func (handler *LibraryHandler) RenameOperation(ctx context.Context, request dto.RenameOperationRequest) (dto.LibraryOperationDTO, error) {
+	return handler.service.RenameOperation(ctx, request)
+}
+
+func (handler *LibraryHandler) RenameFile(ctx context.Context, request dto.RenameFileRequest) (dto.LibraryFileDTO, error) {
+	return handler.service.RenameFile(ctx, request)
+}
+
 func (handler *LibraryHandler) CancelOperation(ctx context.Context, request dto.CancelOperationRequest) (dto.LibraryOperationDTO, error) {
 	return handler.service.CancelOperation(ctx, request)
 }

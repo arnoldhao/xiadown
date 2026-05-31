@@ -6,7 +6,10 @@ import {
   getAppErrorCode,
   isCompletedPreviewTooLarge,
   parseAppErrorMessage,
+  resolveCompletedDefaultCoverImageKey,
+  resolveCompletedFileCoverURL,
   resolveCompletedPreviewKind,
+  resolveCompletedTaskCoverURL,
   resolveUnknownErrorMessage,
 } from "@/app/main/helpers";
 
@@ -105,5 +108,53 @@ describe("completed preview helpers", () => {
         sizeBytes: 1024,
       }),
     ).toBe(false);
+  });
+
+  test("selects completed default covers from task file combinations", () => {
+    expect(
+      resolveCompletedDefaultCoverImageKey([
+        { kind: "video", path: "", format: "MP4" },
+        { kind: "audio", path: "", format: "M4A" },
+      ]),
+    ).toBe("media");
+    expect(
+      resolveCompletedDefaultCoverImageKey([
+        { kind: "video", path: "", format: "MP4" },
+        { kind: "audio", path: "", format: "M4A" },
+        { kind: "subtitle", path: "", format: "VTT" },
+      ]),
+    ).toBe("mediaSubtitle");
+    expect(
+      resolveCompletedDefaultCoverImageKey([
+        { kind: "manifest", path: "stream.m3u8", format: "M3U8" },
+      ]),
+    ).toBe("manifest");
+    expect(
+      resolveCompletedDefaultCoverImageKey([
+        { kind: "document", path: "report.pdf", format: "PDF" },
+        { kind: "archive", path: "bundle.zip", format: "ZIP" },
+      ]),
+    ).toBe("mixed");
+  });
+
+  test("uses real image previews before completed default cover art", () => {
+    expect(
+      resolveCompletedTaskCoverURL([
+        {
+          kind: "thumbnail",
+          path: "/downloads/cover.webp",
+          format: "WEBP",
+          previewURL: "http://127.0.0.1/asset/cover.webp",
+        },
+        { kind: "subtitle", path: "/downloads/caption.vtt", format: "VTT" },
+      ]),
+    ).toBe("http://127.0.0.1/asset/cover.webp");
+    expect(
+      resolveCompletedFileCoverURL({
+        kind: "audio",
+        path: "/downloads/song.mp3",
+        format: "MP3",
+      }),
+    ).toBe("/completed-defaults/audio.jpg");
   });
 });

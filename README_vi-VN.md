@@ -137,6 +137,14 @@ Tải trực tiếp gói mới nhất bên dưới. Các phiên bản cũ có tr
 2. `Windows`: chạy trực tiếp bộ cài `.exe`, hoặc giải nén gói portable rồi mở ứng dụng. Nếu SmartScreen xuất hiện trong lần chạy đầu tiên, chọn `More info -> Run anyway`.
 3. XiaDown mở luồng onboarding để thiết lập ngôn ngữ, chủ đề, proxy và các phụ thuộc. Các luồng chính nằm trong onboarding và giao diện ứng dụng.
 
+### Hỗ Trợ Trình Duyệt CDP
+
+Các trình duyệt hiện được hỗ trợ:
+
+| Phổ biến | Quyền riêng tư và hiệu quả | Chuyên biệt và khu vực |
+| --- | --- | --- |
+| Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
 ## Tuyên Bố Miễn Trừ Trách Nhiệm
 
 - XiaDown được cung cấp như một công cụ hỗ trợ quản lý phương tiện và tải xuống, phục vụ học tập, nghiên cứu và lưu nội dung mà bạn có quyền truy cập và sử dụng.
