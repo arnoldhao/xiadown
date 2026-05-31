@@ -384,6 +384,7 @@ function buildText(language: SupportedLanguage) {
       downloadableOnly: t("xiadown.sniffDesk.downloadableOnly", language),
       emptySessions: t("xiadown.sniffDesk.emptySessions", language),
       emptyResources: t("xiadown.sniffDesk.emptyResources", language),
+      emptyFilteredResources: t("xiadown.sniffDesk.emptyFilteredResources", language),
       loading: t("xiadown.sniffDesk.loading", language),
       currentPage: t("xiadown.sniffDesk.currentPage", language),
       tabCount: t("xiadown.sniffDesk.tabCount", language),

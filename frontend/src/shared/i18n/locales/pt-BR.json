@@ -1032,6 +1032,7 @@
       "downloadableOnly": "Baixável",
       "emptySessions": "Insira uma URL para sniff",
       "emptyResources": "Aguardando recursos",
+      "emptyFilteredResources": "Nenhum recurso corresponde aos filtros atuais",
       "loading": "Carregando recursos",
       "currentPage": "Página atual",
       "tabCount": "{count} abas",

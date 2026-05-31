@@ -1032,6 +1032,7 @@
       "downloadableOnly": "다운로드 가능",
       "emptySessions": "URL을 입력해 스니프 시작",
       "emptyResources": "리소스 대기 중",
+      "emptyFilteredResources": "현재 필터와 일치하는 리소스가 없습니다",
       "loading": "리소스 로드 중",
       "currentPage": "현재 페이지",
       "tabCount": "탭 {count}개",

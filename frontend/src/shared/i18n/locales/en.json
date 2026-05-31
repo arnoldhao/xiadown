@@ -1032,6 +1032,7 @@
       "downloadableOnly": "Downloadable",
       "emptySessions": "Enter a URL to sniff",
       "emptyResources": "Waiting for resources",
+      "emptyFilteredResources": "No resources match the current filters",
       "loading": "Loading resources",
       "currentPage": "Current page",
       "tabCount": "{count} tabs",

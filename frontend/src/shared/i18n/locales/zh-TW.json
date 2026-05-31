@@ -1032,6 +1032,7 @@
       "downloadableOnly": "可下載",
       "emptySessions": "輸入網址開始嗅探",
       "emptyResources": "等待資源出現",
+      "emptyFilteredResources": "沒有符合目前篩選的資源",
       "loading": "正在載入資源",
       "currentPage": "目前頁面",
       "tabCount": "{count} 個分頁",

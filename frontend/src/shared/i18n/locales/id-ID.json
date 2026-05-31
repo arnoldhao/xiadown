@@ -1032,6 +1032,7 @@
       "downloadableOnly": "Dapat diunduh",
       "emptySessions": "Masukkan URL untuk sniff",
       "emptyResources": "Menunggu resource",
+      "emptyFilteredResources": "Tidak ada resource yang cocok dengan filter saat ini",
       "loading": "Memuat resource",
       "currentPage": "Halaman saat ini",
       "tabCount": "{count} tab",

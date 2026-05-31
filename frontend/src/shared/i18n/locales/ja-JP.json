@@ -1032,6 +1032,7 @@
       "downloadableOnly": "ダウンロード可",
       "emptySessions": "URL を入力して Sniff",
       "emptyResources": "リソース待機中",
+      "emptyFilteredResources": "現在のフィルターに一致するリソースはありません",
       "loading": "リソースを読み込み中",
       "currentPage": "現在のページ",
       "tabCount": "{count} タブ",

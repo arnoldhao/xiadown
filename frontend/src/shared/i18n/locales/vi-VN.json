@@ -1032,6 +1032,7 @@
       "downloadableOnly": "Có thể tải",
       "emptySessions": "Nhập URL để sniff",
       "emptyResources": "Đang chờ tài nguyên",
+      "emptyFilteredResources": "Không có tài nguyên khớp với bộ lọc hiện tại",
       "loading": "Đang tải tài nguyên",
       "currentPage": "Trang hiện tại",
       "tabCount": "{count} thẻ",

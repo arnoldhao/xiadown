@@ -3,6 +3,7 @@ import { System } from "@wailsio/runtime";
 import {
   Activity,
   Archive,
+  BrushCleaning,
   Circle,
   Copy,
   Database,
@@ -20,7 +21,6 @@ import {
   Radar,
   Radio,
   Search,
-  Trash2,
   Video,
   X,
 } from "lucide-react";
@@ -208,6 +208,13 @@ function displaySniffResourceURL(value?: string) {
   return displayURL(value);
 }
 
+function displaySniffResourceTitle(resource: ResourceSniffRawResource) {
+  if (dataURLMimeType(resource.url)) {
+    return displaySniffResourceURL(resource.url);
+  }
+  return resource.domain || displaySniffResourceURL(resource.url);
+}
+
 function displayDomain(value?: string) {
   const raw = (value ?? "").trim();
   if (!raw) {
@@ -308,6 +315,13 @@ function isDownloadableSniffResource(resource: ResourceSniffRawResource) {
     return false;
   }
   return isFetchableRemoteURL(resource.url);
+}
+
+function shouldHideNoisyInlineResource(
+  resource: ResourceSniffRawResource,
+  scope?: string,
+) {
+  return normalized(scope) !== "all" && Boolean(dataURLMimeType(resource.url));
 }
 
 function displayTime(value?: string) {
@@ -668,7 +682,7 @@ const SniffResourceRow = React.memo(function SniffResourceRow(props: {
 }) {
   const { resource, text, downloading, onDownload, onCopy, onOpenPreview } = props;
   const mime = resource.mimeType || resource.contentType || resource.resourceType || "-";
-  const sourceLabel = resolveSourceLabel(text, resolveSniffSourceFilter(resource));
+  const sourceLabel = resolveSourceLabel(text, resource.source);
   const canOpenURL = isFetchableRemoteURL(resource.url);
   const canDownload = isDownloadableSniffResource(resource);
   const canCopy = isLiveSniffResource(resource) && canOpenURL;
@@ -704,7 +718,7 @@ const SniffResourceRow = React.memo(function SniffResourceRow(props: {
               {resolveKindLabel(text, resource.kind)}
             </span>
             <span className="truncate text-xs font-semibold text-foreground">
-              {resource.domain || displaySniffResourceURL(resource.url)}
+              {displaySniffResourceTitle(resource)}
             </span>
           </div>
           <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
@@ -1158,6 +1172,9 @@ export function SniffDeskPage(props: {
       if (isSegmentSniffResource(resource)) {
         continue;
       }
+      if (shouldHideNoisyInlineResource(resource, resourceSniffScope)) {
+        continue;
+      }
       if (isDownloadableSniffResource(resource)) {
         downloadableCount += 1;
       }
@@ -1176,7 +1193,7 @@ export function SniffDeskPage(props: {
       filteredResources.push(resource);
     }
     return { downloadableCount, filteredResources };
-  }, [deferredQuery, downloadFilter, kindFilter, resources, sourceFilter]);
+  }, [deferredQuery, downloadFilter, kindFilter, resources, resourceSniffScope, sourceFilter]);
   const { downloadableCount, filteredResources } = resourceView;
   const currentPage = currentSession?.currentUrl || currentSession?.url || "";
   const sessionDomain =
@@ -1212,6 +1229,9 @@ export function SniffDeskPage(props: {
       return { label: text.sniffDesk.loading, animation: "running" };
     }
     if (filteredResources.length === 0) {
+      if (resources.length > 0 && hasActiveFilters) {
+        return { label: text.sniffDesk.emptyFilteredResources, animation: "review" };
+      }
       return { label: text.sniffDesk.emptyResources, animation: "review" };
     }
     return null;
@@ -1610,7 +1630,7 @@ export function SniffDeskPage(props: {
                     type="button"
                     size="compactIcon"
                     variant="ghost"
-                    className="h-9 w-9 text-destructive hover:text-destructive"
+                    className="h-9 w-9 text-muted-foreground hover:text-foreground"
                     aria-label={text.sniffDesk.clearResources}
                     disabled={resources.length === 0 || clearResources.isPending}
                     onClick={() => setClearConfirmOpen(true)}
@@ -1618,7 +1638,7 @@ export function SniffDeskPage(props: {
                     {clearResources.isPending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Trash2 className="h-4 w-4" />
+                      <BrushCleaning className="h-4 w-4" />
                     )}
                   </Button>
                 </TooltipTrigger>
@@ -1632,6 +1652,7 @@ export function SniffDeskPage(props: {
           <SniffDeskPetPrompt
             pet={props.pet}
             petImageURL={props.petImageURL}
+            label={text.sniffDesk.emptySessions}
             animation="idle"
             variant="page"
           />
@@ -1690,8 +1711,9 @@ export function SniffDeskPage(props: {
             : previewDialogSrc
         }
         title={
-          previewDialogResource?.domain ||
-          displayURL(previewDialogResource?.url)
+          previewDialogResource
+            ? displaySniffResourceTitle(previewDialogResource)
+            : ""
         }
         imageAlt=""
         imageClassName="app-media-preview-dialog-image"
@@ -1814,11 +1836,12 @@ export function SniffDeskPage(props: {
             </DialogClose>
             <Button
               type="button"
-              variant="destructive"
+              variant="default"
               disabled={!currentSessionId || clearResources.isPending}
               onClick={() => void handleClearResources()}
             >
               {clearResources.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {!clearResources.isPending ? <BrushCleaning className="h-4 w-4" /> : null}
               {text.sniffDesk.clearResources}
             </Button>
           </div>

@@ -1032,6 +1032,7 @@
       "downloadableOnly": "Descargable",
       "emptySessions": "Ingresa una URL para sniff",
       "emptyResources": "Esperando recursos",
+      "emptyFilteredResources": "No hay recursos que coincidan con los filtros actuales",
       "loading": "Cargando recursos",
       "currentPage": "Página actual",
       "tabCount": "{count} pestañas",

@@ -1032,6 +1032,7 @@
       "downloadableOnly": "可下载",
       "emptySessions": "输入网址开始嗅探",
       "emptyResources": "等待资源出现",
+      "emptyFilteredResources": "没有匹配当前筛选的资源",
       "loading": "正在加载资源",
       "currentPage": "当前页面",
       "tabCount": "{count} 个标签页",
