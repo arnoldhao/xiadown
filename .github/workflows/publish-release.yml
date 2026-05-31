@@ -220,20 +220,9 @@ jobs:
 
           ditto -c -k --sequesterRsrc --keepParent bin/XiaDown.app "dist/$zip_artifact"
 
-          dmg_root="$RUNNER_TEMP/xiadown-dmg-root"
-          rm -rf "$dmg_root"
-          mkdir -p "$dmg_root"
-          ditto bin/XiaDown.app "$dmg_root/XiaDown.app"
-          ln -s /Applications "$dmg_root/Applications"
-
           unsigned_dmg="$RUNNER_TEMP/$dmg_artifact"
           rm -f "$unsigned_dmg"
-          hdiutil create \
-            -volname "XiaDown" \
-            -srcfolder "$dmg_root" \
-            -format UDZO \
-            -ov \
-            "$unsigned_dmg"
+          bash build/darwin/create-dmg.sh bin/XiaDown.app "$unsigned_dmg" "XiaDown"
 
           codesign --force --timestamp \
             --keychain "$SIGN_KEYCHAIN_PATH" \
