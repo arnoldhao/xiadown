@@ -384,13 +384,15 @@ export function ListenPlayback(props: {
     (state) => state.settings?.pinyinLyrics !== false,
   );
   const isMac = System.IsMac();
-  const equalizerSnapshot = useEqualizerSnapshot(isMac && props.active);
+  const isWindows = System.IsWindows();
+  const visualizerPlatformSupported = isMac || isWindows;
+  const equalizerSnapshot = useEqualizerSnapshot(visualizerPlatformSupported && props.active);
   const visualizerMode = equalizerSnapshot.data?.settings.visualizerMode ?? "off";
   const equalizerStatus = equalizerSnapshot.data?.status;
-  const visualizerConfigured = isMac && props.active && visualizerMode !== "off";
+  const visualizerConfigured = visualizerPlatformSupported && props.active && visualizerMode !== "off";
   const visualizerEnabled =
     visualizerConfigured &&
-    equalizerSnapshot.data?.settings.enabled === true &&
+    (isWindows || equalizerSnapshot.data?.settings.enabled === true) &&
     equalizerStatus?.supported === true &&
     equalizerStatus.permissionRequired !== true &&
     equalizerStatus.code !== "error" &&

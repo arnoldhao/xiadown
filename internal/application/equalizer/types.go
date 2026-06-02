@@ -96,6 +96,11 @@ type Snapshot struct {
 	Presets  []Preset `json:"presets"`
 }
 
+type EngineFeatures struct {
+	Equalizer  bool `json:"equalizer"`
+	Visualizer bool `json:"visualizer"`
+}
+
 type VisualizerFrame struct {
 	Running                bool      `json:"running"`
 	Sequence               uint64    `json:"sequence"`
@@ -139,6 +144,7 @@ func (failure StartFailure) IsPermissionLikely() bool {
 }
 
 type Engine interface {
+	Features() EngineFeatures
 	Supported() bool
 	IsRunning() bool
 	HasObservedAudio() bool

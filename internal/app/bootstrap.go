@@ -294,10 +294,16 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	equalizerService = equalizer.NewService(equalizerStore, equalizeraudio.NewEngine())
+	equalizerService = equalizer.NewService(equalizerStore, equalizeraudio.NewEngine(
+		equalizeraudio.WithTargetProcessProvider(func() uint32 {
+			if listenPlayer == nil {
+				return 0
+			}
+			return listenPlayer.EqualizerAudioProcessID()
+		}),
+	))
 	equalizerPlaybackUnsubscribe = listenPlaybackService.Subscribe(func(snapshot listenplayback.Snapshot) {
-		active := snapshot.State == listenplayback.PlaybackStatePlaying ||
-			snapshot.State == listenplayback.PlaybackStateBuffering
+		active := snapshot.State == listenplayback.PlaybackStatePlaying
 		equalizerService.ObservePlayback(active, snapshot.Progress)
 	})
 	listenLiveCatalogHandler := presentationhttp.NewListenLiveCatalogHandler(proxyManager)

@@ -48,11 +48,13 @@ const VISUALIZER_ACTIVE_STYLE = {
 
 export function EqualizerSection(props: {
   isMac: boolean;
+  isWindows: boolean;
   text: ReturnType<typeof getXiaText>;
 }) {
-  const { isMac, text } = props;
+  const { isMac, isWindows, text } = props;
   const equalizerText = text.settings.equalizer;
-  const query = useEqualizerSnapshot(isMac);
+  const supportsVisualizerSettings = isMac || isWindows;
+  const query = useEqualizerSnapshot(supportsVisualizerSettings);
   const setEnabled = useSetEqualizerEnabled();
   const applyPreset = useApplyEqualizerPreset();
   const setBandGain = useSetEqualizerBandGain();
@@ -71,7 +73,7 @@ export function EqualizerSection(props: {
     retryEqualizer.isPending ||
     openPermissionGuide.isPending;
 
-  if (!isMac) {
+  if (!supportsVisualizerSettings) {
     return (
       <SettingsCompactListCard>
         <SettingsCompactRow label={equalizerText.title} contentClassName="min-w-0">
@@ -130,6 +132,79 @@ export function EqualizerSection(props: {
       : visualizerPlacement === "spectrum"
         ? settings.spectrumVisualizerMode
         : settings.visualizerMode;
+  const visualizerControls = (
+    <>
+      <SettingsCompactRow label={equalizerText.visualizer}>
+        <div className="grid min-w-0 max-w-full grid-cols-3 gap-2">
+          {VISUALIZER_PLACEMENT_OPTIONS.map((placement) => (
+            <Button
+              key={placement}
+              type="button"
+              variant="outline"
+              size="compact"
+              disabled={!snapshot.status.supported || setVisualizerMode.isPending}
+              className={cn("min-w-0 px-2 text-[11px]", visualizerPlacement === placement ? "border-transparent" : "")}
+              onClick={() =>
+                void setVisualizerMode
+                  .mutateAsync(defaultVisualizerModeForPlacement(placement, settings))
+                  .catch(console.warn)
+              }
+              style={visualizerPlacement === placement ? VISUALIZER_ACTIVE_STYLE : undefined}
+            >
+              <span className="min-w-0 truncate">{visualizerPlacementLabel(placement, equalizerText)}</span>
+            </Button>
+          ))}
+        </div>
+      </SettingsCompactRow>
+
+      {visualizerPlacement !== "off" ? (
+        <>
+          <SettingsCompactSeparator />
+
+          <SettingsCompactRow
+            label={
+              visualizerPlacement === "artwork"
+                ? equalizerText.visualizerArtworkEffect
+                : equalizerText.visualizerSpectrumEffect
+            }
+          >
+            <Select
+              value={selectedVisualizerEffect}
+              disabled={!snapshot.status.supported || setVisualizerMode.isPending}
+              onChange={(event) =>
+                void setVisualizerMode.mutateAsync(event.target.value as EqualizerVisualizerMode).catch(console.warn)
+              }
+              className="w-48"
+            >
+              {visualizerEffectModes.map((mode) => (
+                <option key={mode} value={mode}>
+                  {visualizerLabel(mode, equalizerText)}
+                </option>
+              ))}
+            </Select>
+          </SettingsCompactRow>
+        </>
+      ) : null}
+    </>
+  );
+
+  if (isWindows) {
+    return (
+      <SettingsCompactListCard>
+        {visualizerControls}
+        {!snapshot.status.supported || snapshot.status.code === "error" ? (
+          <>
+            <SettingsCompactSeparator />
+            <SettingsCompactRow label={text.settings.status} contentClassName="min-w-0">
+              <div className="flex min-w-0 items-center justify-end">
+                <StatusBadge code={snapshot.status.code} label={statusLabel(snapshot.status.code, equalizerText)} />
+              </div>
+            </SettingsCompactRow>
+          </>
+        ) : null}
+      </SettingsCompactListCard>
+    );
+  }
 
   return (
     <>
@@ -190,57 +265,7 @@ export function EqualizerSection(props: {
 
         <SettingsCompactSeparator />
 
-        <SettingsCompactRow label={equalizerText.visualizer}>
-          <div className="grid min-w-0 max-w-full grid-cols-3 gap-2">
-            {VISUALIZER_PLACEMENT_OPTIONS.map((placement) => (
-              <Button
-                key={placement}
-                type="button"
-                variant="outline"
-                size="compact"
-                disabled={!snapshot.status.supported || setVisualizerMode.isPending}
-                className={cn("min-w-0 px-2 text-[11px]", visualizerPlacement === placement ? "border-transparent" : "")}
-                onClick={() =>
-                  void setVisualizerMode
-                    .mutateAsync(defaultVisualizerModeForPlacement(placement, settings))
-                    .catch(console.warn)
-                }
-                style={visualizerPlacement === placement ? VISUALIZER_ACTIVE_STYLE : undefined}
-              >
-                <span className="min-w-0 truncate">{visualizerPlacementLabel(placement, equalizerText)}</span>
-              </Button>
-            ))}
-          </div>
-        </SettingsCompactRow>
-
-        {visualizerPlacement !== "off" ? (
-          <>
-            <SettingsCompactSeparator />
-
-            <SettingsCompactRow
-              label={
-                visualizerPlacement === "artwork"
-                  ? equalizerText.visualizerArtworkEffect
-                  : equalizerText.visualizerSpectrumEffect
-              }
-            >
-              <Select
-                value={selectedVisualizerEffect}
-                disabled={!snapshot.status.supported || setVisualizerMode.isPending}
-                onChange={(event) =>
-                  void setVisualizerMode.mutateAsync(event.target.value as EqualizerVisualizerMode).catch(console.warn)
-                }
-                className="w-48"
-              >
-                {visualizerEffectModes.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {visualizerLabel(mode, equalizerText)}
-                  </option>
-                ))}
-              </Select>
-            </SettingsCompactRow>
-          </>
-        ) : null}
+        {visualizerControls}
 
         <SettingsCompactSeparator />
 

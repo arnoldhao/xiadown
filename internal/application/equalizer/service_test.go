@@ -4,12 +4,20 @@ import "testing"
 
 type fakeEngine struct {
 	supported      bool
+	features       EngineFeatures
 	running        bool
 	observedAudio  bool
 	visualizer     VisualizerFrame
 	startFailure   *StartFailure
 	startCallCount int
 	stopCallCount  int
+}
+
+func (engine *fakeEngine) Features() EngineFeatures {
+	if engine.features.Equalizer || engine.features.Visualizer {
+		return engine.features
+	}
+	return EngineFeatures{Equalizer: true, Visualizer: true}
 }
 
 func (engine *fakeEngine) Supported() bool {
@@ -252,5 +260,74 @@ func TestVisualizerFrameOnlyReportsWhileRunning(t *testing.T) {
 	}
 	if frame.FrameTimeOffsetSeconds != -0.019 {
 		t.Fatalf("expected native frame time offset from engine, got %#v", frame)
+	}
+}
+
+func TestVisualizerOnlyEngineRunsWhenVisualizerIsNotOff(t *testing.T) {
+	engine := &fakeEngine{
+		supported: true,
+		features:  EngineFeatures{Visualizer: true},
+	}
+	service := NewService(nil, engine)
+
+	snapshot := service.Snapshot()
+	if snapshot.Status.Code != StatusStandby {
+		t.Fatalf("expected visualizer-only engine to wait for playback, got %#v", snapshot.Status)
+	}
+	if engine.startCallCount != 0 {
+		t.Fatal("expected visualizer-only engine to avoid starting before playback")
+	}
+
+	service.RetryStartNowIfEnabled()
+	if engine.startCallCount != 0 {
+		t.Fatal("expected visualizer-only retry to avoid starting before playback")
+	}
+
+	service.ObservePlayback(true, 0)
+	service.RetryStartNowIfEnabled()
+	snapshot = service.Snapshot()
+	if snapshot.Status.Code != StatusActive {
+		t.Fatalf("expected visualizer-only engine to start during playback, got %#v", snapshot.Status)
+	}
+	if engine.startCallCount == 0 {
+		t.Fatal("expected visualizer-only engine to start after playback")
+	}
+
+	service.ObservePlayback(false, 0)
+	snapshot = service.Snapshot()
+	if snapshot.Status.Code != StatusStandby {
+		t.Fatalf("expected visualizer-only engine to return to standby after playback stops, got %#v", snapshot.Status)
+	}
+	if engine.stopCallCount == 0 {
+		t.Fatal("expected visualizer-only engine to stop after playback stops")
+	}
+
+	snapshot, err := service.SetVisualizerMode(VisualizerModeOff)
+	if err != nil {
+		t.Fatalf("set visualizer off: %v", err)
+	}
+	if snapshot.Status.Code != StatusOff {
+		t.Fatalf("expected visualizer-only engine to stop when visualizer is off, got %#v", snapshot.Status)
+	}
+	if engine.stopCallCount == 0 {
+		t.Fatal("expected visualizer-only engine to stop when visualizer is off")
+	}
+}
+
+func TestVisualizerOnlyNoAudioSourceIsNotPermissionNeeded(t *testing.T) {
+	engine := &fakeEngine{
+		supported:    true,
+		features:     EngineFeatures{Visualizer: true},
+		startFailure: &StartFailure{Code: StartFailureNoAudioSource},
+	}
+	service := NewService(nil, engine)
+
+	service.mu.Lock()
+	service.attemptStartLocked(true)
+	snapshot := service.snapshotLocked()
+	service.mu.Unlock()
+
+	if snapshot.Status.Code == StatusPermissionNeeded || snapshot.Status.PermissionRequired {
+		t.Fatalf("expected visualizer-only no audio source to avoid permission state, got %#v", snapshot.Status)
 	}
 }

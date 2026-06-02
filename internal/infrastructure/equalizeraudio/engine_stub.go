@@ -1,4 +1,4 @@
-//go:build !darwin || !cgo || ios
+//go:build (!darwin && !windows) || (darwin && !cgo) || ios
 
 package equalizeraudio
 
@@ -6,8 +6,12 @@ import "xiadown/internal/application/equalizer"
 
 type Engine struct{}
 
-func NewEngine() *Engine {
+func NewEngine(_ ...Option) *Engine {
 	return &Engine{}
+}
+
+func (engine *Engine) Features() equalizer.EngineFeatures {
+	return equalizer.EngineFeatures{}
 }
 
 func (engine *Engine) Supported() bool {

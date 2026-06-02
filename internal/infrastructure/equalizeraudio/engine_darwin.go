@@ -18,8 +18,15 @@ import (
 
 type Engine struct{}
 
-func NewEngine() *Engine {
+func NewEngine(_ ...Option) *Engine {
 	return &Engine{}
+}
+
+func (engine *Engine) Features() equalizer.EngineFeatures {
+	return equalizer.EngineFeatures{
+		Equalizer:  true,
+		Visualizer: true,
+	}
 }
 
 func (engine *Engine) Supported() bool {
