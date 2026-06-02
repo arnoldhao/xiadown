@@ -40,6 +40,20 @@ export interface SystemProxyInfo {
   name?: string;
 }
 
+export interface SniffProfileInfo {
+  browser: string;
+  exists: boolean;
+  sizeBytes: number;
+  fileCount: number;
+  directoryCount: number;
+  truncated?: boolean;
+  error?: string;
+}
+
+export interface SniffProfileRequest {
+  browser?: string;
+}
+
 export interface Settings {
   appearance: AppearanceMode;
   effectiveAppearance: string;

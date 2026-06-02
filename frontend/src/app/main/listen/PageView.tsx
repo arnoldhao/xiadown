@@ -1,5 +1,6 @@
-import { ArrowLeft,BookmarkPlus,Compass,History,Home,ListEnd,ListStart,Loader2,PanelLeftClose,PanelLeftOpen,Play,Radio,RefreshCw,Search,Shuffle,Sparkles,Tags,Trash2,Trophy,UserCheck,UserPlus,X } from "lucide-react";
+import { ArrowLeft,BookmarkPlus,Compass,History,Home,Link2,ListEnd,ListStart,Loader2,LogOut,PanelLeftClose,PanelLeftOpen,Play,Radio,RefreshCw,Search,Shuffle,Sparkles,Tags,Trash2,Trophy,UserCheck,UserPlus,UserRound,X } from "lucide-react";
 import * as React from "react";
+import { siYoutube } from "simple-icons";
 
 import { WindowControls } from "@/components/layout/WindowControls";
 import { cn } from "@/lib/utils";
@@ -8,6 +9,7 @@ import {
 DreamSegmentSwitch,
 type DreamSegmentSwitchItem,
 } from "@/shared/ui/dream-segment-switch";
+import { DropdownMenu,DropdownMenuContent,DropdownMenuTrigger } from "@/shared/ui/dropdown-menu";
 import { Input } from "@/shared/ui/input";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import type { PetAnimation } from "@/shared/pets/animation";
@@ -32,6 +34,7 @@ const LISTEN_HOME_IMAGE_PREFETCH_LIMIT = 48;
 const LISTEN_HOME_IMAGE_PREFETCH_CONCURRENCY = 4;
 const LISTEN_HEADER_GAP_REM = 0.5;
 const LISTEN_HEADER_SEARCH_EXPANDED_REM = 12;
+const LISTEN_HEADER_ACCOUNT_BUTTON_REM = 2.25;
 const LISTEN_HEADER_FULL_TABS_REM = 14.625;
 const LISTEN_HEADER_COMPACT_TABS_REM = 6.75;
 const LISTEN_HEADER_HUSH_ACTIONS_REM = 6.25;
@@ -139,6 +142,12 @@ type ListenPageViewState = {
   muted: boolean;
   volume: number;
   playMode: ListenPlayMode;
+  museConnectBusy: boolean;
+  museAccountName: string;
+  museAccountAvatarURL: string;
+  museAccountConnected: boolean;
+  museAccountBusy: boolean;
+  museManualRefreshKind: "" | "artist" | "library" | "playlist" | "search";
 };
 
 type ListenPageViewActions = {
@@ -196,6 +205,9 @@ type ListenPageViewActions = {
   setLocalPlaying: (playing: boolean) => void;
   handleLocalProgressChange: (currentTime: number, duration: number, bufferedTime: number) => void;
   setPlaybackSessionStarted: SetState<boolean>;
+  connectYouTube: () => void;
+  refreshMusePage: () => void;
+  signOutMuseAccount: () => void;
   playPrevious: () => void;
   playNext: () => void;
   togglePlayMode: () => void;
@@ -769,6 +781,193 @@ function ListenMuseLoadingIndicator(props: {
   );
 }
 
+function ListenMuseAccountMenu(props: {
+  text: ListenPageProps["text"];
+  name: string;
+  avatarURL: string;
+  connected: boolean;
+  busy: boolean;
+  onConnect: () => void;
+  onRefresh: () => void;
+  onSignOut: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [avatarFailed, setAvatarFailed] = React.useState(false);
+  const name = props.connected
+    ? props.name.trim() || props.text.listen.museAccountFallbackName
+    : props.text.listen.museAccountDisconnectedName;
+  const avatarURL = props.avatarURL.trim();
+  const showAvatar = props.connected && avatarURL.length > 0 && !avatarFailed;
+
+  React.useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarURL]);
+
+  const handleConnect = React.useCallback(() => {
+    setOpen(false);
+    props.onConnect();
+  }, [props]);
+
+  const handleRefresh = React.useCallback(() => {
+    setOpen(false);
+    props.onRefresh();
+  }, [props]);
+
+  const handleSignOut = React.useCallback(() => {
+    setOpen(false);
+    props.onSignOut();
+  }, [props]);
+
+  return (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="listen-muse-account-trigger pointer-events-auto"
+                aria-label={props.text.listen.museAccountTooltip}
+              >
+                <UserRound className="h-3.5 w-3.5" strokeWidth={1.65} />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {props.text.listen.museAccountTooltip}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <DropdownMenuContent align="center" side="bottom" className="w-64 p-3">
+        <div className="flex min-w-0 flex-col items-center text-center">
+          <div
+            className={cn(
+              "grid h-20 w-20 place-items-center overflow-hidden rounded-full shadow-[inset_0_0_0_1px_hsl(var(--sidebar-primary)/0.16)]",
+              props.connected
+                ? "bg-sidebar-primary/10 text-sidebar-primary"
+                : "bg-red-500/10 text-red-600 dark:text-red-400",
+            )}
+          >
+            {showAvatar ? (
+              <img
+                src={avatarURL}
+                alt=""
+                className="h-full w-full rounded-full object-cover"
+                onError={() => setAvatarFailed(true)}
+              />
+            ) : !props.connected ? (
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+                className="h-9 w-9"
+              >
+                <path d={siYoutube.path} />
+              </svg>
+            ) : (
+              <UserRound className="h-8 w-8" />
+            )}
+          </div>
+          <div className="mt-3 max-w-full truncate text-sm font-semibold text-sidebar-foreground">
+            {name}
+          </div>
+        </div>
+        {props.connected ? (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="compact"
+              className="h-9 min-w-0 justify-center px-2"
+              disabled={props.busy}
+              onClick={handleRefresh}
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", props.busy ? "animate-spin" : "")} />
+              <span className="min-w-0 truncate">{props.text.listen.refresh}</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="compact"
+              className="h-9 min-w-0 justify-center px-2 text-destructive hover:text-destructive"
+              disabled={props.busy}
+              onClick={handleSignOut}
+            >
+              {props.busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <LogOut className="h-3.5 w-3.5" />
+              )}
+              <span className="min-w-0 truncate">{props.text.listen.museAccountSignOut}</span>
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            size="compact"
+            className="mx-auto mt-4 flex h-9 w-auto min-w-44 justify-center px-4"
+            disabled={props.busy}
+            onClick={handleConnect}
+          >
+            {props.busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Link2 className="h-3.5 w-3.5" />
+            )}
+            <span className="min-w-0 truncate">{props.text.listen.museGateSignIn}</span>
+          </Button>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ListenMuseAccountGate(props: {
+  text: ListenPageProps["text"];
+  pet: ListenPageProps["pet"];
+  petImageURL: string;
+  busy: boolean;
+  onConnect: () => void;
+}) {
+  return (
+    <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center px-2 pb-6 pt-2">
+      <div className="flex w-full max-w-[22rem] flex-col items-center text-center">
+        <PetDisplay
+          pet={props.pet}
+          imageUrl={props.petImageURL}
+          animation={props.busy ? "waiting" : "waving"}
+          alt=""
+          size={112}
+          className="mb-5 h-28 w-28 shrink-0"
+          glowClassName="opacity-0"
+        />
+        <h2 className="max-w-full truncate text-xl font-semibold tracking-normal text-sidebar-foreground">
+          {props.text.listen.museGateTitle}
+        </h2>
+
+        <div className="mt-8 flex w-full flex-col items-center gap-3">
+          <Button
+            type="button"
+            disabled={props.busy}
+            className="h-10 w-auto min-w-44 px-5"
+            onClick={props.onConnect}
+          >
+            {props.busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Link2 className="h-4 w-4" />
+            )}
+            {props.text.listen.museGateSignIn}
+          </Button>
+          <p className="max-w-[18rem] text-xs leading-5 text-sidebar-foreground/56">
+            {props.text.listen.museGateSubtitle}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export type ListenPageViewProps = {
   page: ListenPageProps;
   state: ListenPageViewState;
@@ -864,8 +1063,8 @@ function prefetchListenImages(
 
 export function ListenPageView(view: ListenPageViewProps) {
   const props = view.page;
-  const { isWindows, isMac, listOpen, query, searchPlaceholder, mode, playbackMode, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistTracks, filteredPlaylistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localTracksLoading, localTracksRefreshing, localTracksClearingMissing, activeOnline, selectedLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems, onlinePlaying, onlinePlaybackArmed, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode } = view.state;
-  const { setListOpen, setQuery, selectFirstResult, setMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary, changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks, clearMissingLocalTracks, handlePlaybackEnded, setOnlinePlaying, setOnlineState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, playPrevious, playNext, togglePlayMode, setPlayMode, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse, openSelectedLocalDirectory } = view.actions;
+  const { isWindows, isMac, listOpen, query, searchPlaceholder, mode, playbackMode, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistTracks, filteredPlaylistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localTracksLoading, localTracksRefreshing, localTracksClearingMissing, activeOnline, selectedLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems, onlinePlaying, onlinePlaybackArmed, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind } = view.state;
+  const { setListOpen, setQuery, selectFirstResult, setMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary, changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks, clearMissingLocalTracks, handlePlaybackEnded, setOnlinePlaying, setOnlineState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse, openSelectedLocalDirectory } = view.actions;
   const hushFullscreen = playbackMode === "hush" && !listOpen;
   const activeLocalSelectedId =
     playbackMode === "linger" && selectedLocal ? selectedLocalId : "";
@@ -988,26 +1187,47 @@ export function ListenPageView(view: ListenPageViewProps) {
     },
     [loadArtistShelfTracks],
   );
+  const museAccountMenuVisible = mode === "muse";
+  const museAccountWidthRem = museAccountMenuVisible
+    ? LISTEN_HEADER_ACCOUNT_BUTTON_REM
+    : 0;
+  const searchHeaderGapCount =
+    (headerActionGroupVisible ? 1 : 0) +
+    (museAccountMenuVisible ? 1 : 0) +
+    1;
   const minimumExpandedSearchHeaderWidth =
     LISTEN_HEADER_FULL_TABS_REM +
     LISTEN_HEADER_SEARCH_EXPANDED_REM +
+    museAccountWidthRem +
     headerActionWidthRem +
-    LISTEN_HEADER_GAP_REM * (headerActionGroupVisible ? 2 : 1);
+    LISTEN_HEADER_GAP_REM * searchHeaderGapCount;
   const minimumCompactSearchHeaderWidth =
     LISTEN_HEADER_COMPACT_TABS_REM +
     LISTEN_HEADER_SEARCH_EXPANDED_REM +
+    museAccountWidthRem +
     headerActionWidthRem +
-    LISTEN_HEADER_GAP_REM * (headerActionGroupVisible ? 2 : 1);
+    LISTEN_HEADER_GAP_REM * searchHeaderGapCount;
+  const minimumNoModeTabsSearchHeaderWidth =
+    LISTEN_HEADER_SEARCH_EXPANDED_REM +
+    museAccountWidthRem +
+    headerActionWidthRem +
+    LISTEN_HEADER_GAP_REM *
+      ((headerActionGroupVisible ? 1 : 0) +
+        (museAccountMenuVisible ? 1 : 0));
   const headerMeasured = headerWidth !== null;
   const tabsCompact =
     searchInputActive &&
     headerMeasured &&
     headerWidth < listenRemToPixels(minimumExpandedSearchHeaderWidth);
+  const hideModeTabsForSearch =
+    searchInputActive &&
+    headerMeasured &&
+    headerWidth < listenRemToPixels(minimumCompactSearchHeaderWidth);
   const hideHeaderActionsForSearch =
     searchInputActive &&
     headerActionGroupVisible &&
     headerMeasured &&
-    headerWidth < listenRemToPixels(minimumCompactSearchHeaderWidth);
+    headerWidth < listenRemToPixels(minimumNoModeTabsSearchHeaderWidth);
   const searchToolbarState = searchInputActive
     ? "active"
     : searchControlMounted
@@ -1124,6 +1344,17 @@ export function ListenPageView(view: ListenPageViewProps) {
     props.httpBaseURL,
   ]);
 
+  const showMuseAccountGate =
+    mode === "muse" &&
+    effectiveSidebarView === "browse" &&
+    !showArtistDetail &&
+    !showPlaylistDetail &&
+    (!museAccountConnected ||
+      (!libraryLoading &&
+        !normalizedQuery &&
+        libraryError &&
+        libraryErrorPrompt.action === "connections"));
+
   const pagePrompt: {
     label: string;
     animation?: PetAnimation;
@@ -1166,6 +1397,21 @@ export function ListenPageView(view: ListenPageViewProps) {
       return null;
     }
     if (mode === "muse" && effectiveSidebarView === "browse") {
+      if (!museAccountConnected) {
+        return null;
+      }
+      if (museManualRefreshKind === "artist") {
+        return { label: props.text.listen.artistLoading };
+      }
+      if (museManualRefreshKind === "playlist") {
+        return { label: props.text.listen.playlistLoading };
+      }
+      if (museManualRefreshKind === "search") {
+        return { label: props.text.listen.searchLoading };
+      }
+      if (museManualRefreshKind === "library") {
+        return { label: props.text.listen.onlineLoading };
+      }
       if (showArtistDetail && artistBrowsePage?.loading) {
         return { label: props.text.listen.artistLoading };
       }
@@ -1210,6 +1456,9 @@ export function ListenPageView(view: ListenPageViewProps) {
         return { label: props.text.listen.playlistEmpty, animation: "review" };
       }
       if (!normalizedQuery && !libraryLoading && libraryError) {
+        if (showMuseAccountGate) {
+          return null;
+        }
         return {
           label: libraryErrorPrompt.message,
           animation: "failed",
@@ -1299,16 +1548,30 @@ export function ListenPageView(view: ListenPageViewProps) {
                 className="listen-list-toolbar wails-drag pointer-events-auto relative w-full min-w-0"
               >
                 <div className="listen-list-toolbar-primary flex min-w-0 items-center justify-start gap-2 overflow-hidden">
-                  <TooltipProvider delayDuration={0}>
-                    <ListenModeTabs mode={mode} compact={tabsCompact} text={props.text} onChange={setMode} />
-                  </TooltipProvider>
+                  {!hideModeTabsForSearch ? (
+                    <TooltipProvider delayDuration={0}>
+                      <ListenModeTabs mode={mode} compact={tabsCompact} text={props.text} onChange={setMode} />
+                    </TooltipProvider>
+                  ) : null}
+                  {museAccountMenuVisible ? (
+                    <ListenMuseAccountMenu
+                      text={props.text}
+                      name={museAccountName}
+                      avatarURL={museAccountAvatarURL}
+                      connected={museAccountConnected}
+                      busy={museAccountBusy}
+                      onConnect={connectYouTube}
+                      onRefresh={refreshMusePage}
+                      onSignOut={signOutMuseAccount}
+                    />
+                  ) : null}
                   {headerActionGroup && !hideHeaderActionsForSearch ? (
                     <div className="listen-list-toolbar-actions min-w-0 shrink-0">
                       {headerActionGroup}
                     </div>
                   ) : null}
                 </div>
-                <div className="listen-list-toolbar-search-layer wails-no-drag absolute inset-y-0 right-0 z-10 flex min-w-0 justify-end">
+                <div className="listen-list-toolbar-search-layer wails-no-drag absolute inset-y-0 right-0 z-10 flex min-w-0 items-center justify-end">
                   <div
                     className={cn(
                       "listen-list-search-control app-dream-search-control app-dream-control-shell app-completed-search-control h-9",
@@ -1388,7 +1651,7 @@ export function ListenPageView(view: ListenPageViewProps) {
               "pb-4",
             )}
           >
-            {pagePrompt ? (
+            {!showMuseAccountGate && pagePrompt ? (
               <ListenMuseLoadingIndicator
                 pet={props.pet}
                 petImageURL={props.petImageURL}
@@ -1398,7 +1661,15 @@ export function ListenPageView(view: ListenPageViewProps) {
                 onAction={pagePrompt.onAction}
               />
             ) : null}
-            {effectiveSidebarView === "queue" ? (
+            {showMuseAccountGate ? (
+              <ListenMuseAccountGate
+                text={props.text}
+                pet={props.pet}
+                petImageURL={props.petImageURL}
+                busy={museConnectBusy}
+                onConnect={connectYouTube}
+              />
+            ) : effectiveSidebarView === "queue" ? (
               mode === "hush" ? (
                 <div className="space-y-5">
                   <ListenOnlineGroup

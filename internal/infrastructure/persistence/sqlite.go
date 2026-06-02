@@ -637,16 +637,17 @@ CREATE TABLE IF NOT EXISTS cron_run_events (
 CREATE INDEX IF NOT EXISTS cron_run_events_run_id_created_at_ms ON cron_run_events(run_id, created_at_ms DESC);
 CREATE INDEX IF NOT EXISTS cron_run_events_job_id_created_at_ms ON cron_run_events(job_id, created_at_ms DESC);
 
-CREATE TABLE IF NOT EXISTS connectors (
+CREATE TABLE IF NOT EXISTS site_app_sessions (
 	id TEXT PRIMARY KEY,
-	type TEXT NOT NULL,
+	site_key TEXT NOT NULL UNIQUE,
 	status TEXT NOT NULL,
-	credential_mode TEXT,
-	cookies_path TEXT,
-	cookies_json TEXT,
-	profile_key TEXT,
-	profile_path TEXT,
-	profile_browser TEXT,
+	account_display_name TEXT,
+	account_handle TEXT,
+	account_avatar_url TEXT,
+	account_tier_key TEXT,
+	account_tier_label TEXT,
+	account_badges_json TEXT,
+	account_metadata_json TEXT,
 	last_verified_at TIMESTAMP,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -944,6 +945,9 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
 	if err := ensureSQLiteColumns(ctx, db); err != nil {
 		return err
 	}
+	if err := cleanupLegacyConnectorTables(ctx, db); err != nil {
+		return err
+	}
 	if _, err := db.ExecContext(ctx, librarySchemaSQL); err != nil {
 		return err
 	}
@@ -1036,26 +1040,6 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			table:     "settings",
 			column:    "ytdlp_concurrent_fragments",
 			statement: "ALTER TABLE settings ADD COLUMN ytdlp_concurrent_fragments INTEGER",
-		},
-		{
-			table:     "connectors",
-			column:    "credential_mode",
-			statement: "ALTER TABLE connectors ADD COLUMN credential_mode TEXT",
-		},
-		{
-			table:     "connectors",
-			column:    "profile_key",
-			statement: "ALTER TABLE connectors ADD COLUMN profile_key TEXT",
-		},
-		{
-			table:     "connectors",
-			column:    "profile_path",
-			statement: "ALTER TABLE connectors ADD COLUMN profile_path TEXT",
-		},
-		{
-			table:     "connectors",
-			column:    "profile_browser",
-			statement: "ALTER TABLE connectors ADD COLUMN profile_browser TEXT",
 		},
 		{
 			table:     "telemetry_state",
@@ -1172,6 +1156,15 @@ WHERE TRIM(COALESCE(compatibility, '')) = ''
 	}
 	if err := backfillLibraryFileIdentity(ctx, db); err != nil {
 		return err
+	}
+	return nil
+}
+
+func cleanupLegacyConnectorTables(ctx context.Context, db *sql.DB) error {
+	for _, table := range []string{"connector_app_sessions", "connectors"} {
+		if _, err := db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
 	cdpruntime "github.com/chromedp/cdproto/runtime"
 	targetpkg "github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
@@ -236,7 +237,7 @@ func (service *LibraryService) navigateResourceSniffInitialPage(sessionID string
 		zap.Int("pid", runtimeInfo.PID),
 		zap.Int("processGroupID", runtimeInfo.ProcessGroupID),
 	)
-	if err := chromedp.Run(tab.Ctx, resourceSniffNetworkEnable(), chromedp.Navigate(resolvedURL)); err != nil {
+	if err := chromedp.Run(tab.Ctx, resourceSniffNetworkEnable(), resourceSniffNavigate(resolvedURL)); err != nil {
 		if errors.Is(err, context.Canceled) {
 			zap.L().Debug(
 				"resource sniff initial navigation canceled",
@@ -1607,7 +1608,11 @@ func (service *LibraryService) handleResourceSniffTargetInfo(sessionID string, i
 		return
 	}
 	if resourceSniffIgnoredTargetURL(info.URL) {
-		if service.keepPendingResourceSniffTab(sessionID, targetID) {
+		if resourceSniffTrackPendingTargetURL(info.URL) {
+			if service.keepPendingResourceSniffTab(sessionID, targetID) {
+				return
+			}
+			go service.attachResourceSniffTarget(sessionID, targetID, info.URL, info.Title, false)
 			return
 		}
 		service.removeResourceSniffTab(sessionID, targetID, "ignored_target_url")
@@ -1667,15 +1672,17 @@ func (service *LibraryService) attachResourceSniffTarget(sessionID string, targe
 		service.clearResourceSniffTargetAttaching(sessionID, targetID)
 		return
 	}
+	pendingNavigation := resourceSniffIgnoredTargetURL(pageURL) && resourceSniffTrackPendingTargetURL(pageURL)
 	tab := &resourceSniffTab{
-		TargetID:        targetID,
-		TargetSessionID: browsercdp.TargetSessionIDFromContext(tabCtx),
-		Ctx:             tabCtx,
-		Cancel:          tabCancel,
-		Capture:         newResourceCaptureState(),
-		CurrentURL:      strings.TrimSpace(pageURL),
-		Title:           resourceCleanMetadataText(title),
-		LastSeen:        time.Now(),
+		TargetID:          targetID,
+		TargetSessionID:   browsercdp.TargetSessionIDFromContext(tabCtx),
+		Ctx:               tabCtx,
+		Cancel:            tabCancel,
+		Capture:           newResourceCaptureState(),
+		CurrentURL:        strings.TrimSpace(pageURL),
+		Title:             resourceCleanMetadataText(title),
+		PendingNavigation: pendingNavigation,
+		LastSeen:          time.Now(),
 	}
 	service.watchResourceSniffTab(sessionID, tab)
 	service.resourceSniffMu.Lock()
@@ -1726,6 +1733,19 @@ func resourceSniffNetworkEnable() *network.EnableParams {
 	return network.Enable().
 		WithMaxTotalBufferSize(resourceSniffNetworkTotalBufferBytes).
 		WithMaxResourceBufferSize(resourceSniffNetworkResourceBytes)
+}
+
+func resourceSniffNavigate(rawURL string) chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		_, _, errorText, _, err := page.Navigate(strings.TrimSpace(rawURL)).Do(ctx)
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(errorText) != "" {
+			return fmt.Errorf("page navigate failed: %s", strings.TrimSpace(errorText))
+		}
+		return nil
+	})
 }
 
 func (service *LibraryService) keepPendingResourceSniffTab(sessionID string, targetID string) bool {
@@ -1791,8 +1811,12 @@ func (service *LibraryService) syncResourceSniffTargets(sessionID string) {
 			continue
 		}
 		if resourceSniffIgnoredTargetURL(info.URL) {
-			if service.keepPendingResourceSniffTab(sessionID, targetID) {
+			if resourceSniffTrackPendingTargetURL(info.URL) {
 				seen[targetID] = struct{}{}
+				if service.keepPendingResourceSniffTab(sessionID, targetID) {
+					continue
+				}
+				service.attachResourceSniffTarget(sessionID, targetID, info.URL, info.Title, false)
 				continue
 			}
 			service.removeResourceSniffTab(sessionID, targetID, "ignored_target_url")
@@ -2214,6 +2238,14 @@ func resourceSniffIgnoredTargetURL(rawURL string) bool {
 		strings.HasPrefix(lower, "devtools://") ||
 		strings.HasPrefix(lower, "chrome://") ||
 		strings.HasPrefix(lower, "edge://")
+}
+
+func resourceSniffTrackPendingTargetURL(rawURL string) bool {
+	lower := strings.ToLower(strings.TrimSpace(rawURL))
+	return lower == "" ||
+		lower == "about:blank" ||
+		lower == "chrome://newtab/" ||
+		lower == "edge://newtab/"
 }
 
 func fmtString(value any) string {

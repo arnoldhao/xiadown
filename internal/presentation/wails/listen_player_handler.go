@@ -15,7 +15,6 @@ import (
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/listenplayback"
 	"xiadown/internal/application/youtubemusic"
-	"xiadown/internal/domain/connectors"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -107,7 +106,7 @@ type ListenPlayerHandler struct {
 }
 
 type listenPlayerCookieProvider interface {
-	CookiesForConnectorType(ctx context.Context, connectorType connectors.ConnectorType) ([]appcookies.Record, error)
+	RecordsForSiteKey(ctx context.Context, siteKey string) ([]appcookies.Record, error)
 }
 
 func NewListenPlayerHandler(player *ListenYouTubeMusicPlayer, service ...*listenplayback.PlayerService) *ListenPlayerHandler {
@@ -1274,7 +1273,7 @@ func (player *ListenYouTubeMusicPlayer) playbackCookies(ctx context.Context) []a
 	if player == nil || player.cookies == nil {
 		return nil
 	}
-	records, err := player.cookies.CookiesForConnectorType(ctx, connectors.ConnectorYouTube)
+	records, err := player.cookies.RecordsForSiteKey(ctx, "youtube")
 	if err != nil {
 		return nil
 	}

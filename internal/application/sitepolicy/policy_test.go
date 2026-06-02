@@ -12,29 +12,29 @@ func TestForURLMatchesYouTubePolicy(t *testing.T) {
 	if policy.Key != "youtube" {
 		t.Fatalf("expected youtube policy key, got %q", policy.Key)
 	}
-	if policy.ConnectorType != "youtube" {
-		t.Fatalf("expected youtube connector cookies, got %q", policy.ConnectorType)
+	if policy.SiteKey != "youtube" {
+		t.Fatalf("expected youtube site key, got %q", policy.SiteKey)
 	}
 }
 
-func TestForConnectorTypeYouTubeDomainsIncludeShortURL(t *testing.T) {
+func TestForSiteKeyYouTubeDomainsIncludeShortURL(t *testing.T) {
 	t.Parallel()
 
-	policy, ok := ForConnectorType("youtube")
+	policy, ok := ForSiteKey("youtube")
 	if !ok {
-		t.Fatalf("expected youtube connector policy")
+		t.Fatalf("expected youtube site policy")
 	}
 	if !MatchDomains("https://youtu.be/test", policy.Domains) {
-		t.Fatalf("expected youtube connector domains to cover short URLs")
+		t.Fatalf("expected youtube site domains to cover short URLs")
 	}
 }
 
-func TestForConnectorTypeChinaPrivateUsesProfileScope(t *testing.T) {
+func TestForSiteKeyChinaPrivateUsesProfileScope(t *testing.T) {
 	t.Parallel()
 
-	policy, ok := ForConnectorType("china_private")
+	policy, ok := ForSiteKey("china_private")
 	if !ok {
-		t.Fatalf("expected china private connector policy")
+		t.Fatalf("expected china private site policy")
 	}
 	for _, rawURL := range []string{
 		"https://www.douyin.com/video/123",
@@ -52,7 +52,7 @@ func TestForConnectorTypeChinaPrivateUsesProfileScope(t *testing.T) {
 			t.Fatalf("expected china private profile policy to match %s", rawURL)
 		}
 	}
-	sites := ProfileSitesForConnector("china_private")
+	sites := ProfileSitesForSiteKey("china_private")
 	if len(sites) != 2 {
 		t.Fatalf("expected two profile sites, got %#v", sites)
 	}

@@ -1,4 +1,4 @@
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 
 import { LISTEN_STORAGE_KEY } from "@/app/main/listen/catalog";
 import { clampVolume } from "@/app/main/listen/local-library";
@@ -142,7 +142,7 @@ export function buildListenPosterCandidates(
 ) {
   return dedupeListenImageCandidates([
     ...buildListenTrackThumbnailCandidates(httpBaseURL, item, options),
-    DEFAULT_COVER_IMAGE_URL,
+    LISTEN_DEFAULT_COVER_IMAGE_URL,
   ]);
 }
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	connectorsdto "xiadown/internal/application/connectors/dto"
+	appsessionsdto "xiadown/internal/application/appsessions/dto"
 	"xiadown/internal/application/library/dto"
 )
 
@@ -130,25 +130,18 @@ func TestValidateDownloadURLCompletesKnownVideoSuffixes(t *testing.T) {
 	}
 }
 
-func TestPrepareYTDLPDownloadUsesConnectorModeForNormalizedURL(t *testing.T) {
+func TestPrepareYTDLPDownloadUsesAppSessionForNormalizedURL(t *testing.T) {
 	t.Parallel()
 
 	service := &LibraryService{
-		connectors: resourceConnectorReaderStub{
-			items: []connectorsdto.Connector{
+		appSessions: resourceAppSessionReaderStub{
+			items: []appsessionsdto.AppSession{
 				{
-					ID:             "connector-youtube",
-					Type:           "youtube",
-					Status:         "connected",
-					CredentialMode: "cookies",
-					CookiesCount:   2,
-				},
-				{
-					ID:              "connector-china-private",
-					Type:            "china_private",
-					CredentialMode:  "profile",
-					CredentialState: "profile",
-					ProfilePath:     "/tmp/xiadown-profile",
+					ID:              "site-app-session-youtube",
+					SiteKey:         "youtube",
+					Status:          "connected",
+					CredentialState: "app_session",
+					CookiesCount:    2,
 				},
 			},
 		},
@@ -161,8 +154,8 @@ func TestPrepareYTDLPDownloadUsesConnectorModeForNormalizedURL(t *testing.T) {
 	if youtube.URL != "https://www.youtube.com/watch?v=BaW_jenozKc" || youtube.Domain != "youtube.com" {
 		t.Fatalf("unexpected youtube normalization: %#v", youtube)
 	}
-	if youtube.ConnectorID != "connector-youtube" || !youtube.ConnectorAvailable || youtube.ConnectorCredentialMode != "cookies" {
-		t.Fatalf("unexpected youtube connector: %#v", youtube)
+	if youtube.AppSessionID != "site-app-session-youtube" || !youtube.AppSessionAvailable || youtube.AppSessionCredentialMode != "app_session" {
+		t.Fatalf("unexpected youtube app session: %#v", youtube)
 	}
 
 	chinaPrivate, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest("douyin.com/video/123"))
@@ -172,8 +165,8 @@ func TestPrepareYTDLPDownloadUsesConnectorModeForNormalizedURL(t *testing.T) {
 	if chinaPrivate.URL != "https://douyin.com/video/123" || chinaPrivate.Domain != "douyin.com" {
 		t.Fatalf("unexpected china private normalization: %#v", chinaPrivate)
 	}
-	if chinaPrivate.ConnectorID != "connector-china-private" || !chinaPrivate.ConnectorAvailable || chinaPrivate.ConnectorCredentialMode != "profile" {
-		t.Fatalf("unexpected china private connector: %#v", chinaPrivate)
+	if chinaPrivate.AppSessionID != "" || chinaPrivate.AppSessionAvailable || chinaPrivate.AppSessionCredentialMode != "" {
+		t.Fatalf("unexpected china private app session availability: %#v", chinaPrivate)
 	}
 
 	for _, rawURL := range []string{
@@ -185,38 +178,37 @@ func TestPrepareYTDLPDownloadUsesConnectorModeForNormalizedURL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("prepare china private alias %s: %v", rawURL, err)
 		}
-		if result.ConnectorID != "connector-china-private" || !result.ConnectorAvailable || result.ConnectorCredentialMode != "profile" {
-			t.Fatalf("unexpected china private alias connector for %s: %#v", rawURL, result)
+		if result.AppSessionID != "" || result.AppSessionAvailable || result.AppSessionCredentialMode != "" {
+			t.Fatalf("unexpected china private alias app session for %s: %#v", rawURL, result)
 		}
 	}
 }
 
-func TestPrepareYTDLPDownloadMarksUnreadyProfileConnectorUnavailable(t *testing.T) {
+func TestPrepareYTDLPDownloadMarksDisconnectedAppSessionUnavailable(t *testing.T) {
 	t.Parallel()
 
 	service := &LibraryService{
-		connectors: resourceConnectorReaderStub{
-			items: []connectorsdto.Connector{
+		appSessions: resourceAppSessionReaderStub{
+			items: []appsessionsdto.AppSession{
 				{
-					ID:              "connector-china-private",
-					Type:            "china_private",
-					CredentialMode:  "profile",
+					ID:              "site-app-session-youtube",
+					SiteKey:         "youtube",
+					Status:          "disconnected",
 					CredentialState: "disconnected",
-					ProfilePath:     "/tmp/xiadown-profile",
 				},
 			},
 		},
 	}
 
-	chinaPrivate, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest("douyin.com/video/123"))
+	youtube, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest("youtube.com/watch?v=BaW_jenozKc"))
 	if err != nil {
-		t.Fatalf("prepare china private: %v", err)
+		t.Fatalf("prepare youtube: %v", err)
 	}
-	if chinaPrivate.ConnectorID != "connector-china-private" || chinaPrivate.ConnectorAvailable || chinaPrivate.ConnectorCredentialMode != "profile" {
-		t.Fatalf("unexpected china private connector availability: %#v", chinaPrivate)
+	if youtube.AppSessionID != "site-app-session-youtube" || youtube.AppSessionAvailable || youtube.AppSessionCredentialMode != "app_session" {
+		t.Fatalf("unexpected youtube app session availability: %#v", youtube)
 	}
-	if chinaPrivate.ConnectorCredentialState != "disconnected" {
-		t.Fatalf("expected disconnected credential state, got %#v", chinaPrivate)
+	if youtube.AppSessionCredentialState != "disconnected" {
+		t.Fatalf("expected disconnected credential state, got %#v", youtube)
 	}
 }
 

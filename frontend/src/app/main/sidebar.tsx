@@ -17,7 +17,7 @@ import {
 getXiaText
 } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import type { CDPBrowserStatus } from "@/shared/contracts/library";
 import { Button } from "@/shared/ui/button";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
@@ -389,7 +389,7 @@ function ListenNowPlayingPanelArtwork(props: {
   if (!props.status || props.status.state === "idle") {
     return (
       <img
-        src={DEFAULT_COVER_IMAGE_URL}
+        src={LISTEN_DEFAULT_COVER_IMAGE_URL}
         alt=""
         className="h-full w-full object-cover"
         loading="lazy"
@@ -679,7 +679,7 @@ export function ListenSidebarArtwork(props: { status: ListenNowPlayingStatus }) 
   const source =
     props.status.artworkURL && props.status.artworkURL !== failedURL
       ? props.status.artworkURL
-      : DEFAULT_COVER_IMAGE_URL;
+      : LISTEN_DEFAULT_COVER_IMAGE_URL;
 
   React.useEffect(() => {
     setFailedURL("");

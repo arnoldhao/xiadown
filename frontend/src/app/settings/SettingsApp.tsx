@@ -22,6 +22,7 @@ RefreshCcw,
 RefreshCw,
 SlidersVertical,
 Sun,
+Trash2,
 Twitter,
 Wrench,
 } from "lucide-react";
@@ -50,10 +51,13 @@ useDependencyUpdates
 import { useOpenLibraryPath } from "@/shared/query/library";
 import {
 useBrowserCandidates,
+useClearSniffProfile,
 useOpenLogDirectory,
+useOpenSniffProfile,
 useRefreshBrowserCandidates,
 useSelectDownloadDirectory,
 useSettings,
+useSniffProfileInfo,
 useSystemProxyInfo,
 useTestProxy,
 useUpdateSettings,
@@ -74,6 +78,7 @@ useUpdateStore,
 } from "@/shared/store/update";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { formatBytes } from "@/shared/utils/formatBytes";
 import {
   Dialog,
   DialogClose,
@@ -102,6 +107,10 @@ const ABOUT_AUTHOR_NAME = "Arnold HAO";
 const DREAM_CREATOR_ICON_SRC = "/dreamcreator.png";
 const HUSH_ICON_SRC = "/hush.png";
 const DREAM_APP_ICON_FALLBACK_SRC = "/appicon.png";
+
+function formatSniffProfileBytes(value?: number | null): string {
+  return value && value > 0 ? formatBytes(value) : "0 MB";
+}
 
 function DreamAppIcon(props: {
   src: string;
@@ -295,6 +304,10 @@ export function SettingsApp() {
     }
     return resolveDefaultBrowserID(browserOptions);
   }, [browserOptions, currentSettings?.defaultBrowser]);
+  const sniffProfileInfo = useSniffProfileInfo(selectedDefaultBrowser);
+  const openSniffProfile = useOpenSniffProfile();
+  const clearSniffProfile = useClearSniffProfile();
+  const sniffProfileSizeLabel = formatSniffProfileBytes(sniffProfileInfo.data?.sizeBytes);
 
   const isCheckingUpdate = updateInfo.status === "checking" || checkForUpdate.isPending;
   const isUpdateError = updateInfo.status === "error";
@@ -1046,6 +1059,67 @@ export function SettingsApp() {
                         ))
                       )}
                     </Select>
+                  </div>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.sniffProfileData} contentClassName="min-w-0">
+                  <div className="flex min-w-0 items-center justify-end gap-2">
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            tabIndex={0}
+                            className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                            aria-label={`${text.settings.sniffProfileSize}: ${sniffProfileInfo.isFetching ? "..." : sniffProfileSizeLabel}`}
+                          >
+                            {sniffProfileInfo.isFetching ? "..." : sniffProfileSizeLabel}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.sniffProfileSize}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            className="shrink-0"
+                            onClick={() => void openSniffProfile.mutateAsync({ browser: selectedDefaultBrowser })}
+                            disabled={!selectedDefaultBrowser || openSniffProfile.isPending}
+                            aria-label={text.settings.sniffProfileOpen}
+                          >
+                            {openSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.sniffProfileOpen}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            className="shrink-0"
+                            onClick={() =>
+                              void clearSniffProfile
+                                .mutateAsync({ browser: selectedDefaultBrowser })
+                                .then(() => sniffProfileInfo.refetch())
+                            }
+                            disabled={!selectedDefaultBrowser || clearSniffProfile.isPending}
+                            aria-label={text.settings.sniffProfileClear}
+                          >
+                            {clearSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.sniffProfileClear}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </SettingsCompactRow>
               </SettingsCompactListCard>

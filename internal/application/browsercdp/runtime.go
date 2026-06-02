@@ -124,6 +124,7 @@ func Start(ctx context.Context, options LaunchOptions) (*Runtime, error) {
 			args = append(args, trimmed)
 		}
 	}
+	args = appendBrowserLaunchArgs(args, candidate.ID)
 	args = appendStartupPageArg(args, options)
 
 	cmd := exec.Command(candidate.ExecPath, args...)
@@ -322,6 +323,15 @@ func buildLaunchArgs(port int, userDataDir string, options LaunchOptions) []stri
 		return append([]string{"--headless=new", "--hide-scrollbars", "--mute-audio"}, args...)
 	}
 	return args
+}
+
+func appendBrowserLaunchArgs(args []string, id BrowserID) []string {
+	switch id {
+	case BrowserVivaldi:
+		return append(args, "--disable-vivaldi")
+	default:
+		return args
+	}
 }
 
 func appendStartupPageArg(args []string, options LaunchOptions) []string {

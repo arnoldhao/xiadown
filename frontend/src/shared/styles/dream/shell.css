@@ -371,7 +371,7 @@
   background: var(--dream-page-surface);
 }
 
-:is(.app-dream-frame, .app-main-settings-frame) :is(.app-main-completed-page, .app-main-pets-page, .app-main-connectors-page, .app-main-running-page, .app-sniff-desk-page) {
+:is(.app-dream-frame, .app-main-settings-frame) :is(.app-main-completed-page, .app-main-pets-page, .app-main-app-sessions-page, .app-main-running-page, .app-sniff-desk-page) {
   background: var(--app-main-shell-aba-surface);
 }
 

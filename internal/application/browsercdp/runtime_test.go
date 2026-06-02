@@ -94,6 +94,27 @@ func TestBuildLaunchArgs_HeadlessKeepsHiddenMode(t *testing.T) {
 	}
 }
 
+func TestAppendBrowserLaunchArgs_DisablesVivaldiWelcome(t *testing.T) {
+	t.Parallel()
+
+	args := appendBrowserLaunchArgs([]string{"--custom-flag"}, BrowserVivaldi)
+	joined := " " + strings.Join(args, " ") + " "
+
+	if !strings.Contains(joined, " --disable-vivaldi ") {
+		t.Fatalf("expected Vivaldi launch to disable Vivaldi welcome, args=%v", args)
+	}
+}
+
+func TestAppendBrowserLaunchArgs_LeavesOtherBrowsersUnchanged(t *testing.T) {
+	t.Parallel()
+
+	args := appendBrowserLaunchArgs([]string{"--custom-flag"}, BrowserChrome)
+
+	if len(args) != 1 || args[0] != "--custom-flag" {
+		t.Fatalf("expected Chrome launch args unchanged, got %v", args)
+	}
+}
+
 func TestAppendStartupPageArg_HeadlessSkipsPageArg(t *testing.T) {
 	t.Parallel()
 

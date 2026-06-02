@@ -495,8 +495,8 @@ export interface CreateYTDLPJobRequest {
   subtitleFormat?: string
   transcodePresetId?: string
   deleteSourceFileAfterTranscode?: boolean
-  connectorId?: string
-  useConnector?: boolean
+  appSessionId?: string
+  useAppSession?: boolean
   resourceSessionId?: string
   resourceMediaId?: string
 }
@@ -546,10 +546,10 @@ export interface PrepareYTDLPDownloadResponse {
   url: string
   domain: string
   icon?: string
-  connectorId?: string
-  connectorAvailable: boolean
-  connectorCredentialMode?: string
-  connectorCredentialState?: string
+  appSessionId?: string
+  appSessionAvailable: boolean
+  appSessionCredentialMode?: string
+  appSessionCredentialState?: string
   reachable?: boolean
 }
 
@@ -565,8 +565,8 @@ export interface ResolveDomainIconResponse {
 
 export interface ParseYTDLPDownloadRequest {
   url: string
-  connectorId?: string
-  useConnector?: boolean
+  appSessionId?: string
+  useAppSession?: boolean
 }
 
 export interface YTDLPFormatOption {

@@ -3,7 +3,7 @@ type AudioSrc
 } from "@vidstack/react";
 import * as React from "react";
 
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import type { LibraryDTO } from "@/shared/contracts/library";
 import {
 buildAssetPreviewURL,
@@ -150,7 +150,7 @@ function mapListenLocalTrackDTO(item: ListenLocalTrackDTO, baseURL: string): Lis
   const lyricsFields = resolveListenLocalLyricsFields(title, author, fileTitle);
   const coverURL =
     buildAssetPreviewURL(baseURL, item.coverLocalPath?.trim() ?? "") ||
-    DEFAULT_COVER_IMAGE_URL;
+    LISTEN_DEFAULT_COVER_IMAGE_URL;
   return {
     id: firstTrimmedValue(item.id, item.fileId, path),
     title,

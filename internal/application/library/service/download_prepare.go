@@ -10,9 +10,7 @@ import (
 
 	"golang.org/x/net/publicsuffix"
 
-	connectorsdto "xiadown/internal/application/connectors/dto"
 	"xiadown/internal/application/library/dto"
-	"xiadown/internal/domain/connectors"
 )
 
 func (service *LibraryService) PrepareYTDLPDownload(ctx context.Context, request dto.PrepareYTDLPDownloadRequest) (dto.PrepareYTDLPDownloadResponse, error) {
@@ -21,7 +19,7 @@ func (service *LibraryService) PrepareYTDLPDownload(ctx context.Context, request
 		return dto.PrepareYTDLPDownloadResponse{}, err
 	}
 
-	connectorAvailability := service.resolveConnectorAvailability(ctx, domain)
+	appSessionAvailability := service.resolveAppSessionAvailability(ctx, domain)
 	icon := ""
 	if domain != "" && service.iconResolver != nil {
 		if resolver, ok := service.iconResolver.(interface {
@@ -36,13 +34,13 @@ func (service *LibraryService) PrepareYTDLPDownload(ctx context.Context, request
 	}
 
 	return dto.PrepareYTDLPDownloadResponse{
-		URL:                      resolvedURL,
-		Domain:                   domain,
-		Icon:                     icon,
-		ConnectorID:              connectorAvailability.ID,
-		ConnectorAvailable:       connectorAvailability.Available,
-		ConnectorCredentialMode:  connectorAvailability.CredentialMode,
-		ConnectorCredentialState: connectorAvailability.CredentialState,
+		URL:                       resolvedURL,
+		Domain:                    domain,
+		Icon:                      icon,
+		AppSessionID:              appSessionAvailability.ID,
+		AppSessionAvailable:       appSessionAvailability.Available,
+		AppSessionCredentialMode:  appSessionAvailability.CredentialMode,
+		AppSessionCredentialState: appSessionAvailability.CredentialState,
 	}, nil
 }
 
@@ -293,97 +291,67 @@ func normalizeBilibiliVideoSuffix(rawURL string) (string, bool) {
 	return "", false
 }
 
-type connectorAvailability struct {
+type appSessionAvailability struct {
 	ID              string
 	Available       bool
 	CredentialMode  string
 	CredentialState string
 }
 
-func (service *LibraryService) resolveConnectorAvailability(ctx context.Context, domain string) connectorAvailability {
-	if service.connectors == nil {
-		return connectorAvailability{}
+func (service *LibraryService) resolveAppSessionAvailability(ctx context.Context, domain string) appSessionAvailability {
+	if service.appSessions == nil {
+		return appSessionAvailability{}
 	}
-	connectorType := connectorTypeForDomain(domain)
-	if connectorType == "" {
-		return connectorAvailability{}
+	siteKey := appSessionSiteKeyForDomain(domain)
+	if siteKey == "" {
+		return appSessionAvailability{}
 	}
-	items, err := service.connectors.ListConnectors(ctx)
+	items, err := service.appSessions.ListAppSessions(ctx)
 	if err != nil {
-		return connectorAvailability{}
+		return appSessionAvailability{}
 	}
 	for _, item := range items {
-		if strings.EqualFold(item.Type, string(connectorType)) {
-			mode := strings.TrimSpace(item.CredentialMode)
-			if mode == "" {
-				mode = string(connectors.DefaultCredentialMode(connectorType))
-			}
-			available := false
+		if strings.EqualFold(item.SiteKey, siteKey) {
 			state := strings.TrimSpace(item.CredentialState)
-			if strings.EqualFold(mode, string(connectors.CredentialModeProfile)) {
-				available = resourceProfileConnectorReady(item)
-				if state == "" {
-					if available {
-						state = "profile"
-					} else {
-						state = string(connectors.StatusDisconnected)
-					}
-				}
-			} else {
-				if state == "" {
-					state = strings.TrimSpace(item.Status)
-				}
-				available = strings.EqualFold(item.Status, string(connectors.StatusConnected)) && item.CookiesCount > 0
+			if state == "" {
+				state = strings.TrimSpace(item.Status)
 			}
-			return connectorAvailability{
+			return appSessionAvailability{
 				ID:              item.ID,
-				Available:       available,
-				CredentialMode:  mode,
+				Available:       strings.EqualFold(item.Status, "connected") && item.CookiesCount > 0,
+				CredentialMode:  "app_session",
 				CredentialState: state,
 			}
 		}
 	}
-	return connectorAvailability{}
+	return appSessionAvailability{}
 }
 
-func resourceProfileConnectorReady(item connectorsdto.Connector) bool {
-	if strings.TrimSpace(item.ProfilePath) == "" {
-		return false
-	}
-	state := strings.TrimSpace(item.CredentialState)
-	if state != "" {
-		return strings.EqualFold(state, "profile") ||
-			strings.EqualFold(state, string(connectors.StatusConnected))
-	}
-	// Older connector readers may not populate CredentialState.
-	return true
-}
-
-func connectorTypeForDomain(domain string) connectors.ConnectorType {
+func appSessionSiteKeyForDomain(domain string) string {
 	normalized := strings.ToLower(strings.TrimSpace(domain))
 	switch normalized {
 	case "youtube.com", "youtu.be", "youtube-nocookie.com":
-		return connectors.ConnectorYouTube
+		return "youtube"
 	case "bilibili.com", "b23.tv":
-		return connectors.ConnectorBilibili
+		return "bilibili"
 	case "tiktok.com", "tiktokv.com", "vm.tiktok.com":
-		return connectors.ConnectorTikTok
+		return "tiktok"
 	case "douyin.com", "iesdouyin.com",
 		"xiaohongshu.com", "rednote.com", "xhs.cn",
 		"xhslink.com", "xhslink.cn", "xhsurl.com", "rl.ink":
-		return connectors.ConnectorChinaPrivate
+		return "china_private"
 	case "instagram.com":
-		return connectors.ConnectorInstagram
+		return "instagram"
 	case "x.com", "twitter.com":
-		return connectors.ConnectorX
+		return "x"
 	case "facebook.com", "fb.watch":
-		return connectors.ConnectorFacebook
+		return "facebook"
 	case "vimeo.com", "player.vimeo.com":
-		return connectors.ConnectorVimeo
+		return "vimeo"
 	case "twitch.tv", "clips.twitch.tv":
-		return connectors.ConnectorTwitch
+		return "twitch"
 	case "nicovideo.jp", "nico.ms", "nicovideo.cdn.nimg.jp":
-		return connectors.ConnectorNiconico
+		return "niconico"
 	default:
 		return ""
 	}

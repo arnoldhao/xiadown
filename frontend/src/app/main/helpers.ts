@@ -137,7 +137,7 @@ export const COMPLETED_FILE_TYPE_ORDER: CompletedFileType[] = [
 ];
 export const COMPLETED_TEXT_PREVIEW_MAX_BYTES = 512 * 1024;
 export const COMPLETED_IMAGE_PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
-export const CONNECTOR_TYPES = new Set([
+export const SITE_KEYS = new Set([
   "youtube",
   "bilibili",
   "tiktok",
@@ -1412,7 +1412,7 @@ export function formatCodecLabel(codec?: string) {
   }
 }
 
-export function resolveConnectorTypeForDomain(domain?: string) {
+export function resolveSiteKeyForDomain(domain?: string) {
   const normalized = (domain ?? "").trim().toLowerCase();
   switch (normalized) {
     case "youtube.com":

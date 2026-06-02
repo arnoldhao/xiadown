@@ -14,7 +14,7 @@ const generatedBindingDTORoot = path.join(frontendRoot, "bindings", "xiadown", "
 const allowedExtensions = new Set([".ts", ".tsx", ".go"]);
 const transportContractSuffixPattern = /(?:Request|Response|Result)$/;
 const generatedContractPairs = [
-  ["connectors", "connectors.ts"],
+  ["appsessions", "appSessions.ts"],
   ["dependencies", "dependencies.ts"],
   ["library", "library.ts"],
   ["settings", "settings.ts"],
@@ -61,7 +61,7 @@ function collectLegacyFieldFindings(content, filePath) {
 
 function collectStoreImportFindings(content, filePath) {
   const findings = [];
-  const storePattern = /from\s+["']@\/shared\/store\/(library|connectors|dependencies)["']/g;
+  const storePattern = /from\s+["']@\/shared\/store\/(library|dependencies)["']/g;
   for (const match of content.matchAll(storePattern)) {
     findings.push(`${relative(filePath)}: transport contract imported from store path \`${match[1]}\``);
   }

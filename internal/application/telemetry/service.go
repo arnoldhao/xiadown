@@ -81,7 +81,7 @@ type Service struct {
 
 type sessionMetrics struct {
 	libraryCompleted     int
-	connectorConnected   int
+	appSessionConnected  int
 	dependencyInstalled  int
 	updateReadyToRestart int
 	operationIDs         map[string]struct{}
@@ -170,26 +170,26 @@ func (service *Service) TrackAppLaunch(ctx context.Context, launch AppLaunchCont
 	return len(signals), nil
 }
 
-func (service *Service) TrackConnectorConnected(ctx context.Context, connectorType string) {
+func (service *Service) TrackAppSessionConnected(ctx context.Context, siteKey string) {
 	if !service.Enabled() {
 		return
 	}
-	normalizedConnectorType := strings.TrimSpace(connectorType)
-	if normalizedConnectorType == "" {
+	normalizedSiteKey := strings.TrimSpace(siteKey)
+	if normalizedSiteKey == "" {
 		return
 	}
 	service.incrementCounter(func(metrics *sessionMetrics) {
-		metrics.connectorConnected++
+		metrics.appSessionConnected++
 	})
 	state, err := service.repo.Ensure(ctx)
 	if err != nil {
-		zap.L().Debug("telemetry: connector state ensure failed", zap.Error(err))
+		zap.L().Debug("telemetry: app session state ensure failed", zap.Error(err))
 		return
 	}
 	service.cacheState(state)
 	payload := service.buildPayload(ctx, state)
-	payload["XiaDown.Setup.connectorType"] = normalizedConnectorType
-	service.emitAsync(Signal{Type: "XiaDown.Setup.connectorConnected", Payload: payload})
+	payload["XiaDown.Setup.appSessionSiteKey"] = normalizedSiteKey
+	service.emitAsync(Signal{Type: "XiaDown.Setup.appSessionConnected", Payload: payload})
 }
 
 func (service *Service) TrackDependencyInstalled(ctx context.Context, dependencyName string) {
@@ -304,7 +304,7 @@ func (service *Service) FlushSessionSummarySignal(ctx context.Context) (Signal, 
 	payload["TelemetryDeck.Signal.durationInSeconds"] = durationSeconds
 	payload["XiaDown.Session.durationBucket"] = bucketSessionDuration(time.Duration(durationSeconds * float64(time.Second)))
 	payload["XiaDown.Session.libraryCompletedBucket"] = bucketCount(snapshot.libraryCompleted)
-	payload["XiaDown.Session.connectorConnectedBucket"] = bucketCount(snapshot.connectorConnected)
+	payload["XiaDown.Session.appSessionConnectedBucket"] = bucketCount(snapshot.appSessionConnected)
 	payload["XiaDown.Session.dependencyInstalledBucket"] = bucketCount(snapshot.dependencyInstalled)
 	payload["XiaDown.Session.updateReadyToRestartBucket"] = bucketCount(snapshot.updateReadyToRestart)
 	return Signal{

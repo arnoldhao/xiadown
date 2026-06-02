@@ -14,8 +14,7 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 
-	"xiadown/internal/application/sitepolicy"
-	"xiadown/internal/domain/connectors"
+	"xiadown/internal/application/sniffprofile"
 )
 
 const (
@@ -1020,48 +1019,10 @@ func (service *LibraryService) preferredResourceBrowser(ctx context.Context) str
 }
 
 func (service *LibraryService) resourceConnectorProfilePath(ctx context.Context, rawURL string) (string, error) {
-	if service == nil || service.connectors == nil {
+	if service == nil {
 		return "", nil
 	}
-	items, err := service.connectors.ListConnectors(ctx)
-	if err != nil {
-		return "", err
-	}
-	var matchedType string
-	for _, item := range items {
-		if !strings.EqualFold(strings.TrimSpace(item.CredentialMode), string(connectors.CredentialModeProfile)) {
-			continue
-		}
-		policy, ok := sitepolicy.ForConnectorType(item.Type)
-		if !ok || !sitepolicy.MatchDomains(rawURL, policy.Domains) {
-			continue
-		}
-		matchedType = strings.TrimSpace(item.Type)
-		if !resourceProfileConnectorReady(item) {
-			continue
-		}
-		if path := strings.TrimSpace(item.ProfilePath); path != "" {
-			return path, nil
-		}
-	}
-	if matchedType == "" {
-		return "", nil
-	}
-	initializer, ok := service.connectors.(connectorProfileInitializer)
-	if !ok {
-		return "", nil
-	}
-	initialized, err := initializer.EnsureProfileConnector(ctx, matchedType)
-	if err != nil {
-		return "", err
-	}
-	if !resourceProfileConnectorReady(initialized) {
-		return "", nil
-	}
-	if path := strings.TrimSpace(initialized.ProfilePath); path != "" {
-		return path, nil
-	}
-	return "", nil
+	return sniffprofile.PathForPreferredBrowser(service.preferredResourceBrowser(ctx))
 }
 
 func (service *LibraryService) resourceMediaFromCandidate(pageURL string, pageDomain string, candidate resourceCandidate, pageMeta map[string]string) resourceMedia {

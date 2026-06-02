@@ -3,7 +3,7 @@ import * as React from "react";
 
 import type { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import { LISTEN_PLAYER_ICON_BUTTON_CLASS } from "@/shared/styles/listen";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
 import { resolveTrustedListenOnlineArtistLabel } from "@/app/main/listen/playback-helpers";
@@ -502,7 +502,7 @@ function ListenQueueArtwork(props: {
   const activePoster =
     posterCandidates[
       Math.min(posterIndex, Math.max(posterCandidates.length - 1, 0))
-    ] || DEFAULT_COVER_IMAGE_URL;
+    ] || LISTEN_DEFAULT_COVER_IMAGE_URL;
 
   React.useEffect(() => {
     setPosterIndex(0);
@@ -542,7 +542,7 @@ function ListenLocalQueueArtwork(props: {
   const coverURL =
     !coverFailed && props.item.coverURL
       ? props.item.coverURL
-      : DEFAULT_COVER_IMAGE_URL;
+      : LISTEN_DEFAULT_COVER_IMAGE_URL;
 
   React.useEffect(() => {
     setCoverFailed(false);

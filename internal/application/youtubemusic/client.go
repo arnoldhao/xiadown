@@ -18,7 +18,7 @@ import (
 	"time"
 
 	appcookies "xiadown/internal/application/cookies"
-	"xiadown/internal/domain/connectors"
+	"xiadown/internal/domain/appsessions"
 )
 
 const (
@@ -52,7 +52,7 @@ var (
 )
 
 type CookieProvider interface {
-	CookiesForConnectorType(ctx context.Context, connectorType connectors.ConnectorType) ([]appcookies.Record, error)
+	RecordsForSiteKey(ctx context.Context, siteKey string) ([]appcookies.Record, error)
 }
 
 type HTTPClientProvider interface {
@@ -63,6 +63,7 @@ type Client struct {
 	cookies            CookieProvider
 	httpClient         *http.Client
 	httpClientProvider HTTPClientProvider
+	userAgent          string
 	now                func() time.Time
 	requestCacheMu     sync.Mutex
 	requestCache       map[string]requestCacheEntry
@@ -141,10 +142,17 @@ type TrackMetadata struct {
 	MusicVideoType  string
 }
 
+type AccountInfo struct {
+	DisplayName string
+	Handle      string
+	AvatarURL   string
+}
+
 func NewClient(cookies CookieProvider) *Client {
 	return &Client{
 		cookies:        cookies,
 		httpClient:     &http.Client{Timeout: 20 * time.Second},
+		userAgent:      BrowserUserAgent,
 		now:            time.Now,
 		requestCache:   make(map[string]requestCacheEntry),
 		lyricsCache:    make(map[string]lyricsCacheEntry),
@@ -156,6 +164,21 @@ func NewClientWithHTTPClientProvider(cookies CookieProvider, provider HTTPClient
 	client := NewClient(cookies)
 	client.httpClientProvider = provider
 	return client
+}
+
+func (client *Client) SetUserAgent(userAgent string) {
+	if client == nil {
+		return
+	}
+	trimmed := strings.TrimSpace(userAgent)
+	if trimmed == "" {
+		trimmed = BrowserUserAgent
+	}
+	if client.userAgent == trimmed {
+		return
+	}
+	client.userAgent = trimmed
+	client.clearRequestCache()
 }
 
 func (client *Client) SearchSongs(ctx context.Context, query string, limit int) ([]Track, error) {
@@ -343,6 +366,14 @@ func (client *Client) RateSong(ctx context.Context, videoID string, rating LikeS
 	return err
 }
 
+func (client *Client) AccountInfo(ctx context.Context) (AccountInfo, error) {
+	data, err := client.request(ctx, "account/accounts_list", map[string]any{})
+	if err != nil {
+		return AccountInfo{}, err
+	}
+	return parseAccountInfo(data), nil
+}
+
 func (client *Client) request(ctx context.Context, endpoint string, body map[string]any) (map[string]any, error) {
 	return client.requestWithOptions(ctx, endpoint, body, requestOptions{})
 }
@@ -359,11 +390,12 @@ func (client *Client) requestWithOptions(ctx context.Context, endpoint string, b
 		return nil, fmt.Errorf("youtube music client is nil")
 	}
 	locale := localeFromContext(ctx)
+	userAgent := client.browserUserAgent()
 	requestBody := make(map[string]any, len(body)+1)
 	for key, value := range body {
 		requestBody[key] = value
 	}
-	requestBody["context"] = buildContext(locale)
+	requestBody["context"] = buildContext(locale, userAgent)
 
 	payload, err := json.Marshal(requestBody)
 	if err != nil {
@@ -572,9 +604,11 @@ func (client *Client) authHeaders(ctx context.Context) (map[string]string, error
 	if client.cookies == nil {
 		return nil, ErrNotAuthenticated
 	}
-	records, err := client.cookies.CookiesForConnectorType(ctx, connectors.ConnectorYouTube)
+	records, err := client.cookies.RecordsForSiteKey(ctx, "youtube")
 	if err != nil {
-		if errors.Is(err, connectors.ErrNoCookies) || errors.Is(err, connectors.ErrConnectorNotFound) {
+		if errors.Is(err, appsessions.ErrNoCookies) ||
+			errors.Is(err, appsessions.ErrSessionNotFound) ||
+			errors.Is(err, appsessions.ErrInvalidSession) {
 			return nil, fmt.Errorf("%w: %w", ErrNotAuthenticated, err)
 		}
 		return nil, err
@@ -607,17 +641,27 @@ func (client *Client) authHeaders(ctx context.Context) (map[string]string, error
 		"Cookie":          cookieHeader,
 		"Origin":          origin,
 		"Referer":         origin,
-		"User-Agent":      BrowserUserAgent,
+		"User-Agent":      client.browserUserAgent(),
 		"X-Goog-AuthUser": "0",
 		"X-Origin":        origin,
 	}, nil
+}
+
+func (client *Client) browserUserAgent() string {
+	if client == nil {
+		return BrowserUserAgent
+	}
+	if trimmed := strings.TrimSpace(client.userAgent); trimmed != "" {
+		return trimmed
+	}
+	return BrowserUserAgent
 }
 
 func (client *Client) FavoriteCacheScope(ctx context.Context) string {
 	if client == nil || client.cookies == nil {
 		return ""
 	}
-	records, err := client.cookies.CookiesForConnectorType(ctx, connectors.ConnectorYouTube)
+	records, err := client.cookies.RecordsForSiteKey(ctx, "youtube")
 	if err != nil {
 		return ""
 	}
@@ -708,30 +752,99 @@ func isRequestNetworkError(err error) bool {
 	return false
 }
 
-func buildContext(locale string) map[string]any {
+func buildContext(locale string, userAgent string) map[string]any {
 	_, offsetSeconds := time.Now().Zone()
 	hl := NormalizeLocale(locale)
 	if hl == "" {
 		hl = "en"
 	}
+	userAgent = strings.TrimSpace(userAgent)
+	if userAgent == "" {
+		userAgent = BrowserUserAgent
+	}
+	identity := browserIdentityFromUserAgent(userAgent)
 	return map[string]any{
 		"client": map[string]any{
 			"clientName":       clientName,
 			"clientVersion":    clientVersion,
 			"hl":               hl,
 			"gl":               "US",
-			"browserName":      "Safari",
-			"browserVersion":   "17.0",
-			"osName":           "Macintosh",
-			"osVersion":        "10_15_7",
+			"browserName":      identity.browserName,
+			"browserVersion":   identity.browserVersion,
+			"osName":           identity.osName,
+			"osVersion":        identity.osVersion,
 			"platform":         "DESKTOP",
-			"userAgent":        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+			"userAgent":        userAgent,
 			"utcOffsetMinutes": -offsetSeconds / 60,
 		},
 		"user": map[string]any{
 			"lockedSafetyMode": false,
 		},
 	}
+}
+
+type youtubeMusicBrowserIdentity struct {
+	browserName    string
+	browserVersion string
+	osName         string
+	osVersion      string
+}
+
+func browserIdentityFromUserAgent(userAgent string) youtubeMusicBrowserIdentity {
+	identity := youtubeMusicBrowserIdentity{
+		browserName:    "Safari",
+		browserVersion: "17.0",
+		osName:         "Macintosh",
+		osVersion:      "10_15_7",
+	}
+	userAgent = strings.TrimSpace(userAgent)
+	if userAgent == "" {
+		return identity
+	}
+	switch {
+	case strings.Contains(userAgent, "Windows NT"):
+		identity.osName = "Windows"
+		identity.osVersion = userAgentTokenVersion(userAgent, "Windows NT ")
+	case strings.Contains(userAgent, "Mac OS X"):
+		identity.osName = "Macintosh"
+		identity.osVersion = userAgentTokenVersion(userAgent, "Mac OS X ")
+	case strings.Contains(userAgent, "Linux"):
+		identity.osName = "Linux"
+		identity.osVersion = "x86_64"
+	}
+	switch {
+	case strings.Contains(userAgent, "Edg/"):
+		identity.browserName = "Edge"
+		identity.browserVersion = userAgentTokenVersion(userAgent, "Edg/")
+	case strings.Contains(userAgent, "Chrome/"):
+		identity.browserName = "Chrome"
+		identity.browserVersion = userAgentTokenVersion(userAgent, "Chrome/")
+	case strings.Contains(userAgent, "Version/") && strings.Contains(userAgent, "Safari/"):
+		identity.browserName = "Safari"
+		identity.browserVersion = userAgentTokenVersion(userAgent, "Version/")
+	}
+	if strings.TrimSpace(identity.browserVersion) == "" {
+		identity.browserVersion = "17.0"
+	}
+	if strings.TrimSpace(identity.osVersion) == "" {
+		identity.osVersion = "10_15_7"
+	}
+	return identity
+}
+
+func userAgentTokenVersion(userAgent string, marker string) string {
+	index := strings.Index(userAgent, marker)
+	if index < 0 {
+		return ""
+	}
+	value := userAgent[index+len(marker):]
+	for end, char := range value {
+		if char == ')' || char == ';' || char == ' ' {
+			value = value[:end]
+			break
+		}
+	}
+	return strings.TrimSpace(value)
 }
 
 func buildCookieHeader(records []appcookies.Record, now time.Time) string {
@@ -1007,6 +1120,82 @@ func parseTrackMetadata(data map[string]any, videoID string) TrackMetadata {
 		LikeStatus:      LikeStatusIndifferent,
 		LikeStatusKnown: false,
 	}
+}
+
+type parsedAccountInfo struct {
+	AccountInfo
+	Selected bool
+}
+
+func parseAccountInfo(data map[string]any) AccountInfo {
+	accounts := collectAccountInfos(data)
+	for _, account := range accounts {
+		if account.Selected {
+			return account.AccountInfo
+		}
+	}
+	if len(accounts) > 0 {
+		return accounts[0].AccountInfo
+	}
+	return AccountInfo{}
+}
+
+func collectAccountInfos(value any) []parsedAccountInfo {
+	result := make([]parsedAccountInfo, 0)
+	var walk func(any)
+	walk = func(current any) {
+		switch typed := current.(type) {
+		case map[string]any:
+			if item := asMap(typed["accountItem"]); item != nil {
+				if account, ok := accountInfoFromAccountItem(item); ok {
+					result = append(result, account)
+				}
+			}
+			for _, itemValue := range typed {
+				walk(itemValue)
+			}
+		case []any:
+			for _, item := range typed {
+				walk(item)
+			}
+		}
+	}
+	walk(value)
+	return result
+}
+
+func accountInfoFromAccountItem(item map[string]any) (parsedAccountInfo, bool) {
+	displayName := firstTextRun(item["accountName"])
+	handle := firstTextRun(item["channelHandle"])
+	avatarURL := lastThumbnailURL(item["accountPhoto"])
+	if displayName == "" && handle == "" && avatarURL == "" {
+		return parsedAccountInfo{}, false
+	}
+	selected, _ := item["isSelected"].(bool)
+	return parsedAccountInfo{
+		AccountInfo: AccountInfo{
+			DisplayName: displayName,
+			Handle:      handle,
+			AvatarURL:   avatarURL,
+		},
+		Selected: selected,
+	}, true
+}
+
+func firstTextRun(value any) string {
+	mapped := asMap(value)
+	if mapped == nil {
+		return ""
+	}
+	if text := stringInMap(mapped, "simpleText"); text != "" {
+		return text
+	}
+	for _, run := range mapsFromArray(mapped["runs"]) {
+		if text := stringInMap(run, "text"); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func musicVideoTypeFromRenderer(renderer map[string]any) string {

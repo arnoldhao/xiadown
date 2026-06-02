@@ -10,7 +10,6 @@ import (
 	"time"
 
 	appcookies "xiadown/internal/application/cookies"
-	"xiadown/internal/domain/connectors"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -908,7 +907,7 @@ func (player *ListenYouTubeLivePlayer) playbackCookies(ctx context.Context) []ap
 	if player == nil || player.cookies == nil {
 		return nil
 	}
-	records, err := player.cookies.CookiesForConnectorType(ctx, connectors.ConnectorYouTube)
+	records, err := player.cookies.RecordsForSiteKey(ctx, "youtube")
 	if err != nil {
 		return nil
 	}

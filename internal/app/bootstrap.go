@@ -9,8 +9,9 @@ import (
 	"time"
 
 	appdefaults "xiadown/internal/app/defaults"
+	appsessionidentity "xiadown/internal/application/appsessions"
+	appsessionsservice "xiadown/internal/application/appsessions/service"
 	"xiadown/internal/application/browsercdp"
-	connectorsservice "xiadown/internal/application/connectors/service"
 	dependenciesservice "xiadown/internal/application/dependencies/service"
 	"xiadown/internal/application/equalizer"
 	appevents "xiadown/internal/application/events"
@@ -25,8 +26,8 @@ import (
 	applicationupdate "xiadown/internal/application/update"
 	"xiadown/internal/application/youtubemusic"
 	"xiadown/internal/domain/settings"
+	"xiadown/internal/infrastructure/appsessionsrepo"
 	"xiadown/internal/infrastructure/autostart"
-	"xiadown/internal/infrastructure/connectorsrepo"
 	"xiadown/internal/infrastructure/dependenciesrepo"
 	"xiadown/internal/infrastructure/equalizeraudio"
 	"xiadown/internal/infrastructure/equalizerstore"
@@ -84,9 +85,6 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
-		Windows: application.WindowsOptions{
-			AdditionalBrowserArgs: []string{`--user-agent="` + youtubemusic.WindowsWebViewUserAgent + `"`},
-		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.dreamapp.xiadown",
 			ExitCode: 0,
@@ -120,7 +118,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	}
 	var libraryService *libraryservice.LibraryService
 	var petsService *petsservice.Service
-	var connectorsService *connectorsservice.ConnectorsService
+	var appSessionsService *appsessionsservice.AppSessionsService
 	app.OnShutdown(func() {
 		if libraryService != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -140,10 +138,10 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		if petsService != nil {
 			petsService.ShutdownOnlinePetImportSessions()
 		}
-		if connectorsService != nil {
-			stoppedConnectors := connectorsService.ShutdownSessions()
-			if stoppedConnectors > 0 {
-				zap.L().Info("connector browser sessions stopped on shutdown", zap.Int("count", stoppedConnectors))
+		if appSessionsService != nil {
+			stoppedAppSessions := appSessionsService.ShutdownSessions()
+			if stoppedAppSessions > 0 {
+				zap.L().Info("app session browser sessions stopped on shutdown", zap.Int("count", stoppedAppSessions))
 			}
 		}
 		if telemetryShutdown != nil {
@@ -257,13 +255,18 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		return nil, err
 	}
 
-	connectorsRepo := connectorsrepo.NewSQLiteConnectorRepository(database.Bun)
-	connectorsService = connectorsservice.NewConnectorsService(connectorsRepo, connectorsservice.WithSettingsReader(settingsService))
-	if err := connectorsService.EnsureDefaults(ctx); err != nil {
+	appSessionProvider := wails.NewNativeAppSessionProvider(app)
+	appSessionsRepo := appsessionsrepo.NewSQLiteRepository(database.Bun)
+	appSessionsService = appsessionsservice.NewAppSessionsService(
+		appSessionsRepo,
+		appsessionsservice.WithProvider(appSessionProvider),
+		appsessionsservice.WithAccountFetcher(newAppSessionAccountFetcher(proxyManager)),
+	)
+	if err := appSessionsService.EnsureDefaults(ctx); err != nil {
 		return nil, err
 	}
-	listenPlayer = wails.NewListenYouTubeMusicPlayer(app, windowManager, connectorsService)
-	listenLivePlayer = wails.NewListenYouTubeLivePlayer(app, windowManager, connectorsService)
+	listenPlayer = wails.NewListenYouTubeMusicPlayer(app, windowManager, appSessionsService)
+	listenLivePlayer = wails.NewListenYouTubeLivePlayer(app, windowManager, appSessionsService)
 
 	dependenciesRepo := dependenciesrepo.NewSQLiteDependencyRepository(database.Bun)
 	dependenciesService := dependenciesservice.NewDependenciesService(
@@ -275,7 +278,8 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	if err := dependenciesService.EnsureDefaults(ctx); err != nil {
 		return nil, err
 	}
-	ytMusicClient := youtubemusic.NewClientWithHTTPClientProvider(connectorsService, proxyManager)
+	ytMusicClient := youtubemusic.NewClientWithHTTPClientProvider(appSessionsService, proxyManager)
+	ytMusicClient.SetUserAgent(appsessionidentity.HTTPUserAgent("youtube"))
 	listenPlaybackStore, err := listenplaybackstore.DefaultJSONSessionStore()
 	if err != nil {
 		return nil, err
@@ -391,7 +395,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		faviconCache,
 		dependenciesService,
 		proxyManager,
-		connectorsService,
+		appSessionsService,
 		eventBus,
 		telemetryService,
 	)
@@ -411,7 +415,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 
 	osNotifications := notifications.New()
 	app.RegisterService(application.NewService(wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, listenPlayer, listenLivePlayer)))
-	app.RegisterService(application.NewService(wails.NewConnectorsHandler(connectorsService, windowManager, telemetryService, listenPlayer, listenLivePlayer)))
+	app.RegisterService(application.NewService(wails.NewAppSessionsHandler(appSessionsService, windowManager, telemetryService, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewDependenciesHandler(dependenciesService, windowManager, telemetryService)))
 	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService)))
 	app.RegisterService(application.NewService(wails.NewSystemHandler(fontService)))
