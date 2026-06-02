@@ -6,8 +6,28 @@ func listenYouTubeAdBlockScript() string {
   "use strict";
   const host = String(window.location && window.location.hostname || "").toLowerCase();
   if (host !== "music.youtube.com" && host !== "www.youtube.com") return;
+  const DISABLE_UNTIL_KEY = "__xiadownYouTubeAdBlockDisabledUntil";
+  function disabledUntil() {
+    try {
+      const value = Number(window.localStorage && window.localStorage.getItem(DISABLE_UNTIL_KEY));
+      return Number.isFinite(value) ? value : 0;
+    } catch (error) {
+      return 0;
+    }
+  }
+  window.__xiadownDisableYouTubeAdBlock = function(durationMs) {
+    try {
+      const duration = Number.isFinite(Number(durationMs)) ? Math.max(0, Number(durationMs)) : 0;
+      window.localStorage.setItem(DISABLE_UNTIL_KEY, String(Date.now() + duration));
+    } catch (error) {}
+  };
+  if (disabledUntil() > Date.now()) {
+    window.__xiadownYouTubeAdBlockerActive = false;
+    return;
+  }
   if (window.__xiadownYouTubeAdBlockerInstalled) return;
   window.__xiadownYouTubeAdBlockerInstalled = true;
+  window.__xiadownYouTubeAdBlockerActive = true;
 
   const AD_KEYS = new Set([
     "adPlacements",

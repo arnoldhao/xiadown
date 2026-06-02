@@ -1591,6 +1591,13 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   let lastEffectiveMediaAdvancedAt = 0;
   let lastStrongAdAt = 0;
   let lastAdvertising = false;
+  const AD_FILTER_FALLBACK_STUCK_MS = 12000;
+  const AD_FILTER_FALLBACK_DISABLE_MS = 10 * 60 * 1000;
+  const AD_FILTER_FALLBACK_DISABLE_KEY = "__xiadownYouTubeAdBlockDisabledUntil";
+  let adFallbackObservedAt = 0;
+  let adFallbackProgressAt = 0;
+  let adFallbackLastTime = 0;
+  let adFallbackReloadedFor = "";
   let lastStartSkipLogKey = "";
   let volumeEnforcing = false;
   let volumeApplyFrame = null;
@@ -1919,6 +1926,77 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     return lastAdvertising || (lastStrongAdAt > 0 && Date.now() - lastStrongAdAt < 2500);
   }
 
+  function adFilteringFallbackDisabled() {
+    try {
+      const disabledUntil = Number(window.localStorage && window.localStorage.getItem(AD_FILTER_FALLBACK_DISABLE_KEY));
+      return Number.isFinite(disabledUntil) && disabledUntil > Date.now();
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function resetAdFilteringFallbackWatch() {
+    adFallbackObservedAt = 0;
+    adFallbackProgressAt = 0;
+    adFallbackLastTime = 0;
+  }
+
+  function disableAdFilteringForFallback() {
+    try {
+      if (typeof window.__xiadownDisableYouTubeAdBlock === "function") {
+        window.__xiadownDisableYouTubeAdBlock(AD_FILTER_FALLBACK_DISABLE_MS);
+        return;
+      }
+      window.localStorage.setItem(
+        AD_FILTER_FALLBACK_DISABLE_KEY,
+        String(Date.now() + AD_FILTER_FALLBACK_DISABLE_MS)
+      );
+    } catch (error) {}
+  }
+
+  function maybeReloadWithUnfilteredAds(ad, media, videoId, state) {
+    if (!ad || !ad.advertising || adFilteringFallbackDisabled()) {
+      resetAdFilteringFallbackWatch();
+      return false;
+    }
+    const now = Date.now();
+    const currentTime = finiteNumber(Number(media && media.currentTime || 0), 0);
+    if (adFallbackObservedAt <= 0) {
+      adFallbackObservedAt = now;
+      adFallbackProgressAt = now;
+      adFallbackLastTime = currentTime;
+      return false;
+    }
+    if (currentTime > adFallbackLastTime + 0.08) {
+      adFallbackProgressAt = now;
+      adFallbackLastTime = currentTime;
+      return false;
+    }
+    if (
+      now - adFallbackObservedAt < AD_FILTER_FALLBACK_STUCK_MS ||
+      now - adFallbackProgressAt < AD_FILTER_FALLBACK_STUCK_MS
+    ) {
+      return false;
+    }
+    const request = readRequest();
+    const key = String(request.videoId || videoId || currentVideoId() || window.location.href || "");
+    if (!key || adFallbackReloadedFor === key) {
+      return false;
+    }
+    adFallbackReloadedFor = key;
+    disableAdFilteringForFallback();
+    postDebug("ad-filter-fallback-reload", {
+      videoId: key,
+      currentTime,
+      duration: finiteNumber(Number(media && media.duration || 0), 0),
+      state: state || ""
+    });
+    window.setTimeout(() => {
+      try { window.location.reload(); } catch (error) {}
+    }, 0);
+    return true;
+  }
+
   function playerStateCode() {
     const api = playerApi();
     if (api && typeof api.getPlayerState === "function") {
@@ -2032,6 +2110,21 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       videoWidth: video ? finiteNumber(video.videoWidth, 0) : 0,
       videoHeight: video ? finiteNumber(video.videoHeight, 0) : 0
     };
+  }
+
+  function advertisingMediaSnapshot(video, fallback) {
+    if (!video) return fallback;
+    return Object.assign({}, fallback || {}, {
+      currentTime: finiteNumber(video.currentTime, 0),
+      duration: finiteNumber(video.duration, 0),
+      bufferedTime: bufferedEnd(video),
+      paused: video.paused,
+      ended: video.ended,
+      readyState: video.readyState,
+      networkState: video.networkState,
+      videoWidth: finiteNumber(video.videoWidth, 0),
+      videoHeight: finiteNumber(video.videoHeight, 0)
+    });
   }
 
   function currentVideoId() {
@@ -2505,6 +2598,8 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     if (metadata.title) lastObservedTitle = metadata.title;
     if (metadata.artist) lastObservedArtist = metadata.artist;
     const ad = adSnapshot();
+    const payloadMedia = ad.advertising ? advertisingMediaSnapshot(video, media) : media;
+    maybeReloadWithUnfilteredAds(ad, payloadMedia, videoId, state);
     const payload = {
       type: "state",
       state,
@@ -2517,19 +2612,19 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       likeStatus: metadata.likeStatus,
       trackChanged,
       metadataSource: metadata.metadataSource,
-      currentTime: media.currentTime,
-      duration: media.duration,
-      bufferedTime: media.bufferedTime,
-      paused: media.paused,
-      ended: media.ended,
-      videoWidth: media.videoWidth,
-      videoHeight: media.videoHeight,
+      currentTime: payloadMedia.currentTime,
+      duration: payloadMedia.duration,
+      bufferedTime: payloadMedia.bufferedTime,
+      paused: payloadMedia.paused,
+      ended: payloadMedia.ended,
+      videoWidth: payloadMedia.videoWidth,
+      videoHeight: payloadMedia.videoHeight,
       advertising: ad.advertising,
       adLabel: ad.label,
       errorCode: error.code,
       errorMessage: error.message,
-      readyState: media.readyState,
-      networkState: media.networkState,
+      readyState: payloadMedia.readyState,
+      networkState: payloadMedia.networkState,
       url: window.location.href
     };
     if (error.errored) {

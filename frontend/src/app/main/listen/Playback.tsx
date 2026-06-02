@@ -2611,6 +2611,7 @@ export function ListenYouTubePlayback(props: {
   React.useEffect(() => {
     if (
       !props.enabled ||
+      playbackAdvertising ||
       props.state !== "loading" ||
       props.playing ||
       props.progress.currentTime > 0.15 ||
@@ -2634,6 +2635,7 @@ export function ListenYouTubePlayback(props: {
     props.enabled,
     props.onPlayingChange,
     props.onStateChange,
+    playbackAdvertising,
     props.playing,
     props.progress.bufferedTime,
     props.progress.currentTime,

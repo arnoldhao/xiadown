@@ -134,8 +134,10 @@ func TestListenBridgeUsesVideoPausedForPlayingState(t *testing.T) {
 	for _, expected := range []string{
 		`function playerApiMediaSnapshot()`,
 		`function effectiveMediaSnapshot(video, videoId)`,
-		`paused: media.paused`,
-		`ended: media.ended`,
+		`function advertisingMediaSnapshot(video, fallback)`,
+		`const payloadMedia = ad.advertising ? advertisingMediaSnapshot(video, media) : media`,
+		`paused: payloadMedia.paused`,
+		`ended: payloadMedia.ended`,
 		`if (lastRequestedAction === "play") {
       return media && (media.currentTime > 0.15 || media.bufferedTime > 0.15) ? "buffering" : "loading";
     }`,
@@ -598,6 +600,10 @@ func TestListenYouTubeAdBlockScriptPrunesPlayerAdFields(t *testing.T) {
 		"JSON.parse",
 		"Response.prototype.json",
 		"XMLHttpRequest.prototype.send",
+		"__xiadownDisableYouTubeAdBlock",
+		"__xiadownYouTubeAdBlockDisabledUntil",
+		"Date.now() + duration",
+		"disabledUntil() > Date.now()",
 		"adPlacements",
 		"adSlots",
 		"playerAds",
@@ -614,6 +620,22 @@ func TestListenYouTubeAdBlockScriptPrunesPlayerAdFields(t *testing.T) {
 	} {
 		if strings.Contains(script, removed) {
 			t.Fatalf("adblock script should not contain skip-click logic %q", removed)
+		}
+	}
+}
+
+func TestListenYouTubeMusicBridgeFallsBackToUnfilteredAds(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID001A"})
+	for _, expected := range []string{
+		"AD_FILTER_FALLBACK_STUCK_MS",
+		"advertisingMediaSnapshot",
+		"maybeReloadWithUnfilteredAds",
+		"__xiadownYouTubeAdBlockDisabledUntil",
+		"ad-filter-fallback-reload",
+		"window.location.reload",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("music bridge should contain ad fallback logic %q", expected)
 		}
 	}
 }
