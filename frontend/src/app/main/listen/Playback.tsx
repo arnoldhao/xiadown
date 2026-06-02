@@ -29,7 +29,7 @@ import {
 getXiaText
 } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import type { Pet } from "@/shared/contracts/pets";
 import { messageBus } from "@/shared/message";
 import { openExternalURL,useLyricsTranscriptionAvailable } from "@/shared/query/system";
@@ -216,13 +216,13 @@ function ListenEmptyPlaybackChrome(props: {
         sourceBadge={<ListenSourceBadge mode={props.mode} text={props.text} />}
         headerCover={
           <ListenCompactCoverSurface
-            srcCandidates={[DEFAULT_COVER_IMAGE_URL]}
+            srcCandidates={[LISTEN_DEFAULT_COVER_IMAGE_URL]}
             title=""
           />
         }
         cover={
           <ListenLocalCoverSurface
-            src={DEFAULT_COVER_IMAGE_URL}
+            src={LISTEN_DEFAULT_COVER_IMAGE_URL}
             title=""
           />
         }
@@ -1116,14 +1116,14 @@ export function ListenPlayback(props: {
         headerCover={
           <ListenCompactCoverSurface
             key={track.id}
-            srcCandidates={[track.coverURL || DEFAULT_COVER_IMAGE_URL]}
+            srcCandidates={[track.coverURL || LISTEN_DEFAULT_COVER_IMAGE_URL]}
             title={track.title}
           />
         }
         cover={
           <ListenLocalCoverSurface
             key={track.id}
-            src={track.coverURL || DEFAULT_COVER_IMAGE_URL}
+            src={track.coverURL || LISTEN_DEFAULT_COVER_IMAGE_URL}
             title={track.title}
             visualizerVisible={localArtworkVisualizerVisible}
             visualizer={
@@ -4014,10 +4014,11 @@ function ListenLiveFlatCoverImage(props: {
   const candidates = React.useMemo(() => (
     props.track
       ? buildListenPosterCandidates(props.httpBaseURL, props.track)
-      : [DEFAULT_COVER_IMAGE_URL]
+      : [LISTEN_DEFAULT_COVER_IMAGE_URL]
   ), [props.httpBaseURL, props.track]);
   const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const src = candidates[candidateIndex] ?? DEFAULT_COVER_IMAGE_URL;
+  const src =
+    candidates[candidateIndex] ?? LISTEN_DEFAULT_COVER_IMAGE_URL;
 
   React.useEffect(() => {
     setCandidateIndex(0);

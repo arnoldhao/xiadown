@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"xiadown/internal/application/apperrors"
-	connectorsservice "xiadown/internal/application/connectors/service"
+	appsessionsservice "xiadown/internal/application/appsessions/service"
 	"xiadown/internal/application/library/dto"
 	appytdlp "xiadown/internal/application/ytdlp"
 )
@@ -23,8 +23,8 @@ func (service *LibraryService) ParseYTDLPDownload(ctx context.Context, request d
 		return dto.ParseYTDLPDownloadResponse{}, err
 	}
 	cookiesPath := ""
-	if request.UseConnector && request.ConnectorID != "" && service.connectors != nil {
-		if exported, err := service.connectors.ExportConnectorCookies(ctx, request.ConnectorID, connectorsservice.CookiesExportTXT); err == nil {
+	if request.UseAppSession && request.AppSessionID != "" && service.appSessions != nil {
+		if exported, err := service.appSessions.ExportAppSessionCookies(ctx, request.AppSessionID, appsessionsservice.CookiesExportTXT); err == nil {
 			cookiesPath = exported
 			defer os.Remove(exported)
 		}

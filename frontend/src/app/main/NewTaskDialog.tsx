@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
-import { ConnectorBrandIcon } from "@/features/settings/connectors";
 import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import type {
@@ -60,6 +59,7 @@ import {
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
+import { SiteBrandIcon } from "@/shared/ui/site-brand-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { openFileDialog } from "@/shared/utils/dialogHelpers";
 import {
@@ -93,7 +93,7 @@ import {
   resolveResourceSniffStartResolution,
   resolveFormatMediaType,
   resolveOpenFileName,
-  resolvePreparedConnectorType,
+  resolvePreparedSiteKey,
   resolveTranscodeCodecLabel,
   resolveTranscodeScaleLabel,
   resolveTranscodeScaleValue,
@@ -111,6 +111,11 @@ import type {
 } from "@/app/main/types";
 
 type DownloadEntryMode = "direct" | "sniff";
+
+function downloadAppSessionModeCanExportCookies(mode: string) {
+  const normalized = mode.trim().toLowerCase();
+  return normalized === "cookies" || normalized === "app_session";
+}
 
 export function InlineSwitch(props: {
   checked: boolean;
@@ -383,7 +388,7 @@ export function NewTaskDialog(props: {
   const [downloadUrl, setDownloadUrl] = React.useState(props.initialUrl ?? "");
   const [downloadPrepared, setDownloadPrepared] =
     React.useState<PrepareYTDLPDownloadResponse | null>(null);
-  const [downloadUseConnector, setDownloadUseConnector] = React.useState(false);
+  const [downloadUseAppSession, setDownloadUseAppSession] = React.useState(false);
   const [downloadTab, setDownloadTab] =
     React.useState<DownloadDialogTab>("quick");
   const [downloadPrepareError, setDownloadPrepareError] = React.useState("");
@@ -601,29 +606,29 @@ export function NewTaskDialog(props: {
     preparedDownloadUrl,
     downloadPrepared?.domain,
   );
-  const downloadConnectorType = resolvePreparedConnectorType(downloadPrepared);
-  const downloadConnectorMode = (
-    downloadPrepared?.connectorCredentialMode ?? ""
+  const downloadSiteKey = resolvePreparedSiteKey(downloadPrepared);
+  const downloadAppSessionMode = (
+    downloadPrepared?.appSessionCredentialMode ?? ""
   )
     .trim()
     .toLowerCase();
   const downloadShowsSniffMode = downloadTab === "sniff";
-  const downloadMatchesCookieConnector =
-    Boolean(downloadPrepared?.connectorId?.trim()) &&
-    downloadConnectorMode === "cookies";
-  const downloadCookieConnectorState = !downloadMatchesCookieConnector
+  const downloadMatchesCookieExportAppSession =
+    Boolean(downloadPrepared?.appSessionId?.trim()) &&
+    downloadAppSessionModeCanExportCookies(downloadAppSessionMode);
+  const downloadCookieExportAppSessionState = !downloadMatchesCookieExportAppSession
     ? "unmatched"
-    : downloadPrepared?.connectorAvailable
+    : downloadPrepared?.appSessionAvailable
       ? "available"
       : "unavailable";
-  const downloadConnectorCanUseCookies =
-    downloadCookieConnectorState === "available";
-  const downloadConnectorStatusLabel =
-    downloadCookieConnectorState === "available"
-      ? text.dialogs.connectorCanEnable
-      : downloadCookieConnectorState === "unavailable"
-        ? text.dialogs.connectorNotConfigured
-        : text.dialogs.noAvailableConnector;
+  const downloadAppSessionCanExportCookies =
+    downloadCookieExportAppSessionState === "available";
+  const downloadAppSessionStatusLabel =
+    downloadCookieExportAppSessionState === "available"
+      ? text.dialogs.appSessionCanEnable
+      : downloadCookieExportAppSessionState === "unavailable"
+        ? text.dialogs.appSessionNotConfigured
+        : text.dialogs.noAvailableAppSession;
   const downloadTabItems: Array<{
     value: DownloadDialogTab;
     label: string;
@@ -651,9 +656,9 @@ export function NewTaskDialog(props: {
   const customParseErrorDescription =
     resolveParseErrorDescription(
       customParseError,
-      downloadUseConnector && downloadConnectorCanUseCookies
-        ? text.dialogs.parseFailedWithConnector
-        : text.dialogs.parseFailedWithoutConnector,
+      downloadUseAppSession && downloadAppSessionCanExportCookies
+        ? text.dialogs.parseFailedWithAppSession
+        : text.dialogs.parseFailedWithoutAppSession,
       text,
     );
   const customParseErrorLine = customParseAppError.code
@@ -980,7 +985,7 @@ export function NewTaskDialog(props: {
     setDownloadStep("input");
     setDownloadUrl(props.initialUrl ?? "");
     setDownloadPrepared(null);
-    setDownloadUseConnector(false);
+    setDownloadUseAppSession(false);
     setDownloadTab(initialMode === "sniff" ? "sniff" : "quick");
     setDownloadPrepareError("");
     setDownloadPrepareIntent(null);
@@ -1155,7 +1160,7 @@ export function NewTaskDialog(props: {
     parseResourceSniff.reset();
     setDownloadPrepared(null);
     setDownloadStep("input");
-    setDownloadUseConnector(false);
+    setDownloadUseAppSession(false);
     setDownloadTab(activeMode === "sniff" ? "sniff" : "quick");
     setDownloadPrepareIntent(null);
     setDownloadSubmitError("");
@@ -1306,12 +1311,12 @@ export function NewTaskDialog(props: {
         setActiveMode(nextTab === "sniff" ? "sniff" : "download");
         setDownloadPrepared(prepared);
         setDownloadUrl(prepared.url || url);
-        setDownloadUseConnector(
+        setDownloadUseAppSession(
           Boolean(
-            prepared.connectorAvailable &&
-              (prepared.connectorCredentialMode ?? "")
-                .trim()
-                .toLowerCase() === "cookies",
+            prepared.appSessionAvailable &&
+              downloadAppSessionModeCanExportCookies(
+                prepared.appSessionCredentialMode ?? "",
+              ),
           ),
         );
         setDownloadStep("config");
@@ -1375,8 +1380,8 @@ export function NewTaskDialog(props: {
     try {
       const parsed = await parseDownload.mutateAsync({
         url: downloadPrepared.url,
-        connectorId: downloadPrepared.connectorId,
-        useConnector: downloadUseConnector && downloadConnectorCanUseCookies,
+        appSessionId: downloadPrepared.appSessionId,
+        useAppSession: downloadUseAppSession && downloadAppSessionCanExportCookies,
       });
       if (
         requestVersion !== parseRequestVersionRef.current ||
@@ -1548,8 +1553,8 @@ export function NewTaskDialog(props: {
         deleteSourceFileAfterTranscode: quickPresetId
           ? downloadKeepOnlyTranscodedFile
           : undefined,
-        connectorId: downloadPrepared.connectorId || undefined,
-        useConnector: downloadUseConnector && downloadConnectorCanUseCookies,
+        appSessionId: downloadPrepared.appSessionId || undefined,
+        useAppSession: downloadUseAppSession && downloadAppSessionCanExportCookies,
       });
       await closeDialogAfterResourceCleanup();
     } catch (error) {
@@ -1590,8 +1595,8 @@ export function NewTaskDialog(props: {
       deleteSourceFileAfterTranscode: customPresetId
         ? downloadKeepOnlyTranscodedFile
         : undefined,
-      connectorId: downloadPrepared.connectorId || undefined,
-      useConnector: downloadUseConnector && downloadConnectorCanUseCookies,
+      appSessionId: downloadPrepared.appSessionId || undefined,
+      useAppSession: downloadUseAppSession && downloadAppSessionCanExportCookies,
       resourceSessionId:
         resourceReference === "session"
           ? customParseResult.resourceSessionId || undefined
@@ -1863,15 +1868,15 @@ export function NewTaskDialog(props: {
                   <DialogListCardContent className="p-3">
                     <div
                       className="app-new-task-field-strip app-new-task-url-card-strip h-9 w-full min-w-0 overflow-hidden"
-                      data-mode={downloadShowsSniffMode ? "sniff" : "connector"}
+                      data-mode={downloadShowsSniffMode ? "sniff" : "app-session"}
                     >
                       <div className="app-new-task-url-card-link flex h-full min-w-0 items-center">
                         <div
                           className="app-new-task-url-card-url flex h-full min-w-0 flex-1 items-center gap-1.5 px-3"
                           title={preparedDownloadUrl}
                         >
-                          <ConnectorBrandIcon
-                            connectorType={downloadConnectorType}
+                          <SiteBrandIcon
+                            siteKey={downloadSiteKey}
                             fallback="globe"
                             className="app-new-task-url-card-icon h-3.5 w-3.5 shrink-0"
                           />
@@ -1919,7 +1924,7 @@ export function NewTaskDialog(props: {
                       <div className="app-new-task-url-card-mode-slot relative h-full min-w-0 overflow-hidden">
                         <div
                           className="app-new-task-url-card-mode-panel"
-                          data-panel="connector"
+                          data-panel="app-session"
                           data-visible={
                             downloadShowsSniffMode ? "false" : "true"
                           }
@@ -1928,24 +1933,24 @@ export function NewTaskDialog(props: {
                           }
                         >
                           <span className="app-new-task-url-card-mode-label">
-                            {downloadConnectorStatusLabel}
+                            {downloadAppSessionStatusLabel}
                           </span>
-                          {downloadConnectorCanUseCookies ? (
+                          {downloadAppSessionCanExportCookies ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="flex shrink-0 items-center justify-center">
                                   <InlineSwitch
-                                    checked={downloadUseConnector}
-                                    onChange={setDownloadUseConnector}
-                                    ariaLabel={text.dialogs.connectorCookiesDownload}
+                                    checked={downloadUseAppSession}
+                                    onChange={setDownloadUseAppSession}
+                                    ariaLabel={text.dialogs.appSessionCookiesDownload}
                                   />
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>
-                                {text.dialogs.connectorCookiesDownload}
+                                {text.dialogs.appSessionCookiesDownload}
                               </TooltipContent>
                             </Tooltip>
-                          ) : downloadMatchesCookieConnector ? (
+                          ) : downloadMatchesCookieExportAppSession ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="inline-flex shrink-0">

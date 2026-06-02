@@ -2,12 +2,20 @@ import { Call,Events,System } from "@wailsio/runtime";
 import * as React from "react";
 import "./listen/listen.css";
 
+import { messageBus } from "@/shared/message";
+import {
+  useAppSessionConnectSession,
+  useAppSessions,
+  useCancelAppSessionConnect,
+  useClearAppSession,
+  useStartAppSessionConnect,
+} from "@/shared/query/appSessions";
 import { useOpenLibraryPath } from "@/shared/query/library";
 import { REALTIME_TOPICS,registerTopic } from "@/shared/realtime";
 
 import { fetchListenArtist,fetchListenLibrary,fetchListenLiveCatalog,fetchListenLiveStatuses,fetchListenLiveUserCatalog,fetchListenPlaylistPage,fetchListenPlaylistQueue,fetchListenSearch,fetchListenTrackFavorite,fetchListenTrackFavoriteStatuses,fetchListenTrackInfo,getListenErrorCode,getListenErrorMessage,saveListenLiveUserCatalog,updateListenArtistSubscription,updateListenPlaylistLibrary,updateListenTrackFavorite } from "@/app/main/listen/api";
 import type { ListenLiveUserCatalog } from "@/app/main/listen/api";
-import { LISTEN_LIKED_SONGS_SHELF_ID,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_YOUTUBE_CONNECTOR_CHANGED_EVENT } from "@/app/main/listen/catalog";
+import { LISTEN_LIKED_SONGS_SHELF_ID,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_YOUTUBE_APP_SESSION_CHANGED_EVENT } from "@/app/main/listen/catalog";
 import { clampVolume,matchesQuery,normalizeSearch,resolveListenLiveSelectionId,resolveQueueIndex,useListenLocalTracks } from "@/app/main/listen/local-library";
 import { ListenPageView } from "@/app/main/listen/PageView";
 import { callListenPlaybackAppendToQueue,callListenPlaybackClearQueue,callListenPlaybackInsertNextInQueue,callListenPlaybackMergeTrackMetadata,callListenPlaybackMoveQueueItem,callListenPlaybackNext,callListenPlaybackObserveNativeEvent,callListenPlaybackPause,callListenPlaybackPlayPause,callListenPlaybackPlayQueue,callListenPlaybackPlayTrack,callListenPlaybackPrevious,callListenPlaybackRedoQueue,callListenPlaybackRemoveFromQueue,callListenPlaybackResume,callListenPlaybackSeek,callListenPlaybackSetRepeatMode,callListenPlaybackSetShuffle,callListenPlaybackSetVolume,callListenPlaybackUndoQueue,listenRepeatModeFromPlayMode,type ListenPlaybackSnapshot } from "@/app/main/listen/playback-api";
@@ -389,6 +397,18 @@ export function ListenPage(props: ListenPageProps) {
     [],
   );
   const openLibraryPath = useOpenLibraryPath();
+  const appSessions = useAppSessions();
+  const startAppSessionConnect = useStartAppSessionConnect();
+  const cancelAppSessionConnect = useCancelAppSessionConnect();
+  const clearAppSession = useClearAppSession();
+  const [youtubeConnectSessionId, setYouTubeConnectSessionId] =
+    React.useState("");
+  const youtubeConnectSession = useAppSessionConnectSession(
+    { sessionId: youtubeConnectSessionId },
+    youtubeConnectSessionId.trim().length > 0,
+  );
+  const [youtubeLoggedOutOverride, setYouTubeLoggedOutOverride] =
+    React.useState(false);
   const [mode, setMode] = React.useState<ListenMode>(
     initialPersistedState.mode,
   );
@@ -461,6 +481,9 @@ export function ListenPage(props: ListenPageProps) {
   const [libraryErrorCode, setLibraryErrorCode] = React.useState("");
   const [libraryReloadToken, setLibraryReloadToken] = React.useState(0);
   const [museAccountReloadToken, setMuseAccountReloadToken] = React.useState(0);
+  const [museManualRefreshKind, setMuseManualRefreshKind] = React.useState<
+    "" | "artist" | "library" | "playlist" | "search"
+  >("");
   const [playlistTracks, setPlaylistTracks] = React.useState<
     ListenOnlineItem[]
   >([]);
@@ -529,6 +552,8 @@ export function ListenPage(props: ListenPageProps) {
   const forwardSkipIndexStackRef = React.useRef<number[]>([]);
   const onlinePlaybackActionEpochRef = React.useRef(0);
   const onlinePlaybackActionPendingRef = React.useRef(false);
+  const museAccountConnectedRef = React.useRef(false);
+  const resetOnlinePlaybackProjectionRef = React.useRef<() => void>(() => {});
   const favoriteOverrideByVideoIdRef = React.useRef<
     Record<string, ListenFavoriteOverride>
   >({});
@@ -627,6 +652,50 @@ export function ListenPage(props: ListenPageProps) {
     setMuseAccountReloadToken((current) => current + 1);
   }, []);
 
+  const resetMuseAccountViewForLogout = React.useCallback(() => {
+    libraryPageCacheRef.current.clear();
+    activeLibraryPageCacheKeyRef.current = "";
+    favoriteOverrideByVideoIdRef.current = {};
+    museAccountConnectedRef.current = false;
+    onlinePlaybackActionEpochRef.current += 1;
+    onlinePlaybackActionPendingRef.current = false;
+    resetOnlinePlaybackProjectionRef.current();
+    setMuseManualRefreshKind("");
+    setPlaybackSessionStarted(false);
+    setQuery("");
+    setSidebarView("browse");
+    setOnlineBrowseSource("home");
+    setOnlineBrowseDetail(null);
+    setBrowsePlaylistId("");
+    setArtistBrowsePage(null);
+    setOnlinePlayerCommand(null);
+    setHomeShelves([]);
+    setLibraryPlaylists([]);
+    setLibraryArtists([]);
+    setLibraryContinuation("");
+    setLibraryAppending(false);
+    setLibraryLoading(false);
+    setLibraryError(false);
+    setLibraryErrorCode("");
+    setPlaylistTracks([]);
+    setPlaylistContinuation("");
+    setPlaylistDetailAuthor("");
+    setPlaylistDetailTitle("");
+    setPlaylistAppending(false);
+    setPlaylistLoading(false);
+    setArtistActionBusy("");
+    setSearchItems([]);
+    setSearchArtists([]);
+    setSearchPlaylists([]);
+    setSearchContinuation("");
+    setSearchAppending(false);
+    setSearchLoading(false);
+    setSearchError(false);
+    setOnlineFavoriteByVideoId({});
+    setFavoriteLoadingVideoId("");
+    setFavoriteMutationVideoId("");
+  }, []);
+
   const activateMusePlayback = React.useCallback(() => {
     setMode("muse");
     setPlaybackMode("muse");
@@ -637,7 +706,10 @@ export function ListenPage(props: ListenPageProps) {
         Boolean(snapshot.currentTrack) ||
         snapshot.queue.length > 0 ||
         Boolean(snapshot.pendingPlayVideoId);
-      return hasMuseSession || playbackModeRef.current === "muse";
+      return (
+        museAccountConnectedRef.current &&
+        (hasMuseSession || playbackModeRef.current === "muse")
+      );
     },
     [],
   );
@@ -650,13 +722,17 @@ export function ListenPage(props: ListenPageProps) {
         snapshot.state === "playing"),
     [],
   );
-  const { projection: musePlayback, applySnapshot: applyOnlinePlaybackSnapshot } =
-    useListenPlaybackStore({
+  const {
+    projection: musePlayback,
+    applySnapshot: applyOnlinePlaybackSnapshot,
+    reset: resetOnlinePlaybackProjection,
+  } = useListenPlaybackStore({
       httpBaseURL: props.httpBaseURL,
       shouldAcceptSnapshot: shouldAcceptMuseSnapshot,
       shouldActivateSnapshot: shouldActivateMuseSnapshot,
       onActivate: activateMusePlayback,
     });
+  resetOnlinePlaybackProjectionRef.current = resetOnlinePlaybackProjection;
   const onlineQueueState = musePlayback.queueState;
   const onlinePlaybackQueue = musePlayback.queueItems;
   const selectedOnlineId = musePlayback.selectedId;
@@ -671,6 +747,107 @@ export function ListenPage(props: ListenPageProps) {
     playbackMode === "hush" ? liveProgress : musePlayback.progress;
   const playMode =
     playbackMode === "muse" ? musePlayback.playMode : localPlayMode;
+  const youtubeAppSession = React.useMemo(
+    () =>
+      (appSessions.data ?? []).find(
+        (session) => session.siteKey.trim().toLowerCase() === "youtube",
+      ) ?? null,
+    [appSessions.data],
+  );
+  const youtubeConnectBusy =
+    startAppSessionConnect.isPending ||
+    cancelAppSessionConnect.isPending ||
+    youtubeConnectSessionId.trim().length > 0;
+  const youtubeAppSessionConnected =
+    Boolean(youtubeAppSession) &&
+    (youtubeAppSession?.status === "connected" ||
+      youtubeAppSession?.credentialState === "app_session" ||
+      Boolean(youtubeAppSession?.account?.displayName?.trim()) ||
+      Boolean(youtubeAppSession?.account?.avatarURL?.trim()));
+  const museAccountConnected =
+    !youtubeLoggedOutOverride && youtubeAppSessionConnected;
+  museAccountConnectedRef.current = museAccountConnected;
+  React.useEffect(() => {
+    if (!museAccountConnected) {
+      resetMuseAccountViewForLogout();
+    }
+  }, [museAccountConnected, resetMuseAccountViewForLogout]);
+  const museAccountName = museAccountConnected
+    ? youtubeAppSession?.account?.displayName?.trim() ||
+      props.text.listen.museAccountFallbackName
+    : props.text.listen.museAccountDisconnectedName;
+  const museAccountAvatarURL = museAccountConnected
+    ? youtubeAppSession?.account?.avatarURL?.trim() || ""
+    : "";
+  const museAccountBusy =
+    youtubeConnectBusy ||
+    clearAppSession.isPending ||
+    museManualRefreshKind !== "";
+  const listenMuseLabel = props.text.listen.muse;
+  const onlineAuthRequiredLabel = props.text.listen.onlineAuthRequired;
+  const connectYouTube = React.useCallback(async () => {
+    if (youtubeConnectBusy) {
+      return;
+    }
+    const appSession = youtubeAppSession;
+    if (!appSession) {
+      props.onOpenConnections();
+      return;
+    }
+    setMode("muse");
+    setPlaybackMode("muse");
+    try {
+      const result = await startAppSessionConnect.mutateAsync({ id: appSession.id });
+      setYouTubeConnectSessionId(result.sessionId);
+    } catch (error) {
+      messageBus.publishToast({
+        intent: "danger",
+        title: listenMuseLabel,
+        description:
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : onlineAuthRequiredLabel,
+      });
+    }
+  }, [
+    listenMuseLabel,
+    onlineAuthRequiredLabel,
+    props.onOpenConnections,
+    startAppSessionConnect,
+    youtubeConnectBusy,
+    youtubeAppSession,
+  ]);
+  const signOutMuseAccount = React.useCallback(async () => {
+    if (clearAppSession.isPending) {
+      return;
+    }
+    const appSession = youtubeAppSession;
+    if (!appSession) {
+      return;
+    }
+    try {
+      await clearAppSession.mutateAsync({ id: appSession.id });
+      setYouTubeLoggedOutOverride(true);
+      resetMuseAccountViewForLogout();
+      void appSessions.refetch();
+    } catch (error) {
+      messageBus.publishToast({
+        intent: "danger",
+        title: listenMuseLabel,
+        description:
+          error instanceof Error && error.message.trim()
+            ? error.message
+            : onlineAuthRequiredLabel,
+      });
+    }
+  }, [
+    appSessions,
+    clearAppSession,
+    listenMuseLabel,
+    onlineAuthRequiredLabel,
+    resetMuseAccountViewForLogout,
+    youtubeAppSession,
+  ]);
 
   React.useEffect(() => {
     modeRef.current = mode;
@@ -678,22 +855,88 @@ export function ListenPage(props: ListenPageProps) {
   }, [mode, playbackMode]);
 
   React.useEffect(() => {
-    const offYouTubeConnectorChanged = Events.On(
-      LISTEN_YOUTUBE_CONNECTOR_CHANGED_EVENT,
+    const session = youtubeConnectSession.data;
+    const sessionId = youtubeConnectSessionId.trim();
+    if (!session || !sessionId || session.sessionId !== sessionId) {
+      return;
+    }
+    if (session.state === "running") {
+      return;
+    }
+    setYouTubeConnectSessionId("");
+    void cancelAppSessionConnect.mutateAsync({ sessionId }).catch(() => {
+      // The app-session window may already have finalized and removed itself.
+    });
+    if (session.state === "completed" && session.saved) {
+      setYouTubeLoggedOutOverride(false);
+      reloadMuseAccountData();
+      void appSessions.refetch();
+      return;
+    }
+    messageBus.publishToast({
+      intent: "danger",
+      title: listenMuseLabel,
+      description: session.error || onlineAuthRequiredLabel,
+    });
+  }, [
+    appSessions,
+    cancelAppSessionConnect,
+    listenMuseLabel,
+    onlineAuthRequiredLabel,
+    reloadMuseAccountData,
+    youtubeConnectSession.data,
+    youtubeConnectSessionId,
+  ]);
+
+  React.useEffect(() => {
+    const sessionId = youtubeConnectSessionId.trim();
+    if (!sessionId || !youtubeConnectSession.error) {
+      return;
+    }
+    setYouTubeConnectSessionId("");
+    messageBus.publishToast({
+      intent: "danger",
+      title: listenMuseLabel,
+      description: onlineAuthRequiredLabel,
+    });
+  }, [
+    listenMuseLabel,
+    onlineAuthRequiredLabel,
+    youtubeConnectSession.error,
+    youtubeConnectSessionId,
+  ]);
+
+  React.useEffect(() => {
+    const offYouTubeAppSessionChanged = Events.On(
+      LISTEN_YOUTUBE_APP_SESSION_CHANGED_EVENT,
       (event: any) => {
         const payload = event?.data ?? event;
-        const connectorType =
-          typeof payload?.connectorType === "string"
-            ? payload.connectorType.trim().toLowerCase()
+        const siteKey =
+          typeof payload?.siteKey === "string"
+            ? payload.siteKey.trim().toLowerCase()
             : "";
-        if (connectorType && connectorType !== "youtube") {
+        if (siteKey && siteKey !== "youtube") {
           return;
+        }
+        const action =
+          typeof payload?.action === "string"
+            ? payload.action.trim().toLowerCase()
+            : "";
+        const status =
+          typeof payload?.status === "string"
+            ? payload.status.trim().toLowerCase()
+            : "";
+        if (action === "clear" || status === "disconnected") {
+          setYouTubeLoggedOutOverride(true);
+          resetMuseAccountViewForLogout();
+        } else if (action === "finish" || status === "connected") {
+          setYouTubeLoggedOutOverride(false);
         }
         reloadMuseAccountData();
       },
     );
-    return () => offYouTubeConnectorChanged();
-  }, [reloadMuseAccountData]);
+    return () => offYouTubeAppSessionChanged();
+  }, [reloadMuseAccountData, resetMuseAccountViewForLogout]);
 
   React.useEffect(
     () => () => {
@@ -727,8 +970,80 @@ export function ListenPage(props: ListenPageProps) {
   }, [localTrackIndex.loading, localTracks, selectedLocalId]);
 
   const normalizedQuery = normalizeSearch(query);
+  const refreshMusePage = React.useCallback(() => {
+    if (mode !== "muse") {
+      return;
+    }
+    if (artistBrowsePage) {
+      setMuseManualRefreshKind("artist");
+      setMuseAccountReloadToken((current) => current + 1);
+      setArtistBrowsePage((current) =>
+        current
+          ? {
+              ...current,
+              items: [],
+              shelves: [],
+              continuation: "",
+              loading: true,
+              appending: false,
+              error: false,
+            }
+          : current,
+      );
+      return;
+    }
+    if (browsePlaylistId.trim()) {
+      setMuseManualRefreshKind("playlist");
+      setMuseAccountReloadToken((current) => current + 1);
+      setPlaylistTracks([]);
+      setPlaylistContinuation("");
+      setPlaylistDetailAuthor("");
+      setPlaylistDetailTitle("");
+      setPlaylistAppending(false);
+      setPlaylistLoading(true);
+      return;
+    }
+    if (normalizedQuery.length >= 2) {
+      setMuseManualRefreshKind("search");
+      setMuseAccountReloadToken((current) => current + 1);
+      setSearchItems([]);
+      setSearchArtists([]);
+      setSearchPlaylists([]);
+      setSearchContinuation("");
+      setSearchAppending(false);
+      setSearchLoading(true);
+      setSearchError(false);
+      return;
+    }
+    setMuseManualRefreshKind("library");
+    setMuseAccountReloadToken((current) => current + 1);
+    const activeCacheKey = activeLibraryPageCacheKeyRef.current;
+    if (activeCacheKey) {
+      libraryPageCacheRef.current.delete(activeCacheKey);
+    } else {
+      libraryPageCacheRef.current.clear();
+    }
+    setLibraryPlaylists([]);
+    setLibraryArtists([]);
+    setHomeShelves([]);
+    setLibraryContinuation("");
+    setLibraryAppending(false);
+    setLibraryLoading(true);
+    setLibraryError(false);
+    setLibraryErrorCode("");
+    setLibraryReloadToken((current) => current + 1);
+  }, [artistBrowsePage, browsePlaylistId, mode, normalizedQuery.length]);
+
   React.useEffect(() => {
-    if (mode !== "muse" || artistBrowsePage || normalizedQuery.length < 2) {
+    if (
+      mode !== "muse" ||
+      !museAccountConnected ||
+      artistBrowsePage ||
+      normalizedQuery.length < 2
+    ) {
+      setMuseManualRefreshKind((current) =>
+        current === "search" ? "" : current,
+      );
       setSearchItems([]);
       setSearchArtists([]);
       setSearchPlaylists([]);
@@ -765,6 +1080,9 @@ export function ListenPage(props: ListenPageProps) {
         .finally(() => {
           if (!controller.signal.aborted) {
             setSearchLoading(false);
+            setMuseManualRefreshKind((current) =>
+              current === "search" ? "" : current,
+            );
           }
         });
     }, 350);
@@ -773,11 +1091,30 @@ export function ListenPage(props: ListenPageProps) {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [artistBrowsePage, listenLanguage, mode, museAccountReloadToken, normalizedQuery, props.httpBaseURL, query]);
+  }, [artistBrowsePage, listenLanguage, mode, museAccountConnected, museAccountReloadToken, normalizedQuery, props.httpBaseURL, query]);
 
   React.useEffect(() => {
     if (mode !== "muse") {
       activeLibraryPageCacheKeyRef.current = "";
+      setMuseManualRefreshKind((current) =>
+        current === "library" ? "" : current,
+      );
+      return;
+    }
+    if (!museAccountConnected) {
+      activeLibraryPageCacheKeyRef.current = "";
+      libraryPageCacheRef.current.clear();
+      setHomeShelves([]);
+      setLibraryPlaylists([]);
+      setLibraryArtists([]);
+      setLibraryContinuation("");
+      setLibraryLoading(false);
+      setLibraryAppending(false);
+      setLibraryError(false);
+      setLibraryErrorCode("");
+      setMuseManualRefreshKind((current) =>
+        current === "library" ? "" : current,
+      );
       return;
     }
     const cacheKey = resolveListenLibraryPageCacheKey(
@@ -796,6 +1133,9 @@ export function ListenPage(props: ListenPageProps) {
       setLibraryAppending(false);
       setLibraryError(false);
       setLibraryErrorCode("");
+      setMuseManualRefreshKind((current) =>
+        current === "library" ? "" : current,
+      );
       return;
     }
     const controller = new AbortController();
@@ -845,15 +1185,21 @@ export function ListenPage(props: ListenPageProps) {
       .finally(() => {
         if (!controller.signal.aborted) {
           setLibraryLoading(false);
+          setMuseManualRefreshKind((current) =>
+            current === "library" ? "" : current,
+          );
         }
       });
     return () => controller.abort();
-  }, [libraryReloadToken, listenLanguage, mode, museAccountReloadToken, onlineBrowseDetail, onlineBrowseSource, props.httpBaseURL]);
+  }, [libraryReloadToken, listenLanguage, mode, museAccountConnected, museAccountReloadToken, onlineBrowseDetail, onlineBrowseSource, props.httpBaseURL]);
 
   const artistBrowseId = artistBrowsePage?.id ?? "";
   const artistBrowseName = artistBrowsePage?.name ?? "";
   React.useEffect(() => {
     if (mode !== "muse" || (!artistBrowseId && !artistBrowseName)) {
+      setMuseManualRefreshKind((current) =>
+        current === "artist" ? "" : current,
+      );
       return;
     }
     const controller = new AbortController();
@@ -913,6 +1259,13 @@ export function ListenPage(props: ListenPageProps) {
                   error: true,
                 }
               : current,
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setMuseManualRefreshKind((current) =>
+            current === "artist" ? "" : current,
           );
         }
       });
@@ -1761,9 +2114,15 @@ export function ListenPage(props: ListenPageProps) {
 
   React.useEffect(() => {
     if (mode !== "muse" && browsePlaylistId === "") {
+      setMuseManualRefreshKind((current) =>
+        current === "playlist" ? "" : current,
+      );
       return;
     }
     if (browsePlaylistId === "") {
+      setMuseManualRefreshKind((current) =>
+        current === "playlist" ? "" : current,
+      );
       setPlaylistTracks([]);
       setPlaylistContinuation("");
       setPlaylistDetailAuthor("");
@@ -1801,6 +2160,9 @@ export function ListenPage(props: ListenPageProps) {
       .finally(() => {
         if (!controller.signal.aborted) {
           setPlaylistLoading(false);
+          setMuseManualRefreshKind((current) =>
+            current === "playlist" ? "" : current,
+          );
         }
       });
     return () => controller.abort();
@@ -3665,8 +4027,8 @@ export function ListenPage(props: ListenPageProps) {
   return (
     <ListenPageView
       page={props}
-      state={{ isWindows, isMac, listOpen, query, searchPlaceholder, mode, playbackMode, sidebarView, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, selectedLiveGroupId, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistTracks, filteredPlaylistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localTracksLoading: localTrackIndex.loading, localTracksRefreshing: localTrackIndex.refreshing, localTracksClearingMissing: localTrackIndex.clearingMissing, activeOnline, selectedLocal: activeLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems: playbackMode === "hush" ? liveQueue : onlinePlaybackQueue, onlinePlaying, onlinePlaybackArmed, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode }}
-      actions={{ setListOpen, setQuery, selectFirstResult, setMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary: () => setLibraryReloadToken((current) => current + 1), changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, setSelectedLocalId, setLocalPlayerCommand, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, playOnlineSearchResults, shuffleOnlineSearchResults, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks: localTrackIndex.refresh, clearMissingLocalTracks: localTrackIndex.clearMissing, handlePlaybackEnded, setOnlinePlaying: setLivePlaying, setOnlineState: setLiveState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, playPrevious, playNext, togglePlayMode, setPlayMode: setPlayModeFromView, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse, openSelectedLocalDirectory }}
+      state={{ isWindows, isMac, listOpen, query, searchPlaceholder, mode, playbackMode, sidebarView, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, selectedLiveGroupId, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistTracks, filteredPlaylistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localTracksLoading: localTrackIndex.loading, localTracksRefreshing: localTrackIndex.refreshing, localTracksClearingMissing: localTrackIndex.clearingMissing, activeOnline, selectedLocal: activeLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems: playbackMode === "hush" ? liveQueue : onlinePlaybackQueue, onlinePlaying, onlinePlaybackArmed, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy: youtubeConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind }}
+      actions={{ setListOpen, setQuery, selectFirstResult, setMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary: () => setLibraryReloadToken((current) => current + 1), changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, setSelectedLocalId, setLocalPlayerCommand, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, playOnlineSearchResults, shuffleOnlineSearchResults, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks: localTrackIndex.refresh, clearMissingLocalTracks: localTrackIndex.clearMissing, handlePlaybackEnded, setOnlinePlaying: setLivePlaying, setOnlineState: setLiveState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode: setPlayModeFromView, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse, openSelectedLocalDirectory }}
     />
   );
 

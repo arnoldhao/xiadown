@@ -15,37 +15,31 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/network"
+	targetpkg "github.com/chromedp/cdproto/target"
 
 	"xiadown/internal/application/apperrors"
-	connectorsdto "xiadown/internal/application/connectors/dto"
-	connectorsservice "xiadown/internal/application/connectors/service"
+	appsessionsdto "xiadown/internal/application/appsessions/dto"
+	appsessionsservice "xiadown/internal/application/appsessions/service"
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/library/dto"
+	"xiadown/internal/application/sniffprofile"
 	"xiadown/internal/domain/library"
 )
 
-type resourceConnectorReaderStub struct {
-	items                  []connectorsdto.Connector
-	ensureProfileConnector func(context.Context, string) (connectorsdto.Connector, error)
+type resourceAppSessionReaderStub struct {
+	items []appsessionsdto.AppSession
 }
 
 type resourceHTTPClientProviderStub struct {
 	client *http.Client
 }
 
-func (stub resourceConnectorReaderStub) ListConnectors(context.Context) ([]connectorsdto.Connector, error) {
+func (stub resourceAppSessionReaderStub) ListAppSessions(context.Context) ([]appsessionsdto.AppSession, error) {
 	return stub.items, nil
 }
 
-func (resourceConnectorReaderStub) ExportConnectorCookies(context.Context, string, connectorsservice.CookiesExportFormat) (string, error) {
+func (resourceAppSessionReaderStub) ExportAppSessionCookies(context.Context, string, appsessionsservice.CookiesExportFormat) (string, error) {
 	return "", nil
-}
-
-func (stub resourceConnectorReaderStub) EnsureProfileConnector(ctx context.Context, connectorType string) (connectorsdto.Connector, error) {
-	if stub.ensureProfileConnector == nil {
-		return connectorsdto.Connector{}, nil
-	}
-	return stub.ensureProfileConnector(ctx, connectorType)
 }
 
 func (stub resourceHTTPClientProviderStub) HTTPClient() *http.Client {
@@ -88,123 +82,21 @@ func TestResourceDownloadURLSupportsChinaPrivateSites(t *testing.T) {
 	}
 }
 
-func TestResourceConnectorProfilePathUsesConnectorBinding(t *testing.T) {
+func TestResourceConnectorProfilePathUsesSniffProfileForPreferredBrowser(t *testing.T) {
 	t.Parallel()
 
-	profilePath := filepath.Join(t.TempDir(), "connectors", "connector-china-private", "chrome")
-	service := &LibraryService{
-		connectors: resourceConnectorReaderStub{
-			items: []connectorsdto.Connector{
-				{
-					ID:              "connector-china-private",
-					Type:            "china_private",
-					CredentialMode:  "profile",
-					CredentialState: "profile",
-					ProfilePath:     profilePath,
-					ProfileBrowser:  "chrome",
-				},
-			},
-		},
+	service := &LibraryService{}
+	want, err := sniffprofile.PathForPreferredBrowser("")
+	if err != nil {
+		t.Fatalf("expected sniff profile path: %v", err)
 	}
 
 	got, err := service.resourceConnectorProfilePath(context.Background(), "https://www.douyin.com/video/123")
 	if err != nil {
-		t.Fatalf("resolve connector profile path: %v", err)
+		t.Fatalf("resolve sniff profile path: %v", err)
 	}
-	if got != profilePath {
-		t.Fatalf("expected sniff to use connector profile binding path %q, got %q", profilePath, got)
-	}
-}
-
-func TestResourceConnectorProfilePathSkipsUnreadyProfileBinding(t *testing.T) {
-	t.Parallel()
-
-	profilePath := filepath.Join(t.TempDir(), "connectors", "connector-china-private", "chrome")
-	service := &LibraryService{
-		connectors: resourceConnectorReaderStub{
-			items: []connectorsdto.Connector{
-				{
-					ID:              "connector-china-private",
-					Type:            "china_private",
-					CredentialMode:  "profile",
-					CredentialState: "disconnected",
-					ProfilePath:     profilePath,
-					ProfileBrowser:  "chrome",
-				},
-			},
-		},
-	}
-
-	got, err := service.resourceConnectorProfilePath(context.Background(), "https://www.douyin.com/video/123")
-	if err != nil {
-		t.Fatalf("resolve connector profile path: %v", err)
-	}
-	if got != "" {
-		t.Fatalf("expected sniff to ignore unready profile binding, got %q", got)
-	}
-}
-
-func TestResourceConnectorProfilePathInitializesUnreadyProfileBinding(t *testing.T) {
-	t.Parallel()
-
-	profilePath := filepath.Join(t.TempDir(), "connectors", "connector-china-private", "chrome")
-	service := &LibraryService{
-		connectors: resourceConnectorReaderStub{
-			items: []connectorsdto.Connector{
-				{
-					ID:              "connector-china-private",
-					Type:            "china_private",
-					CredentialMode:  "profile",
-					CredentialState: "disconnected",
-					ProfilePath:     profilePath,
-					ProfileBrowser:  "chrome",
-				},
-			},
-			ensureProfileConnector: func(_ context.Context, connectorType string) (connectorsdto.Connector, error) {
-				if connectorType != "china_private" {
-					t.Fatalf("expected china_private connector initialization, got %q", connectorType)
-				}
-				if err := os.MkdirAll(profilePath, 0o755); err != nil {
-					return connectorsdto.Connector{}, err
-				}
-				return connectorsdto.Connector{
-					ID:              "connector-china-private",
-					Type:            "china_private",
-					CredentialMode:  "profile",
-					CredentialState: "profile",
-					ProfilePath:     profilePath,
-					ProfileBrowser:  "chrome",
-				}, nil
-			},
-		},
-	}
-
-	got, err := service.resourceConnectorProfilePath(context.Background(), "https://www.douyin.com/video/123")
-	if err != nil {
-		t.Fatalf("resolve connector profile path: %v", err)
-	}
-	if got != profilePath {
-		t.Fatalf("expected initialized profile path %q, got %q", profilePath, got)
-	}
-}
-
-func TestStartResourceSniffReturnsProfileFailureWithoutProfileBinding(t *testing.T) {
-	t.Parallel()
-
-	result, err := (&LibraryService{}).StartResourceSniff(context.Background(), dto.StartResourceSniffRequest{
-		URL: "https://www.douyin.com/video/123",
-	})
-	if err != nil {
-		t.Fatalf("start resource sniff: %v", err)
-	}
-	if result.Session != nil {
-		t.Fatalf("expected no session when profile connection is required, got %#v", result.Session)
-	}
-	if result.Failure == nil || result.Failure.Code != resourceSniffFailureProfileConnectionRequired {
-		t.Fatalf("expected profile connection failure, got %#v", result.Failure)
-	}
-	if result.Failure.Action != resourceSniffFailureActionConnectProfile || !result.Failure.Retryable {
-		t.Fatalf("unexpected profile connection failure detail: %#v", result.Failure)
+	if got != want {
+		t.Fatalf("expected sniff profile path %q, got %q", want, got)
 	}
 }
 
@@ -1436,6 +1328,84 @@ func TestResourceSniffIgnoredTargetURLSkipsTransientBrowserPages(t *testing.T) {
 	}
 	if resourceSniffIgnoredTargetURL("https://www.douyin.com/video/123") {
 		t.Fatal("expected douyin page to be tracked")
+	}
+}
+
+func TestResourceSniffTrackPendingTargetURLOnlyTracksBlankNavigationPages(t *testing.T) {
+	t.Parallel()
+
+	for _, rawURL := range []string{"", "about:blank", "chrome://newtab/", "edge://newtab/"} {
+		if !resourceSniffTrackPendingTargetURL(rawURL) {
+			t.Fatalf("expected %q to be tracked as pending navigation target", rawURL)
+		}
+	}
+	for _, rawURL := range []string{"chrome://settings/", "devtools://devtools/bundled/inspector.html", "https://www.douyin.com/video/123"} {
+		if resourceSniffTrackPendingTargetURL(rawURL) {
+			t.Fatalf("expected %q not to be tracked as pending navigation target", rawURL)
+		}
+	}
+}
+
+func TestPickResourceSniffActiveTabSkipsPendingBlankTarget(t *testing.T) {
+	t.Parallel()
+
+	service := &LibraryService{}
+	session := &resourceSniffSession{
+		ActiveID: "blank",
+		Tabs: map[string]*resourceSniffTab{
+			"blank": {
+				TargetID:          "blank",
+				CurrentURL:        "about:blank",
+				PendingNavigation: true,
+				LastSeen:          time.Now(),
+			},
+			"page": {
+				TargetID:   "page",
+				CurrentURL: "https://www.douyin.com/video/123",
+				LastSeen:   time.Now().Add(-time.Second),
+			},
+		},
+	}
+
+	got := service.pickResourceSniffActiveTabLocked(session)
+	if got == nil || got.TargetID != "page" {
+		t.Fatalf("expected real page tab to be active, got %#v", got)
+	}
+}
+
+func TestHandleResourceSniffTargetInfoDropsPendingInternalTarget(t *testing.T) {
+	t.Parallel()
+
+	canceled := false
+	service := &LibraryService{
+		resourceSniffs: map[string]*resourceSniffSession{
+			"session-1": {
+				ID: "session-1",
+				Tabs: map[string]*resourceSniffTab{
+					"blank": {
+						TargetID:          "blank",
+						CurrentURL:        "about:blank",
+						PendingNavigation: true,
+						Cancel: func() {
+							canceled = true
+						},
+					},
+				},
+			},
+		},
+	}
+
+	service.handleResourceSniffTargetInfo("session-1", &targetpkg.Info{
+		TargetID: "blank",
+		Type:     "page",
+		URL:      "chrome://settings/",
+	})
+
+	if _, ok := service.resourceSniffs["session-1"].Tabs["blank"]; ok {
+		t.Fatal("expected pending internal target to be removed")
+	}
+	if !canceled {
+		t.Fatal("expected removed tab context to be canceled")
 	}
 }
 

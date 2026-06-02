@@ -1,7 +1,7 @@
 .app-dream-panel-card,
 .app-new-task-panel,
 .app-dependency-repair-card,
-.app-connectors-info-card {
+.app-sessions-info-card {
   overflow: hidden;
   border: 0;
   border-radius: var(--dream-radius-xl);
@@ -37,7 +37,7 @@
 .app-new-task-field-strip,
 .app-running-meta-strip,
 .app-running-speed-segment,
-.app-connectors-table-shell,
+.app-sessions-table-shell,
 .app-completed-toolbar-actions,
 .app-completed-footer-pager,
 .app-completed-preview-text-shell {
@@ -48,7 +48,7 @@
 }
 
 .app-dream-status-message,
-.app-connectors-error,
+.app-sessions-error,
 .app-new-task-parse-error {
   overflow: hidden;
   border: 0;
@@ -57,7 +57,7 @@
 }
 
 .app-dream-status-message[data-intent="danger"],
-.app-connectors-error,
+.app-sessions-error,
 .app-new-task-parse-error {
   background: hsl(var(--destructive) / 0.11);
   color: hsl(var(--destructive));
@@ -170,8 +170,8 @@
 }
 
 .app-dependency-repair-icon,
-.app-connectors-icon-slot,
-.app-connectors-detail-icon {
+.app-sessions-icon-slot,
+.app-sessions-detail-icon {
   border: 0;
   border-radius: var(--dream-control-radius);
   background: var(--dream-surface-muted);
@@ -180,11 +180,31 @@
 }
 
 .app-dependency-repair-icon,
-.app-connectors-icon-slot[data-active="true"],
-.app-connectors-detail-icon {
+.app-sessions-icon-slot[data-active="true"],
+.app-sessions-detail-icon {
   background: var(--dream-primary-surface);
   color: var(--dream-primary-text);
   box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.dark :is(.app-sessions-icon-slot, .app-sessions-detail-icon, .app-session-account-avatar)[data-site="x"],
+.dark :is(.app-sessions-icon-slot, .app-sessions-detail-icon, .app-session-account-avatar)[data-site="tiktok"],
+.dark :is(.app-sessions-icon-slot, .app-sessions-detail-icon, .app-session-account-avatar)[data-site="niconico"] {
+  --app-session-brand-color: #ffffff;
+  --app-session-brand-surface: rgb(244 244 245 / 0.12);
+  --app-session-brand-ring: rgb(244 244 245 / 0.32);
+}
+
+.dark :is(.app-sessions-icon-slot, .app-sessions-detail-icon, .app-session-account-avatar)[data-site="facebook"] {
+  --app-session-brand-color: #8bb8ff;
+  --app-session-brand-surface: rgb(139 184 255 / 0.13);
+  --app-session-brand-ring: rgb(139 184 255 / 0.3);
+}
+
+.dark :is(.app-sessions-icon-slot, .app-sessions-detail-icon, .app-session-account-avatar)[data-site="vimeo"] {
+  --app-session-brand-color: #6ed7ff;
+  --app-session-brand-surface: rgb(110 215 255 / 0.13);
+  --app-session-brand-ring: rgb(110 215 255 / 0.3);
 }
 
 .app-dependency-item {
@@ -235,22 +255,22 @@
   color: hsl(var(--sidebar-foreground));
 }
 
-.app-connectors-list-pane {
+.app-sessions-list-pane {
   background: var(--dream-page-surface);
 }
 
-:is(.app-dream-frame, .app-main-settings-frame) .app-main-connectors-page :is(.app-connectors-list-pane, .app-connectors-detail-pane) {
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-app-sessions-page :is(.app-sessions-list-pane, .app-sessions-detail-pane) {
   background: transparent;
 }
 
-:is(.app-dream-frame, .app-main-settings-frame) .app-main-connectors-page .app-connectors-detail-header {
+:is(.app-dream-frame, .app-main-settings-frame) .app-main-app-sessions-page .app-sessions-detail-header {
   border-color: var(--dream-divider-subtle);
   background: transparent;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
 
-.app-connectors-list-item {
+.app-sessions-list-item {
   border: 0;
   border-radius: var(--dream-control-radius);
   background: transparent;
@@ -258,27 +278,27 @@
   box-shadow: none;
 }
 
-.app-connectors-list-item:hover {
+.app-sessions-list-item:hover {
   background: var(--dream-surface-hover);
   color: var(--dream-text-strong);
 }
 
-.app-connectors-list-item[data-active="true"] {
+.app-sessions-list-item[data-active="true"] {
   background: var(--dream-primary-surface);
   color: var(--dream-primary-text);
   box-shadow: none;
 }
 
-.app-connectors-list-label {
+.app-sessions-list-label {
   color: var(--dream-text-muted);
 }
 
-.app-connectors-list-label[data-active="true"] {
+.app-sessions-list-label[data-active="true"] {
   color: var(--dream-primary-text);
 }
 
-.app-connectors-status-badge,
-.app-connectors-cookie-count {
+.app-sessions-status-badge,
+.app-sessions-cookie-count {
   display: inline-flex;
   height: var(--app-control-height-compact);
   min-height: var(--app-control-height-compact);
@@ -292,63 +312,63 @@
   line-height: 1;
 }
 
-.app-connectors-list-item .app-connectors-status-badge {
+.app-sessions-list-item .app-sessions-status-badge {
   width: var(--app-control-height-compact);
   min-width: var(--app-control-height-compact);
   justify-content: center;
   padding: 0;
 }
 
-.app-connectors-status-connected {
+.app-sessions-status-connected {
   background: hsl(142 72% 42% / 0.11);
   color: hsl(142 54% 30%);
   box-shadow: inset 0 0 0 1px hsl(142 72% 42% / 0.14);
 }
 
-.dark .app-connectors-status-connected {
+.dark .app-sessions-status-connected {
   color: hsl(142 62% 72%);
 }
 
-.app-connectors-status-expired {
+.app-sessions-status-expired {
   background: hsl(42 92% 52% / 0.14);
   color: hsl(35 82% 32%);
   box-shadow: inset 0 0 0 1px hsl(42 92% 52% / 0.16);
 }
 
-.dark .app-connectors-status-expired {
+.dark .app-sessions-status-expired {
   color: hsl(42 88% 74%);
 }
 
-.app-connectors-status-profile {
+.app-sessions-status-profile {
   background: hsl(188 72% 42% / 0.11);
   color: hsl(188 54% 30%);
   box-shadow: inset 0 0 0 1px hsl(188 72% 42% / 0.14);
 }
 
-.dark .app-connectors-status-profile {
+.dark .app-sessions-status-profile {
   color: hsl(188 62% 72%);
 }
 
-.app-connectors-status-disconnected,
-.app-connectors-cookie-count {
+.app-sessions-status-disconnected,
+.app-sessions-cookie-count {
   background: var(--dream-surface-soft);
   color: var(--dream-text-muted);
 }
 
-.app-connectors-table-shell {
+.app-sessions-table-shell {
   overflow: hidden;
 }
 
-.app-connectors-table-header {
+.app-sessions-table-header {
   background: var(--dream-surface-card);
   box-shadow: inset 0 -1px 0 var(--dream-line-muted);
 }
 
-.app-connectors-table-row {
+.app-sessions-table-row {
   box-shadow: inset 0 -1px 0 var(--dream-line-muted);
 }
 
-.app-connectors-table-row:last-child {
+.app-sessions-table-row:last-child {
   box-shadow: none;
 }
 
@@ -1245,7 +1265,7 @@
   filter: blur(3px);
 }
 
-.app-new-task-url-card-mode-panel[data-panel="connector"][data-visible="false"] {
+.app-new-task-url-card-mode-panel[data-panel="app-session"][data-visible="false"] {
   transform: translate3d(-0.35rem, 0, 0) scale(0.982);
 }
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	appcookies "xiadown/internal/application/cookies"
-	"xiadown/internal/domain/connectors"
+	"xiadown/internal/domain/appsessions"
 )
 
 type CookiesExportFormat string
@@ -20,31 +20,28 @@ const (
 	CookiesExportJSON CookiesExportFormat = "json"
 )
 
-func (service *ConnectorsService) ExportConnectorCookies(ctx context.Context, id string, format CookiesExportFormat) (string, error) {
-	trimmed := strings.TrimSpace(id)
-	if trimmed == "" {
-		return "", connectors.ErrInvalidConnector
-	}
-	connector, err := service.repo.Get(ctx, trimmed)
+func (service *AppSessionsService) ExportAppSessionCookies(ctx context.Context, id string, format CookiesExportFormat) (string, error) {
+	session, err := service.sessionByID(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	if connector.CredentialMode == "" {
-		connector.CredentialMode = connectors.DefaultCredentialMode(connector.Type)
+	records, err := service.RecordsForSiteKey(ctx, session.SiteKey)
+	if err != nil {
+		return "", err
 	}
-	if connector.CredentialMode == connectors.CredentialModeProfile {
-		return "", connectors.ErrNoCookies
-	}
-	records := decodeCookies(connector.CookiesJSON)
 	if len(records) == 0 {
-		return "", connectors.ErrNoCookies
+		return "", appsessions.ErrNoCookies
 	}
+	return writeCookiesExport(records, format)
+}
+
+func writeCookiesExport(records []appcookies.Record, format CookiesExportFormat) (string, error) {
 	ext := strings.ToLower(strings.TrimSpace(string(format)))
 	if ext == "" {
 		ext = string(CookiesExportTXT)
 	}
 	if ext != string(CookiesExportTXT) && ext != string(CookiesExportJSON) {
-		return "", connectors.ErrInvalidConnector
+		return "", appsessions.ErrInvalidSession
 	}
 	file, err := os.CreateTemp("", "xiadown-cookies-*."+ext)
 	if err != nil {

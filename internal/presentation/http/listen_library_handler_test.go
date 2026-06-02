@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"xiadown/internal/application/youtubemusic"
-	"xiadown/internal/domain/connectors"
+	"xiadown/internal/domain/appsessions"
 )
 
 func TestListenLibraryHandlerServesLibraryAndShelves(t *testing.T) {
@@ -242,7 +242,7 @@ func TestListenLibraryHandlerReturnsAuthErrorDetails(t *testing.T) {
 }
 
 func TestListenLibraryHandlerReturnsMissingCookiesCode(t *testing.T) {
-	missingCookiesErr := errors.Join(youtubemusic.ErrNotAuthenticated, connectors.ErrNoCookies)
+	missingCookiesErr := errors.Join(youtubemusic.ErrNotAuthenticated, appsessions.ErrNoCookies)
 	handler := NewListenLibraryHandler(fakeListenMusicClient{
 		libraryPlaylistsErr:    missingCookiesErr,
 		libraryArtistsErr:      missingCookiesErr,

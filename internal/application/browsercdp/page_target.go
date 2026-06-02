@@ -17,7 +17,6 @@ func AttachOrCreatePageTarget(runtime *Runtime, waitTimeout time.Duration) (cont
 	if runtime == nil {
 		return nil, nil, "", errors.New("browser runtime unavailable")
 	}
-
 	targetID, err := waitForReusablePageTarget(runtime, waitTimeout)
 	if err != nil {
 		return nil, nil, "", err
@@ -29,12 +28,49 @@ func AttachOrCreatePageTarget(runtime *Runtime, waitTimeout time.Duration) (cont
 		}
 	}
 
+	attachTimeout := waitTimeout
+	if attachTimeout <= 0 {
+		attachTimeout = 5 * time.Second
+	}
+	return attachPageTarget(runtime, targetID, attachTimeout)
+}
+
+func attachPageTarget(runtime *Runtime, targetID string, attachTimeout time.Duration) (context.Context, context.CancelFunc, string, error) {
+	if runtime == nil {
+		return nil, nil, "", errors.New("browser runtime unavailable")
+	}
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return nil, nil, "", errors.New("page target unavailable")
+	}
 	tabCtx, cancel := chromedp.NewContext(runtime.BrowserContext(), chromedp.WithTargetID(targetpkg.ID(targetID)))
-	if err := chromedp.Run(tabCtx); err != nil {
+	if err := runPageTargetAttach(tabCtx, cancel, attachTimeout); err != nil {
 		cancel()
 		return nil, nil, "", wrapRuntimeHangError(err)
 	}
 	return tabCtx, cancel, targetID, nil
+}
+
+func runPageTargetAttach(tabCtx context.Context, cancel context.CancelFunc, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- chromedp.Run(tabCtx)
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-errCh:
+		return err
+	case <-timer.C:
+		cancel()
+		return context.DeadlineExceeded
+	case <-tabCtx.Done():
+		return tabCtx.Err()
+	}
 }
 
 func waitForReusablePageTarget(runtime *Runtime, timeout time.Duration) (string, error) {
@@ -45,8 +81,12 @@ func waitForReusablePageTarget(runtime *Runtime, timeout time.Duration) (string,
 		timeout = 5 * time.Second
 	}
 	if manager := runtime.TargetManager(); manager != nil {
-		if targetID := strings.TrimSpace(pickReusableTargetID(manager.ListPageTargets())); targetID != "" {
+		infos := manager.ListPageTargets()
+		if targetID := strings.TrimSpace(pickReusableTargetID(infos)); targetID != "" {
 			return targetID, nil
+		}
+		if hasPageTargetInfo(infos) {
+			return "", nil
 		}
 		waitCtx, cancel := context.WithTimeout(runtime.BrowserContext(), timeout)
 		defer cancel()
@@ -62,6 +102,9 @@ func waitForReusablePageTarget(runtime *Runtime, timeout time.Duration) (string,
 		if info == nil {
 			return "", nil
 		}
+		if !isReusablePageTargetInfo(info) {
+			return "", nil
+		}
 		return strings.TrimSpace(string(info.TargetID)), nil
 	}
 
@@ -74,6 +117,9 @@ func waitForReusablePageTarget(runtime *Runtime, timeout time.Duration) (string,
 		if targetID := strings.TrimSpace(pickReusableTargetID(targets)); targetID != "" {
 			return targetID, nil
 		}
+		if hasPageTargetInfo(targets) {
+			return "", nil
+		}
 		if time.Now().After(deadline) {
 			return "", nil
 		}
@@ -82,13 +128,21 @@ func waitForReusablePageTarget(runtime *Runtime, timeout time.Duration) (string,
 }
 
 func createPageTarget(runtime *Runtime, timeout time.Duration, newWindow bool) (string, error) {
+	return createPageTargetForURL(runtime, "about:blank", timeout, newWindow)
+}
+
+func createPageTargetForURL(runtime *Runtime, rawURL string, timeout time.Duration, newWindow bool) (string, error) {
 	runCtx, cancel, err := RuntimeBrowserExecutorContext(runtime, timeout)
 	if err != nil {
 		return "", err
 	}
 	defer cancel()
 
-	createTarget := targetpkg.CreateTarget("about:blank")
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		rawURL = "about:blank"
+	}
+	createTarget := targetpkg.CreateTarget(rawURL)
 	if newWindow {
 		createTarget = createTarget.WithNewWindow(true)
 	}

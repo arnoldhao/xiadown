@@ -19,5 +19,8 @@ export const COMPLETED_DEFAULT_COVER_IMAGE_URLS = {
   other: "/completed-defaults/other.jpg",
 } as const;
 
+export const LISTEN_DEFAULT_COVER_IMAGE_URL: string =
+  COMPLETED_DEFAULT_COVER_IMAGE_URLS.audio;
+
 export type CompletedDefaultCoverImageKey =
   keyof typeof COMPLETED_DEFAULT_COVER_IMAGE_URLS;

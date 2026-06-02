@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"xiadown/internal/application/youtubemusic"
-	"xiadown/internal/domain/connectors"
+	"xiadown/internal/domain/appsessions"
 )
 
 const listenLyricsTimeout = 35 * time.Second
@@ -210,8 +210,9 @@ func listenLyricsErrorRetryable(err error) bool {
 
 func isListenLyricsMissingCookiesError(err error) bool {
 	return errors.Is(err, youtubemusic.ErrNotAuthenticated) ||
-		errors.Is(err, connectors.ErrNoCookies) ||
-		errors.Is(err, connectors.ErrConnectorNotFound)
+		errors.Is(err, appsessions.ErrNoCookies) ||
+		errors.Is(err, appsessions.ErrSessionNotFound) ||
+		errors.Is(err, appsessions.ErrInvalidSession)
 }
 
 func isListenLyricsTimeoutError(err error) bool {

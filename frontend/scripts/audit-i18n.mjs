@@ -28,6 +28,7 @@ const englishStyleSkipKeys = new Set([
   "settings.language.option.ptBR",
   "settings.language.option.idID",
   "settings.language.option.viVN",
+  "settings.appSessions.youtubeAccountFallbackName",
 ]);
 const englishStylePreservePhrases = [
   "XiaDown",
@@ -174,14 +175,14 @@ const englishTitleStyleExplicitPatterns = [
   /^common\.realtimeUnavailableTitle$/,
   /^library\.(?:status|progress|progressDetail)\./,
   /^library\.download\.subtitle\./,
-  /^settings\.connectors\.(?:loginTitle|loginFinish|headerRoot|openSite|connect|reconnect|clear|viewCookies|cookiesTitle|cookieColumns\.|status\.|browserStatus\.|loginCard\.|detail\.)/,
+  /^settings\.appSessions\.(?:headerRoot|openSite|connect|reconnect|clear|finish|cancel|status|account|handle|membership|badges|cookies|domains|lastVerifiedAt|actions|capabilities|connectTitle|openTitle|browserStatus|currentCookies|savedCookies|siteDetailTitle|youtubeIdentity|youtubeMembership|youtubeDomains|bilibiliIdentity|bilibiliMembership|socialIdentity|genericIdentity|accountFallbackName|disconnectedName|signIn|signOut|verifyStatus|lastLoginAt|expiresAt|youtubeAccountFallbackName|youtubeDisconnectedName|youtubeSignIn|youtubeSignOut|youtubeVerifyStatus|youtubeLastLoginAt|youtubeExpiresAt|item\.)/,
   /^xiadown\.(?:views|actions|sidebar)\./,
   /^xiadown\.running\.(?:title|loading|overviewTitle|taskCount|overallProgress|throughput|elapsed|runningCount|queuedCount|downloadSpeed|transcodeSpeed|downloadBadge|transcodeBadge|source|createdAt|localSource|stage|status|eta|cancelConfirmTitle|stageLabels\.)/,
   /^xiadown\.completed\.(?:title|records|outputs|info|taskDetail|taskDtoTitle|openTaskDto|copyDownloadUrl|copyFailed|taskDataFields\.|fileDetail|searchTasks|searchFiles|searchFilter|total|taskCountLabel|fileCountLabel|perPage|itemUnit|page|taskStatus|source|fileType|fileFormat|fileInfo|selectFiles|selectAll|clearSelection|verifyFiles|clearMissingFiles|selectionSummary|selectionUnit|lineUnit|lineCount|deleteFiles|deleteTaskTitle|deleteTasksTitle|deleteFileTitle|deleteFilesTitle|previousPage|nextPage|preview|updatedAt|videoCount|subtitleCount|imageCount|type|resolution|frameRate|duration|channels|dpi|codec|bitrate|videoBitrate|audioBitrate|fileSize|originalFormat|succeeded|failed|canceled)/,
   /^xiadown\.welcome\.(?:title|language|proxy|dependencies|dependencyStatus|latestVersion|bgmOff|bgmOn|enterApp|installAll|installing|proxyNone|proxySystem|readyTitle|stage|systemProxyTitle|theme)/,
   /^xiadown\.settings\.(?:title|tabs\.|startup|tray|menuBar|syncedLyrics|romanizedLyrics|pinyinLyrics|downloadDirectory|ytdlpConcurrentFragments|defaultBrowser|refreshBrowsers|language|logLevel|themePack|accent|accentColor|fontFamily|fontSize|colorScheme|appearanceMode|sidebarStyle|systemProxy|manualProxy|noProxy|proxy|host|port|username|password|timeout|scheme|noProxyList|status|checking|notConfigured|unavailable|systemSource|vpnSource|editProxy|proxyDialogTitle|otherSoftware|menuBarOptions\.|colorSchemeOptions\.|sidebarStyleOptions\.|accentOptions\.|equalizer\.(?:title|enable|preset|bands|preamp|reset|retry|openSettings|custom|status\.|presets\.))/,
   /^xiadown\.dependencies\.(?:title|installed|missing|invalid|idle|latestVersion|currentVersion|execPath|noRemoteVersionInfo|reinstall|downloading|extracting|verifying|installing|missingDependency)/,
-  /^xiadown\.dialogs\.(?:downloadTitle|transcodeTitle|dependenciesRequiredTitle|requestDownload|quickMode|customMode|preset|format|quality|qualityBest|qualityAudio|selectFormat|size|container|codec|scaleOriginal|scaleCustom|subtitles|noSubtitle|noTranscode|keepOnlyTranscodedFile|parse|parseAgain|currentStatus|useConnector|connectorAvailable|connectorUnavailable|modifyLink|modifyFile|path|fileAddress|inspectingFile|fileInspectFailed|noCompatibleTranscodePreset)$/,
+  /^xiadown\.dialogs\.(?:downloadTitle|transcodeTitle|dependenciesRequiredTitle|requestDownload|quickMode|customMode|preset|format|quality|qualityBest|qualityAudio|selectFormat|size|container|codec|scaleOriginal|scaleCustom|subtitles|noSubtitle|noTranscode|keepOnlyTranscodedFile|parse|parseAgain|currentStatus|useAppSession|appSessionAvailable|appSessionUnavailable|noAvailableAppSession|appSessionNotConfigured|appSessionCanEnable|appSessionCookiesDownload|modifyLink|modifyFile|path|fileAddress|inspectingFile|fileInspectFailed|noCompatibleTranscodePreset)$/,
   /^xiadown\.dialogs\.formatGroup(?:Video|Audio)$/,
   /^xiadown\.listen\.(?:hush|muse|linger|localEmptyAction|localLoading|localRefresh|localClearMissing|localModified|randomStation|searchLive|searchOnline|searchLocal|searchSongs|searchArtists|searchPlaylists|source|group|liveStations|liveLoading|addChannel|editChannel|removeChannel|manageColumns|channelURL|channelTitle|channelName|channelColumn|noColumn|channelDescription|channelThumbnail|addColumn|editColumn|saveColumn|removeColumn|builtInColumns|customColumns|readonlyColumn|noColumns|retry|libraryArtists|likedMusic|playlistType|groupRecommendations|groupRadio|shelf|liveBadge|liveStatus|adBadge|browse|upNext|play|pause|stop|loading|idleStatus|nowPlaying|playingStatus|pausedStatus|loadingStatus|errorStatus|errorCodeLabel|previous|next|playbackMode|playMode|mute|unmute|volume|seek|favorite$|collapseList|openList|onlineLoading|openConnections|refresh|contentEmpty|searchLoading|loadMore|seeAll|playAll|playNext|addToQueue|addToLibrary|shuffleAll|clearQueue|undoQueue|redoQueue|editQueue|doneQueue|removeFromQueue|moveQueueItemUp|moveQueueItemDown|airPlay|video|fitWindow|fitVideo|lockVideo|unlockVideo|noVideo|lyrics|lyricsEmpty|more|openPage|copyLink|artistShuffle|artistMix|artistSubscribe|artistUnsubscribe|artistLoading|playlistLoading|savePlaylist|removePlaylist)/,
   /^xiadown\.whatsNew\.title$/,
@@ -192,13 +193,13 @@ const englishTitleStyleExplicitPatterns = [
 const englishSentenceStyleExplicitPatterns = [
   /(?:^|\.)(?:description|subtitle|hint|placeholder|message|empty|prompt|toast)$/i,
   /^common\.realtimeUnavailableDescription$/,
-  /^settings\.connectors\.(?:searchPlaceholder|searchEmpty|empty|browserMissing|browserSessionEnded|loginSessionMissing|loginError|noCookies|noCookiesRead|openSiteError|cookiesDialogTitle|cookiesEmpty)$/,
+  /^settings\.appSessions\.(?:searchPlaceholder|searchEmpty|empty|providerUnsupported|clearConfirmTitle|clearConfirmDescription|clearError|loginError|noCookiesRead|browserMissing|browserSessionEnded|sessionMissing|connected|expired|disconnected|unsupported)$/,
   /^xiadown\.running\.(?:empty|playgroundHint|downloadSpeedLine|transcodeSpeedLine|progressFallback|cancelConfirmDescription|units\.)/,
   /^xiadown\.completed\.(?:emptyTasks|emptyLibrary|emptyFiles|detailEmpty|downloadUrlCopied|verifyFilesMissingToast|verifyFilesValidToast|clearMissingFilesRemovedToast|clearMissingFilesNoneToast|fileMaintenanceFailed|deleteTaskMessage|deleteTasksMessage|deleteFileMessage|deleteFilesMessage|noPreview|noSelectedTask|noSelectedFile|taskNoFiles)$/,
   /^xiadown\.welcome\.(?:subtitle|noProxyDescription|systemProxyDescription)$/,
   /^xiadown\.settings\.(?:proxyDialogHint|aboutText|generalDescription|appearanceDescription|proxyDescription|systemProxyEmpty|proxyTestSucceeded|proxyTestFailed|ytdlpConcurrentFragmentsHelp|equalizer\.(?:macOSOnly|messages\.))$/,
   /^xiadown\.dependencies\.subtitle$/,
-  /^xiadown\.dialogs\.(?:dependenciesRequiredDescription|downloadPlaceholder|parseFailedWithoutConnector|parseFailedWithConnector|nameHint)$/,
+  /^xiadown\.dialogs\.(?:dependenciesRequiredDescription|downloadPlaceholder|parseFailedWithoutAppSession|parseFailedWithAppSession|nameHint)$/,
   /^xiadown\.listen\.(?:subtitle|localEmpty|localEmptyPrompt|liveUnavailable|liveEmpty|confirmRemoveChannel|customCatalogSummary|addChannelPlaceholder|channelVideoIdRequired|channelNotLive|channelTitleRequired|confirmRemoveColumn|customColumnPlaceholder|columnTitleRequired|columnAlreadyExists|userCatalogSaveFailed|playlistTrackCount|playlistTrackCountMore|idleSubtitle|favoriteUnavailable|selectStation|onlineHint|onlineUnavailable|onlineConnectionPrompt|onlineAuthRequired|onlineAuthExpired|onlineNetworkUnavailable|onlineServiceUnavailable|onlineEmpty|searchUnavailable|searchEmpty|linkCopied|artistUnavailable|artistEmpty|playlistEmpty|upNextEmpty|playerUnavailable)$/,
   /^xiadown\.whatsNew\.empty$/,
   /^xiadown\.about\.(?:dreamCreatorDescription|hushDescription)$/,
@@ -254,9 +255,10 @@ const zhGlossaryReplacements = [
 ];
 const zhAllowedEnglishKeyPatterns = [
   /^settings\.language\.option\./,
+  /^settings\.appSessions\.youtubeAccountFallbackName$/,
   /^xiadown\.running\.units\.bytesPerSecond$/,
   /^xiadown\.running\.units\.framesPerSecond$/,
-  /^settings\.connectors\.item\./,
+  /^settings\.appSessions\.item\./,
   /^xiadown\.welcome\.readyHint$/,
   /^xiadown\.petGallery\./,
 ];

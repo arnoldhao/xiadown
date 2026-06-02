@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"xiadown/internal/application/youtubemusic"
-	"xiadown/internal/domain/connectors"
+	"xiadown/internal/domain/appsessions"
 )
 
 type listenErrorResponse struct {
@@ -128,8 +128,9 @@ func listenYouTubeMusicErrorRetryableFromCode(code string) bool {
 
 func isListenMissingCookiesError(err error) bool {
 	return errors.Is(err, youtubemusic.ErrNotAuthenticated) ||
-		errors.Is(err, connectors.ErrNoCookies) ||
-		errors.Is(err, connectors.ErrConnectorNotFound)
+		errors.Is(err, appsessions.ErrNoCookies) ||
+		errors.Is(err, appsessions.ErrSessionNotFound) ||
+		errors.Is(err, appsessions.ErrInvalidSession)
 }
 
 func isListenTimeoutError(err error) bool {

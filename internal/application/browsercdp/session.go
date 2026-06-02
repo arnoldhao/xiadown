@@ -46,7 +46,11 @@ type SessionOptions struct {
 	Headless         bool
 	UserDataDir      string
 	SSRFRules        SSRFPolicy
-	Cookies          ConnectorCookieProvider
+	Cookies          CookieProvider
+}
+
+type CookieProvider interface {
+	ResolveCookiesForURL(ctx context.Context, rawURL string) ([]appcookies.Record, error)
 }
 
 type SessionRegistry struct {
@@ -305,19 +309,19 @@ func (err *InvalidRefError) Error() string {
 	return fmt.Sprintf("ref %q not found; run snapshot again to get fresh refs", strings.TrimSpace(err.Ref))
 }
 
-type ConnectorCookieError struct {
+type CookieSyncError struct {
 	URL string
 	Err error
 }
 
-func (err *ConnectorCookieError) Error() string {
+func (err *CookieSyncError) Error() string {
 	if err == nil || err.Err == nil {
-		return "connector cookie sync failed"
+		return "browser cookie sync failed"
 	}
-	return fmt.Sprintf("connector cookie sync failed for %s: %v", strings.TrimSpace(err.URL), err.Err)
+	return fmt.Sprintf("browser cookie sync failed for %s: %v", strings.TrimSpace(err.URL), err.Err)
 }
 
-func (err *ConnectorCookieError) Unwrap() error {
+func (err *CookieSyncError) Unwrap() error {
 	if err == nil {
 		return nil
 	}
@@ -1850,7 +1854,7 @@ func (session *Session) ensureCookiesForURL(ctx context.Context, tab *sessionTab
 	}
 	cookies, err := options.Cookies.ResolveCookiesForURL(ctx, targetURL)
 	if err != nil {
-		return &ConnectorCookieError{URL: targetURL, Err: err}
+		return &CookieSyncError{URL: targetURL, Err: err}
 	}
 	if len(cookies) == 0 {
 		return nil
@@ -1865,11 +1869,11 @@ func (session *Session) ensureCookiesForURL(ctx context.Context, tab *sessionTab
 	session.mu.Unlock()
 	runCtx, cancel, err := session.newBrowserExecutorContext(10 * time.Second)
 	if err != nil {
-		return &ConnectorCookieError{URL: targetURL, Err: err}
+		return &CookieSyncError{URL: targetURL, Err: err}
 	}
 	defer cancel()
 	if err := SetCookiesOnBrowser(runCtx, targetURL, cookies); err != nil {
-		return &ConnectorCookieError{URL: targetURL, Err: err}
+		return &CookieSyncError{URL: targetURL, Err: err}
 	}
 	session.mu.Lock()
 	rememberCookieSyncFingerprint(session.cookieSync, syncKeys, fingerprint)
@@ -1884,7 +1888,7 @@ func (session *Session) ensureCookiesForURLOnBrowser(ctx context.Context, target
 	}
 	cookies, err := options.Cookies.ResolveCookiesForURL(ctx, targetURL)
 	if err != nil {
-		return &ConnectorCookieError{URL: targetURL, Err: err}
+		return &CookieSyncError{URL: targetURL, Err: err}
 	}
 	if len(cookies) == 0 {
 		return nil
@@ -1907,7 +1911,7 @@ func (session *Session) ensureCookiesForURLOnBrowser(ctx context.Context, target
 	}
 	defer cancel()
 	if err := SetCookiesOnBrowser(runCtx, targetURL, cookies); err != nil {
-		return &ConnectorCookieError{URL: targetURL, Err: err}
+		return &CookieSyncError{URL: targetURL, Err: err}
 	}
 	session.mu.Lock()
 	rememberCookieSyncFingerprint(session.cookieSync, syncKeys, fingerprint)
@@ -3068,7 +3072,7 @@ func preferredPageURL(candidates ...string) string {
 }
 
 func pickReusableTargetID(infos []*targetpkg.Info) string {
-	choose := func(requireUnattached bool, preferBlank bool) string {
+	choose := func(requireUnattached bool) string {
 		for _, info := range infos {
 			if info == nil || info.Type != "page" {
 				continue
@@ -3076,7 +3080,7 @@ func pickReusableTargetID(infos []*targetpkg.Info) string {
 			if requireUnattached && info.Attached {
 				continue
 			}
-			if preferBlank && !isReusablePageURL(info.URL) {
+			if !isReusablePageTargetInfo(info) {
 				continue
 			}
 			return string(info.TargetID)
@@ -3084,16 +3088,27 @@ func pickReusableTargetID(infos []*targetpkg.Info) string {
 		return ""
 	}
 	for _, candidate := range []string{
-		choose(true, true),
-		choose(true, false),
-		choose(false, true),
-		choose(false, false),
+		choose(true),
+		choose(false),
 	} {
 		if strings.TrimSpace(candidate) != "" {
 			return candidate
 		}
 	}
 	return ""
+}
+
+func hasPageTargetInfo(infos []*targetpkg.Info) bool {
+	for _, info := range infos {
+		if isPageTargetInfo(info) {
+			return true
+		}
+	}
+	return false
+}
+
+func isReusablePageTargetInfo(info *targetpkg.Info) bool {
+	return isPageTargetInfo(info) && isReusablePageURL(info.URL)
 }
 
 func isReusablePageURL(rawURL string) bool {

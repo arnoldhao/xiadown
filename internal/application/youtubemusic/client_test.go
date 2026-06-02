@@ -13,7 +13,7 @@ import (
 
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/lyricsromanization"
-	"xiadown/internal/domain/connectors"
+	"xiadown/internal/domain/appsessions"
 )
 
 type fakeCookieProvider struct {
@@ -21,7 +21,7 @@ type fakeCookieProvider struct {
 	err     error
 }
 
-func (provider fakeCookieProvider) CookiesForConnectorType(context.Context, connectors.ConnectorType) ([]appcookies.Record, error) {
+func (provider fakeCookieProvider) RecordsForSiteKey(context.Context, string) ([]appcookies.Record, error) {
 	return provider.records, provider.err
 }
 
@@ -53,10 +53,10 @@ func TestAuthHeadersBuildSAPISIDHash(t *testing.T) {
 }
 
 func TestAuthHeadersWrapsMissingCookiesAsNotAuthenticated(t *testing.T) {
-	client := NewClient(fakeCookieProvider{err: connectors.ErrNoCookies})
+	client := NewClient(fakeCookieProvider{err: appsessions.ErrNoCookies})
 
 	_, err := client.authHeaders(context.Background())
-	if !errors.Is(err, ErrNotAuthenticated) || !errors.Is(err, connectors.ErrNoCookies) {
+	if !errors.Is(err, ErrNotAuthenticated) || !errors.Is(err, appsessions.ErrNoCookies) {
 		t.Fatalf("expected missing cookies auth error, got %v", err)
 	}
 }
@@ -148,6 +148,42 @@ func TestRequestUsesLocaleFromContext(t *testing.T) {
 	}
 	if !strings.HasPrefix(acceptLanguage, "zh-CN") {
 		t.Fatalf("expected zh-CN accept language, got %q", acceptLanguage)
+	}
+}
+
+func TestRequestUsesConfiguredUserAgentInHeadersAndContext(t *testing.T) {
+	const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
+	client := NewClient(fakeCookieProvider{records: []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "test-sapisid", Domain: ".youtube.com", Path: "/", Expires: 4102444800, Secure: true},
+	}})
+	client.SetUserAgent(userAgent)
+	client.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
+	var requestBody map[string]any
+	var headerUserAgent string
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		headerUserAgent = request.Header.Get("User-Agent")
+		if err := json.NewDecoder(request.Body).Decode(&requestBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		return testHTTPResponse(request, http.StatusOK, `{}`), nil
+	})}
+
+	if _, err := client.AccountInfo(context.Background()); err != nil {
+		t.Fatalf("request with user agent: %v", err)
+	}
+	if headerUserAgent != userAgent {
+		t.Fatalf("expected header user agent %q, got %q", userAgent, headerUserAgent)
+	}
+	contextPayload, _ := requestBody["context"].(map[string]any)
+	clientPayload, _ := contextPayload["client"].(map[string]any)
+	if got := clientPayload["userAgent"]; got != userAgent {
+		t.Fatalf("expected context user agent %q, got %#v", userAgent, got)
+	}
+	if got := clientPayload["browserName"]; got != "Edge" {
+		t.Fatalf("expected Edge browser name, got %#v", got)
+	}
+	if got := clientPayload["osName"]; got != "Windows" {
+		t.Fatalf("expected Windows os name, got %#v", got)
 	}
 }
 
@@ -334,6 +370,89 @@ func TestThumbnailExtractionMatchesKasetForegroundThumbnail(t *testing.T) {
 	})
 	if thumbnailURL != "https://lh3.googleusercontent.com/header-large" {
 		t.Fatalf("unexpected thumbnail: %q", thumbnailURL)
+	}
+}
+
+func TestParseAccountInfoPrefersSelectedAccount(t *testing.T) {
+	account := parseAccountInfo(accountsListResponse(
+		accountItemWithHandle("Personal Account", "@personal", "//lh3.googleusercontent.com/personal", false),
+		accountItemWithHandle("Selected Channel", "@selected", "//lh3.googleusercontent.com/selected", true),
+	))
+	if account.DisplayName != "Selected Channel" {
+		t.Fatalf("unexpected account name: %q", account.DisplayName)
+	}
+	if account.Handle != "@selected" {
+		t.Fatalf("unexpected account handle: %q", account.Handle)
+	}
+	if account.AvatarURL != "https://lh3.googleusercontent.com/selected" {
+		t.Fatalf("unexpected account avatar: %q", account.AvatarURL)
+	}
+}
+
+func TestParseAccountInfoFallsBackToFirstAccount(t *testing.T) {
+	account := parseAccountInfo(accountsListResponse(
+		accountItem("First Account", "//lh3.googleusercontent.com/first", false),
+		accountItem("Second Account", "//lh3.googleusercontent.com/second", false),
+	))
+	if account.DisplayName != "First Account" {
+		t.Fatalf("unexpected fallback account name: %q", account.DisplayName)
+	}
+	if account.AvatarURL != "https://lh3.googleusercontent.com/first" {
+		t.Fatalf("unexpected fallback account avatar: %q", account.AvatarURL)
+	}
+}
+
+func accountsListResponse(items ...map[string]any) map[string]any {
+	contents := make([]any, 0, len(items))
+	for _, item := range items {
+		contents = append(contents, map[string]any{"accountItem": item})
+	}
+	return map[string]any{
+		"actions": []any{
+			map[string]any{
+				"getMultiPageMenuAction": map[string]any{
+					"menu": map[string]any{
+						"multiPageMenuRenderer": map[string]any{
+							"sections": []any{
+								map[string]any{
+									"accountSectionListRenderer": map[string]any{
+										"contents": []any{
+											map[string]any{
+												"accountItemSectionRenderer": map[string]any{
+													"contents": contents,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func accountItem(name string, avatarURL string, selected bool) map[string]any {
+	return accountItemWithHandle(name, "", avatarURL, selected)
+}
+
+func accountItemWithHandle(name string, handle string, avatarURL string, selected bool) map[string]any {
+	return map[string]any{
+		"accountName": map[string]any{
+			"runs": []any{map[string]any{"text": name}},
+		},
+		"channelHandle": map[string]any{
+			"runs": []any{map[string]any{"text": handle}},
+		},
+		"accountPhoto": map[string]any{
+			"thumbnails": []any{
+				map[string]any{"url": "//lh3.googleusercontent.com/small"},
+				map[string]any{"url": avatarURL},
+			},
+		},
+		"isSelected": selected,
 	}
 }
 

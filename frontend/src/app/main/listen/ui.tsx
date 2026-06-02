@@ -36,7 +36,7 @@ import {
 getXiaText
 } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import { Button } from "@/shared/ui/button";
 import {
 DreamSegmentSwitch,
@@ -159,7 +159,7 @@ export function ListenLocalArtwork(props: {
     () => new Set(),
   );
   const source =
-    [coverURL, DEFAULT_COVER_IMAGE_URL]
+    [coverURL, LISTEN_DEFAULT_COVER_IMAGE_URL]
       .filter(Boolean)
       .find((url) => !failedURLs.has(url)) ?? "";
 
@@ -199,13 +199,15 @@ export function useListenStableImageSource(srcCandidates: string[]) {
   const candidateKey = srcCandidates.join("\n");
   const candidates = React.useMemo(() => {
     const normalized = srcCandidates.map((url) => url.trim()).filter(Boolean);
-    return Array.from(new Set([...normalized, DEFAULT_COVER_IMAGE_URL]));
+    return Array.from(new Set([...normalized, LISTEN_DEFAULT_COVER_IMAGE_URL]));
   }, [candidateKey]);
   const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const [visibleSrc, setVisibleSrc] = React.useState(DEFAULT_COVER_IMAGE_URL);
+  const [visibleSrc, setVisibleSrc] = React.useState(
+    LISTEN_DEFAULT_COVER_IMAGE_URL,
+  );
   const activeSrc =
     candidates[Math.min(candidateIndex, Math.max(candidates.length - 1, 0))] ||
-    DEFAULT_COVER_IMAGE_URL;
+    LISTEN_DEFAULT_COVER_IMAGE_URL;
   const activeSrcRef = React.useRef(activeSrc);
 
   React.useEffect(() => {
@@ -217,7 +219,7 @@ export function useListenStableImageSource(srcCandidates: string[]) {
   }, [candidateKey]);
 
   React.useEffect(() => {
-    const source = activeSrc.trim() || DEFAULT_COVER_IMAGE_URL;
+    const source = activeSrc.trim() || LISTEN_DEFAULT_COVER_IMAGE_URL;
     if (source === visibleSrc) {
       return;
     }
@@ -1942,7 +1944,7 @@ function ListenMuseListArtwork(props: {
   const source =
     candidates[
       Math.min(candidateIndex, Math.max(candidates.length - 1, 0))
-    ] || DEFAULT_COVER_IMAGE_URL;
+    ] || LISTEN_DEFAULT_COVER_IMAGE_URL;
 
   React.useEffect(() => {
     setCandidateIndex(0);

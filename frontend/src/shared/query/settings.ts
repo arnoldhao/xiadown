@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Call, Events } from "@wailsio/runtime";
 
-import type { BrowserCandidate, ProxySettings, Settings, SystemProxyInfo, UpdateSettingsRequest } from "@/shared/contracts/settings";
+import type { BrowserCandidate, ProxySettings, Settings, SniffProfileInfo, SniffProfileRequest, SystemProxyInfo, UpdateSettingsRequest } from "@/shared/contracts/settings";
 import { normalizeColorScheme } from "@/lib/theme/color-schemes";
 import {
   GetBrowserCandidates,
@@ -13,14 +13,19 @@ import {
   ShowMainWindow,
   ShowSettingsWindow,
   TestProxy,
+  GetSniffProfileInfo,
+  OpenSniffProfile,
+  ClearSniffProfile,
 } from "../../../bindings/xiadown/internal/presentation/wails/settingshandler";
 import {
   Proxy as BindingsProxy,
+  SniffProfileRequest as BindingsSniffProfileRequest,
   SystemProxyInfo as BindingsSystemProxyInfo,
 } from "../../../bindings/xiadown/internal/application/settings/dto/models";
 
 export const SETTINGS_QUERY_KEY = ["settings"];
 export const BROWSER_CANDIDATES_QUERY_KEY = ["browser-candidates"];
+export const SNIFF_PROFILE_QUERY_KEY = ["settings", "sniff-profile"];
 
 export function useSettings() {
   return useQuery({
@@ -144,6 +149,49 @@ export function useSystemProxyInfo(enabled = true) {
       return toSystemProxyInfo(await RefreshSystemProxy());
     },
     enabled,
+  });
+}
+
+export function useSniffProfileInfo(browser?: string) {
+  const normalizedBrowser = stringOrEmpty(browser);
+  return useQuery({
+    queryKey: [...SNIFF_PROFILE_QUERY_KEY, normalizedBrowser],
+    queryFn: async (): Promise<SniffProfileInfo> => {
+      const result = await GetSniffProfileInfo(BindingsSniffProfileRequest.createFrom({ browser: normalizedBrowser }));
+      return {
+        browser: stringOrEmpty(result.browser),
+        exists: result.exists === true,
+        sizeBytes: Number(result.sizeBytes ?? 0),
+        fileCount: Number(result.fileCount ?? 0),
+        directoryCount: Number(result.directoryCount ?? 0),
+        truncated: result.truncated === true,
+        error: stringOrEmpty(result.error),
+      };
+    },
+    staleTime: 5_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: 10_000,
+  });
+}
+
+export function useOpenSniffProfile() {
+  return useMutation({
+    mutationFn: async (request: SniffProfileRequest): Promise<void> => {
+      await OpenSniffProfile(BindingsSniffProfileRequest.createFrom(request));
+    },
+  });
+}
+
+export function useClearSniffProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: SniffProfileRequest): Promise<void> => {
+      await ClearSniffProfile(BindingsSniffProfileRequest.createFrom(request));
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: [...SNIFF_PROFILE_QUERY_KEY, stringOrEmpty(variables.browser)] });
+    },
   });
 }
 

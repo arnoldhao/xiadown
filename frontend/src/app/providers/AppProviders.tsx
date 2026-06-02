@@ -14,6 +14,10 @@ import {
 } from "@/shared/query/library";
 import { DEPENDENCIES_QUERY_KEY } from "@/shared/query/dependencies";
 import { PETS_QUERY_KEY } from "@/shared/query/pets";
+import {
+  APP_SESSIONS_CHANGED_EVENT,
+  APP_SESSIONS_QUERY_KEY,
+} from "@/shared/query/appSessions";
 import { REALTIME_TOPICS, registerTopic, startRealtime } from "@/shared/realtime";
 import { messageBus } from "@/shared/message";
 import { TelemetryManager } from "@/shared/telemetry/manager";
@@ -197,6 +201,9 @@ export function AppProviders({ children }: PropsWithChildren) {
     const offPetsUpdated = Events.On("pets:updated", () => {
       queryClient.invalidateQueries({ queryKey: PETS_QUERY_KEY, refetchType: "all" });
     });
+    const offAppSessionsChanged = Events.On(APP_SESSIONS_CHANGED_EVENT, () => {
+      queryClient.invalidateQueries({ queryKey: APP_SESSIONS_QUERY_KEY, refetchType: "all" });
+    });
 
     const unsubscribeLibraryOperation = registerTopic(REALTIME_TOPICS.library.operation, (event) => {
       invalidateLibraryQueries(resolveLibraryID(event?.payload));
@@ -217,6 +224,7 @@ export function AppProviders({ children }: PropsWithChildren) {
     return () => {
       offDependenciesUpdated();
       offPetsUpdated();
+      offAppSessionsChanged();
       unsubscribeLibraryOperation();
       unsubscribeLibraryFile();
       unsubscribeLibraryHistory();

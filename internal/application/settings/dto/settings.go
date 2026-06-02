@@ -89,3 +89,17 @@ type SystemProxyInfo struct {
 	Source  string `json:"source,omitempty"`
 	Name    string `json:"name,omitempty"`
 }
+
+type SniffProfileRequest struct {
+	Browser string `json:"browser,omitempty"`
+}
+
+type SniffProfileInfo struct {
+	Browser        string `json:"browser"`
+	Exists         bool   `json:"exists"`
+	SizeBytes      int64  `json:"sizeBytes"`
+	FileCount      int    `json:"fileCount"`
+	DirectoryCount int    `json:"directoryCount"`
+	Truncated      bool   `json:"truncated,omitempty"`
+	Error          string `json:"error,omitempty"`
+}

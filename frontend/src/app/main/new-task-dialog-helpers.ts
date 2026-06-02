@@ -13,7 +13,7 @@ getPathBaseName,
 stripPathExtension
 } from "@/shared/utils/resourceHelpers";
 
-import { AUDIO_FILE_EXTENSIONS,CONNECTOR_TYPES,VIDEO_FILE_EXTENSIONS,formatCodecLabel,resolveConnectorTypeForDomain } from "@/app/main/helpers";
+import { AUDIO_FILE_EXTENSIONS,SITE_KEYS,VIDEO_FILE_EXTENSIONS,formatCodecLabel,resolveSiteKeyForDomain } from "@/app/main/helpers";
 import type { SelectOption,SourceMediaType } from "@/app/main/types";
 
 export function resolveFormatMediaType(
@@ -182,20 +182,21 @@ export function applyTranscodePresetSelection(
   setters.setCodec(preset ? buildTranscodeCodecKey(preset) : "");
 }
 
-export function normalizeConnectorType(value?: string) {
+export function normalizeSiteKey(value?: string) {
   const normalized = (value ?? "")
     .trim()
     .toLowerCase()
+    .replace(/^site-app-session-/, "")
     .replace(/^connector-/, "");
-  return CONNECTOR_TYPES.has(normalized) ? normalized : "";
+  return SITE_KEYS.has(normalized) ? normalized : "";
 }
 
-export function resolvePreparedConnectorType(
+export function resolvePreparedSiteKey(
   prepared: PrepareYTDLPDownloadResponse | null,
 ) {
   return (
-    normalizeConnectorType(prepared?.connectorId) ||
-    resolveConnectorTypeForDomain(prepared?.domain)
+    normalizeSiteKey(prepared?.appSessionId) ||
+    resolveSiteKeyForDomain(prepared?.domain)
   );
 }
 

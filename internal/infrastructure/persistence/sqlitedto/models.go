@@ -7,21 +7,22 @@ import (
 	"github.com/uptrace/bun"
 )
 
-type ConnectorRow struct {
-	bun.BaseModel `bun:"table:connectors"`
+type SiteAppSessionRow struct {
+	bun.BaseModel `bun:"table:site_app_sessions"`
 
-	ID             string         `bun:"id,pk"`
-	Type           string         `bun:"type"`
-	Status         string         `bun:"status"`
-	CredentialMode sql.NullString `bun:"credential_mode"`
-	CookiesPath    sql.NullString `bun:"cookies_path"`
-	CookiesJSON    sql.NullString `bun:"cookies_json"`
-	ProfileKey     sql.NullString `bun:"profile_key"`
-	ProfilePath    sql.NullString `bun:"profile_path"`
-	ProfileBrowser sql.NullString `bun:"profile_browser"`
-	LastVerifiedAt sql.NullTime   `bun:"last_verified_at"`
-	CreatedAt      time.Time      `bun:"created_at"`
-	UpdatedAt      time.Time      `bun:"updated_at"`
+	ID                  string         `bun:"id,pk"`
+	SiteKey             string         `bun:"site_key,unique"`
+	Status              string         `bun:"status"`
+	AccountDisplayName  sql.NullString `bun:"account_display_name"`
+	AccountHandle       sql.NullString `bun:"account_handle"`
+	AccountAvatarURL    sql.NullString `bun:"account_avatar_url"`
+	AccountTierKey      sql.NullString `bun:"account_tier_key"`
+	AccountTierLabel    sql.NullString `bun:"account_tier_label"`
+	AccountBadgesJSON   sql.NullString `bun:"account_badges_json"`
+	AccountMetadataJSON sql.NullString `bun:"account_metadata_json"`
+	LastVerifiedAt      sql.NullTime   `bun:"last_verified_at"`
+	CreatedAt           time.Time      `bun:"created_at"`
+	UpdatedAt           time.Time      `bun:"updated_at"`
 }
 
 type TelemetryStateRow struct {

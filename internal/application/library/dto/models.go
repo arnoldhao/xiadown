@@ -550,8 +550,8 @@ type CreateYTDLPJobRequest struct {
 	SubtitleFormat                 string   `json:"subtitleFormat,omitempty"`
 	TranscodePresetID              string   `json:"transcodePresetId,omitempty"`
 	DeleteSourceFileAfterTranscode bool     `json:"deleteSourceFileAfterTranscode,omitempty"`
-	ConnectorID                    string   `json:"connectorId,omitempty"`
-	UseConnector                   bool     `json:"useConnector,omitempty"`
+	AppSessionID                   string   `json:"appSessionId,omitempty"`
+	UseAppSession                  bool     `json:"useAppSession,omitempty"`
 	ResourceSessionID              string   `json:"resourceSessionId,omitempty"`
 	ResourceMediaID                string   `json:"resourceMediaId,omitempty"`
 }
@@ -597,14 +597,14 @@ type PrepareYTDLPDownloadRequest struct {
 	URL string `json:"url"`
 }
 type PrepareYTDLPDownloadResponse struct {
-	URL                      string `json:"url"`
-	Domain                   string `json:"domain"`
-	Icon                     string `json:"icon,omitempty"`
-	ConnectorID              string `json:"connectorId,omitempty"`
-	ConnectorAvailable       bool   `json:"connectorAvailable"`
-	ConnectorCredentialMode  string `json:"connectorCredentialMode,omitempty"`
-	ConnectorCredentialState string `json:"connectorCredentialState,omitempty"`
-	Reachable                bool   `json:"reachable,omitempty"`
+	URL                       string `json:"url"`
+	Domain                    string `json:"domain"`
+	Icon                      string `json:"icon,omitempty"`
+	AppSessionID              string `json:"appSessionId,omitempty"`
+	AppSessionAvailable       bool   `json:"appSessionAvailable"`
+	AppSessionCredentialMode  string `json:"appSessionCredentialMode,omitempty"`
+	AppSessionCredentialState string `json:"appSessionCredentialState,omitempty"`
+	Reachable                 bool   `json:"reachable,omitempty"`
 }
 
 type ResolveDomainIconRequest struct {
@@ -617,9 +617,9 @@ type ResolveDomainIconResponse struct {
 }
 
 type ParseYTDLPDownloadRequest struct {
-	URL          string `json:"url"`
-	ConnectorID  string `json:"connectorId,omitempty"`
-	UseConnector bool   `json:"useConnector,omitempty"`
+	URL           string `json:"url"`
+	AppSessionID  string `json:"appSessionId,omitempty"`
+	UseAppSession bool   `json:"useAppSession,omitempty"`
 }
 
 type YTDLPFormatOption struct {

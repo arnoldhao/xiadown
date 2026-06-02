@@ -11,9 +11,11 @@ import (
 	"xiadown/internal/application/browsercdp"
 	"xiadown/internal/application/settings/dto"
 	"xiadown/internal/application/settings/service"
+	"xiadown/internal/application/sniffprofile"
 	"xiadown/internal/domain/settings"
 	"xiadown/internal/infrastructure/autostart"
 	"xiadown/internal/infrastructure/logging"
+	"xiadown/internal/infrastructure/opener"
 	"xiadown/internal/infrastructure/proxy"
 )
 
@@ -52,6 +54,34 @@ func (handler *SettingsHandler) GetBrowserCandidates(_ context.Context) ([]brows
 
 func (handler *SettingsHandler) RefreshBrowserCandidates(_ context.Context) ([]browsercdp.Candidate, error) {
 	return browsercdp.RefreshCandidates(), nil
+}
+
+func (handler *SettingsHandler) GetSniffProfileInfo(ctx context.Context, request dto.SniffProfileRequest) (dto.SniffProfileInfo, error) {
+	browser := handler.resolveSniffProfileBrowser(ctx, request.Browser)
+	info := sniffprofile.InfoForPreferredBrowser(browser)
+	return dto.SniffProfileInfo{
+		Browser:        info.Browser,
+		Exists:         info.Exists,
+		SizeBytes:      info.SizeBytes,
+		FileCount:      info.FileCount,
+		DirectoryCount: info.DirectoryCount,
+		Truncated:      info.Truncated,
+		Error:          info.Error,
+	}, nil
+}
+
+func (handler *SettingsHandler) OpenSniffProfile(ctx context.Context, request dto.SniffProfileRequest) error {
+	browser := handler.resolveSniffProfileBrowser(ctx, request.Browser)
+	path, err := sniffprofile.EnsureDirectoryForPreferredBrowser(browser)
+	if err != nil {
+		return err
+	}
+	return opener.RevealPath(path)
+}
+
+func (handler *SettingsHandler) ClearSniffProfile(ctx context.Context, request dto.SniffProfileRequest) error {
+	browser := handler.resolveSniffProfileBrowser(ctx, request.Browser)
+	return sniffprofile.ClearPreferredBrowser(browser)
 }
 
 func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.UpdateSettingsRequest) (dto.Settings, error) {
@@ -120,6 +150,20 @@ func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.
 		handler.windows.ApplySettings(updated)
 	}
 	return updated, nil
+}
+
+func (handler *SettingsHandler) resolveSniffProfileBrowser(ctx context.Context, requested string) string {
+	if trimmed := strings.TrimSpace(requested); trimmed != "" {
+		return trimmed
+	}
+	if handler == nil || handler.service == nil {
+		return ""
+	}
+	current, err := handler.service.GetSettings(ctx)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(current.DefaultBrowser)
 }
 
 func (handler *SettingsHandler) ShowSettingsWindow() {

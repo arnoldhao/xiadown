@@ -180,7 +180,7 @@ function buildText(language: SupportedLanguage) {
     views: {
       running: t("xiadown.views.running", language),
       completed: t("xiadown.views.completed", language),
-      listen: "Listen",
+      listen: t("xiadown.views.listen", language),
       connections: t("xiadown.views.connections", language),
       sniffDesk: t("xiadown.views.sniffDesk", language),
       tasks: t("xiadown.views.tasks", language),
@@ -784,6 +784,10 @@ function buildText(language: SupportedLanguage) {
       ytdlpConcurrentFragmentsHelp: t("xiadown.settings.ytdlpConcurrentFragmentsHelp", language),
       defaultBrowser: t("xiadown.settings.defaultBrowser", language),
       refreshBrowsers: t("xiadown.settings.refreshBrowsers", language),
+      sniffProfileData: t("xiadown.settings.sniffProfileData", language),
+      sniffProfileSize: t("xiadown.settings.sniffProfileSize", language),
+      sniffProfileOpen: t("xiadown.settings.sniffProfileOpen", language),
+      sniffProfileClear: t("xiadown.settings.sniffProfileClear", language),
       resourceSniffScope: t("xiadown.settings.resourceSniffScope", language),
       resourceSniffMinBytes: t("xiadown.settings.resourceSniffMinBytes", language),
       resourceSniffRetain: t("xiadown.settings.resourceSniffRetain", language),
@@ -995,12 +999,12 @@ function buildText(language: SupportedLanguage) {
       parse: t("xiadown.dialogs.parse", language),
       parseAgain: t("xiadown.dialogs.parseAgain", language),
       enterSniffDesk: t("xiadown.dialogs.enterSniffDesk", language),
-      parseFailedWithoutConnector: t(
-        "xiadown.dialogs.parseFailedWithoutConnector",
+      parseFailedWithoutAppSession: t(
+        "xiadown.dialogs.parseFailedWithoutAppSession",
         language,
       ),
-      parseFailedWithConnector: t(
-        "xiadown.dialogs.parseFailedWithConnector",
+      parseFailedWithAppSession: t(
+        "xiadown.dialogs.parseFailedWithAppSession",
         language,
       ),
       resourceVerificationRequired: t(
@@ -1043,17 +1047,17 @@ function buildText(language: SupportedLanguage) {
       mediaTitle: t("xiadown.dialogs.mediaTitle", language),
       mediaAuthor: t("xiadown.dialogs.mediaAuthor", language),
       sniffParseFailed: t("xiadown.dialogs.sniffParseFailed", language),
-      useConnector: t("xiadown.dialogs.useConnector", language),
-      connectorAvailable: t("xiadown.dialogs.connectorAvailable", language),
-      connectorUnavailable: t("xiadown.dialogs.connectorUnavailable", language),
-      noAvailableConnector: t("xiadown.dialogs.noAvailableConnector", language),
-      connectorNotConfigured: t(
-        "xiadown.dialogs.connectorNotConfigured",
+      useAppSession: t("xiadown.dialogs.useAppSession", language),
+      appSessionAvailable: t("xiadown.dialogs.appSessionAvailable", language),
+      appSessionUnavailable: t("xiadown.dialogs.appSessionUnavailable", language),
+      noAvailableAppSession: t("xiadown.dialogs.noAvailableAppSession", language),
+      appSessionNotConfigured: t(
+        "xiadown.dialogs.appSessionNotConfigured",
         language,
       ),
-      connectorCanEnable: t("xiadown.dialogs.connectorCanEnable", language),
-      connectorCookiesDownload: t(
-        "xiadown.dialogs.connectorCookiesDownload",
+      appSessionCanEnable: t("xiadown.dialogs.appSessionCanEnable", language),
+      appSessionCookiesDownload: t(
+        "xiadown.dialogs.appSessionCookiesDownload",
         language,
       ),
       modifyLink: t("xiadown.dialogs.modifyLink", language),
@@ -1212,6 +1216,36 @@ function buildText(language: SupportedLanguage) {
       ),
       onlineAuthRequired: t("xiadown.listen.onlineAuthRequired", language),
       onlineAuthExpired: t("xiadown.listen.onlineAuthExpired", language),
+      museGateTitle: t("xiadown.listen.museGateTitle", language),
+      museGateSubtitle: t("xiadown.listen.museGateSubtitle", language),
+      museGateSignIn: t("xiadown.listen.museGateSignIn", language),
+      museGateLibrary: t("xiadown.listen.museGateLibrary", language),
+      museGateLibraryDetail: t(
+        "xiadown.listen.museGateLibraryDetail",
+        language,
+      ),
+      museGateLiked: t("xiadown.listen.museGateLiked", language),
+      museGateLikedDetail: t("xiadown.listen.museGateLikedDetail", language),
+      museGateRecommendations: t(
+        "xiadown.listen.museGateRecommendations",
+        language,
+      ),
+      museGateRecommendationsDetail: t(
+        "xiadown.listen.museGateRecommendationsDetail",
+        language,
+      ),
+      museGateSession: t("xiadown.listen.museGateSession", language),
+      museGateSessionDetail: t("xiadown.listen.museGateSessionDetail", language),
+      museAccountFallbackName: t(
+        "xiadown.listen.museAccountFallbackName",
+        language,
+      ),
+      museAccountDisconnectedName: t(
+        "xiadown.listen.museAccountDisconnectedName",
+        language,
+      ),
+      museAccountTooltip: t("xiadown.listen.museAccountTooltip", language),
+      museAccountSignOut: t("xiadown.listen.museAccountSignOut", language),
       onlineNetworkUnavailable: t(
         "xiadown.listen.onlineNetworkUnavailable",
         language,

@@ -14,7 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
-	connectorsservice "xiadown/internal/application/connectors/service"
+	appsessionsservice "xiadown/internal/application/appsessions/service"
 	"xiadown/internal/application/library/dto"
 	appytdlp "xiadown/internal/application/ytdlp"
 	"xiadown/internal/domain/dependencies"
@@ -338,9 +338,9 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 
 	cookiesPath := strings.TrimSpace(request.CookiesPath)
 	cleanupCookies := func() {}
-	if request.UseConnector && strings.TrimSpace(request.ConnectorID) != "" && service.connectors != nil {
+	if request.UseAppSession && strings.TrimSpace(request.AppSessionID) != "" && service.appSessions != nil {
 		reporter.updateDetail("Preparing", progressText("library.progressDetail.exportingCookies"))
-		exported, exportErr := service.connectors.ExportConnectorCookies(ctx, request.ConnectorID, connectorsservice.CookiesExportTXT)
+		exported, exportErr := service.appSessions.ExportAppSessionCookies(ctx, request.AppSessionID, appsessionsservice.CookiesExportTXT)
 		if exportErr != nil {
 			service.failYTDLPOperation(ctx, &operation, &history, exportErr, resolveYTDLPErrorCode("", exportErr), "")
 			return

@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	connectorsdto "xiadown/internal/application/connectors/dto"
-	connectorsservice "xiadown/internal/application/connectors/service"
+	appsessionsdto "xiadown/internal/application/appsessions/dto"
+	appsessionsservice "xiadown/internal/application/appsessions/service"
 	"xiadown/internal/application/events"
 	"xiadown/internal/application/library/dto"
 	settingsdto "xiadown/internal/application/settings/dto"
@@ -26,13 +26,9 @@ type settingsReader interface {
 	GetSettings(ctx context.Context) (settingsdto.Settings, error)
 }
 
-type connectorReader interface {
-	ListConnectors(ctx context.Context) ([]connectorsdto.Connector, error)
-	ExportConnectorCookies(ctx context.Context, id string, format connectorsservice.CookiesExportFormat) (string, error)
-}
-
-type connectorProfileInitializer interface {
-	EnsureProfileConnector(ctx context.Context, connectorType string) (connectorsdto.Connector, error)
+type appSessionReader interface {
+	ListAppSessions(ctx context.Context) ([]appsessionsdto.AppSession, error)
+	ExportAppSessionCookies(ctx context.Context, id string, format appsessionsservice.CookiesExportFormat) (string, error)
 }
 
 type iconResolver interface {
@@ -66,7 +62,7 @@ type LibraryService struct {
 	iconResolver             iconResolver
 	tools                    ToolResolver
 	proxyClient              any
-	connectors               connectorReader
+	appSessions              appSessionReader
 	bus                      events.Bus
 	telemetry                Telemetry
 	nowFunc                  func() time.Time
@@ -99,7 +95,7 @@ func NewLibraryService(
 	iconResolver iconResolver,
 	tools ToolResolver,
 	proxyClient any,
-	connectors connectorReader,
+	appSessions appSessionReader,
 	bus events.Bus,
 	telemetry Telemetry,
 ) *LibraryService {
@@ -120,7 +116,7 @@ func NewLibraryService(
 		iconResolver:          iconResolver,
 		tools:                 tools,
 		proxyClient:           proxyClient,
-		connectors:            connectors,
+		appSessions:           appSessions,
 		bus:                   bus,
 		telemetry:             telemetry,
 		runCancels:            make(map[string]context.CancelFunc),

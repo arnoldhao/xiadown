@@ -27,8 +27,8 @@ type XiaSettingsTabId,
 import { PetsGalleryPage,type PetsGalleryNavigation } from "@/app/pets-gallery";
 import { SniffDeskPage } from "@/app/sniff-desk";
 import {
-ConnectorsSection
-} from "@/features/settings/connectors";
+AppSessionsSection
+} from "@/features/settings/app-sessions";
 import {
 resolveActivePet,
 useRunningPetAnimation,
@@ -897,7 +897,7 @@ export function MainApp() {
               onTranscodeFile={openTranscodeDialog}
             />
           ) : activeView === "connections" ? (
-            <ConnectorsSection />
+            <AppSessionsSection />
           ) : activeView === "petsGallery" ? (
             <PetsGalleryPage
               text={text}

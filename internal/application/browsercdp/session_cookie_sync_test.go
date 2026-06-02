@@ -68,7 +68,7 @@ func TestIsRecoverableCookieSyncError(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{name: "timeout", err: errors.New("connector cookie sync failed: context deadline exceeded"), want: true},
+		{name: "timeout", err: errors.New("browser cookie sync failed: context deadline exceeded"), want: true},
 		{name: "destroyed", err: errors.New("execution context was destroyed"), want: true},
 		{name: "closed", err: errors.New("target closed"), want: true},
 		{name: "validation", err: errors.New("invalid cookie domain"), want: false},

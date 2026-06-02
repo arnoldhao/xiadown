@@ -7,7 +7,7 @@ import (
 
 type Policy struct {
 	Key                string
-	ConnectorType      string
+	SiteKey            string
 	Domains            []string
 	ProfileSites       []ProfileSite
 	ReadySelectors     []string
@@ -37,8 +37,8 @@ var builtinPolicyOrder = []string{
 
 var builtinPolicies = map[string]Policy{
 	"youtube": {
-		Key:           "youtube",
-		ConnectorType: "youtube",
+		Key:     "youtube",
+		SiteKey: "youtube",
 		Domains: []string{
 			"youtube.com",
 			"youtu.be",
@@ -65,8 +65,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"bilibili": {
-		Key:           "bilibili",
-		ConnectorType: "bilibili",
+		Key:     "bilibili",
+		SiteKey: "bilibili",
 		Domains: []string{
 			"bilibili.com",
 			"b23.tv",
@@ -90,8 +90,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"tiktok": {
-		Key:           "tiktok",
-		ConnectorType: "tiktok",
+		Key:     "tiktok",
+		SiteKey: "tiktok",
 		Domains: []string{
 			"tiktok.com",
 			"tiktokv.com",
@@ -114,8 +114,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"china_private": {
-		Key:           "china_private",
-		ConnectorType: "china_private",
+		Key:     "china_private",
+		SiteKey: "china_private",
 		Domains: []string{
 			"douyin.com",
 			"iesdouyin.com",
@@ -150,8 +150,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"profile", "browser", "download"},
 	},
 	"instagram": {
-		Key:           "instagram",
-		ConnectorType: "instagram",
+		Key:     "instagram",
+		SiteKey: "instagram",
 		Domains: []string{
 			"instagram.com",
 		},
@@ -171,8 +171,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"x": {
-		Key:           "x",
-		ConnectorType: "x",
+		Key:     "x",
+		SiteKey: "x",
 		Domains: []string{
 			"x.com",
 			"twitter.com",
@@ -196,8 +196,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"facebook": {
-		Key:           "facebook",
-		ConnectorType: "facebook",
+		Key:     "facebook",
+		SiteKey: "facebook",
 		Domains: []string{
 			"facebook.com",
 			"fb.watch",
@@ -219,8 +219,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"vimeo": {
-		Key:           "vimeo",
-		ConnectorType: "vimeo",
+		Key:     "vimeo",
+		SiteKey: "vimeo",
 		Domains: []string{
 			"vimeo.com",
 			"player.vimeo.com",
@@ -242,8 +242,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"twitch": {
-		Key:           "twitch",
-		ConnectorType: "twitch",
+		Key:     "twitch",
+		SiteKey: "twitch",
 		Domains: []string{
 			"twitch.tv",
 			"clips.twitch.tv",
@@ -264,8 +264,8 @@ var builtinPolicies = map[string]Policy{
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},
 	"niconico": {
-		Key:           "niconico",
-		ConnectorType: "niconico",
+		Key:     "niconico",
+		SiteKey: "niconico",
 		Domains: []string{
 			"nicovideo.jp",
 			"nico.ms",
@@ -301,8 +301,8 @@ func List() []Policy {
 	return result
 }
 
-func ForConnectorType(connectorType string) (Policy, bool) {
-	policy, ok := builtinPolicies[strings.ToLower(strings.TrimSpace(connectorType))]
+func ForSiteKey(siteKey string) (Policy, bool) {
+	policy, ok := builtinPolicies[strings.ToLower(strings.TrimSpace(siteKey))]
 	return policy, ok
 }
 
@@ -325,16 +325,16 @@ func ForURL(rawURL string) (Policy, bool) {
 	return Policy{}, false
 }
 
-func DomainsForConnector(connectorType string) []string {
-	policy, ok := ForConnectorType(connectorType)
+func DomainsForSiteKey(siteKey string) []string {
+	policy, ok := ForSiteKey(siteKey)
 	if !ok {
 		return nil
 	}
 	return cloneStrings(policy.Domains)
 }
 
-func ProfileSitesForConnector(connectorType string) []ProfileSite {
-	policy, ok := ForConnectorType(connectorType)
+func ProfileSitesForSiteKey(siteKey string) []ProfileSite {
+	policy, ok := ForSiteKey(siteKey)
 	if !ok {
 		return nil
 	}

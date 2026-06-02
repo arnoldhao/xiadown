@@ -239,6 +239,10 @@ export function useListenPlaybackStore(options: UseListenPlaybackStoreOptions = 
     },
     [],
   );
+  const reset = React.useCallback(() => {
+    versionRef.current = 0;
+    setProjection(emptyProjection(true));
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -268,5 +272,5 @@ export function useListenPlaybackStore(options: UseListenPlaybackStoreOptions = 
     [applySnapshot],
   );
 
-  return { projection, applySnapshot };
+  return { projection, applySnapshot, reset };
 }

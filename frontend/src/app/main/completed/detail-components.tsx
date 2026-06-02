@@ -3,7 +3,6 @@ import * as React from "react";
 
 import { MediaPreviewDialog, MediaPreviewSurface } from "@/app/media";
 import { ListenLocalPreviewPlayer } from "@/app/main/Listen";
-import { ConnectorBrandIcon } from "@/features/settings/connectors";
 import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
@@ -16,10 +15,11 @@ import { Button } from "@/shared/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogListCard, DialogListCardContent, DialogScrollArea, DialogTitle } from "@/shared/ui/dialog";
 import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
+import { SiteBrandIcon } from "@/shared/ui/site-brand-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { formatBytes } from "@/shared/utils/formatBytes";
 
-import { COMPLETED_FILE_TYPE_ORDER,COMPLETED_TASK_FILE_TYPE_LIMIT,COMPLETED_TEXT_PREVIEW_MAX_BYTES,canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatLocalDateTime,formatRelativeTime,isCompletedPreviewTooLarge,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveConnectorTypeForDomain,resolveOperationKindLabel,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { COMPLETED_FILE_TYPE_ORDER,COMPLETED_TASK_FILE_TYPE_LIMIT,COMPLETED_TEXT_PREVIEW_MAX_BYTES,canPreviewCompletedFile,formatCompletedTranscodedFromLabel,formatLocalDateTime,formatRelativeTime,isCompletedPreviewTooLarge,resolveCompletedFileDetailFooterItems,resolveCompletedFileDetailInfo,resolveCompletedFileFormatLabel,resolveCompletedImagePreviewURL,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupKind,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedStatusLabel,resolveCompletedTaskSourceLabel,resolveOperationKindLabel,resolveSiteKeyForDomain,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import type { CompletedFileEntry,CompletedPreviewGroupKind,CompletedTaskEntry } from "@/app/main/types";
 
 const TASK_DETAIL_GROUP_ORDER: CompletedPreviewGroupKind[] =
@@ -982,7 +982,7 @@ export function CompletedTaskDetailHeaderMeta(props: {
 }) {
   const resumeOperation = useResumeOperation();
   const sourceLabel = resolveCompletedTaskSourceLabel(props.task.operation);
-  const sourceConnectorType = resolveConnectorTypeForDomain(
+  const sourceSiteKey = resolveSiteKeyForDomain(
     props.task.operation.domain,
   );
   const updatedLabel = props.task.updatedAt
@@ -1034,9 +1034,9 @@ export function CompletedTaskDetailHeaderMeta(props: {
         >
           {taskKind === "transcode" ? (
             <FileCog className="h-3.5 w-3.5 shrink-0" />
-          ) : sourceConnectorType ? (
-            <ConnectorBrandIcon
-              connectorType={sourceConnectorType}
+          ) : sourceSiteKey ? (
+            <SiteBrandIcon
+              siteKey={sourceSiteKey}
               fallback="none"
               className="h-3.5 w-3.5 shrink-0"
             />
