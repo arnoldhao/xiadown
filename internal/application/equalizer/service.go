@@ -125,7 +125,7 @@ func (service *Service) RetryStartIfEnabled() {
 		return
 	}
 	service.mu.Lock()
-	if !service.settings.Enabled || service.engine == nil || service.engine.IsRunning() {
+	if !service.shouldRunEngineLocked() || service.engine == nil || service.engine.IsRunning() {
 		service.mu.Unlock()
 		return
 	}
@@ -137,7 +137,7 @@ func (service *Service) RetryStartIfEnabled() {
 		time.Sleep(retryDelay)
 		service.mu.Lock()
 		defer service.mu.Unlock()
-		if generation != service.retryGeneration || !service.settings.Enabled || service.engine == nil || service.engine.IsRunning() {
+		if generation != service.retryGeneration || !service.shouldRunEngineLocked() || service.engine == nil || service.engine.IsRunning() {
 			return
 		}
 		service.attemptStartLocked(true)
@@ -150,7 +150,16 @@ func (service *Service) RetryStartNowIfEnabled() {
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if !service.settings.Enabled || service.engine == nil || service.engine.IsRunning() {
+	if !service.shouldRunEngineLocked() || service.engine == nil || service.engine.IsRunning() {
+		return
+	}
+	if service.shouldWaitForPlaybackBeforeStartLocked(service.playbackActive) {
+		service.retryGeneration++
+		service.verificationGeneration++
+		service.lastFailure = nil
+		service.inferredPermissionDenial = false
+		service.requestPermissionNextTime = false
+		service.engine.Stop()
 		return
 	}
 	service.retryGeneration++
@@ -166,9 +175,14 @@ func (service *Service) ObservePlayback(active bool, progress float64) {
 	if progress >= 0 {
 		service.playbackProgress = progress
 	}
+	shouldSyncInactive := !active && service.shouldStopOnInactivePlaybackLocked()
 	service.mu.Unlock()
 	if active {
 		service.RetryStartIfEnabled()
+		return
+	}
+	if shouldSyncInactive {
+		service.syncEngine(false)
 	}
 }
 
@@ -190,7 +204,7 @@ func (service *Service) VisualizerFrame() VisualizerFrame {
 		return emptyVisualizerFrame(false)
 	}
 	service.mu.Lock()
-	running := service.settings.Enabled && service.engine.IsRunning()
+	running := service.shouldRunEngineLocked() && service.engine.IsRunning()
 	service.mu.Unlock()
 	if !running {
 		return emptyVisualizerFrame(false)
@@ -250,7 +264,16 @@ func (service *Service) syncEngineLocked(playbackKnownActive bool) {
 		service.lastFailure = &StartFailure{Code: StartFailureUnsupported}
 		return
 	}
-	if service.settings.Enabled {
+	if service.shouldRunEngineLocked() {
+		if service.shouldWaitForPlaybackBeforeStartLocked(playbackKnownActive) {
+			service.retryGeneration++
+			service.verificationGeneration++
+			service.lastFailure = nil
+			service.inferredPermissionDenial = false
+			service.requestPermissionNextTime = false
+			service.engine.Stop()
+			return
+		}
 		service.attemptStartLocked(playbackKnownActive)
 		return
 	}
@@ -301,8 +324,12 @@ func (service *Service) attemptStartLocked(playbackKnownActive bool) {
 		service.lastFailure = nil
 		return
 	}
-	if failure.IsWaitingForPlayback() && playbackKnownActive {
+	if failure.IsWaitingForPlayback() && playbackKnownActive && service.engineFeaturesLocked().Equalizer {
 		service.flagPermissionDenialLocked()
+		return
+	}
+	if failure.IsWaitingForPlayback() && playbackKnownActive {
+		service.lastFailure = failure
 		return
 	}
 	if failure.IsPermissionLikely() {
@@ -337,7 +364,7 @@ func (service *Service) scheduleTapVerificationLocked() {
 			if generation != service.verificationGeneration ||
 				service.engine == nil ||
 				!service.engine.IsRunning() ||
-				!service.settings.Enabled {
+				!service.shouldRunEngineLocked() {
 				service.mu.Unlock()
 				return
 			}
@@ -362,6 +389,15 @@ func (service *Service) scheduleTapVerificationLocked() {
 }
 
 func (service *Service) flagTapVerificationFailureLocked() {
+	if !service.engineFeaturesLocked().Equalizer {
+		service.verificationGeneration++
+		service.inferredPermissionDenial = false
+		service.lastFailure = &StartFailure{Code: StartFailureNoAudioSource}
+		if service.engine != nil {
+			service.engine.Stop()
+		}
+		return
+	}
 	service.flagPermissionDenialLocked()
 }
 
@@ -380,9 +416,10 @@ func (service *Service) statusLocked() Status {
 		return Status{
 			Code:      StatusUnsupported,
 			Supported: false,
-			Message:   "The equalizer is only available on macOS 14.2 or later.",
+			Message:   "The equalizer requires macOS 14.2 or later. Visualization requires Windows 10 build 20348 or later.",
 		}
 	}
+	features := service.engineFeaturesLocked()
 	if service.inferredPermissionDenial {
 		return Status{
 			Code:               StatusPermissionNeeded,
@@ -392,25 +429,33 @@ func (service *Service) statusLocked() Status {
 			Message:            "Open System Settings > Privacy & Security > Screen & System Audio Recording and enable XiaDown, then retry playback or toggle the equalizer off and on.",
 		}
 	}
-	if !service.settings.Enabled {
+	if !service.shouldRunEngineLocked() {
 		return Status{Code: StatusOff, Supported: true}
 	}
 	if service.engine.IsRunning() {
+		message := "Equalizer is processing XiaDown Listen audio."
+		if !features.Equalizer && features.Visualizer {
+			message = "Visualizer is analyzing XiaDown Listen audio."
+		}
 		return Status{
 			Code:      StatusActive,
 			Running:   true,
 			Supported: true,
-			Message:   "Equalizer is processing XiaDown Listen audio.",
+			Message:   message,
 		}
 	}
 	if service.lastFailure == nil {
+		message := "The equalizer activates as soon as Listen playback starts."
+		if !features.Equalizer && features.Visualizer {
+			message = "The visualizer activates as soon as Listen playback starts."
+		}
 		return Status{
 			Code:      StatusStandby,
 			Supported: true,
-			Message:   "The equalizer activates as soon as Listen playback starts.",
+			Message:   message,
 		}
 	}
-	if service.lastFailure.IsPermissionLikely() {
+	if features.Equalizer && service.lastFailure.IsPermissionLikely() {
 		return Status{
 			Code:               StatusPermissionNeeded,
 			Supported:          true,
@@ -425,6 +470,34 @@ func (service *Service) statusLocked() Status {
 		Message:   service.lastFailure.userFacingMessage(),
 		Detail:    service.lastFailure.Detail,
 	}
+}
+
+func (service *Service) shouldRunEngineLocked() bool {
+	if service.engine == nil || !service.engine.Supported() {
+		return false
+	}
+	features := service.engineFeaturesLocked()
+	if features.Equalizer {
+		return service.settings.Enabled
+	}
+	return features.Visualizer && service.settings.VisualizerMode != VisualizerModeOff
+}
+
+func (service *Service) engineFeaturesLocked() EngineFeatures {
+	if service.engine == nil {
+		return EngineFeatures{}
+	}
+	return service.engine.Features()
+}
+
+func (service *Service) shouldWaitForPlaybackBeforeStartLocked(playbackKnownActive bool) bool {
+	features := service.engineFeaturesLocked()
+	return !features.Equalizer && features.Visualizer && !playbackKnownActive && !service.playbackActive
+}
+
+func (service *Service) shouldStopOnInactivePlaybackLocked() bool {
+	features := service.engineFeaturesLocked()
+	return !features.Equalizer && features.Visualizer
 }
 
 func (failure StartFailure) userFacingMessage() string {
@@ -447,7 +520,7 @@ func (failure StartFailure) userFacingMessage() string {
 	case StartFailureEngineStart:
 		return "The equalizer audio engine failed to start."
 	case StartFailureUnsupported:
-		return "The equalizer requires macOS 14.2 or later."
+		return "This audio feature is unavailable on this system."
 	default:
 		return "The equalizer engine failed."
 	}

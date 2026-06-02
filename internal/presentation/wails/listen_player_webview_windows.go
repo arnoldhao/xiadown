@@ -14,10 +14,10 @@ import (
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/youtubemusic"
 
-	"github.com/wailsapp/wails/webview2/pkg/edge"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/v3/pkg/w32"
+	"github.com/wailsapp/wails/webview2/pkg/edge"
 )
 
 var listenYouTubeMusicRuntimeReadyWindowIDs sync.Map
@@ -541,6 +541,22 @@ func listenWindowsClampInt(value int, minimum int, maximum int) int {
 	return value
 }
 
+func (player *ListenYouTubeMusicPlayer) EqualizerAudioProcessID() uint32 {
+	if player == nil {
+		return 0
+	}
+	window := player.currentWindow()
+	if window == nil {
+		return 0
+	}
+
+	var processID uint32
+	application.InvokeSync(func() {
+		processID = listenWindowsChromiumBrowserProcessID(listenWindowsChromium(window))
+	})
+	return processID
+}
+
 func listenWindowsChromium(window *application.WebviewWindow) *edge.Chromium {
 	if window == nil {
 		return nil
@@ -580,6 +596,85 @@ func listenWindowsChromium(window *application.WebviewWindow) *edge.Chromium {
 	chromiumValue := reflect.NewAt(chromiumField.Type(), unsafe.Pointer(chromiumField.UnsafeAddr())).Elem()
 	chromium, _ := chromiumValue.Interface().(*edge.Chromium)
 	return chromium
+}
+
+type listenWindowsCoreWebView2 struct {
+	vtbl *listenWindowsCoreWebView2Vtbl
+}
+
+type listenWindowsCoreWebView2Vtbl struct {
+	QueryInterface                         edge.ComProc
+	AddRef                                 edge.ComProc
+	Release                                edge.ComProc
+	GetSettings                            edge.ComProc
+	GetSource                              edge.ComProc
+	Navigate                               edge.ComProc
+	NavigateToString                       edge.ComProc
+	AddNavigationStarting                  edge.ComProc
+	RemoveNavigationStarting               edge.ComProc
+	AddContentLoading                      edge.ComProc
+	RemoveContentLoading                   edge.ComProc
+	AddSourceChanged                       edge.ComProc
+	RemoveSourceChanged                    edge.ComProc
+	AddHistoryChanged                      edge.ComProc
+	RemoveHistoryChanged                   edge.ComProc
+	AddNavigationCompleted                 edge.ComProc
+	RemoveNavigationCompleted              edge.ComProc
+	AddFrameNavigationStarting             edge.ComProc
+	RemoveFrameNavigationStarting          edge.ComProc
+	AddFrameNavigationCompleted            edge.ComProc
+	RemoveFrameNavigationCompleted         edge.ComProc
+	AddScriptDialogOpening                 edge.ComProc
+	RemoveScriptDialogOpening              edge.ComProc
+	AddPermissionRequested                 edge.ComProc
+	RemovePermissionRequested              edge.ComProc
+	AddProcessFailed                       edge.ComProc
+	RemoveProcessFailed                    edge.ComProc
+	AddScriptToExecuteOnDocumentCreated    edge.ComProc
+	RemoveScriptToExecuteOnDocumentCreated edge.ComProc
+	ExecuteScript                          edge.ComProc
+	CapturePreview                         edge.ComProc
+	Reload                                 edge.ComProc
+	PostWebMessageAsJSON                   edge.ComProc
+	PostWebMessageAsString                 edge.ComProc
+	AddWebMessageReceived                  edge.ComProc
+	RemoveWebMessageReceived               edge.ComProc
+	CallDevToolsProtocolMethod             edge.ComProc
+	GetBrowserProcessID                    edge.ComProc
+}
+
+func listenWindowsChromiumBrowserProcessID(chromium *edge.Chromium) uint32 {
+	webview := listenWindowsChromiumWebView(chromium)
+	if webview == nil || webview.vtbl == nil {
+		return 0
+	}
+	var processID uint32
+	hr, _, _ := webview.vtbl.GetBrowserProcessID.Call(
+		uintptr(unsafe.Pointer(webview)),
+		uintptr(unsafe.Pointer(&processID)),
+	)
+	if hr != 0 {
+		return 0
+	}
+	return processID
+}
+
+func listenWindowsChromiumWebView(chromium *edge.Chromium) *listenWindowsCoreWebView2 {
+	if chromium == nil {
+		return nil
+	}
+	chromiumValue := reflect.ValueOf(chromium)
+	if chromiumValue.Kind() != reflect.Pointer || chromiumValue.IsNil() {
+		return nil
+	}
+	chromiumStruct := chromiumValue.Elem()
+	webviewField := chromiumStruct.FieldByName("webview")
+	if !webviewField.IsValid() || webviewField.Kind() != reflect.Pointer || webviewField.IsNil() || !webviewField.CanAddr() {
+		return nil
+	}
+	webviewValue := reflect.NewAt(webviewField.Type(), unsafe.Pointer(webviewField.UnsafeAddr())).Elem()
+	webview, _ := webviewValue.Interface().(*edge.ICoreWebView2)
+	return (*listenWindowsCoreWebView2)(unsafe.Pointer(webview))
 }
 
 func execListenYouTubeMusicJS(window *application.WebviewWindow, script string) {

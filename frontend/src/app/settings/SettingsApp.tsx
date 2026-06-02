@@ -177,9 +177,8 @@ export function SettingsApp() {
     isMac && lyricsTranscriptionAvailability.data === true;
   const [activeTab, setActiveTab] = React.useState<XiaSettingsTabId>("general");
   const resolveVisibleSettingsTab = React.useCallback(
-    (tab: XiaSettingsTabId) =>
-      isWindows && tab === "equalizer" ? "general" : tab,
-    [isWindows],
+    (tab: XiaSettingsTabId) => tab,
+    [],
   );
   const [proxyDraft, setProxyDraft] = React.useState<ProxySettings>(() => normalizeProxy(currentSettings?.proxy));
   const [proxyNoProxyText, setProxyNoProxyText] = React.useState("");
@@ -225,12 +224,6 @@ export function SettingsApp() {
       offNavigate();
     };
   }, [resolveVisibleSettingsTab]);
-
-  React.useEffect(() => {
-    if (activeTab === "equalizer" && isWindows) {
-      setActiveTab("general");
-    }
-  }, [activeTab, isWindows]);
 
   React.useEffect(() => {
     if (serverUpdateInfo) {
@@ -562,9 +555,7 @@ export function SettingsApp() {
     { id: "dependencies", label: text.settings.tabs.dependencies, icon: <Wrench className="h-[26px] w-[26px]" /> },
     { id: "about", label: text.settings.tabs.about, icon: <Info className="h-[26px] w-[26px]" /> },
   ];
-  const visibleTabs = isWindows
-    ? tabs.filter((tab) => tab.id !== "equalizer")
-    : tabs;
+  const visibleTabs = tabs;
   const fontOptions = fontFamilies;
   const selectedFont = fontFamilyDraft.trim();
   const hasSelectedFontInList = selectedFont.length === 0 || fontOptions.includes(selectedFont);
@@ -1479,8 +1470,8 @@ export function SettingsApp() {
             </div>
           ) : null}
 
-          {activeTab === "equalizer" && !isWindows ? (
-            <EqualizerSection isMac={isMac} text={text} />
+          {activeTab === "equalizer" ? (
+            <EqualizerSection isMac={isMac} isWindows={isWindows} text={text} />
           ) : null}
 
           {activeTab === "dependencies" ? (
