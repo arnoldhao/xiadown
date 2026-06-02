@@ -704,3 +704,7 @@ func clearSiteAppSessionStoredCookies(siteKey string, domains []string) error {
 	}
 	return nil
 }
+
+func clearConnectorAppSessionNativeRuntimeData(_ context.Context, _ *application.App, _ string, _ []string) error {
+	return nil
+}
