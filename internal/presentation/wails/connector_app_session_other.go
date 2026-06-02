@@ -55,3 +55,7 @@ func loadSiteAppSessionStoredCookies(_ string) ([]appcookies.Record, error) {
 func clearSiteAppSessionStoredCookies(_ string, _ []string) error {
 	return appsessions.ErrUnsupported
 }
+
+func clearConnectorAppSessionNativeRuntimeData(_ context.Context, _ *application.App, _ string, _ []string) error {
+	return appsessions.ErrUnsupported
+}

@@ -4,6 +4,7 @@ package wails
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -34,6 +35,46 @@ func connectorAppSessionCaptureBeforeClose() bool {
 	return true
 }
 
+func clearConnectorAppSessionNativeRuntimeData(ctx context.Context, app *application.App, siteKey string, domains []string) error {
+	if app == nil {
+		return appsessions.ErrUnsupported
+	}
+	if len(domains) == 0 {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	clearCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name:          fmt.Sprintf("site-app-session-clear-%s-%d", connectorWindowsAppSessionFileName(siteKey), time.Now().UnixNano()),
+		Title:         "Clear App Session",
+		Width:         320,
+		Height:        240,
+		Hidden:        true,
+		URL:           connectorAppSessionBlankURL,
+		DisableResize: true,
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: true,
+		},
+	})
+	if window == nil {
+		return appsessions.ErrUnsupported
+	}
+	defer window.Close()
+
+	if err := connectorWindowsWaitForCookieManager(clearCtx, window); err != nil {
+		return err
+	}
+	if err := clearConnectorWindowsWebViewCookiesForDomains(clearCtx, window, domains); err != nil &&
+		!errors.Is(err, appsessions.ErrNoCookies) {
+		return err
+	}
+	return clearConnectorWindowsWebViewStorageForDomains(clearCtx, window, domains)
+}
+
 func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, _ string, siteKey string, records []appcookies.Record, domains []string) {
 	if window == nil {
 		return
@@ -52,7 +93,6 @@ func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, _
 		defer manager.Release()
 
 		if len(records) == 0 {
-			clearConnectorWindowsWebViewCookiesForDomains(manager, domains)
 			return
 		}
 		for _, record := range records {
@@ -183,6 +223,118 @@ func readConnectorWindowsWebViewCookiesForURI(ctx context.Context, window *appli
 	}
 }
 
+func connectorWindowsWaitForCookieManager(ctx context.Context, window *application.WebviewWindow) error {
+	if window == nil {
+		return appsessions.ErrSessionDead
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var ready bool
+		application.InvokeSync(func() {
+			ready = connectorWindowsCookieManagerReady(window)
+		})
+		if ready {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func connectorWindowsCookieManagerReady(window *application.WebviewWindow) (ready bool) {
+	defer func() {
+		if recover() != nil {
+			ready = false
+		}
+	}()
+	chromium := listenWindowsChromium(window)
+	if chromium == nil {
+		return false
+	}
+	manager, err := chromium.GetCookieManager()
+	if err != nil || manager == nil {
+		return false
+	}
+	manager.Release()
+	return true
+}
+
+func clearConnectorWindowsWebViewStorageForDomains(ctx context.Context, window *application.WebviewWindow, domains []string) error {
+	origins := connectorWindowsCookieQueryOrigins(domains)
+	if len(origins) == 0 {
+		return nil
+	}
+	var clearErr error
+	for _, origin := range origins {
+		params, err := json.Marshal(map[string]string{
+			"origin":       origin,
+			"storageTypes": "all",
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := connectorWindowsCallDevToolsProtocolMethod(ctx, window, "Storage.clearDataForOrigin", string(params)); err != nil {
+			clearErr = err
+		}
+	}
+	return clearErr
+}
+
+func connectorWindowsCallDevToolsProtocolMethod(ctx context.Context, window *application.WebviewWindow, method string, params string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	handler := newConnectorWindowsDevToolsCompletedHandler()
+	scheduled := make(chan struct{})
+	var scheduleErr error
+	go func() {
+		application.InvokeSync(func() {
+			chromium := listenWindowsChromium(window)
+			if chromium == nil {
+				scheduleErr = appsessions.ErrSessionDead
+				return
+			}
+			webview := listenWindowsChromiumWebView(chromium)
+			if webview == nil {
+				scheduleErr = appsessions.ErrSessionDead
+				return
+			}
+			scheduleErr = connectorWindowsCallDevTools(webview, method, params, handler)
+		})
+		close(scheduled)
+	}()
+	select {
+	case <-ctx.Done():
+		runtime.KeepAlive(handler)
+		return "", ctx.Err()
+	case <-scheduled:
+	}
+	if scheduleErr != nil {
+		return "", scheduleErr
+	}
+
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		runtime.KeepAlive(handler)
+		return "", ctx.Err()
+	case <-timer.C:
+		runtime.KeepAlive(handler)
+		return "", context.DeadlineExceeded
+	case <-handler.done:
+		runtime.KeepAlive(handler)
+		return handler.result, handler.err
+	}
+}
+
 type connectorWindowsCookieManagerVtbl struct {
 	QueryInterface                 edge.ComProc
 	AddRef                         edge.ComProc
@@ -199,6 +351,129 @@ type connectorWindowsCookieManagerVtbl struct {
 
 type connectorWindowsCookieManager struct {
 	vtbl *connectorWindowsCookieManagerVtbl
+}
+
+func connectorWindowsCallDevTools(webview *listenWindowsCoreWebView2, method string, params string, handler *connectorWindowsDevToolsCompletedHandler) error {
+	if webview == nil || webview.vtbl == nil || handler == nil {
+		return appsessions.ErrSessionDead
+	}
+	methodUTF16, err := windows.UTF16PtrFromString(method)
+	if err != nil {
+		return err
+	}
+	paramsUTF16, err := windows.UTF16PtrFromString(params)
+	if err != nil {
+		return err
+	}
+	connectorWindowsTrackDevToolsHandler(handler)
+	hr, _, _ := webview.vtbl.CallDevToolsProtocolMethod.Call(
+		uintptr(unsafe.Pointer(webview)),
+		uintptr(unsafe.Pointer(methodUTF16)),
+		uintptr(unsafe.Pointer(paramsUTF16)),
+		uintptr(unsafe.Pointer(handler)),
+	)
+	if hr != 0 {
+		connectorWindowsUntrackDevToolsHandler(handler)
+		return syscall.Errno(hr)
+	}
+	return nil
+}
+
+type connectorWindowsDevToolsCompletedHandlerVtbl struct {
+	QueryInterface edge.ComProc
+	AddRef         edge.ComProc
+	Release        edge.ComProc
+	Invoke         edge.ComProc
+}
+
+type connectorWindowsDevToolsCompletedHandler struct {
+	vtbl   *connectorWindowsDevToolsCompletedHandlerVtbl
+	refs   atomic.Uint32
+	once   sync.Once
+	done   chan struct{}
+	result string
+	err    error
+}
+
+var connectorWindowsDevToolsCompletedHandlerFn = connectorWindowsDevToolsCompletedHandlerVtbl{
+	QueryInterface: edge.NewComProc(connectorWindowsDevToolsCompletedHandlerQueryInterface),
+	AddRef:         edge.NewComProc(connectorWindowsDevToolsCompletedHandlerAddRef),
+	Release:        edge.NewComProc(connectorWindowsDevToolsCompletedHandlerRelease),
+	Invoke:         edge.NewComProc(connectorWindowsDevToolsCompletedHandlerInvoke),
+}
+
+var connectorWindowsDevToolsPending sync.Map
+
+func newConnectorWindowsDevToolsCompletedHandler() *connectorWindowsDevToolsCompletedHandler {
+	handler := &connectorWindowsDevToolsCompletedHandler{
+		vtbl: &connectorWindowsDevToolsCompletedHandlerFn,
+		done: make(chan struct{}),
+	}
+	handler.refs.Store(1)
+	return handler
+}
+
+func connectorWindowsTrackDevToolsHandler(handler *connectorWindowsDevToolsCompletedHandler) {
+	if handler == nil {
+		return
+	}
+	connectorWindowsDevToolsPending.Store(uintptr(unsafe.Pointer(handler)), handler)
+}
+
+func connectorWindowsUntrackDevToolsHandler(handler *connectorWindowsDevToolsCompletedHandler) {
+	if handler == nil {
+		return
+	}
+	connectorWindowsDevToolsPending.Delete(uintptr(unsafe.Pointer(handler)))
+}
+
+func connectorWindowsDevToolsCompletedHandlerQueryInterface(this *connectorWindowsDevToolsCompletedHandler, _ uintptr, object uintptr) uintptr {
+	if this == nil || object == 0 {
+		return uintptr(windows.E_POINTER)
+	}
+	*(*uintptr)(unsafe.Pointer(object)) = uintptr(unsafe.Pointer(this))
+	connectorWindowsDevToolsCompletedHandlerAddRef(this)
+	return uintptr(windows.S_OK)
+}
+
+func connectorWindowsDevToolsCompletedHandlerAddRef(this *connectorWindowsDevToolsCompletedHandler) uintptr {
+	if this == nil {
+		return 0
+	}
+	return uintptr(this.refs.Add(1))
+}
+
+func connectorWindowsDevToolsCompletedHandlerRelease(this *connectorWindowsDevToolsCompletedHandler) uintptr {
+	if this == nil {
+		return 0
+	}
+	for {
+		current := this.refs.Load()
+		if current == 0 {
+			return 0
+		}
+		if this.refs.CompareAndSwap(current, current-1) {
+			return uintptr(current - 1)
+		}
+	}
+}
+
+func connectorWindowsDevToolsCompletedHandlerInvoke(this *connectorWindowsDevToolsCompletedHandler, errorCode uintptr, result *uint16) uintptr {
+	if this == nil {
+		return uintptr(windows.E_POINTER)
+	}
+	defer this.once.Do(func() {
+		connectorWindowsUntrackDevToolsHandler(this)
+		close(this.done)
+	})
+	if errorCode != 0 {
+		this.err = syscall.Errno(errorCode)
+		return uintptr(windows.S_OK)
+	}
+	if result != nil {
+		this.result = windows.UTF16PtrToString(result)
+	}
+	return uintptr(windows.S_OK)
 }
 
 func connectorWindowsGetCookies(manager *edge.ICoreWebView2CookieManager, uri string, handler *connectorWindowsGetCookiesCompletedHandler) error {
@@ -427,31 +702,107 @@ func addConnectorWindowsWebViewCookie(manager *edge.ICoreWebView2CookieManager, 
 	}
 }
 
-func clearConnectorWindowsWebViewCookiesForDomains(manager *edge.ICoreWebView2CookieManager, domains []string) {
-	if manager == nil || len(domains) == 0 {
-		return
-	}
-	seen := make(map[string]struct{})
-	for _, domain := range domains {
-		for _, host := range connectorWindowsCookieQueryHosts(domain) {
-			for _, candidate := range connectorWindowsCookieDomainVariants(host) {
-				key := strings.ToLower(strings.TrimSpace(candidate)) + "\x00/"
-				if _, ok := seen[key]; ok {
-					continue
-				}
-				seen[key] = struct{}{}
-				_ = manager.DeleteCookiesWithDomainAndPath(candidate, "/")
-			}
-		}
-	}
-}
-
-func connectorWindowsCookieDomainVariants(host string) []string {
-	normalized := connectorWindowsNormalizedHost(host)
-	if normalized == "" {
+func clearConnectorWindowsWebViewCookiesForDomains(ctx context.Context, window *application.WebviewWindow, domains []string) error {
+	if window == nil || len(domains) == 0 {
 		return nil
 	}
-	return []string{normalized, "." + normalized}
+	records, err := readConnectorWindowsWebViewCookies(ctx, window, domains)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return nil
+	}
+	var clearErr error
+	application.InvokeSync(func() {
+		chromium := listenWindowsChromium(window)
+		if chromium == nil {
+			clearErr = appsessions.ErrSessionDead
+			return
+		}
+		manager, err := chromium.GetCookieManager()
+		if err != nil || manager == nil {
+			if err == nil {
+				err = appsessions.ErrSessionDead
+			}
+			clearErr = err
+			return
+		}
+		defer manager.Release()
+
+		for _, record := range records {
+			if err := deleteConnectorWindowsWebViewCookie(manager, record); err != nil && clearErr == nil {
+				clearErr = err
+			}
+		}
+	})
+	return clearErr
+}
+
+func deleteConnectorWindowsWebViewCookie(manager *edge.ICoreWebView2CookieManager, record appcookies.Record) error {
+	if manager == nil {
+		return appsessions.ErrSessionDead
+	}
+	name := strings.TrimSpace(record.Name)
+	domain := strings.TrimSpace(record.Domain)
+	path := strings.TrimSpace(record.Path)
+	if name == "" || domain == "" {
+		return nil
+	}
+	if path == "" {
+		path = "/"
+	}
+	candidates := []string{domain}
+	if strings.HasPrefix(domain, ".") {
+		trimmed := strings.TrimPrefix(domain, ".")
+		if trimmed != "" {
+			candidates = append(candidates, trimmed)
+		}
+	} else {
+		candidates = append(candidates, "."+domain)
+	}
+	var lastErr error
+	deleted := false
+	for _, candidate := range candidates {
+		if err := connectorWindowsDeleteCookiesWithDomainAndPath(manager, name, candidate, path); err != nil {
+			lastErr = err
+			continue
+		}
+		deleted = true
+	}
+	if deleted {
+		return nil
+	}
+	return lastErr
+}
+
+func connectorWindowsDeleteCookiesWithDomainAndPath(manager *edge.ICoreWebView2CookieManager, name string, domain string, path string) error {
+	if manager == nil {
+		return appsessions.ErrSessionDead
+	}
+	nameUTF16, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	domainUTF16, err := windows.UTF16PtrFromString(domain)
+	if err != nil {
+		return err
+	}
+	pathUTF16, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	native := (*connectorWindowsCookieManager)(unsafe.Pointer(manager))
+	hr, _, _ := native.vtbl.DeleteCookiesWithDomainAndPath.Call(
+		uintptr(unsafe.Pointer(native)),
+		uintptr(unsafe.Pointer(nameUTF16)),
+		uintptr(unsafe.Pointer(domainUTF16)),
+		uintptr(unsafe.Pointer(pathUTF16)),
+	)
+	if hr != 0 {
+		return syscall.Errno(hr)
+	}
+	return nil
 }
 
 func addConnectorWindowsWebViewCookieWithDomain(manager *edge.ICoreWebView2CookieManager, record appcookies.Record, name string, domain string, path string) bool {
@@ -483,6 +834,24 @@ func connectorWindowsCookieQueryURIs(domains []string) []string {
 				}
 				seen[uri] = struct{}{}
 				result = append(result, uri)
+			}
+		}
+	}
+	return result
+}
+
+func connectorWindowsCookieQueryOrigins(domains []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(domains)*2)
+	for _, domain := range domains {
+		for _, host := range connectorWindowsCookieQueryHosts(domain) {
+			for _, scheme := range []string{"https", "http"} {
+				origin := scheme + "://" + host
+				if _, ok := seen[origin]; ok {
+					continue
+				}
+				seen[origin] = struct{}{}
+				result = append(result, origin)
 			}
 		}
 	}

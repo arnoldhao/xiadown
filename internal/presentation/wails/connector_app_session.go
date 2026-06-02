@@ -106,7 +106,7 @@ func (provider *NativeAppSessionProvider) SaveAppSessionCookies(_ context.Contex
 	return nil
 }
 
-func (provider *NativeAppSessionProvider) ClearAppSession(_ context.Context, siteKey string, domains []string) error {
+func (provider *NativeAppSessionProvider) ClearAppSession(ctx context.Context, siteKey string, domains []string) error {
 	if err := clearSiteAppSessionStoredCookies(siteKey, domains); err != nil {
 		if errors.Is(err, appsessions.ErrUnsupported) {
 			return appsessions.ErrUnsupported
@@ -115,6 +115,14 @@ func (provider *NativeAppSessionProvider) ClearAppSession(_ context.Context, sit
 			return appsessions.ErrNoCookies
 		}
 		return err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := clearConnectorAppSessionNativeRuntimeData(ctx, provider.app, siteKey, domains); err != nil &&
+		!errors.Is(err, appsessions.ErrUnsupported) &&
+		!errors.Is(err, appsessions.ErrNoCookies) {
+		log.Printf("app sessions: clear native runtime data failed site=%s error=%v", siteKey, err)
 	}
 	return nil
 }
