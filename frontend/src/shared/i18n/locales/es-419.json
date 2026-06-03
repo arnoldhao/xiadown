@@ -498,8 +498,9 @@
         "general": "General",
         "appearance": "Apariencia",
         "equalizer": "Ecualizador",
-        "dependencies": "Herramientas",
-        "about": "Acerca de"
+        "download": "Descargas",
+        "about": "Acerca de",
+        "player": "Reproductor"
       },
       "startup": "Abrir al iniciar sesión",
       "tray": "Ocultar en bandeja al iniciar",
@@ -511,12 +512,12 @@
       "downloadDirectory": "Carpeta de descarga",
       "ytdlpConcurrentFragments": "Fragmentos simultáneos",
       "ytdlpConcurrentFragmentsHelp": "Fragmentos HLS/DASH simultáneos\nValores altos pueden acelerar\nUsa más archivos y conexiones proxy\nMáximo recomendado: 16",
-      "defaultBrowser": "Navegador predeterminado",
+      "sniffBrowser": "Navegador de detección",
       "refreshBrowsers": "Actualizar lista de navegadores",
-      "sniffProfileData": "Sniff persistence",
-      "sniffProfileSize": "Data size",
-      "sniffProfileOpen": "Open folder",
-      "sniffProfileClear": "Clear data",
+      "browserData": "Datos del navegador",
+      "browserDataSize": "Tamaño de datos",
+      "browserDataOpen": "Abrir carpeta",
+      "browserDataClear": "Borrar datos",
       "language": "Idioma",
       "logLevel": "Nivel de registro",
       "themePack": "Tema",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "Calidad de audio",
+      "playbackAudioQualityOptions": {
+        "auto": "Automática",
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "Aún no hay nada en cola",
       "savePlaylist": "Guardar lista",
       "removePlaylist": "Quitar lista",
-      "playerUnavailable": "Reproducción no disponible"
+      "playerUnavailable": "Reproducción no disponible",
+      "audioQuality": "Calidad actual",
+      "audioQualityUnknown": "Calidad desconocida",
+      "audioQualityOptions": {
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta"
+      }
     },
     "whatsNew": {
       "title": "Novedades",

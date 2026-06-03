@@ -1,14 +1,17 @@
-export type XiaSettingsTabId = "general" | "appearance" | "equalizer" | "dependencies" | "about";
+export type XiaSettingsTabId = "general" | "appearance" | "player" | "download" | "about";
 
 const STORAGE_KEY = "xiadown:settings-tab";
 
 export function isSettingsTab(value: string | null | undefined): value is XiaSettingsTabId {
-  return value === "general" || value === "appearance" || value === "equalizer" || value === "dependencies" || value === "about";
+  return value === "general" || value === "appearance" || value === "player" || value === "download" || value === "about";
 }
 
 export function resolveSettingsTab(value: string | null | undefined): XiaSettingsTabId {
   if (value === "proxy") {
     return "general";
+  }
+  if (value === "equalizer") {
+    return "player";
   }
   return isSettingsTab(value) ? value : "general";
 }
@@ -30,7 +33,7 @@ export function consumePendingSettingsTab(): XiaSettingsTabId | null {
   }
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    const tab = isSettingsTab(stored) ? stored : null;
+    const tab = stored ? resolveSettingsTab(stored) : null;
     if (stored) {
       window.localStorage.removeItem(STORAGE_KEY);
     }
@@ -49,7 +52,7 @@ export function listenPendingSettingsTab(onTab: (tab: XiaSettingsTabId) => void)
     if (event.key !== STORAGE_KEY) {
       return;
     }
-    const tab = isSettingsTab(event.newValue) ? event.newValue : null;
+    const tab = event.newValue ? resolveSettingsTab(event.newValue) : null;
     if (!tab) {
       return;
     }

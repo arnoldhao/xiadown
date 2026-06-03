@@ -498,8 +498,9 @@
         "general": "一般",
         "appearance": "外觀",
         "equalizer": "等化器",
-        "dependencies": "工具",
-        "about": "關於"
+        "download": "下載",
+        "about": "關於",
+        "player": "播放器"
       },
       "startup": "開機自動啟動",
       "tray": "啟動後隱藏到系統匣",
@@ -511,12 +512,12 @@
       "downloadDirectory": "下載目錄",
       "ytdlpConcurrentFragments": "分片並行數",
       "ytdlpConcurrentFragmentsHelp": "串流媒體分片並行下載數\n數值越高可能越快\n會占用更多句柄和代理連線\n建議最高：16",
-      "defaultBrowser": "預設瀏覽器",
+      "sniffBrowser": "嗅探瀏覽器",
       "refreshBrowsers": "重新整理瀏覽器列表",
-      "sniffProfileData": "嗅探持久化",
-      "sniffProfileSize": "資料大小",
-      "sniffProfileOpen": "打開資料夾",
-      "sniffProfileClear": "清除配置",
+      "browserData": "瀏覽器資料",
+      "browserDataSize": "資料大小",
+      "browserDataOpen": "開啟資料夾",
+      "browserDataClear": "清除資料",
       "language": "語言",
       "logLevel": "日誌等級",
       "themePack": "主題",
@@ -660,6 +661,13 @@
         "kb16": "16 千字节",
         "kb64": "64 千字节",
         "kb256": "256 千字节"
+      },
+      "playbackAudioQuality": "播放音質",
+      "playbackAudioQualityOptions": {
+        "auto": "自動",
+        "low": "低音質",
+        "medium": "標準音質",
+        "high": "高音質"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "目前還沒有播放佇列",
       "savePlaylist": "加入播放清單庫",
       "removePlaylist": "移出播放清單庫",
-      "playerUnavailable": "暫時無法播放"
+      "playerUnavailable": "暫時無法播放",
+      "audioQuality": "目前音質",
+      "audioQualityUnknown": "未知音質",
+      "audioQualityOptions": {
+        "low": "低音質",
+        "medium": "標準音質",
+        "high": "高音質"
+      }
     },
     "whatsNew": {
       "title": "版本更新",

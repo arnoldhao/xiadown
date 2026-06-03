@@ -10,6 +10,7 @@ ExternalLink,
 FolderOpen,
 Github,
 Globe,
+Headphones,
 Info,
 Loader2,
 Mail,
@@ -20,11 +21,9 @@ Palette,
 Pencil,
 RefreshCcw,
 RefreshCw,
-SlidersVertical,
 Sun,
 Trash2,
 Twitter,
-Wrench,
 } from "lucide-react";
 import * as React from "react";
 
@@ -42,7 +41,7 @@ type XiaAppearanceSettings,
 type XiaSidebarStyle,
 } from "@/shared/styles/xiadown-theme";
 import { cn } from "@/lib/utils";
-import type { BrowserCandidate, ProxySettings, ResourceSniffScope } from "@/shared/contracts/settings";
+import type { BrowserCandidate, PlaybackAudioQualityPreference, ProxySettings, ResourceSniffScope } from "@/shared/contracts/settings";
 import { DialogMarkdown } from "@/shared/markdown/dialog-markdown";
 import {
 useDependencies,
@@ -151,7 +150,7 @@ function sortBrowserCandidates(candidates: BrowserCandidate[]) {
     });
 }
 
-function resolveDefaultBrowserID(candidates: BrowserCandidate[]) {
+function resolveSniffBrowserID(candidates: BrowserCandidate[]) {
   const chrome = candidates.find((candidate) => candidate.id === "chrome");
   return chrome?.id ?? candidates[0]?.id ?? "";
 }
@@ -297,17 +296,17 @@ export function SettingsApp() {
     () => sortBrowserCandidates(browserCandidatesQuery.data ?? []),
     [browserCandidatesQuery.data],
   );
-  const selectedDefaultBrowser = React.useMemo(() => {
-    const saved = (currentSettings?.defaultBrowser ?? "").trim();
+  const selectedSniffBrowser = React.useMemo(() => {
+    const saved = (currentSettings?.sniffBrowser ?? "").trim();
     if (saved && browserOptions.some((candidate) => candidate.id === saved)) {
       return saved;
     }
-    return resolveDefaultBrowserID(browserOptions);
-  }, [browserOptions, currentSettings?.defaultBrowser]);
-  const sniffProfileInfo = useSniffProfileInfo(selectedDefaultBrowser);
+    return resolveSniffBrowserID(browserOptions);
+  }, [browserOptions, currentSettings?.sniffBrowser]);
+  const sniffProfileInfo = useSniffProfileInfo(selectedSniffBrowser);
   const openSniffProfile = useOpenSniffProfile();
   const clearSniffProfile = useClearSniffProfile();
-  const sniffProfileSizeLabel = formatSniffProfileBytes(sniffProfileInfo.data?.sizeBytes);
+  const browserDataSizeLabel = formatSniffProfileBytes(sniffProfileInfo.data?.sizeBytes);
 
   const isCheckingUpdate = updateInfo.status === "checking" || checkForUpdate.isPending;
   const isUpdateError = updateInfo.status === "error";
@@ -564,8 +563,8 @@ export function SettingsApp() {
   const tabs: Array<{ id: XiaSettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "general", label: text.settings.tabs.general, icon: <Cog className="h-[26px] w-[26px]" /> },
     { id: "appearance", label: text.settings.tabs.appearance, icon: <Palette className="h-[26px] w-[26px]" /> },
-    { id: "equalizer", label: text.settings.tabs.equalizer, icon: <SlidersVertical className="h-[26px] w-[26px]" /> },
-    { id: "dependencies", label: text.settings.tabs.dependencies, icon: <Wrench className="h-[26px] w-[26px]" /> },
+    { id: "player", label: text.settings.tabs.player, icon: <Headphones className="h-[26px] w-[26px]" /> },
+    { id: "download", label: text.settings.tabs.download, icon: <Download className="h-[26px] w-[26px]" /> },
     { id: "about", label: text.settings.tabs.about, icon: <Info className="h-[26px] w-[26px]" /> },
   ];
   const visibleTabs = tabs;
@@ -639,6 +638,15 @@ export function SettingsApp() {
       value: "all",
       label: text.settings.resourceSniffScopeOptions.all,
     },
+  ];
+  const playbackAudioQualityOptions: Array<{
+    value: PlaybackAudioQualityPreference;
+    label: string;
+  }> = [
+    { value: "AUDIO_QUALITY_AUTO", label: text.settings.playbackAudioQualityOptions.auto },
+    { value: "AUDIO_QUALITY_LOW", label: text.settings.playbackAudioQualityOptions.low },
+    { value: "AUDIO_QUALITY_MEDIUM", label: text.settings.playbackAudioQualityOptions.medium },
+    { value: "AUDIO_QUALITY_HIGH", label: text.settings.playbackAudioQualityOptions.high },
   ];
   const resourceSniffMinBytesOptions = [
     { value: 8 * 1024, label: text.settings.resourceSniffMinBytesOptions.kb8 },
@@ -1023,261 +1031,7 @@ export function SettingsApp() {
                 </SettingsCompactRow>
               </SettingsCompactListCard>
 
-              <SettingsCompactListCard>
-                <SettingsCompactRow label={text.settings.defaultBrowser}>
-                  <div className="flex items-center gap-2">
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="compactIcon"
-                            onClick={() => void handleRefreshBrowserCandidates()}
-                            disabled={refreshBrowserCandidates.isPending}
-                            aria-label={text.settings.refreshBrowsers}
-                          >
-                            {refreshBrowserCandidates.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.refreshBrowsers}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <Select
-                      value={selectedDefaultBrowser}
-                      onChange={(event) => void saveSettingsPatch({ defaultBrowser: event.target.value })}
-                      className="w-48"
-                      disabled={browserOptions.length === 0}
-                    >
-                      {browserOptions.length === 0 ? (
-                        <option value="">{browserCandidatesQuery.isLoading ? text.settings.checking : text.settings.unavailable}</option>
-                      ) : (
-                        browserOptions.map((candidate) => (
-                          <option key={candidate.id} value={candidate.id}>
-                            {candidate.label}
-                          </option>
-                        ))
-                      )}
-                    </Select>
-                  </div>
-                </SettingsCompactRow>
-
-                <SettingsCompactSeparator />
-
-                <SettingsCompactRow label={text.settings.sniffProfileData} contentClassName="min-w-0">
-                  <div className="flex min-w-0 items-center justify-end gap-2">
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            tabIndex={0}
-                            className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                            aria-label={`${text.settings.sniffProfileSize}: ${sniffProfileInfo.isFetching ? "..." : sniffProfileSizeLabel}`}
-                          >
-                            {sniffProfileInfo.isFetching ? "..." : sniffProfileSizeLabel}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.sniffProfileSize}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="compactIcon"
-                            className="shrink-0"
-                            onClick={() => void openSniffProfile.mutateAsync({ browser: selectedDefaultBrowser })}
-                            disabled={!selectedDefaultBrowser || openSniffProfile.isPending}
-                            aria-label={text.settings.sniffProfileOpen}
-                          >
-                            {openSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.sniffProfileOpen}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="compactIcon"
-                            className="shrink-0"
-                            onClick={() =>
-                              void clearSniffProfile
-                                .mutateAsync({ browser: selectedDefaultBrowser })
-                                .then(() => sniffProfileInfo.refetch())
-                            }
-                            disabled={!selectedDefaultBrowser || clearSniffProfile.isPending}
-                            aria-label={text.settings.sniffProfileClear}
-                          >
-                            {clearSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.sniffProfileClear}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                </SettingsCompactRow>
-              </SettingsCompactListCard>
-
-              <SettingsCompactListCard>
-                <SettingsCompactRow label={text.settings.resourceSniffScope}>
-                  <Select
-                    value={currentSettings?.resourceSniffScope ?? "default"}
-                    onChange={(event) => void saveSettingsPatch({ resourceSniffScope: event.target.value as ResourceSniffScope })}
-                    className="w-48"
-                  >
-                    {resourceSniffScopeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </SettingsCompactRow>
-
-                <SettingsCompactSeparator />
-
-                <SettingsCompactRow label={text.settings.resourceSniffMinBytes}>
-                  <Select
-                    value={String(currentSettings?.resourceSniffMinBytes ?? 8 * 1024)}
-                    onChange={(event) => void saveSettingsPatch({ resourceSniffMinBytes: Number(event.target.value) })}
-                    className="w-48"
-                  >
-                    {resourceSniffMinBytesOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </SettingsCompactRow>
-
-                <SettingsCompactSeparator />
-
-                <SettingsCompactRow label={text.settings.resourceSniffRetain}>
-                  <Select
-                    value={String(currentSettings?.resourceSniffRetain ?? 1000)}
-                    onChange={(event) => void saveSettingsPatch({ resourceSniffRetain: Number(event.target.value) })}
-                    className="w-48"
-                  >
-                    {resourceSniffRetainOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </SettingsCompactRow>
-              </SettingsCompactListCard>
-
-              <SettingsCompactListCard>
-                <SettingsCompactRow label={text.settings.syncedLyrics}>
-                  <InlineSwitch
-                    checked={currentSettings?.syncedLyricsEnabled !== false}
-                    onChange={(checked) => void saveSettingsPatch({ syncedLyricsEnabled: checked })}
-                    ariaLabel={text.settings.syncedLyrics}
-                  />
-                </SettingsCompactRow>
-
-                {!isWindows ? (
-                  <>
-                    <SettingsCompactSeparator />
-
-                    <SettingsCompactRow label={text.settings.romanizedLyrics}>
-                      {renderLyricsTranscriptionSwitch({
-                        checked: currentSettings?.romanizedLyrics !== false,
-                        onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
-                        ariaLabel: text.settings.romanizedLyrics,
-                      })}
-                    </SettingsCompactRow>
-
-                    <SettingsCompactSeparator />
-
-                    <SettingsCompactRow label={text.settings.pinyinLyrics}>
-                      {renderLyricsTranscriptionSwitch({
-                        checked: currentSettings?.pinyinLyrics !== false,
-                        onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
-                        ariaLabel: text.settings.pinyinLyrics,
-                      })}
-                    </SettingsCompactRow>
-                  </>
-                ) : null}
-              </SettingsCompactListCard>
-
               {proxySettingsCard}
-
-              <SettingsCompactListCard>
-                <SettingsCompactRow label={text.settings.downloadDirectory} contentClassName="min-w-0">
-                  <div className="flex min-w-0 items-center justify-end gap-2">
-                    <span className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono">
-                      {currentSettings?.downloadDirectory ?? ""}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="compactIcon"
-                      className="shrink-0"
-                      onClick={() => void chooseDownloadDir()}
-                      disabled={selectDownloadDirectory.isPending}
-                      title={text.actions.chooseFolder}
-                      aria-label={text.actions.chooseFolder}
-                    >
-                      {selectDownloadDirectory.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
-                    </Button>
-                    {(currentSettings?.downloadDirectory ?? "").trim() ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="compactIcon"
-                        className="shrink-0"
-                        onClick={() => void openLibraryPath.mutateAsync({ path: currentSettings?.downloadDirectory ?? "" })}
-                        title={text.actions.open}
-                        aria-label={text.actions.open}
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </SettingsCompactRow>
-                <SettingsCompactSeparator />
-                <SettingsCompactRow
-                  label={
-                    <span className="inline-flex min-w-0 items-center gap-1.5">
-                      <span className="truncate">{text.settings.ytdlpConcurrentFragments}</span>
-                      <TooltipProvider delayDuration={0}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                              aria-label={text.settings.ytdlpConcurrentFragmentsHelp}
-                            >
-                              <CircleHelp className="h-3.5 w-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" multiline className="!max-w-[15rem] text-left leading-relaxed">
-                            {text.settings.ytdlpConcurrentFragmentsHelp}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </span>
-                  }
-                >
-                  <Select
-                    value={String(currentSettings?.ytdlpConcurrentFragments ?? 1)}
-                    onChange={(event) => void saveSettingsPatch({ ytdlpConcurrentFragments: Number(event.target.value) })}
-                    className="w-48"
-                  >
-                    {ytdlpConcurrentFragmentOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </SettingsCompactRow>
-              </SettingsCompactListCard>
 
               <SettingsCompactListCard>
                 <SettingsCompactRow label={text.settings.logLevel}>
@@ -1544,22 +1298,300 @@ export function SettingsApp() {
             </div>
           ) : null}
 
-          {activeTab === "equalizer" ? (
-            <EqualizerSection isMac={isMac} isWindows={isWindows} text={text} />
+          {activeTab === "player" ? (
+            <div className="space-y-6">
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.playbackAudioQuality}>
+                  <Select
+                    value={currentSettings?.playbackAudioQuality ?? "AUDIO_QUALITY_AUTO"}
+                    onChange={(event) =>
+                      void saveSettingsPatch({
+                        playbackAudioQuality: event.target.value as PlaybackAudioQualityPreference,
+                      })
+                    }
+                    className="w-48"
+                  >
+                    {playbackAudioQualityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.syncedLyrics}>
+                  <InlineSwitch
+                    checked={currentSettings?.syncedLyricsEnabled !== false}
+                    onChange={(checked) => void saveSettingsPatch({ syncedLyricsEnabled: checked })}
+                    ariaLabel={text.settings.syncedLyrics}
+                  />
+                </SettingsCompactRow>
+
+                {!isWindows ? (
+                  <>
+                    <SettingsCompactSeparator />
+
+                    <SettingsCompactRow label={text.settings.romanizedLyrics}>
+                      {renderLyricsTranscriptionSwitch({
+                        checked: currentSettings?.romanizedLyrics !== false,
+                        onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
+                        ariaLabel: text.settings.romanizedLyrics,
+                      })}
+                    </SettingsCompactRow>
+
+                    <SettingsCompactSeparator />
+
+                    <SettingsCompactRow label={text.settings.pinyinLyrics}>
+                      {renderLyricsTranscriptionSwitch({
+                        checked: currentSettings?.pinyinLyrics !== false,
+                        onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
+                        ariaLabel: text.settings.pinyinLyrics,
+                      })}
+                    </SettingsCompactRow>
+                  </>
+                ) : null}
+              </SettingsCompactListCard>
+
+              <EqualizerSection isMac={isMac} isWindows={isWindows} text={text} />
+            </div>
           ) : null}
 
-          {activeTab === "dependencies" ? (
-            <SettingsCompactListCard>
-              {sortedDependencies.map((dependency, index) => {
-                const update = dependencyUpdatesByName.get(dependency.name);
-                return (
-                  <React.Fragment key={dependency.name}>
-                    {index > 0 ? <SettingsCompactSeparator /> : null}
-                    <DependencySettingsItem dependency={dependency} update={update} text={text} />
-                  </React.Fragment>
-                );
-              })}
-            </SettingsCompactListCard>
+          {activeTab === "download" ? (
+            <>
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.sniffBrowser}>
+                  <div className="flex items-center gap-2">
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            onClick={() => void handleRefreshBrowserCandidates()}
+                            disabled={refreshBrowserCandidates.isPending}
+                            aria-label={text.settings.refreshBrowsers}
+                          >
+                            {refreshBrowserCandidates.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.refreshBrowsers}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <Select
+                      value={selectedSniffBrowser}
+                      onChange={(event) => void saveSettingsPatch({ sniffBrowser: event.target.value })}
+                      className="w-48"
+                      disabled={browserOptions.length === 0}
+                    >
+                      {browserOptions.length === 0 ? (
+                        <option value="">{browserCandidatesQuery.isLoading ? text.settings.checking : text.settings.unavailable}</option>
+                      ) : (
+                        browserOptions.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.label}
+                          </option>
+                        ))
+                      )}
+                    </Select>
+                  </div>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.browserData} contentClassName="min-w-0">
+                  <div className="flex min-w-0 items-center justify-end gap-2">
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span
+                            tabIndex={0}
+                            className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                            aria-label={`${text.settings.browserDataSize}: ${sniffProfileInfo.isFetching ? "..." : browserDataSizeLabel}`}
+                          >
+                            {sniffProfileInfo.isFetching ? "..." : browserDataSizeLabel}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.browserDataSize}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            className="shrink-0"
+                            onClick={() => void openSniffProfile.mutateAsync({ browser: selectedSniffBrowser })}
+                            disabled={!selectedSniffBrowser || openSniffProfile.isPending}
+                            aria-label={text.settings.browserDataOpen}
+                          >
+                            {openSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.browserDataOpen}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            className="shrink-0"
+                            onClick={() =>
+                              void clearSniffProfile
+                                .mutateAsync({ browser: selectedSniffBrowser })
+                                .then(() => sniffProfileInfo.refetch())
+                            }
+                            disabled={!selectedSniffBrowser || clearSniffProfile.isPending}
+                            aria-label={text.settings.browserDataClear}
+                          >
+                            {clearSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.settings.browserDataClear}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.resourceSniffScope}>
+                  <Select
+                    value={currentSettings?.resourceSniffScope ?? "default"}
+                    onChange={(event) => void saveSettingsPatch({ resourceSniffScope: event.target.value as ResourceSniffScope })}
+                    className="w-48"
+                  >
+                    {resourceSniffScopeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.resourceSniffMinBytes}>
+                  <Select
+                    value={String(currentSettings?.resourceSniffMinBytes ?? 8 * 1024)}
+                    onChange={(event) => void saveSettingsPatch({ resourceSniffMinBytes: Number(event.target.value) })}
+                    className="w-48"
+                  >
+                    {resourceSniffMinBytesOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.resourceSniffRetain}>
+                  <Select
+                    value={String(currentSettings?.resourceSniffRetain ?? 1000)}
+                    onChange={(event) => void saveSettingsPatch({ resourceSniffRetain: Number(event.target.value) })}
+                    className="w-48"
+                  >
+                    {resourceSniffRetainOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.downloadDirectory} contentClassName="min-w-0">
+                  <div className="flex min-w-0 items-center justify-end gap-2">
+                    <span className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono">
+                      {currentSettings?.downloadDirectory ?? ""}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compactIcon"
+                      className="shrink-0"
+                      onClick={() => void chooseDownloadDir()}
+                      disabled={selectDownloadDirectory.isPending}
+                      title={text.actions.chooseFolder}
+                      aria-label={text.actions.chooseFolder}
+                    >
+                      {selectDownloadDirectory.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                    </Button>
+                    {(currentSettings?.downloadDirectory ?? "").trim() ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="compactIcon"
+                        className="shrink-0"
+                        onClick={() => void openLibraryPath.mutateAsync({ path: currentSettings?.downloadDirectory ?? "" })}
+                        title={text.actions.open}
+                        aria-label={text.actions.open}
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                  </div>
+                </SettingsCompactRow>
+                <SettingsCompactSeparator />
+                <SettingsCompactRow
+                  label={
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{text.settings.ytdlpConcurrentFragments}</span>
+                      <TooltipProvider delayDuration={0}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              aria-label={text.settings.ytdlpConcurrentFragmentsHelp}
+                            >
+                              <CircleHelp className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" multiline className="!max-w-[15rem] text-left leading-relaxed">
+                            {text.settings.ytdlpConcurrentFragmentsHelp}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </span>
+                  }
+                >
+                  <Select
+                    value={String(currentSettings?.ytdlpConcurrentFragments ?? 1)}
+                    onChange={(event) => void saveSettingsPatch({ ytdlpConcurrentFragments: Number(event.target.value) })}
+                    className="w-48"
+                  >
+                    {ytdlpConcurrentFragmentOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                {sortedDependencies.map((dependency, index) => {
+                  const update = dependencyUpdatesByName.get(dependency.name);
+                  return (
+                    <React.Fragment key={dependency.name}>
+                      {index > 0 ? <SettingsCompactSeparator /> : null}
+                      <DependencySettingsItem dependency={dependency} update={update} text={text} />
+                    </React.Fragment>
+                  );
+                })}
+              </SettingsCompactListCard>
+            </>
           ) : null}
 
           {activeTab === "about" ? (

@@ -498,8 +498,9 @@
         "general": "Chung",
         "appearance": "Giao diện",
         "equalizer": "Equalizer",
-        "dependencies": "Công cụ",
-        "about": "Giới thiệu"
+        "download": "Tải xuống",
+        "about": "Giới thiệu",
+        "player": "Trình phát"
       },
       "startup": "Khởi chạy khi đăng nhập",
       "tray": "Ẩn vào khay khi khởi chạy",
@@ -511,12 +512,12 @@
       "downloadDirectory": "Thư mục tải xuống",
       "ytdlpConcurrentFragments": "Số mảnh đồng thời",
       "ytdlpConcurrentFragmentsHelp": "Số mảnh HLS/DASH đồng thời\nGiá trị cao hơn có thể nhanh hơn\nDùng nhiều file và kết nối proxy hơn\nMức tối đa khuyến nghị: 16",
-      "defaultBrowser": "Trình duyệt mặc định",
+      "sniffBrowser": "Trình duyệt dò tìm",
       "refreshBrowsers": "Làm mới danh sách trình duyệt",
-      "sniffProfileData": "Sniff persistence",
-      "sniffProfileSize": "Data size",
-      "sniffProfileOpen": "Open folder",
-      "sniffProfileClear": "Clear data",
+      "browserData": "Dữ liệu trình duyệt",
+      "browserDataSize": "Dung lượng dữ liệu",
+      "browserDataOpen": "Mở thư mục",
+      "browserDataClear": "Xóa dữ liệu",
       "language": "Ngôn ngữ",
       "logLevel": "Mức log",
       "themePack": "Chủ đề",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "Chất lượng âm thanh",
+      "playbackAudioQualityOptions": {
+        "auto": "Tự động",
+        "low": "Thấp",
+        "medium": "Trung bình",
+        "high": "Cao"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "Chưa có gì trong hàng đợi",
       "savePlaylist": "Lưu danh sách phát",
       "removePlaylist": "Xóa danh sách phát",
-      "playerUnavailable": "Không thể phát"
+      "playerUnavailable": "Không thể phát",
+      "audioQuality": "Chất lượng hiện tại",
+      "audioQualityUnknown": "Không rõ chất lượng",
+      "audioQualityOptions": {
+        "low": "Thấp",
+        "medium": "Trung bình",
+        "high": "Cao"
+      }
     },
     "whatsNew": {
       "title": "Có gì mới",

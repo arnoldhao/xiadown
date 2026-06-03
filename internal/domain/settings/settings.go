@@ -17,6 +17,7 @@ type MenuBarVisibility string
 type ProxyMode string
 type ProxyScheme string
 type ResourceSniffScope string
+type PlaybackAudioQuality string
 
 type WindowBounds struct {
 	x      int
@@ -32,7 +33,7 @@ type Settings struct {
 	colorScheme              ColorScheme
 	fontSize                 int
 	language                 Language
-	defaultBrowser           string
+	sniffBrowser             string
 	downloadDirectory        string
 	mainBounds               WindowBounds
 	settingsBounds           WindowBounds
@@ -49,6 +50,7 @@ type Settings struct {
 	syncedLyricsEnabled      bool
 	romanizedLyrics          bool
 	pinyinLyrics             bool
+	playbackAudioQuality     PlaybackAudioQuality
 	resourceSniffScope       ResourceSniffScope
 	resourceSniffMinBytes    int
 	resourceSniffRetain      int
@@ -63,7 +65,7 @@ type SettingsParams struct {
 	ColorScheme              string
 	FontSize                 int
 	Language                 string
-	DefaultBrowser           string
+	SniffBrowser             string
 	DownloadDirectory        string
 	MainBounds               WindowBounds
 	SettingsBounds           WindowBounds
@@ -80,6 +82,7 @@ type SettingsParams struct {
 	SyncedLyricsEnabled      *bool
 	RomanizedLyrics          *bool
 	PinyinLyrics             *bool
+	PlaybackAudioQuality     string
 	ResourceSniffScope       string
 	ResourceSniffMinBytes    int
 	ResourceSniffRetain      int
@@ -168,6 +171,15 @@ const (
 	DefaultSyncedLyricsEnabled = true
 	DefaultRomanizedLyrics     = true
 	DefaultPinyinLyrics        = true
+)
+
+const (
+	PlaybackAudioQualityAuto   PlaybackAudioQuality = "AUDIO_QUALITY_AUTO"
+	PlaybackAudioQualityLow    PlaybackAudioQuality = "AUDIO_QUALITY_LOW"
+	PlaybackAudioQualityMedium PlaybackAudioQuality = "AUDIO_QUALITY_MEDIUM"
+	PlaybackAudioQualityHigh   PlaybackAudioQuality = "AUDIO_QUALITY_HIGH"
+
+	DefaultPlaybackAudioQuality = PlaybackAudioQualityAuto
 )
 
 const (
@@ -343,6 +355,11 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		pinyinLyrics = *params.PinyinLyrics
 	}
 
+	playbackAudioQuality, err := ParsePlaybackAudioQuality(params.PlaybackAudioQuality)
+	if err != nil {
+		return Settings{}, err
+	}
+
 	resourceSniffScope, err := ParseResourceSniffScope(params.ResourceSniffScope)
 	if err != nil {
 		return Settings{}, err
@@ -382,7 +399,7 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		colorScheme:              colorScheme,
 		fontSize:                 fontSize,
 		language:                 parsedLanguage,
-		defaultBrowser:           normalizeDefaultBrowser(params.DefaultBrowser),
+		sniffBrowser:             normalizeSniffBrowser(params.SniffBrowser),
 		downloadDirectory:        downloadDirectory,
 		mainBounds:               params.MainBounds,
 		settingsBounds:           params.SettingsBounds,
@@ -399,6 +416,7 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		syncedLyricsEnabled:      syncedLyricsEnabled,
 		romanizedLyrics:          romanizedLyrics,
 		pinyinLyrics:             pinyinLyrics,
+		playbackAudioQuality:     playbackAudioQuality,
 		resourceSniffScope:       resourceSniffScope,
 		resourceSniffMinBytes:    resourceSniffMinBytes,
 		resourceSniffRetain:      resourceSniffRetain,
@@ -417,7 +435,7 @@ func DefaultSettingsWithLanguage(language string) Settings {
 		colorScheme:              DefaultColorScheme,
 		fontSize:                 DefaultFontSize,
 		language:                 parsedLanguage,
-		defaultBrowser:           "",
+		sniffBrowser:             "",
 		downloadDirectory:        DefaultDownloadDirectory(),
 		mainBounds:               mainBounds,
 		settingsBounds:           settingsBounds,
@@ -434,6 +452,7 @@ func DefaultSettingsWithLanguage(language string) Settings {
 		syncedLyricsEnabled:      DefaultSyncedLyricsEnabled,
 		romanizedLyrics:          DefaultRomanizedLyrics,
 		pinyinLyrics:             DefaultPinyinLyrics,
+		playbackAudioQuality:     DefaultPlaybackAudioQuality,
 		resourceSniffScope:       DefaultResourceSniffScope,
 		resourceSniffMinBytes:    DefaultResourceSniffMinBytes,
 		resourceSniffRetain:      DefaultResourceSniffRetain,
@@ -521,6 +540,19 @@ func ParseResourceSniffScope(value string) (ResourceSniffScope, error) {
 		return ResourceSniffScope(trimmed), nil
 	default:
 		return "", fmt.Errorf("%w: resource sniff scope", ErrInvalidSettings)
+	}
+}
+
+func ParsePlaybackAudioQuality(value string) (PlaybackAudioQuality, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return DefaultPlaybackAudioQuality, nil
+	}
+	switch PlaybackAudioQuality(trimmed) {
+	case PlaybackAudioQualityAuto, PlaybackAudioQualityLow, PlaybackAudioQualityMedium, PlaybackAudioQualityHigh:
+		return PlaybackAudioQuality(trimmed), nil
+	default:
+		return "", fmt.Errorf("%w: playback audio quality", ErrInvalidSettings)
 	}
 }
 
@@ -652,7 +684,7 @@ func (settings Settings) FontSize() int                        { return settings
 func (settings Settings) ThemeColor() string                   { return settings.themeColor }
 func (settings Settings) ColorScheme() ColorScheme             { return settings.colorScheme }
 func (settings Settings) Language() Language                   { return settings.language }
-func (settings Settings) DefaultBrowser() string               { return settings.defaultBrowser }
+func (settings Settings) SniffBrowser() string                 { return settings.sniffBrowser }
 func (settings Settings) DownloadDirectory() string            { return settings.downloadDirectory }
 func (settings Settings) MainBounds() WindowBounds             { return settings.mainBounds }
 func (settings Settings) SettingsBounds() WindowBounds         { return settings.settingsBounds }
@@ -669,6 +701,9 @@ func (settings Settings) MinimizeToTrayOnStart() bool          { return settings
 func (settings Settings) SyncedLyricsEnabled() bool            { return settings.syncedLyricsEnabled }
 func (settings Settings) RomanizedLyrics() bool                { return settings.romanizedLyrics }
 func (settings Settings) PinyinLyrics() bool                   { return settings.pinyinLyrics }
+func (settings Settings) PlaybackAudioQuality() PlaybackAudioQuality {
+	return settings.playbackAudioQuality
+}
 func (settings Settings) ResourceSniffScope() ResourceSniffScope {
 	return settings.resourceSniffScope
 }
@@ -697,6 +732,7 @@ func (level LogLevel) String() string               { return string(level) }
 func (scheme ColorScheme) String() string           { return string(scheme) }
 func (visibility MenuBarVisibility) String() string { return string(visibility) }
 func (scope ResourceSniffScope) String() string     { return string(scope) }
+func (quality PlaybackAudioQuality) String() string { return string(quality) }
 func (mode ProxyMode) String() string               { return string(mode) }
 func (scheme ProxyScheme) String() string           { return string(scheme) }
 
@@ -711,7 +747,7 @@ func positiveOrDefault(value int, fallback int) int {
 	return value
 }
 
-func normalizeDefaultBrowser(value string) string {
+func normalizeSniffBrowser(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 

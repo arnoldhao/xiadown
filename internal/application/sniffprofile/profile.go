@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	infoEntryLimit     = 20000
-	defaultBrowserName = "default"
+	infoEntryLimit      = 20000
+	fallbackBrowserName = "default"
 )
 
 var errInfoLimit = errors.New("sniff profile info limit reached")
@@ -37,7 +37,7 @@ func ResolveBrowserID(preferred string) string {
 	if preferred != "" {
 		return sanitizeBrowserID(preferred)
 	}
-	return defaultBrowserName
+	return fallbackBrowserName
 }
 
 func PathForPreferredBrowser(preferred string) (string, error) {
@@ -167,7 +167,7 @@ func rootPath() (string, error) {
 func sanitizeBrowserID(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return defaultBrowserName
+		return fallbackBrowserName
 	}
 	var builder strings.Builder
 	builder.Grow(len(trimmed))
@@ -186,7 +186,7 @@ func sanitizeBrowserID(value string) string {
 	}
 	result := strings.Trim(builder.String(), "._-")
 	if result == "" {
-		return defaultBrowserName
+		return fallbackBrowserName
 	}
 	return result
 }

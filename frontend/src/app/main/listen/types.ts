@@ -41,6 +41,10 @@ export type ListenLivePlayback = {
   url?: string;
 };
 export type ListenPlayMode = "order" | "repeat" | "shuffle";
+export type ListenObservedPlaybackAudioQuality =
+  | "AUDIO_QUALITY_LOW"
+  | "AUDIO_QUALITY_MEDIUM"
+  | "AUDIO_QUALITY_HIGH";
 export type ListenPlayerCommand = {
   id: number;
   command: "play" | "pause" | "replay" | "resume" | "seek";

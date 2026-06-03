@@ -103,6 +103,75 @@ func TestListenBridgePreservesPauseIntent(t *testing.T) {
 	}
 }
 
+func TestListenBridgeAppliesAndReportsPlaybackAudioQuality(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
+		VideoID:              "TESTVID001A",
+		PlaybackAudioQuality: "AUDIO_QUALITY_HIGH",
+	})
+	for _, expected := range []string{
+		`setAudioQuality`,
+		`AUDIO_QUALITY_HIGH`,
+		`audioQualityFromItag`,
+		`xiadownPlaybackAudioQuality`,
+		`__xiadownApplyPlaybackAudioQuality`,
+		`getPreferredAudioQuality`,
+		`PLAYBACK_AUDIO_QUALITY_OBSERVED`,
+		`lastObservedAudioQualityKey`,
+		`postObservedPlaybackAudioQuality(observedPlaybackAudioQuality(players))`,
+		`getStatsForNerds`,
+		`document.readyState !== "loading"`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("bridge script should contain %q", expected)
+		}
+	}
+	if strings.Contains(script, `document.documentElement || document.body || document.readyState !== "loading"`) {
+		t.Fatalf("bridge script should not boot before document-end just because documentElement exists")
+	}
+	if strings.Contains(script, "AUDIO_QUALITY_PROBE") {
+		t.Fatalf("bridge script should not contain audio quality probe polling")
+	}
+	for _, redundant := range []string{
+		strings.Join([]string{"PLAYBACK", "AUDIO", "QUALITY", "STATS"}, "_"),
+		strings.Join([]string{"AUDIO", "QUALITY", "STATS", "MIN", "INTERVAL", "MS"}, "_"),
+		"last" + "AudioQuality" + "StatsKey",
+		"getAvailable" + "AudioQualityLevels",
+	} {
+		if strings.Contains(script, redundant) {
+			t.Fatalf("bridge script should not retain redundant stats detail %q", redundant)
+		}
+	}
+	if strings.Contains(script, `[XiaDown][AudioQuality]`) {
+		t.Fatalf("bridge script should not log audio quality stats through console")
+	}
+	for _, suffix := range []string{"audioFormat", "audioQuality", "playbackQuality"} {
+		ambiguous := strings.Join([]string{"debug", suffix}, "_")
+		if strings.Contains(script, ambiguous) {
+			t.Fatalf("bridge script should normalize ambiguous stats key %q", ambiguous)
+		}
+	}
+}
+
+func TestListenObservedPlaybackAudioQuality(t *testing.T) {
+	observed, videoID, ok := listenObservedPlaybackAudioQuality(map[string]any{
+		"type":     "PLAYBACK_AUDIO_QUALITY_OBSERVED",
+		"observed": "AUDIO_QUALITY_MEDIUM",
+		"videoId":  "fcnDmrtj6Sk",
+	})
+	if !ok || observed != "AUDIO_QUALITY_MEDIUM" || videoID != "fcnDmrtj6Sk" {
+		t.Fatalf("expected medium audio quality stats, got observed=%q videoID=%q ok=%t", observed, videoID, ok)
+	}
+
+	_, _, ok = listenObservedPlaybackAudioQuality(map[string]any{
+		"type":     "PLAYBACK_AUDIO_QUALITY_OBSERVED",
+		"observed": "AUDIO_QUALITY_AUTO",
+		"videoId":  "fcnDmrtj6Sk",
+	})
+	if ok {
+		t.Fatalf("auto should not be treated as observed audio quality")
+	}
+}
+
 func TestListenBridgeAttemptsAutoplayRecoveryOnReadyMedia(t *testing.T) {
 	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
 		VideoID: "TESTVID001A",
@@ -538,19 +607,18 @@ func TestListenRawMusicRemoteNextSyncsPlaybackServiceDirectly(t *testing.T) {
 	}
 }
 
-func TestListenSameVideoResumeDoesNotSubmitStoredRequest(t *testing.T) {
+func TestListenSameVideoResumeUpdatesStoredPlaybackRequest(t *testing.T) {
 	script := listenYouTubeMusicSameVideoResumeScript(ListenPlayerPlayRequest{
-		VideoID:      "TESTVID001A",
-		StartSeconds: 12,
-		Volume:       0.42,
+		VideoID:              "TESTVID001A",
+		StartSeconds:         12,
+		Volume:               0.42,
+		PlaybackAudioQuality: "AUDIO_QUALITY_HIGH",
 	})
-	if strings.Contains(script, "api.request") {
-		t.Fatalf("same-video resume should not submit a new playback request")
-	}
-	if strings.Contains(script, "__listenPlaybackRequest") {
-		t.Fatalf("same-video resume should not rewrite persisted playback request")
-	}
 	for _, expected := range []string{
+		`api.request(request)`,
+		`"playbackAudioQuality":"AUDIO_QUALITY_HIGH"`,
+		`xiadownPlaybackAudioQuality`,
+		`__listenPlaybackRequest`,
 		`api.volume(request.volume, request.muted)`,
 		`video.currentTime = start`,
 		`api.play()`,

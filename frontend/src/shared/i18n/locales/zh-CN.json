@@ -498,8 +498,9 @@
         "general": "常规",
         "appearance": "外观",
         "equalizer": "均衡器",
-        "dependencies": "工具",
-        "about": "关于"
+        "download": "下载",
+        "about": "关于",
+        "player": "播放器"
       },
       "startup": "开机自动启动",
       "tray": "启动后隐藏到托盘",
@@ -511,12 +512,12 @@
       "downloadDirectory": "下载目录",
       "ytdlpConcurrentFragments": "分片并发数",
       "ytdlpConcurrentFragmentsHelp": "流媒体分片并发下载数\n数值越高可能越快\n会占用更多句柄和代理连接\n推荐最高：16",
-      "defaultBrowser": "默认浏览器",
+      "sniffBrowser": "嗅探浏览器",
       "refreshBrowsers": "刷新浏览器列表",
-      "sniffProfileData": "嗅探持久化",
-      "sniffProfileSize": "数据大小",
-      "sniffProfileOpen": "打开文件夹",
-      "sniffProfileClear": "清除配置",
+      "browserData": "浏览器数据",
+      "browserDataSize": "数据大小",
+      "browserDataOpen": "打开文件夹",
+      "browserDataClear": "清除数据",
       "language": "语言",
       "logLevel": "日志级别",
       "themePack": "主题",
@@ -660,6 +661,13 @@
         "kb16": "16 千字节",
         "kb64": "64 千字节",
         "kb256": "256 千字节"
+      },
+      "playbackAudioQuality": "播放音质",
+      "playbackAudioQualityOptions": {
+        "auto": "自动",
+        "low": "低音质",
+        "medium": "标准音质",
+        "high": "高音质"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "当前还没有播放队列",
       "savePlaylist": "加入歌单库",
       "removePlaylist": "移出歌单库",
-      "playerUnavailable": "暂时无法播放"
+      "playerUnavailable": "暂时无法播放",
+      "audioQuality": "当前音质",
+      "audioQualityUnknown": "未知音质",
+      "audioQualityOptions": {
+        "low": "低音质",
+        "medium": "标准音质",
+        "high": "高音质"
+      }
     },
     "whatsNew": {
       "title": "版本更新",

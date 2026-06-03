@@ -1,6 +1,7 @@
 import { LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_PLAYBACK_SNAPSHOT_EVENT } from "@/app/main/listen/catalog";
 import type {
   ListenNativePlayerEvent,
+  ListenObservedPlaybackAudioQuality,
   ListenOnlineItem,
   ListenOnlineQueueState,
   ListenPlayMode,
@@ -49,6 +50,7 @@ export type ListenPlaybackSnapshot = {
   canRedoQueue: boolean;
   canAutoloadPending: boolean;
   currentTimeMs?: number;
+  observedPlaybackAudioQuality?: ListenObservedPlaybackAudioQuality | "";
 };
 
 export function normalizeListenPlaybackSnapshot(value: unknown): ListenPlaybackSnapshot | null {
@@ -81,7 +83,21 @@ export function normalizeListenPlaybackSnapshot(value: unknown): ListenPlaybackS
     canRedoQueue: snapshot.canRedoQueue === true,
     canAutoloadPending: snapshot.canAutoloadPending === true,
     currentTimeMs: Math.max(0, Number(snapshot.currentTimeMs ?? 0)),
+    observedPlaybackAudioQuality: normalizeObservedPlaybackAudioQuality(snapshot.observedPlaybackAudioQuality),
   };
+}
+
+function normalizeObservedPlaybackAudioQuality(value?: string): ListenObservedPlaybackAudioQuality | "" {
+  switch (value) {
+    case "AUDIO_QUALITY_LOW":
+      return "AUDIO_QUALITY_LOW";
+    case "AUDIO_QUALITY_MEDIUM":
+      return "AUDIO_QUALITY_MEDIUM";
+    case "AUDIO_QUALITY_HIGH":
+      return "AUDIO_QUALITY_HIGH";
+    default:
+      return "";
+  }
 }
 
 export function subscribeListenPlaybackSnapshots(

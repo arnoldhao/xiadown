@@ -131,7 +131,7 @@ func (service *Service) preferredBrowser(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(current.DefaultBrowser)
+	return strings.TrimSpace(current.SniffBrowser)
 }
 
 func (service *Service) GetOnlinePetImportSession(_ context.Context, request dto.GetOnlinePetImportSessionRequest) (dto.OnlinePetImportSession, error) {

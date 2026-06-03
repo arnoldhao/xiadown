@@ -84,26 +84,27 @@ type QueueState struct {
 }
 
 type Snapshot struct {
-	Version            uint64        `json:"version"`
-	State              PlaybackState `json:"state"`
-	CurrentTrack       *Track        `json:"currentTrack,omitempty"`
-	Progress           float64       `json:"progress"`
-	Duration           float64       `json:"duration"`
-	Volume             float64       `json:"volume"`
-	VolumeBeforeMute   float64       `json:"volumeBeforeMute"`
-	Muted              bool          `json:"muted"`
-	ShuffleEnabled     bool          `json:"shuffleEnabled"`
-	RepeatMode         RepeatMode    `json:"repeatMode"`
-	Queue              []Track       `json:"queue"`
-	QueueKind          QueueKind     `json:"queueKind"`
-	QueueTitle         string        `json:"queueTitle"`
-	CurrentIndex       int           `json:"currentIndex"`
-	PendingPlayVideoID string        `json:"pendingPlayVideoId,omitempty"`
-	ShowMiniPlayer     bool          `json:"showMiniPlayer"`
-	CanUndoQueue       bool          `json:"canUndoQueue"`
-	CanRedoQueue       bool          `json:"canRedoQueue"`
-	CanAutoloadPending bool          `json:"canAutoloadPending"`
-	CurrentTimeMs      int           `json:"currentTimeMs,omitempty"`
+	Version              uint64        `json:"version"`
+	State                PlaybackState `json:"state"`
+	CurrentTrack         *Track        `json:"currentTrack,omitempty"`
+	Progress             float64       `json:"progress"`
+	Duration             float64       `json:"duration"`
+	Volume               float64       `json:"volume"`
+	VolumeBeforeMute     float64       `json:"volumeBeforeMute"`
+	Muted                bool          `json:"muted"`
+	ShuffleEnabled       bool          `json:"shuffleEnabled"`
+	RepeatMode           RepeatMode    `json:"repeatMode"`
+	Queue                []Track       `json:"queue"`
+	QueueKind            QueueKind     `json:"queueKind"`
+	QueueTitle           string        `json:"queueTitle"`
+	CurrentIndex         int           `json:"currentIndex"`
+	PendingPlayVideoID   string        `json:"pendingPlayVideoId,omitempty"`
+	ShowMiniPlayer       bool          `json:"showMiniPlayer"`
+	CanUndoQueue         bool          `json:"canUndoQueue"`
+	CanRedoQueue         bool          `json:"canRedoQueue"`
+	CanAutoloadPending   bool          `json:"canAutoloadPending"`
+	CurrentTimeMs        int           `json:"currentTimeMs,omitempty"`
+	ObservedAudioQuality string        `json:"observedPlaybackAudioQuality,omitempty"`
 }
 
 type PlayOptions struct {

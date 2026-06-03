@@ -87,7 +87,7 @@ type SettingsRow struct {
 	ThemeColor               sql.NullString `bun:"theme_color"`
 	ColorScheme              sql.NullString `bun:"color_scheme"`
 	Language                 sql.NullString `bun:"language"`
-	DefaultBrowser           sql.NullString `bun:"default_browser"`
+	SniffBrowser             sql.NullString `bun:"default_browser"`
 	DownloadDirectory        sql.NullString `bun:"download_directory"`
 	LogLevel                 sql.NullString `bun:"log_level"`
 	LogMaxSize               sql.NullInt64  `bun:"log_max_size_mb"`
@@ -100,6 +100,7 @@ type SettingsRow struct {
 	SyncedLyricsEnabled      sql.NullBool   `bun:"synced_lyrics_enabled"`
 	RomanizedLyrics          sql.NullBool   `bun:"romanized_lyrics"`
 	PinyinLyrics             sql.NullBool   `bun:"pinyin_lyrics"`
+	PlaybackAudioQuality     sql.NullString `bun:"playback_audio_quality"`
 	ResourceSniffScope       sql.NullString `bun:"resource_sniff_scope"`
 	ResourceSniffMinBytes    sql.NullInt64  `bun:"resource_sniff_min_bytes"`
 	ResourceSniffRetain      sql.NullInt64  `bun:"resource_sniff_retain"`

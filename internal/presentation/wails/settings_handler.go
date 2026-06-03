@@ -36,6 +36,10 @@ type settingsOnlinePlayerResetter interface {
 	Reset() error
 }
 
+type settingsPlaybackAudioQualitySyncer interface {
+	SetPlaybackAudioQuality(string) error
+}
+
 func NewSettingsHandler(service *service.SettingsService, windows *WindowManager, logger *logging.Logger, proxyMgr *proxy.Manager, autostartMgr *autostart.Manager, players ...settingsOnlinePlayerResetter) *SettingsHandler {
 	return &SettingsHandler{service: service, windows: windows, logger: logger, proxy: proxyMgr, autostart: autostartMgr, players: players}
 }
@@ -146,6 +150,19 @@ func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.
 		}
 	}
 
+	if request.PlaybackAudioQuality != nil {
+		for _, player := range handler.players {
+			if syncer, ok := player.(settingsPlaybackAudioQualitySyncer); ok {
+				if err := syncer.SetPlaybackAudioQuality(updated.PlaybackAudioQuality); err != nil {
+					if hasPrevious {
+						handler.rollbackSettings(ctx, previousSettings)
+					}
+					return dto.Settings{}, err
+				}
+			}
+		}
+	}
+
 	if handler.windows != nil {
 		handler.windows.ApplySettings(updated)
 	}
@@ -163,7 +180,7 @@ func (handler *SettingsHandler) resolveSniffProfileBrowser(ctx context.Context, 
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(current.DefaultBrowser)
+	return strings.TrimSpace(current.SniffBrowser)
 }
 
 func (handler *SettingsHandler) ShowSettingsWindow() {
@@ -369,7 +386,7 @@ func (handler *SettingsHandler) rollbackSettings(ctx context.Context, previous d
 		ThemeColor:            &previous.ThemeColor,
 		ColorScheme:           &previous.ColorScheme,
 		Language:              &previous.Language,
-		DefaultBrowser:        &previous.DefaultBrowser,
+		SniffBrowser:          &previous.SniffBrowser,
 		DownloadDirectory:     &previous.DownloadDirectory,
 		MainBounds:            &previous.MainBounds,
 		SettingsBounds:        &previous.SettingsBounds,

@@ -266,6 +266,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		return nil, err
 	}
 	listenPlayer = wails.NewListenYouTubeMusicPlayer(app, windowManager, appSessionsService)
+	_ = listenPlayer.SetPlaybackAudioQuality(currentSettings.PlaybackAudioQuality)
 	listenLivePlayer = wails.NewListenYouTubeLivePlayer(app, windowManager, appSessionsService)
 
 	dependenciesRepo := dependenciesrepo.NewSQLiteDependencyRepository(database.Bun)

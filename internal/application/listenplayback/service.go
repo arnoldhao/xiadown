@@ -32,9 +32,10 @@ type PlayerService struct {
 	currentTrack    Track
 	hasCurrentTrack bool
 
-	progress      float64
-	currentTimeMs int
-	duration      float64
+	progress                     float64
+	currentTimeMs                int
+	duration                     float64
+	observedPlaybackAudioQuality string
 
 	volume           float64
 	volumeBeforeMute float64
@@ -204,26 +205,27 @@ func (service *PlayerService) snapshotLocked(ctx context.Context) Snapshot {
 		}
 	}
 	return Snapshot{
-		Version:            service.snapshotVersion,
-		State:              service.state,
-		CurrentTrack:       current,
-		Progress:           service.progress,
-		Duration:           service.duration,
-		Volume:             service.volume,
-		VolumeBeforeMute:   service.volumeBeforeMute,
-		Muted:              service.muted,
-		ShuffleEnabled:     service.shuffleEnabled,
-		RepeatMode:         service.repeatMode,
-		Queue:              queue,
-		QueueKind:          service.queueKind,
-		QueueTitle:         service.queueTitle,
-		CurrentIndex:       service.currentIndex,
-		PendingPlayVideoID: service.pendingPlayVideoID,
-		ShowMiniPlayer:     service.showMiniPlayer,
-		CanUndoQueue:       len(service.queueUndo) > 0,
-		CanRedoQueue:       len(service.queueRedo) > 0,
-		CanAutoloadPending: service.shouldAutoloadPendingVideoLocked(ctx),
-		CurrentTimeMs:      service.currentTimeMs,
+		Version:              service.snapshotVersion,
+		State:                service.state,
+		CurrentTrack:         current,
+		Progress:             service.progress,
+		Duration:             service.duration,
+		Volume:               service.volume,
+		VolumeBeforeMute:     service.volumeBeforeMute,
+		Muted:                service.muted,
+		ShuffleEnabled:       service.shuffleEnabled,
+		RepeatMode:           service.repeatMode,
+		Queue:                queue,
+		QueueKind:            service.queueKind,
+		QueueTitle:           service.queueTitle,
+		CurrentIndex:         service.currentIndex,
+		PendingPlayVideoID:   service.pendingPlayVideoID,
+		ShowMiniPlayer:       service.showMiniPlayer,
+		CanUndoQueue:         len(service.queueUndo) > 0,
+		CanRedoQueue:         len(service.queueRedo) > 0,
+		CanAutoloadPending:   service.shouldAutoloadPendingVideoLocked(ctx),
+		CurrentTimeMs:        service.currentTimeMs,
+		ObservedAudioQuality: service.observedPlaybackAudioQuality,
 	}
 }
 

@@ -257,6 +257,7 @@ func (service *PlayerService) preparePlayTrackLocked(
 	service.progress = clampSeconds(options.StartSeconds)
 	service.currentTimeMs = int(service.progress*1000 + 0.5)
 	service.duration = clampSeconds(track.DurationSeconds)
+	service.observedPlaybackAudioQuality = ""
 	service.pendingPlayVideoID = track.VideoID
 	service.appInitiatedPlayback = true
 

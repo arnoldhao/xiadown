@@ -8,6 +8,11 @@ export type ProxyScheme = "http" | "https" | "socks5";
 export type SystemProxySource = "system" | "vpn";
 export type MenuBarVisibility = "always" | "whenRunning" | "never";
 export type ResourceSniffScope = "default" | "advanced" | "all";
+export type PlaybackAudioQualityPreference =
+  | "AUDIO_QUALITY_AUTO"
+  | "AUDIO_QUALITY_LOW"
+  | "AUDIO_QUALITY_MEDIUM"
+  | "AUDIO_QUALITY_HIGH";
 
 export interface WindowBounds {
   x: number;
@@ -60,7 +65,7 @@ export interface Settings {
   fontFamily: string;
   fontSize: number;
   language: string;
-  defaultBrowser: string;
+  sniffBrowser: string;
   themeColor: ThemeColor;
   colorScheme: ColorScheme;
   systemThemeColor?: string;
@@ -76,6 +81,7 @@ export interface Settings {
   syncedLyricsEnabled: boolean;
   romanizedLyrics: boolean;
   pinyinLyrics: boolean;
+  playbackAudioQuality: PlaybackAudioQualityPreference;
   resourceSniffScope: ResourceSniffScope;
   resourceSniffMinBytes: number;
   resourceSniffRetain: number;
@@ -92,7 +98,7 @@ export interface UpdateSettingsRequest {
   fontFamily?: string;
   fontSize?: number;
   language?: string;
-  defaultBrowser?: string;
+  sniffBrowser?: string;
   themeColor?: ThemeColor;
   colorScheme?: ColorScheme;
   logLevel?: string;
@@ -107,6 +113,7 @@ export interface UpdateSettingsRequest {
   syncedLyricsEnabled?: boolean;
   romanizedLyrics?: boolean;
   pinyinLyrics?: boolean;
+  playbackAudioQuality?: PlaybackAudioQualityPreference;
   resourceSniffScope?: ResourceSniffScope;
   resourceSniffMinBytes?: number;
   resourceSniffRetain?: number;

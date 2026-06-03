@@ -200,7 +200,7 @@ func (service *LibraryService) RetryYTDLPOperation(ctx context.Context, request 
 
 func resolveToolAction(status string) string {
 	if status == ytdlpCheckStatusFailed {
-		return "dependencies"
+		return "download"
 	}
 	return ""
 }
