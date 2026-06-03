@@ -1015,7 +1015,7 @@ func (service *LibraryService) preferredResourceBrowser(ctx context.Context) str
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(settings.DefaultBrowser)
+	return strings.TrimSpace(settings.SniffBrowser)
 }
 
 func (service *LibraryService) resourceConnectorProfilePath(ctx context.Context, rawURL string) (string, error) {

@@ -1,9 +1,9 @@
-export type XiaSettingsTabId = "general" | "appearance" | "player" | "dependencies" | "about";
+export type XiaSettingsTabId = "general" | "appearance" | "player" | "download" | "about";
 
 const STORAGE_KEY = "xiadown:settings-tab";
 
 export function isSettingsTab(value: string | null | undefined): value is XiaSettingsTabId {
-  return value === "general" || value === "appearance" || value === "player" || value === "dependencies" || value === "about";
+  return value === "general" || value === "appearance" || value === "player" || value === "download" || value === "about";
 }
 
 export function resolveSettingsTab(value: string | null | undefined): XiaSettingsTabId {

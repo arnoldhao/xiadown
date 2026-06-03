@@ -65,7 +65,7 @@ export interface Settings {
   fontFamily: string;
   fontSize: number;
   language: string;
-  defaultBrowser: string;
+  sniffBrowser: string;
   themeColor: ThemeColor;
   colorScheme: ColorScheme;
   systemThemeColor?: string;
@@ -98,7 +98,7 @@ export interface UpdateSettingsRequest {
   fontFamily?: string;
   fontSize?: number;
   language?: string;
-  defaultBrowser?: string;
+  sniffBrowser?: string;
   themeColor?: ThemeColor;
   colorScheme?: ColorScheme;
   logLevel?: string;

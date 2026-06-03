@@ -627,7 +627,7 @@ export function MainApp() {
               label: text.sidebar.dependencyUpdate,
               meta: String(dependencyUpdateCount),
               Icon: Wrench,
-              onSelect: () => openSettingsTab("dependencies"),
+              onSelect: () => openSettingsTab("download"),
               disabled: false,
             }
           : null,

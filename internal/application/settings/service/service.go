@@ -84,9 +84,9 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		language = *request.Language
 	}
 
-	defaultBrowser := current.DefaultBrowser()
-	if request.DefaultBrowser != nil {
-		defaultBrowser = strings.TrimSpace(*request.DefaultBrowser)
+	sniffBrowser := current.SniffBrowser()
+	if request.SniffBrowser != nil {
+		sniffBrowser = strings.TrimSpace(*request.SniffBrowser)
 	}
 
 	downloadDirectory := current.DownloadDirectory()
@@ -229,7 +229,7 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		ThemeColor:               themeColor,
 		ColorScheme:              colorScheme,
 		Language:                 language,
-		DefaultBrowser:           defaultBrowser,
+		SniffBrowser:             sniffBrowser,
 		DownloadDirectory:        downloadDirectory,
 		MainBounds:               mainBounds,
 		SettingsBounds:           settingsBounds,
@@ -315,7 +315,7 @@ func toDTO(current settings.Settings, effective settings.AppearanceMode, systemT
 		ColorScheme:         current.ColorScheme().String(),
 		SystemThemeColor:    systemThemeColor,
 		Language:            current.Language().String(),
-		DefaultBrowser:      current.DefaultBrowser(),
+		SniffBrowser:        current.SniffBrowser(),
 		DownloadDirectory:   current.DownloadDirectory(),
 		MainBounds: dto.WindowBounds{
 			X:      current.MainBounds().X(),

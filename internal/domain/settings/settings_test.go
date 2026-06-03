@@ -33,13 +33,13 @@ func TestParseLanguageAcceptsAdditionalLocales(t *testing.T) {
 	}
 }
 
-func TestDefaultBrowserIsNormalized(t *testing.T) {
+func TestSniffBrowserIsNormalized(t *testing.T) {
 	current, err := NewSettings(SettingsParams{
 		Appearance:        AppearanceAuto.String(),
 		ColorScheme:       DefaultColorScheme.String(),
 		Language:          LanguageEnglish.String(),
 		LogLevel:          DefaultLogLevel.String(),
-		DefaultBrowser:    "  Edge  ",
+		SniffBrowser:      "  Edge  ",
 		MainBounds:        DefaultSettings().MainBounds(),
 		SettingsBounds:    DefaultSettings().SettingsBounds(),
 		MenuBarVisibility: stringPtr(DefaultMenuBarVisibility.String()),
@@ -47,8 +47,8 @@ func TestDefaultBrowserIsNormalized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSettings() error = %v", err)
 	}
-	if current.DefaultBrowser() != "edge" {
-		t.Fatalf("expected default browser to be normalized, got %q", current.DefaultBrowser())
+	if current.SniffBrowser() != "edge" {
+		t.Fatalf("expected sniff browser to be normalized, got %q", current.SniffBrowser())
 	}
 }
 

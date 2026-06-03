@@ -16,7 +16,7 @@ type Settings struct {
 	ColorScheme              string         `json:"colorScheme"`
 	SystemThemeColor         string         `json:"systemThemeColor"`
 	Language                 string         `json:"language"`
-	DefaultBrowser           string         `json:"defaultBrowser"`
+	SniffBrowser             string         `json:"sniffBrowser"`
 	DownloadDirectory        string         `json:"downloadDirectory"`
 	MainBounds               WindowBounds   `json:"mainBounds"`
 	SettingsBounds           WindowBounds   `json:"settingsBounds"`
@@ -48,7 +48,7 @@ type UpdateSettingsRequest struct {
 	ThemeColor               *string        `json:"themeColor"`
 	ColorScheme              *string        `json:"colorScheme"`
 	Language                 *string        `json:"language"`
-	DefaultBrowser           *string        `json:"defaultBrowser"`
+	SniffBrowser             *string        `json:"sniffBrowser"`
 	DownloadDirectory        *string        `json:"downloadDirectory"`
 	MainBounds               *WindowBounds  `json:"mainBounds"`
 	SettingsBounds           *WindowBounds  `json:"settingsBounds"`

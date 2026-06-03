@@ -91,7 +91,7 @@ func TestOnlinePetImportPreferredBrowserReadsSettings(t *testing.T) {
 		nil,
 		"",
 		"",
-		WithSettingsReader(petSettingsReaderStub{settings: settingsdto.Settings{DefaultBrowser: "vivaldi"}}),
+		WithSettingsReader(petSettingsReaderStub{settings: settingsdto.Settings{SniffBrowser: "vivaldi"}}),
 	)
 
 	if got := service.preferredBrowser(context.Background()); got != "vivaldi" {

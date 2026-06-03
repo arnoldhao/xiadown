@@ -180,7 +180,7 @@ func (handler *SettingsHandler) resolveSniffProfileBrowser(ctx context.Context, 
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(current.DefaultBrowser)
+	return strings.TrimSpace(current.SniffBrowser)
 }
 
 func (handler *SettingsHandler) ShowSettingsWindow() {
@@ -386,7 +386,7 @@ func (handler *SettingsHandler) rollbackSettings(ctx context.Context, previous d
 		ThemeColor:            &previous.ThemeColor,
 		ColorScheme:           &previous.ColorScheme,
 		Language:              &previous.Language,
-		DefaultBrowser:        &previous.DefaultBrowser,
+		SniffBrowser:          &previous.SniffBrowser,
 		DownloadDirectory:     &previous.DownloadDirectory,
 		MainBounds:            &previous.MainBounds,
 		SettingsBounds:        &previous.SettingsBounds,

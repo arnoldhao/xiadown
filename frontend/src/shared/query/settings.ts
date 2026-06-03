@@ -199,7 +199,7 @@ function toSettings(raw: Partial<Settings>): Settings {
   return {
     ...(raw as Settings),
     appearance: normalizeAppearanceMode(raw.appearance ?? "auto"),
-    defaultBrowser: stringOrEmpty(raw.defaultBrowser),
+    sniffBrowser: stringOrEmpty(raw.sniffBrowser),
     colorScheme: normalizeColorScheme(raw.colorScheme),
     menuBarVisibility: normalizeMenuBarVisibility(raw.menuBarVisibility ?? "whenRunning"),
     syncedLyricsEnabled: raw.syncedLyricsEnabled !== false,

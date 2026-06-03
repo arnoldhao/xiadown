@@ -82,7 +82,7 @@ export function resolveThemeColorPreview(value: string | undefined, fallbackColo
 
 export function resolveTabFromSection(section: string | null | undefined): XiaSettingsTabId {
   const normalized = (section ?? "").trim();
-  return normalized === "tools" || normalized === "external-tools" ? "dependencies" : resolveSettingsTab(normalized);
+  return normalized === "tools" || normalized === "external-tools" ? "download" : resolveSettingsTab(normalized);
 }
 
 export function parseNoProxy(text: string) {
