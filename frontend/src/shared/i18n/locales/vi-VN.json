@@ -499,7 +499,8 @@
         "appearance": "Giao diện",
         "equalizer": "Equalizer",
         "dependencies": "Công cụ",
-        "about": "Giới thiệu"
+        "about": "Giới thiệu",
+        "player": "Trình phát"
       },
       "startup": "Khởi chạy khi đăng nhập",
       "tray": "Ẩn vào khay khi khởi chạy",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "Chất lượng âm thanh",
+      "playbackAudioQualityOptions": {
+        "auto": "Tự động",
+        "low": "Thấp",
+        "medium": "Trung bình",
+        "high": "Cao"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "Chưa có gì trong hàng đợi",
       "savePlaylist": "Lưu danh sách phát",
       "removePlaylist": "Xóa danh sách phát",
-      "playerUnavailable": "Không thể phát"
+      "playerUnavailable": "Không thể phát",
+      "audioQuality": "Chất lượng hiện tại",
+      "audioQualityUnknown": "Không rõ chất lượng",
+      "audioQualityOptions": {
+        "low": "Thấp",
+        "medium": "Trung bình",
+        "high": "Cao"
+      }
     },
     "whatsNew": {
       "title": "Có gì mới",

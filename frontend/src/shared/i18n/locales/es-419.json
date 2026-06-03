@@ -499,7 +499,8 @@
         "appearance": "Apariencia",
         "equalizer": "Ecualizador",
         "dependencies": "Herramientas",
-        "about": "Acerca de"
+        "about": "Acerca de",
+        "player": "Reproductor"
       },
       "startup": "Abrir al iniciar sesión",
       "tray": "Ocultar en bandeja al iniciar",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "Calidad de audio",
+      "playbackAudioQualityOptions": {
+        "auto": "Automática",
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "Aún no hay nada en cola",
       "savePlaylist": "Guardar lista",
       "removePlaylist": "Quitar lista",
-      "playerUnavailable": "Reproducción no disponible"
+      "playerUnavailable": "Reproducción no disponible",
+      "audioQuality": "Calidad actual",
+      "audioQualityUnknown": "Calidad desconocida",
+      "audioQualityOptions": {
+        "low": "Baja",
+        "medium": "Media",
+        "high": "Alta"
+      }
     },
     "whatsNew": {
       "title": "Novedades",

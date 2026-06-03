@@ -15,6 +15,7 @@ import (
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/listenplayback"
 	"xiadown/internal/application/youtubemusic"
+	"xiadown/internal/domain/settings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -35,15 +36,16 @@ const (
 var listenYouTubeVideoIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
 type ListenPlayerPlayRequest struct {
-	VideoID          string  `json:"videoId"`
-	Title            string  `json:"title"`
-	Artist           string  `json:"artist"`
-	Language         string  `json:"language,omitempty"`
-	StartSeconds     float64 `json:"startSeconds"`
-	RestartFromStart bool    `json:"restartFromStart,omitempty"`
-	ForceReload      bool    `json:"forceReload,omitempty"`
-	Volume           float64 `json:"volume"`
-	Muted            bool    `json:"muted"`
+	VideoID              string  `json:"videoId"`
+	Title                string  `json:"title"`
+	Artist               string  `json:"artist"`
+	Language             string  `json:"language,omitempty"`
+	StartSeconds         float64 `json:"startSeconds"`
+	RestartFromStart     bool    `json:"restartFromStart,omitempty"`
+	ForceReload          bool    `json:"forceReload,omitempty"`
+	Volume               float64 `json:"volume"`
+	Muted                bool    `json:"muted"`
+	PlaybackAudioQuality string  `json:"playbackAudioQuality,omitempty"`
 }
 
 type ListenPlayerVolumeRequest struct {
@@ -301,6 +303,7 @@ type ListenYouTubeMusicPlayer struct {
 	activated             bool
 	targetVolume          float64
 	targetMuted           bool
+	playbackAudioQuality  string
 	requestTitle          string
 	requestArtist         string
 	observedVideo         string
@@ -327,11 +330,12 @@ type ListenYouTubeMusicPlayer struct {
 
 func NewListenYouTubeMusicPlayer(app *application.App, windows *WindowManager, cookies listenPlayerCookieProvider) *ListenYouTubeMusicPlayer {
 	return &ListenYouTubeMusicPlayer{
-		app:          app,
-		windows:      windows,
-		cookies:      cookies,
-		currentState: "idle",
-		targetVolume: 1,
+		app:                  app,
+		windows:              windows,
+		cookies:              cookies,
+		currentState:         "idle",
+		targetVolume:         1,
+		playbackAudioQuality: settings.DefaultPlaybackAudioQuality.String(),
 	}
 }
 
@@ -342,6 +346,26 @@ func (player *ListenYouTubeMusicPlayer) SetPlaybackService(service *listenplayba
 	player.mu.Lock()
 	player.playbackService = service
 	player.mu.Unlock()
+}
+
+func (player *ListenYouTubeMusicPlayer) SetPlaybackAudioQuality(value string) error {
+	if player == nil {
+		return nil
+	}
+	quality, err := settings.ParsePlaybackAudioQuality(value)
+	if err != nil {
+		return err
+	}
+	normalized := quality.String()
+	player.mu.Lock()
+	player.playbackAudioQuality = normalized
+	window := player.window
+	player.mu.Unlock()
+	if window == nil {
+		return nil
+	}
+	execListenYouTubeMusicJS(window, listenYouTubeMusicPlaybackAudioQualityScript(normalized))
+	return nil
 }
 
 func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) error {
@@ -355,6 +379,12 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	cookies := player.playbackCookies(context.Background())
 
 	player.mu.Lock()
+	if request.PlaybackAudioQuality == "" {
+		request.PlaybackAudioQuality = player.playbackAudioQuality
+	}
+	if request.PlaybackAudioQuality == "" {
+		request.PlaybackAudioQuality = settings.DefaultPlaybackAudioQuality.String()
+	}
 	player.targetVolume = request.Volume
 	player.targetMuted = request.Muted
 	player.requestTitle = request.Title
@@ -579,6 +609,7 @@ func (player *ListenYouTubeMusicPlayer) Reset() error {
 	player.observedTitle = ""
 	player.observedArtist = ""
 	player.observedThumb = ""
+	player.observedLike = ""
 	player.advertising = false
 	player.adLabel = ""
 	player.currentTime = 0
@@ -816,6 +847,7 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	if err := json.Unmarshal([]byte(message), &payload); err != nil {
 		return false
 	}
+	eventType := listenPayloadString(payload, "type")
 	if source, _ := payload["source"].(string); source != listenPlayerSource {
 		return false
 	}
@@ -827,11 +859,14 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 		return true
 	}
 
-	eventType := listenPayloadString(payload, "type")
 	if eventType == listenEmbeddedVideoResizeReadyType {
 		sequence, _ := listenPayloadUint64(payload, "sequence")
 		ready := listenPayloadBool(payload, "ready")
 		player.completeEmbeddedVideoResize(sequence, ready)
+		return true
+	}
+	if eventType == "PLAYBACK_AUDIO_QUALITY_OBSERVED" {
+		player.handleListenPlayerObservedAudioQuality(payload)
 		return true
 	}
 	state := listenPayloadString(payload, "state")
@@ -1005,6 +1040,35 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	)
 	player.dispatch(payload)
 	return true
+}
+
+func (player *ListenYouTubeMusicPlayer) handleListenPlayerObservedAudioQuality(payload map[string]any) {
+	observed, videoID, ok := listenObservedPlaybackAudioQuality(payload)
+	if !ok {
+		return
+	}
+	player.mu.Lock()
+	currentVideo := player.currentVideo
+	if videoID != "" && currentVideo != "" && videoID != currentVideo {
+		player.mu.Unlock()
+		return
+	}
+	playbackService := player.playbackService
+	player.mu.Unlock()
+	if playbackService != nil {
+		playbackService.UpdatePlaybackAudioQuality(context.Background(), observed)
+	}
+}
+
+func listenObservedPlaybackAudioQuality(payload map[string]any) (string, string, bool) {
+	if listenPayloadString(payload, "type") != "PLAYBACK_AUDIO_QUALITY_OBSERVED" {
+		return "", "", false
+	}
+	observed := listenplayback.NormalizeObservedPlaybackAudioQuality(listenPayloadString(payload, "observed"))
+	if observed == "" {
+		return "", "", false
+	}
+	return observed, listenPayloadString(payload, "videoId"), true
 }
 
 func (player *ListenYouTubeMusicPlayer) syncPlaybackServiceFromNativeEvent(
@@ -1510,7 +1574,20 @@ func normalizeListenPlayerPlayRequest(request ListenPlayerPlayRequest) ListenPla
 	request.Language = normalizeListenPlayerLanguage(request.Language)
 	request.StartSeconds = clampListenSeconds(request.StartSeconds)
 	request.Volume = clampListenVolume(request.Volume)
+	request.PlaybackAudioQuality = normalizeListenPlaybackAudioQualityPreference(request.PlaybackAudioQuality)
 	return request
+}
+
+func normalizeListenPlaybackAudioQualityPreference(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	quality, err := settings.ParsePlaybackAudioQuality(trimmed)
+	if err != nil {
+		return settings.DefaultPlaybackAudioQuality.String()
+	}
+	return quality.String()
 }
 
 func normalizeListenPlayerLanguage(language string) string {
@@ -1563,6 +1640,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   const SOURCE = %q;
   const INITIAL_REQUEST = %s;
   const REQUEST_STORAGE_KEY = "__listenPlaybackRequest";
+  const PLAYBACK_AUDIO_QUALITY_STORAGE_KEY = "xiadownPlaybackAudioQuality";
 	  const UPDATE_THROTTLE_MS = 120;
 	  const POLL_INTERVAL_MS = 250;
 	  const LYRICS_POLL_INTERVAL_MS = 100;
@@ -1601,6 +1679,8 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   let volumeEnforcing = false;
   let volumeApplyFrame = null;
   let volumeBurstTimer = null;
+  let audioQualityApplyScheduled = false;
+  let lastObservedAudioQualityKey = "";
   let booted = false;
 
   function post(payload) {
@@ -1633,6 +1713,22 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     });
   }
 
+  function postObservedPlaybackAudioQuality(observation) {
+    try {
+      const observed = normalizeObservedPlaybackAudioQuality(observation && observation.observed);
+      if (!observed) return;
+      const videoId = String((observation && observation.videoId) || "");
+      const key = observed + "|" + videoId;
+      if (key === lastObservedAudioQualityKey) return;
+      lastObservedAudioQualityKey = key;
+      post({
+        type: "PLAYBACK_AUDIO_QUALITY_OBSERVED",
+        observed,
+        videoId
+      });
+    } catch (error) {}
+  }
+
   function readRequest() {
     let stored = null;
     try {
@@ -1662,6 +1758,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     next.forceReload = next.forceReload === true;
     next.volume = Math.max(0, Math.min(1, Number(next.volume ?? 1)));
     next.muted = Boolean(next.muted);
+    delete next.playbackAudioQuality;
     return next;
   }
 
@@ -1690,6 +1787,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
         : Object.assign({}, previous, incoming)
     );
     if (Object.prototype.hasOwnProperty.call(incoming, "videoId")) {
+      lastObservedAudioQualityKey = "";
       scheduleVolumeBurst();
       autoplayRecoveryPending = true;
     }
@@ -1732,6 +1830,352 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     const moviePlayer = document.getElementById("movie_player");
     if (moviePlayer) return moviePlayer;
     return null;
+  }
+
+  function normalizePlaybackAudioQualityPreference(value) {
+    switch (String(value || "").trim()) {
+      case "AUDIO_QUALITY_LOW":
+      case "AUDIO_QUALITY_MEDIUM":
+      case "AUDIO_QUALITY_HIGH":
+      case "AUDIO_QUALITY_AUTO":
+        return String(value || "").trim();
+      default:
+        return "AUDIO_QUALITY_AUTO";
+    }
+  }
+
+  function writePlaybackAudioQualityPreference(value) {
+    const quality = normalizePlaybackAudioQualityPreference(value);
+    window.__xiadownPlaybackAudioQuality = quality;
+    try {
+      window.localStorage.setItem(PLAYBACK_AUDIO_QUALITY_STORAGE_KEY, quality);
+    } catch (error) {}
+    return quality;
+  }
+
+  writePlaybackAudioQualityPreference(INITIAL_REQUEST.playbackAudioQuality);
+
+  function currentPlaybackAudioQualityPreference() {
+    if (typeof window.__xiadownPlaybackAudioQuality === "string") {
+      return normalizePlaybackAudioQualityPreference(window.__xiadownPlaybackAudioQuality);
+    }
+    try {
+      return normalizePlaybackAudioQualityPreference(window.localStorage.getItem(PLAYBACK_AUDIO_QUALITY_STORAGE_KEY));
+    } catch (error) {
+      return "AUDIO_QUALITY_AUTO";
+    }
+  }
+
+  function youtubeAudioQualityValue(quality) {
+    switch (normalizePlaybackAudioQualityPreference(quality)) {
+      case "AUDIO_QUALITY_LOW":
+      case "AUDIO_QUALITY_MEDIUM":
+      case "AUDIO_QUALITY_HIGH":
+        return normalizePlaybackAudioQualityPreference(quality);
+      case "AUDIO_QUALITY_AUTO":
+      default:
+        return "AUDIO_QUALITY_AUTO";
+    }
+  }
+
+  function callAudioQualityFunction(target, name, args) {
+    try {
+      if (target && typeof target[name] === "function") {
+        target[name].apply(target, args);
+        return true;
+      }
+    } catch (error) {}
+    return false;
+  }
+
+  function applyAudioQualityToPlayer(target, quality) {
+    const desired = youtubeAudioQualityValue(quality);
+    let applied = callAudioQualityFunction(target, "setAudioQuality", [desired]);
+    try {
+      if (target && typeof target.setOption === "function") {
+        [
+          ["audio", "quality", desired],
+          ["audio", "audioQuality", desired],
+          ["player", "audioQuality", desired],
+          ["player", "audio_quality", desired],
+          ["playback", "audioQuality", desired],
+          ["playback", "audio_quality", desired]
+        ].forEach((args) => {
+          try {
+            target.setOption(args[0], args[1], args[2]);
+            applied = true;
+          } catch (error) {}
+        });
+      }
+    } catch (error) {}
+    return applied;
+  }
+
+  function candidateAudioQualityPlayers() {
+    const players = [];
+    const add = (target, source) => {
+      if (target) players.push({ target, source });
+    };
+    try {
+      const ytmusicPlayer = document.querySelector("ytmusic-player");
+      if (ytmusicPlayer) {
+        add(ytmusicPlayer, "ytmusic-player");
+        if (ytmusicPlayer.playerApi) add(ytmusicPlayer.playerApi, "ytmusic-player.playerApi");
+      }
+    } catch (error) {}
+    try {
+      add(document.getElementById("movie_player"), "movie_player");
+    } catch (error) {}
+    try {
+      if (window.yt && window.yt.player) add(window.yt.player, "window.yt.player");
+    } catch (error) {}
+    return players;
+  }
+
+  function readAudioQualityFunctionValue(target, names) {
+    for (let index = 0; index < names.length; index += 1) {
+      const name = names[index];
+      try {
+        if (target && typeof target[name] === "function") {
+          const value = target[name]();
+          if (value !== null && typeof value !== "undefined") return { name, value };
+        }
+      } catch (error) {}
+    }
+    return null;
+  }
+
+  function readAudioQualityProperty(target, names) {
+    for (let index = 0; index < names.length; index += 1) {
+      const name = names[index];
+      try {
+        if (target && target[name] !== null && typeof target[name] !== "undefined") {
+          return { name, value: target[name] };
+        }
+      } catch (error) {}
+    }
+    return null;
+  }
+
+  function safeAudioQualityPrimitive(value) {
+    if (value === null || typeof value === "undefined") return null;
+    const type = typeof value;
+    if (type === "string") return value.length > 160 ? value.substring(0, 160) : value;
+    if (type === "number") return Number.isFinite(value) ? value : null;
+    if (type === "boolean") return value;
+    return null;
+  }
+
+  function videoIdFromAudioQualityPlayers(players) {
+    for (let index = 0; index < players.length; index += 1) {
+      const entry = players[index];
+      const dataResult = readAudioQualityFunctionValue(entry.target, ["getVideoData"]);
+      if (!dataResult || !dataResult.value || typeof dataResult.value !== "object") continue;
+      const videoId = safeAudioQualityPrimitive(
+        dataResult.value.video_id ||
+        dataResult.value.videoId ||
+        dataResult.value.videoID
+      );
+      if (videoId) return String(videoId);
+    }
+    try {
+      if (window.location && window.location.href && typeof URL === "function") {
+        const url = new URL(window.location.href);
+        return String(safeAudioQualityPrimitive(url.searchParams.get("v")) || "");
+      }
+    } catch (error) {}
+    return "";
+  }
+
+  function audioQualityFromItag(itag) {
+    switch (String(itag)) {
+      case "139":
+      case "249":
+      case "250":
+        return "AUDIO_QUALITY_LOW";
+      case "140":
+      case "251":
+        return "AUDIO_QUALITY_MEDIUM";
+      case "141":
+        return "AUDIO_QUALITY_HIGH";
+      default:
+        return null;
+    }
+  }
+
+  function normalizeObservedPlaybackAudioQuality(value) {
+    switch (String(value || "").trim()) {
+      case "AUDIO_QUALITY_LOW":
+        return "AUDIO_QUALITY_LOW";
+      case "AUDIO_QUALITY_MEDIUM":
+        return "AUDIO_QUALITY_MEDIUM";
+      case "AUDIO_QUALITY_HIGH":
+        return "AUDIO_QUALITY_HIGH";
+      default:
+        return "";
+    }
+  }
+
+  function inferredAudioQualityFromText(value) {
+    const text = String(value || "");
+    let token = "";
+    function observedQualityFromToken(candidate) {
+      if (candidate.length < 2 || candidate.length > 3) return null;
+      const quality = audioQualityFromItag(candidate);
+      if (!quality) return null;
+      return { quality, itag: candidate };
+    }
+    for (let index = 0; index <= text.length; index += 1) {
+      const character = index < text.length ? text.charAt(index) : "";
+      if (character >= "0" && character <= "9") {
+        token += character;
+        continue;
+      }
+      if (token.length > 0) {
+        const inferred = observedQualityFromToken(token);
+        if (inferred) return inferred;
+        token = "";
+      }
+    }
+    return null;
+  }
+
+  function inferredAudioQualityFromValue(value) {
+    if (value === null || typeof value === "undefined") return null;
+    if (Array.isArray(value)) {
+      for (let index = 0; index < value.length; index += 1) {
+        const inferred = inferredAudioQualityFromValue(value[index]);
+        if (inferred) return inferred;
+      }
+      return null;
+    }
+    const type = typeof value;
+    if (type === "string" || type === "number" || type === "boolean") {
+      return inferredAudioQualityFromText(value);
+    }
+    return null;
+  }
+
+  function readAudioQualityStatsProperty(stats, names) {
+    if (!stats || typeof stats !== "object") return null;
+    const candidates = [];
+    names.forEach((name) => {
+      candidates.push(name);
+      candidates.push("debug_" + name);
+    });
+    return readAudioQualityProperty(stats, candidates);
+  }
+
+  function inferredAudioQualityFromStats(stats) {
+    const keys = [
+      "itag",
+      "audioItag",
+      "afmt",
+      "audioFormat",
+      "audio_format",
+      "codec",
+      "codecs",
+      "audioCodec",
+      "audioCodecs"
+    ];
+    if (!stats || typeof stats !== "object") return null;
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      const entry = readAudioQualityStatsProperty(stats, [key]);
+      if (!entry) continue;
+      const inferred = inferredAudioQualityFromValue(entry.value);
+      if (inferred) return inferred;
+    }
+    return null;
+  }
+
+  function observedAudioQualityFromStats(stats) {
+    const direct = readAudioQualityStatsProperty(stats, [
+      "audioQuality",
+      "quality",
+      "playbackQuality"
+    ]);
+    if (direct) {
+      const normalized = normalizeObservedPlaybackAudioQuality(direct.value);
+      if (normalized) return normalized;
+      const inferred = inferredAudioQualityFromValue(direct.value);
+      if (inferred) return inferred.quality;
+    }
+    const inferred = inferredAudioQualityFromStats(stats);
+    return inferred ? inferred.quality : "";
+  }
+
+  function observedPlaybackAudioQuality(players) {
+    const candidates = players || candidateAudioQualityPlayers();
+    const observation = {
+      observed: "",
+      videoId: videoIdFromAudioQualityPlayers(candidates)
+    };
+    for (let index = 0; index < candidates.length; index += 1) {
+      const entry = candidates[index];
+      const observed = readAudioQualityFunctionValue(entry.target, [
+        "getAudioQuality",
+        "getPlaybackAudioQuality",
+        "getPreferredAudioQuality"
+      ]) || readAudioQualityProperty(entry.target, [
+        "audioQuality",
+        "playbackAudioQuality",
+        "preferredAudioQuality"
+      ]);
+      if (!observed) continue;
+      const normalized = normalizeObservedPlaybackAudioQuality(observed.value);
+      if (normalized) {
+        observation.observed = normalized;
+        return observation;
+      }
+      const inferred = inferredAudioQualityFromValue(observed.value);
+      if (inferred) {
+        observation.observed = inferred.quality;
+        return observation;
+      }
+    }
+    for (let index = 0; index < candidates.length; index += 1) {
+      const entry = candidates[index];
+      const statsResult = readAudioQualityFunctionValue(entry.target, ["getStatsForNerds"]);
+      const stats = statsResult && statsResult.value && typeof statsResult.value === "object" ? statsResult.value : null;
+      const observed = observedAudioQualityFromStats(stats);
+      if (!observed) continue;
+      observation.observed = observed;
+      return observation;
+    }
+    return observation;
+  }
+
+  function applyPlaybackAudioQuality() {
+    const quality = currentPlaybackAudioQualityPreference();
+    window.__xiadownPlaybackAudioQuality = quality;
+    const players = candidateAudioQualityPlayers();
+    let applied = false;
+    players.forEach((entry) => {
+      applied = applyAudioQualityToPlayer(entry.target, quality) || applied;
+    });
+    postObservedPlaybackAudioQuality(observedPlaybackAudioQuality(players));
+    return applied;
+  }
+
+  window.__xiadownApplyPlaybackAudioQuality = applyPlaybackAudioQuality;
+
+  function schedulePlaybackAudioQualityApply() {
+    if (audioQualityApplyScheduled) return;
+    audioQualityApplyScheduled = true;
+    const run = () => {
+      audioQualityApplyScheduled = false;
+      applyPlaybackAudioQuality();
+    };
+    try {
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(run);
+      } else {
+        window.setTimeout(run, 0);
+      }
+    } catch (error) {
+      run();
+    }
   }
 
   function isElementVisible(element) {
@@ -2823,6 +3267,9 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       ["loadstart", "loadedmetadata", "loadeddata", "canplay", "canplaythrough", "durationchange", "progress"].forEach((name) => {
         video.addEventListener(name, () => {
           applyVolume();
+          if (name === "loadedmetadata" || name === "loadeddata" || name === "canplay") {
+            schedulePlaybackAudioQualityApply();
+          }
           applyStartPosition(video);
           if (name === "loadeddata" || name === "canplay" || name === "canplaythrough") {
             attemptAutoplayRecovery(video, "autoplay-recovery-" + name);
@@ -2850,9 +3297,14 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
         lastRequestedAction = "";
         autoplayRecoveryPending = false;
         applyVolume();
+        schedulePlaybackAudioQualityApply();
         cancelAutoplay();
         startPolling();
         sendState("playing", true);
+      });
+      video.addEventListener("emptied", () => {
+        schedulePlaybackAudioQualityApply();
+        sendState("emptied", true);
       });
       video.addEventListener("pause", () => {
         if (video.ended) return;
@@ -2956,6 +3408,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     } catch (error) {}
     applyVolume();
     scheduleVolumeBurst();
+    applyPlaybackAudioQuality();
     const bootMetadata = metadataSnapshot();
     post({
       type: "ready",
@@ -2977,6 +3430,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     }
     const bodyObserver = new MutationObserver(() => {
       attachVideoListeners();
+      schedulePlaybackAudioQualityApply();
       sendState("dom-mutation", false);
     });
     bodyObserver.observe(document.documentElement || document.body, { childList: true, subtree: true, attributes: true });
@@ -3062,8 +3516,15 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       return "unsupported";
     },
     request: (next) => {
-      const request = writeRequest(next || {});
+      const incoming = next || {};
+      if (Object.prototype.hasOwnProperty.call(incoming, "playbackAudioQuality")) {
+        writePlaybackAudioQualityPreference(incoming.playbackAudioQuality);
+      }
+      const requestPayload = Object.assign({}, incoming);
+      delete requestPayload.playbackAudioQuality;
+      const request = writeRequest(requestPayload);
       applyVolume();
+      schedulePlaybackAudioQualityApply();
       sendState("api-request", true);
       return request;
     },
@@ -3071,7 +3532,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
   };
 
   installVolumeGuards();
-  if (document.documentElement || document.body || document.readyState !== "loading") {
+  if (document.readyState !== "loading") {
     boot();
   } else {
     document.addEventListener("DOMContentLoaded", boot, { once: true });
@@ -3088,12 +3549,42 @@ func listenYouTubeMusicPrepareLoadScript(request ListenPlayerPlayRequest) string
     const request = %s;
     const api = window.__listenNativePlayer;
     if (api && typeof api.request === "function") api.request(request);
-    else window.localStorage.setItem("__listenPlaybackRequest", JSON.stringify(request));
+    else {
+      if (request.playbackAudioQuality) {
+        window.__xiadownPlaybackAudioQuality = request.playbackAudioQuality;
+        window.localStorage.setItem("xiadownPlaybackAudioQuality", request.playbackAudioQuality);
+      }
+      const storedRequest = Object.assign({}, request);
+      delete storedRequest.playbackAudioQuality;
+      window.localStorage.setItem("__listenPlaybackRequest", JSON.stringify(storedRequest));
+    }
     if (api && typeof api.pause === "function") api.pause();
     else document.querySelector("video")?.pause();
   } catch (error) {}
 })();
 `, string(requestJSON))
+}
+
+func listenYouTubeMusicPlaybackAudioQualityScript(value string) string {
+	quality := normalizeListenPlaybackAudioQualityPreference(value)
+	if quality == "" {
+		quality = settings.DefaultPlaybackAudioQuality.String()
+	}
+	qualityJSON, _ := json.Marshal(quality)
+	return fmt.Sprintf(`
+(function() {
+  try {
+    const quality = %s;
+    window.__xiadownPlaybackAudioQuality = quality;
+    try {
+      window.localStorage.setItem("xiadownPlaybackAudioQuality", quality);
+    } catch (error) {}
+    if (typeof window.__xiadownApplyPlaybackAudioQuality === "function") {
+      window.__xiadownApplyPlaybackAudioQuality();
+    }
+  } catch (error) {}
+})();
+`, string(qualityJSON))
 }
 
 func listenYouTubeMusicPauseScript() string {
@@ -3217,6 +3708,19 @@ func listenYouTubeMusicSameVideoResumeScript(request ListenPlayerPlayRequest) st
 (function() {
   const request = %s;
   const api = window.__listenNativePlayer;
+  if (api && typeof api.request === "function") api.request(request);
+  else {
+    if (request.playbackAudioQuality) {
+      window.__xiadownPlaybackAudioQuality = request.playbackAudioQuality;
+      window.localStorage.setItem("xiadownPlaybackAudioQuality", request.playbackAudioQuality);
+    }
+    const storedRequest = Object.assign({}, request);
+    delete storedRequest.playbackAudioQuality;
+    window.localStorage.setItem("__listenPlaybackRequest", JSON.stringify(storedRequest));
+    if (typeof window.__xiadownApplyPlaybackAudioQuality === "function") {
+      window.__xiadownApplyPlaybackAudioQuality();
+    }
+  }
   if (api && typeof api.volume === "function") api.volume(request.volume, request.muted);
   const video = document.querySelector("video");
   const start = Math.max(0, Number(request.startSeconds || 0));

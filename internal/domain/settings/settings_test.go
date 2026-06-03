@@ -52,6 +52,28 @@ func TestDefaultBrowserIsNormalized(t *testing.T) {
 	}
 }
 
+func TestPlaybackAudioQualityDefaultsAndValidation(t *testing.T) {
+	current := DefaultSettings()
+	if current.PlaybackAudioQuality() != DefaultPlaybackAudioQuality {
+		t.Fatalf("expected default playback audio quality, got %q", current.PlaybackAudioQuality())
+	}
+
+	quality, err := ParsePlaybackAudioQuality("AUDIO_QUALITY_HIGH")
+	if err != nil {
+		t.Fatalf("ParsePlaybackAudioQuality() error = %v", err)
+	}
+	if quality != PlaybackAudioQualityHigh {
+		t.Fatalf("expected high quality, got %q", quality)
+	}
+
+	if _, err := ParsePlaybackAudioQuality("high"); err == nil {
+		t.Fatal("expected legacy playback audio quality alias to fail")
+	}
+	if _, err := ParsePlaybackAudioQuality("lossless"); err == nil {
+		t.Fatal("expected invalid playback audio quality to fail")
+	}
+}
+
 func TestResourceSniffSettingsDefaultsAndValidation(t *testing.T) {
 	current := DefaultSettings()
 	if current.ResourceSniffScope() != ResourceSniffScopeDefault {

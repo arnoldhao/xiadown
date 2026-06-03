@@ -499,7 +499,8 @@
         "appearance": "外觀",
         "equalizer": "等化器",
         "dependencies": "工具",
-        "about": "關於"
+        "about": "關於",
+        "player": "播放器"
       },
       "startup": "開機自動啟動",
       "tray": "啟動後隱藏到系統匣",
@@ -660,6 +661,13 @@
         "kb16": "16 千字节",
         "kb64": "64 千字节",
         "kb256": "256 千字节"
+      },
+      "playbackAudioQuality": "播放音質",
+      "playbackAudioQualityOptions": {
+        "auto": "自動",
+        "low": "低音質",
+        "medium": "標準音質",
+        "high": "高音質"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "目前還沒有播放佇列",
       "savePlaylist": "加入播放清單庫",
       "removePlaylist": "移出播放清單庫",
-      "playerUnavailable": "暫時無法播放"
+      "playerUnavailable": "暫時無法播放",
+      "audioQuality": "目前音質",
+      "audioQualityUnknown": "未知音質",
+      "audioQualityOptions": {
+        "low": "低音質",
+        "medium": "標準音質",
+        "high": "高音質"
+      }
     },
     "whatsNew": {
       "title": "版本更新",

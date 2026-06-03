@@ -36,6 +36,10 @@ type settingsOnlinePlayerResetter interface {
 	Reset() error
 }
 
+type settingsPlaybackAudioQualitySyncer interface {
+	SetPlaybackAudioQuality(string) error
+}
+
 func NewSettingsHandler(service *service.SettingsService, windows *WindowManager, logger *logging.Logger, proxyMgr *proxy.Manager, autostartMgr *autostart.Manager, players ...settingsOnlinePlayerResetter) *SettingsHandler {
 	return &SettingsHandler{service: service, windows: windows, logger: logger, proxy: proxyMgr, autostart: autostartMgr, players: players}
 }
@@ -143,6 +147,19 @@ func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.
 		zap.L().Info("proxy applied", proxyFields(updated.Proxy)...)
 		if proxyChanged {
 			handler.resetOnlinePlayersAfterProxyChange("settings-proxy-updated")
+		}
+	}
+
+	if request.PlaybackAudioQuality != nil {
+		for _, player := range handler.players {
+			if syncer, ok := player.(settingsPlaybackAudioQualitySyncer); ok {
+				if err := syncer.SetPlaybackAudioQuality(updated.PlaybackAudioQuality); err != nil {
+					if hasPrevious {
+						handler.rollbackSettings(ctx, previousSettings)
+					}
+					return dto.Settings{}, err
+				}
+			}
 		}
 	}
 

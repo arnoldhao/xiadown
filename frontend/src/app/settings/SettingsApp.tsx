@@ -10,6 +10,7 @@ ExternalLink,
 FolderOpen,
 Github,
 Globe,
+Headphones,
 Info,
 Loader2,
 Mail,
@@ -20,7 +21,6 @@ Palette,
 Pencil,
 RefreshCcw,
 RefreshCw,
-SlidersVertical,
 Sun,
 Trash2,
 Twitter,
@@ -42,7 +42,7 @@ type XiaAppearanceSettings,
 type XiaSidebarStyle,
 } from "@/shared/styles/xiadown-theme";
 import { cn } from "@/lib/utils";
-import type { BrowserCandidate, ProxySettings, ResourceSniffScope } from "@/shared/contracts/settings";
+import type { BrowserCandidate, PlaybackAudioQualityPreference, ProxySettings, ResourceSniffScope } from "@/shared/contracts/settings";
 import { DialogMarkdown } from "@/shared/markdown/dialog-markdown";
 import {
 useDependencies,
@@ -564,7 +564,7 @@ export function SettingsApp() {
   const tabs: Array<{ id: XiaSettingsTabId; label: string; icon: React.ReactNode }> = [
     { id: "general", label: text.settings.tabs.general, icon: <Cog className="h-[26px] w-[26px]" /> },
     { id: "appearance", label: text.settings.tabs.appearance, icon: <Palette className="h-[26px] w-[26px]" /> },
-    { id: "equalizer", label: text.settings.tabs.equalizer, icon: <SlidersVertical className="h-[26px] w-[26px]" /> },
+    { id: "player", label: text.settings.tabs.player, icon: <Headphones className="h-[26px] w-[26px]" /> },
     { id: "dependencies", label: text.settings.tabs.dependencies, icon: <Wrench className="h-[26px] w-[26px]" /> },
     { id: "about", label: text.settings.tabs.about, icon: <Info className="h-[26px] w-[26px]" /> },
   ];
@@ -639,6 +639,15 @@ export function SettingsApp() {
       value: "all",
       label: text.settings.resourceSniffScopeOptions.all,
     },
+  ];
+  const playbackAudioQualityOptions: Array<{
+    value: PlaybackAudioQualityPreference;
+    label: string;
+  }> = [
+    { value: "AUDIO_QUALITY_AUTO", label: text.settings.playbackAudioQualityOptions.auto },
+    { value: "AUDIO_QUALITY_LOW", label: text.settings.playbackAudioQualityOptions.low },
+    { value: "AUDIO_QUALITY_MEDIUM", label: text.settings.playbackAudioQualityOptions.medium },
+    { value: "AUDIO_QUALITY_HIGH", label: text.settings.playbackAudioQualityOptions.high },
   ];
   const resourceSniffMinBytesOptions = [
     { value: 8 * 1024, label: text.settings.resourceSniffMinBytesOptions.kb8 },
@@ -1172,40 +1181,6 @@ export function SettingsApp() {
                 </SettingsCompactRow>
               </SettingsCompactListCard>
 
-              <SettingsCompactListCard>
-                <SettingsCompactRow label={text.settings.syncedLyrics}>
-                  <InlineSwitch
-                    checked={currentSettings?.syncedLyricsEnabled !== false}
-                    onChange={(checked) => void saveSettingsPatch({ syncedLyricsEnabled: checked })}
-                    ariaLabel={text.settings.syncedLyrics}
-                  />
-                </SettingsCompactRow>
-
-                {!isWindows ? (
-                  <>
-                    <SettingsCompactSeparator />
-
-                    <SettingsCompactRow label={text.settings.romanizedLyrics}>
-                      {renderLyricsTranscriptionSwitch({
-                        checked: currentSettings?.romanizedLyrics !== false,
-                        onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
-                        ariaLabel: text.settings.romanizedLyrics,
-                      })}
-                    </SettingsCompactRow>
-
-                    <SettingsCompactSeparator />
-
-                    <SettingsCompactRow label={text.settings.pinyinLyrics}>
-                      {renderLyricsTranscriptionSwitch({
-                        checked: currentSettings?.pinyinLyrics !== false,
-                        onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
-                        ariaLabel: text.settings.pinyinLyrics,
-                      })}
-                    </SettingsCompactRow>
-                  </>
-                ) : null}
-              </SettingsCompactListCard>
-
               {proxySettingsCard}
 
               <SettingsCompactListCard>
@@ -1544,8 +1519,64 @@ export function SettingsApp() {
             </div>
           ) : null}
 
-          {activeTab === "equalizer" ? (
-            <EqualizerSection isMac={isMac} isWindows={isWindows} text={text} />
+          {activeTab === "player" ? (
+            <div className="space-y-6">
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.playbackAudioQuality}>
+                  <Select
+                    value={currentSettings?.playbackAudioQuality ?? "AUDIO_QUALITY_AUTO"}
+                    onChange={(event) =>
+                      void saveSettingsPatch({
+                        playbackAudioQuality: event.target.value as PlaybackAudioQualityPreference,
+                      })
+                    }
+                    className="w-48"
+                  >
+                    {playbackAudioQualityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={text.settings.syncedLyrics}>
+                  <InlineSwitch
+                    checked={currentSettings?.syncedLyricsEnabled !== false}
+                    onChange={(checked) => void saveSettingsPatch({ syncedLyricsEnabled: checked })}
+                    ariaLabel={text.settings.syncedLyrics}
+                  />
+                </SettingsCompactRow>
+
+                {!isWindows ? (
+                  <>
+                    <SettingsCompactSeparator />
+
+                    <SettingsCompactRow label={text.settings.romanizedLyrics}>
+                      {renderLyricsTranscriptionSwitch({
+                        checked: currentSettings?.romanizedLyrics !== false,
+                        onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
+                        ariaLabel: text.settings.romanizedLyrics,
+                      })}
+                    </SettingsCompactRow>
+
+                    <SettingsCompactSeparator />
+
+                    <SettingsCompactRow label={text.settings.pinyinLyrics}>
+                      {renderLyricsTranscriptionSwitch({
+                        checked: currentSettings?.pinyinLyrics !== false,
+                        onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
+                        ariaLabel: text.settings.pinyinLyrics,
+                      })}
+                    </SettingsCompactRow>
+                  </>
+                ) : null}
+              </SettingsCompactListCard>
+
+              <EqualizerSection isMac={isMac} isWindows={isWindows} text={text} />
+            </div>
           ) : null}
 
           {activeTab === "dependencies" ? (

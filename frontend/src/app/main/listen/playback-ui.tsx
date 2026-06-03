@@ -33,7 +33,7 @@ import {
 import { resolveListenLyricsIcon } from "@/app/main/listen/lyrics-icons";
 import { resolveListenQueuePopupAnchor } from "@/app/main/listen/playback-helpers";
 import type { ListenQueuePopupAnchor } from "@/app/main/listen/queue-popups";
-import type { ListenLyricsKind } from "@/app/main/listen/types";
+import type { ListenLyricsKind, ListenObservedPlaybackAudioQuality } from "@/app/main/listen/types";
 import {
   ListenArtworkShell,
   useListenStableImageSource,
@@ -53,6 +53,7 @@ export function ListenPlayerFooter(props: {
   reserveWindowControls: boolean;
   airPlaySupported: boolean;
   sourceBadge?: React.ReactNode;
+  sourceBadgeQuality?: ListenObservedPlaybackAudioQuality | "";
   hasVideo: boolean;
   videoHidden?: boolean;
   videoLoading?: boolean;
@@ -88,17 +89,46 @@ export function ListenPlayerFooter(props: {
   const handleQueueClick: React.MouseEventHandler<HTMLButtonElement> = (event) => {
     props.onToggleQueue?.(resolveListenQueuePopupAnchor(event.currentTarget));
   };
+  const sourceBadgeQualityLabelKey = resolveObservedPlaybackAudioQualityLabelKey(props.sourceBadgeQuality ?? "");
+  const sourceBadgeShowsAudioQuality = sourceBadgeQualityLabelKey !== "";
+  const sourceBadgeTooltip = sourceBadgeQualityLabelKey
+    ? props.text.listen.audioQualityOptions[sourceBadgeQualityLabelKey]
+    : "";
+  const sourceBadgeClassName = cn(
+    "absolute left-1/2 top-1/2 flex max-w-[9rem] -translate-x-1/2 -translate-y-1/2 select-none items-center justify-center gap-1 overflow-hidden whitespace-nowrap text-[11px] font-medium uppercase leading-4 tracking-[0.22em] transition-colors [&>svg]:h-3 [&>svg]:w-3 [&>svg]:shrink-0",
+    sourceBadgeShowsAudioQuality
+      ? "z-20 cursor-default appearance-none border-0 bg-transparent p-0 pointer-events-auto focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring/50"
+      : "listen-source-watermark z-0 pointer-events-none text-sidebar-foreground/24",
+    sourceBadgeQualityLabelKey === "high" &&
+      "text-emerald-700/80 dark:text-emerald-200/80",
+    sourceBadgeQualityLabelKey === "medium" &&
+      "text-sky-700/78 dark:text-sky-200/78",
+    sourceBadgeQualityLabelKey === "low" &&
+      "text-amber-700/80 dark:text-amber-200/80",
+  );
 
   return (
     <footer className="relative z-20 shrink-0 px-0 pb-1 pt-2 sm:pb-2">
       <div className="relative flex h-12 w-full items-center justify-between gap-3 px-3">
         {props.sourceBadge ? (
-          <div
-            aria-hidden="true"
-            className="listen-source-watermark pointer-events-none absolute left-1/2 top-1/2 z-0 flex max-w-[9rem] -translate-x-1/2 -translate-y-1/2 select-none items-center justify-center gap-1 overflow-hidden whitespace-nowrap text-[11px] font-medium uppercase leading-4 tracking-[0.22em] [&>svg]:h-3 [&>svg]:w-3 [&>svg]:shrink-0"
-          >
-            {props.sourceBadge}
-          </div>
+          sourceBadgeShowsAudioQuality ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className={sourceBadgeClassName}
+                  aria-label={sourceBadgeTooltip}
+                >
+                  {props.sourceBadge}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{sourceBadgeTooltip}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div aria-hidden="true" className={sourceBadgeClassName}>
+              {props.sourceBadge}
+            </div>
+          )
         ) : null}
         <div className="relative z-10 flex shrink-0 items-center gap-1">
           <ListenPlayerIconButton
@@ -164,6 +194,21 @@ export function ListenPlayerFooter(props: {
       </div>
     </footer>
   );
+}
+
+function resolveObservedPlaybackAudioQualityLabelKey(
+  quality: ListenObservedPlaybackAudioQuality | "",
+): "" | "low" | "medium" | "high" {
+  switch (quality) {
+    case "AUDIO_QUALITY_LOW":
+      return "low";
+    case "AUDIO_QUALITY_HIGH":
+      return "high";
+    case "AUDIO_QUALITY_MEDIUM":
+      return "medium";
+    default:
+      return "";
+  }
 }
 
 export function ListenPlayerMoreMenu(props: {

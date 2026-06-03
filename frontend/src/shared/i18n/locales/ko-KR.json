@@ -499,7 +499,8 @@
         "appearance": "모양",
         "equalizer": "이퀄라이저",
         "dependencies": "도구",
-        "about": "정보"
+        "about": "정보",
+        "player": "플레이어"
       },
       "startup": "로그인 시 실행",
       "tray": "시작 시 트레이로 숨기기",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "재생 오디오 품질",
+      "playbackAudioQualityOptions": {
+        "auto": "자동",
+        "low": "낮음",
+        "medium": "중간",
+        "high": "높음"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "아직 대기열이 비어 있습니다",
       "savePlaylist": "재생목록 저장",
       "removePlaylist": "재생목록 제거",
-      "playerUnavailable": "재생을 사용할 수 없습니다"
+      "playerUnavailable": "재생을 사용할 수 없습니다",
+      "audioQuality": "현재 오디오 품질",
+      "audioQualityUnknown": "알 수 없는 품질",
+      "audioQualityOptions": {
+        "low": "낮음",
+        "medium": "중간",
+        "high": "높음"
+      }
     },
     "whatsNew": {
       "title": "새로운 기능",

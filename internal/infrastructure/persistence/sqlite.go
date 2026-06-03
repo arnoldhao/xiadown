@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS settings (
 		synced_lyrics_enabled BOOLEAN DEFAULT 1,
 		romanized_lyrics BOOLEAN DEFAULT 1,
 		pinyin_lyrics BOOLEAN DEFAULT 1,
+	playback_audio_quality TEXT DEFAULT 'AUDIO_QUALITY_AUTO',
 	resource_sniff_scope TEXT,
 	resource_sniff_min_bytes INTEGER,
 	resource_sniff_retain INTEGER,
@@ -1015,6 +1016,11 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			table:     "settings",
 			column:    "pinyin_lyrics",
 			statement: "ALTER TABLE settings ADD COLUMN pinyin_lyrics BOOLEAN DEFAULT 1",
+		},
+		{
+			table:     "settings",
+			column:    "playback_audio_quality",
+			statement: "ALTER TABLE settings ADD COLUMN playback_audio_quality TEXT DEFAULT 'AUDIO_QUALITY_AUTO'",
 		},
 		{
 			table:     "settings",

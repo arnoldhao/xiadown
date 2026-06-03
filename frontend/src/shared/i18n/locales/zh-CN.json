@@ -499,7 +499,8 @@
         "appearance": "外观",
         "equalizer": "均衡器",
         "dependencies": "工具",
-        "about": "关于"
+        "about": "关于",
+        "player": "播放器"
       },
       "startup": "开机自动启动",
       "tray": "启动后隐藏到托盘",
@@ -660,6 +661,13 @@
         "kb16": "16 千字节",
         "kb64": "64 千字节",
         "kb256": "256 千字节"
+      },
+      "playbackAudioQuality": "播放音质",
+      "playbackAudioQualityOptions": {
+        "auto": "自动",
+        "low": "低音质",
+        "medium": "标准音质",
+        "high": "高音质"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "当前还没有播放队列",
       "savePlaylist": "加入歌单库",
       "removePlaylist": "移出歌单库",
-      "playerUnavailable": "暂时无法播放"
+      "playerUnavailable": "暂时无法播放",
+      "audioQuality": "当前音质",
+      "audioQualityUnknown": "未知音质",
+      "audioQualityOptions": {
+        "low": "低音质",
+        "medium": "标准音质",
+        "high": "高音质"
+      }
     },
     "whatsNew": {
       "title": "版本更新",

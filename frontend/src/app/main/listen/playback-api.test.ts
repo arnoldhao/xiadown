@@ -91,4 +91,22 @@ describe("listen playback api adapter", () => {
     expect(normalized?.progress).toBe(12);
     expect(normalized?.currentTimeMs).toBe(12345);
   });
+
+  test("normalizes observed audio quality without exposing auto", () => {
+    expect(
+      normalizeListenPlaybackSnapshot({
+        observedPlaybackAudioQuality: "AUDIO_QUALITY_HIGH",
+      })?.observedPlaybackAudioQuality,
+    ).toBe("AUDIO_QUALITY_HIGH");
+    expect(
+      normalizeListenPlaybackSnapshot({
+        observedPlaybackAudioQuality: "auto",
+      })?.observedPlaybackAudioQuality,
+    ).toBe("");
+    expect(
+      normalizeListenPlaybackSnapshot({
+        observedPlaybackAudioQuality: "high",
+      })?.observedPlaybackAudioQuality,
+    ).toBe("");
+  });
 });

@@ -499,7 +499,8 @@
         "appearance": "Tampilan",
         "equalizer": "Equalizer",
         "dependencies": "Alat",
-        "about": "Tentang"
+        "about": "Tentang",
+        "player": "Pemutar"
       },
       "startup": "Luncurkan saat login",
       "tray": "Sembunyikan ke tray saat mulai",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "Kualitas audio",
+      "playbackAudioQualityOptions": {
+        "auto": "Otomatis",
+        "low": "Rendah",
+        "medium": "Sedang",
+        "high": "Tinggi"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "Belum ada yang masuk antrean",
       "savePlaylist": "Simpan playlist",
       "removePlaylist": "Hapus playlist",
-      "playerUnavailable": "Pemutaran tidak tersedia"
+      "playerUnavailable": "Pemutaran tidak tersedia",
+      "audioQuality": "Kualitas saat ini",
+      "audioQualityUnknown": "Kualitas tidak diketahui",
+      "audioQualityOptions": {
+        "low": "Rendah",
+        "medium": "Sedang",
+        "high": "Tinggi"
+      }
     },
     "whatsNew": {
       "title": "Yang baru",

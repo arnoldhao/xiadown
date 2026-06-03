@@ -499,7 +499,8 @@
         "appearance": "Appearance",
         "equalizer": "Equalizer",
         "dependencies": "Tools",
-        "about": "About"
+        "about": "About",
+        "player": "Player"
       },
       "startup": "Launch at Login",
       "tray": "Hide to Tray on Launch",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "Playback audio quality",
+      "playbackAudioQualityOptions": {
+        "auto": "Auto",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "Nothing queued yet",
       "savePlaylist": "Save Playlist",
       "removePlaylist": "Remove Playlist",
-      "playerUnavailable": "Playback unavailable"
+      "playerUnavailable": "Playback unavailable",
+      "audioQuality": "Audio quality",
+      "audioQualityUnknown": "Unknown quality",
+      "audioQualityOptions": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High"
+      }
     },
     "whatsNew": {
       "title": "What's New",

@@ -72,7 +72,7 @@ import { ListenArtworkVisualizer,ListenInlineVisualizer } from "@/app/main/liste
 import { fetchListenTrackInfo } from "@/app/main/listen/api";
 import { clampVolume,formatProgressSeconds,resolveAudioSource } from "@/app/main/listen/local-library";
 import { buildListenPosterCandidates,buildYouTubeWatchURL } from "@/app/main/listen/storage";
-import type { ListenLocalItem,ListenLyricsData,ListenLyricsKind,ListenMode,ListenNativePlayerEvent,ListenOnlineItem,ListenPlayMode,ListenPlayerCommand,ListenRemotePlaybackState,ListenTrackArtist } from "@/app/main/listen/types";
+import type { ListenLocalItem,ListenLyricsData,ListenLyricsKind,ListenMode,ListenNativePlayerEvent,ListenObservedPlaybackAudioQuality,ListenOnlineItem,ListenPlayMode,ListenPlayerCommand,ListenRemotePlaybackState,ListenTrackArtist } from "@/app/main/listen/types";
 import { ListenOnlineArtwork,ListenSourceBadge } from "@/app/main/listen/ui";
 import {
   isEqualizerArtworkVisualizerMode,
@@ -293,6 +293,7 @@ export function ListenPlayback(props: {
     bufferedTime: number;
   };
   onlineState: ListenRemotePlaybackState;
+  onlineObservedPlaybackAudioQuality: ListenObservedPlaybackAudioQuality | "";
   favoriteActive: boolean;
   favoriteBusy: boolean;
   pet: Pet | null;
@@ -1015,6 +1016,9 @@ export function ListenPlayback(props: {
         muted={props.muted}
         volume={props.volume}
         state={props.onlineState}
+        observedPlaybackAudioQuality={
+          props.mode === "muse" ? (props.onlineObservedPlaybackAudioQuality ?? "") : undefined
+        }
         pet={props.pet}
         petImageURL={props.petImageURL}
         text={props.text}
@@ -1239,6 +1243,7 @@ export function ListenYouTubePlayback(props: {
   muted: boolean;
   volume: number;
   state: ListenRemotePlaybackState;
+  observedPlaybackAudioQuality?: ListenObservedPlaybackAudioQuality | "";
   pet: Pet | null;
   petImageURL: string;
   text: ReturnType<typeof getXiaText>;
@@ -2723,6 +2728,7 @@ export function ListenYouTubePlayback(props: {
         reserveWindowControls={props.reserveWindowControls}
         airPlaySupported={props.airPlaySupported}
         sourceBadge={sourceBadge}
+        observedPlaybackAudioQuality={props.observedPlaybackAudioQuality}
         headerCover={
           <ListenCompactCoverSurface
             key={props.track.id}
@@ -2967,6 +2973,7 @@ function ListenPlayerChrome(props: {
   muted: boolean;
   volume: number;
   playMode: ListenPlayMode;
+  observedPlaybackAudioQuality?: ListenObservedPlaybackAudioQuality | "";
   text: ReturnType<typeof getXiaText>;
   onMediaModeChange: (mode: ListenMediaMode) => void;
   onAirPlay?: (anchor: ListenAirPlayAnchor) => void;
@@ -3309,6 +3316,7 @@ function ListenPlayerChrome(props: {
           lyricsKind={props.lyricsKind}
           lyricsLoading={props.lyricsLoading}
           queueOpen={props.queueOpen}
+          sourceBadgeQuality={props.observedPlaybackAudioQuality}
           text={props.text}
           onAirPlay={props.onAirPlay}
           onMediaModeChange={props.onMediaModeChange}

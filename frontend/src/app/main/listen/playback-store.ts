@@ -13,6 +13,7 @@ import { clampVolume } from "@/app/main/listen/local-library";
 import type {
   ListenOnlineItem,
   ListenOnlineQueueState,
+  ListenObservedPlaybackAudioQuality,
   ListenPlayMode,
   ListenPlaybackProgressState,
   ListenRemotePlaybackState,
@@ -35,6 +36,7 @@ export type ListenPlaybackProjection = {
   volume: number;
   muted: boolean;
   volumeBeforeMute: number;
+  observedPlaybackAudioQuality: ListenObservedPlaybackAudioQuality | "";
 };
 
 type UseListenPlaybackStoreOptions = {
@@ -68,6 +70,7 @@ function emptyProjection(hydrated = false): ListenPlaybackProjection {
     volume: 1,
     muted: false,
     volumeBeforeMute: 1,
+    observedPlaybackAudioQuality: "",
   };
 }
 
@@ -112,6 +115,7 @@ export function deriveListenPlaybackProjection(
     volume: nextVolume,
     muted: snapshot.muted || nextVolume <= 0,
     volumeBeforeMute,
+    observedPlaybackAudioQuality: snapshot.observedPlaybackAudioQuality ?? "",
   };
 }
 

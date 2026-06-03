@@ -154,6 +154,11 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		pinyinLyrics = *request.PinyinLyrics
 	}
 
+	playbackAudioQuality := current.PlaybackAudioQuality().String()
+	if request.PlaybackAudioQuality != nil {
+		playbackAudioQuality = *request.PlaybackAudioQuality
+	}
+
 	resourceSniffScope := current.ResourceSniffScope().String()
 	if request.ResourceSniffScope != nil {
 		resourceSniffScope = *request.ResourceSniffScope
@@ -241,6 +246,7 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		SyncedLyricsEnabled:      &syncedLyricsEnabled,
 		RomanizedLyrics:          &romanizedLyrics,
 		PinyinLyrics:             &pinyinLyrics,
+		PlaybackAudioQuality:     playbackAudioQuality,
 		ResourceSniffScope:       resourceSniffScope,
 		ResourceSniffMinBytes:    resourceSniffMinBytes,
 		ResourceSniffRetain:      resourceSniffRetain,
@@ -335,6 +341,7 @@ func toDTO(current settings.Settings, effective settings.AppearanceMode, systemT
 		SyncedLyricsEnabled:      current.SyncedLyricsEnabled(),
 		RomanizedLyrics:          current.RomanizedLyrics(),
 		PinyinLyrics:             current.PinyinLyrics(),
+		PlaybackAudioQuality:     current.PlaybackAudioQuality().String(),
 		ResourceSniffScope:       current.ResourceSniffScope().String(),
 		ResourceSniffMinBytes:    current.ResourceSniffMinBytes(),
 		ResourceSniffRetain:      current.ResourceSniffRetain(),

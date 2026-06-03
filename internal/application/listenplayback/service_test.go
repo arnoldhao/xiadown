@@ -13,6 +13,22 @@ type fakeTransport struct {
 	seeks          []float64
 }
 
+func TestNormalizeObservedPlaybackAudioQuality(t *testing.T) {
+	tests := map[string]string{
+		"AUDIO_QUALITY_LOW":    "AUDIO_QUALITY_LOW",
+		"AUDIO_QUALITY_MEDIUM": "AUDIO_QUALITY_MEDIUM",
+		"AUDIO_QUALITY_HIGH":   "AUDIO_QUALITY_HIGH",
+		"AUDIO_QUALITY_AUTO":   "",
+		"auto":                 "",
+		"high":                 "",
+	}
+	for value, expected := range tests {
+		if got := NormalizeObservedPlaybackAudioQuality(value); got != expected {
+			t.Fatalf("NormalizeObservedPlaybackAudioQuality(%q) = %q, want %q", value, got, expected)
+		}
+	}
+}
+
 type fakeLoad struct {
 	videoID      string
 	startSeconds float64

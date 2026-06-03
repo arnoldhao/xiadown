@@ -205,6 +205,7 @@ function toSettings(raw: Partial<Settings>): Settings {
     syncedLyricsEnabled: raw.syncedLyricsEnabled !== false,
     romanizedLyrics: raw.romanizedLyrics !== false,
     pinyinLyrics: raw.pinyinLyrics !== false,
+    playbackAudioQuality: normalizePlaybackAudioQuality(raw.playbackAudioQuality),
     resourceSniffScope: normalizeResourceSniffScope(raw.resourceSniffScope),
     resourceSniffMinBytes: normalizeResourceSniffMinBytes(raw.resourceSniffMinBytes),
     resourceSniffRetain: normalizeResourceSniffRetain(raw.resourceSniffRetain),
@@ -303,6 +304,21 @@ function normalizeResourceSniffScope(value?: string): Settings["resourceSniffSco
       return value;
     default:
       return "default";
+  }
+}
+
+function normalizePlaybackAudioQuality(value?: string): Settings["playbackAudioQuality"] {
+  switch (value) {
+    case "AUDIO_QUALITY_AUTO":
+      return "AUDIO_QUALITY_AUTO";
+    case "AUDIO_QUALITY_LOW":
+      return "AUDIO_QUALITY_LOW";
+    case "AUDIO_QUALITY_MEDIUM":
+      return "AUDIO_QUALITY_MEDIUM";
+    case "AUDIO_QUALITY_HIGH":
+      return "AUDIO_QUALITY_HIGH";
+    default:
+      return "AUDIO_QUALITY_AUTO";
   }
 }
 

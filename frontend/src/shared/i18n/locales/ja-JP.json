@@ -499,7 +499,8 @@
         "appearance": "外観",
         "equalizer": "イコライザー",
         "dependencies": "ツール",
-        "about": "情報"
+        "about": "情報",
+        "player": "プレーヤー"
       },
       "startup": "ログイン時に起動",
       "tray": "起動時にトレイへ隠す",
@@ -660,6 +661,13 @@
         "kb16": "16 KB",
         "kb64": "64 KB",
         "kb256": "256 KB"
+      },
+      "playbackAudioQuality": "再生音質",
+      "playbackAudioQualityOptions": {
+        "auto": "自動",
+        "low": "低",
+        "medium": "中",
+        "high": "高"
       }
     },
     "dependencies": {
@@ -958,7 +966,14 @@
       "upNextEmpty": "キューはまだ空です",
       "savePlaylist": "プレイリストを保存",
       "removePlaylist": "プレイリストを削除",
-      "playerUnavailable": "再生を利用できません"
+      "playerUnavailable": "再生を利用できません",
+      "audioQuality": "現在の音質",
+      "audioQualityUnknown": "不明な音質",
+      "audioQualityOptions": {
+        "low": "低音質",
+        "medium": "中音質",
+        "high": "高音質"
+      }
     },
     "whatsNew": {
       "title": "新機能",

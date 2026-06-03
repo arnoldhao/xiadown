@@ -100,6 +100,7 @@ type SettingsRow struct {
 	SyncedLyricsEnabled      sql.NullBool   `bun:"synced_lyrics_enabled"`
 	RomanizedLyrics          sql.NullBool   `bun:"romanized_lyrics"`
 	PinyinLyrics             sql.NullBool   `bun:"pinyin_lyrics"`
+	PlaybackAudioQuality     sql.NullString `bun:"playback_audio_quality"`
 	ResourceSniffScope       sql.NullString `bun:"resource_sniff_scope"`
 	ResourceSniffMinBytes    sql.NullInt64  `bun:"resource_sniff_min_bytes"`
 	ResourceSniffRetain      sql.NullInt64  `bun:"resource_sniff_retain"`
