@@ -71,6 +71,37 @@ func (repo *subtitleDownloadDocumentRepo) DeleteByFileID(_ context.Context, _ st
 	return nil
 }
 
+func TestResolveYTDLPDownloadHeadersKeepsOrdinaryDownloadsOnYTDLPDefaults(t *testing.T) {
+	t.Parallel()
+
+	got := resolveYTDLPDownloadHeaders(false, map[string]string{
+		"Accept":  resourceDefaultAccept,
+		"Referer": "https://www.facebook.com/",
+	}, "https://www.facebook.com/reel/866603596491084")
+
+	if len(got) != 0 {
+		t.Fatalf("expected ordinary yt-dlp downloads to omit injected resource headers, got %#v", got)
+	}
+}
+
+func TestResolveYTDLPDownloadHeadersAppliesResourceDefaultsForSniffedStreams(t *testing.T) {
+	t.Parallel()
+
+	got := resolveYTDLPDownloadHeaders(true, map[string]string{
+		"Referer": "https://page.example/watch",
+	}, "https://cdn.example/live/index.m3u8")
+
+	if value, ok := findHeader(got, "Accept"); !ok || value != resourceDefaultAccept {
+		t.Fatalf("expected sniffed stream yt-dlp download to include resource Accept header, got %#v", got)
+	}
+	if value, ok := findHeader(got, "Referer"); !ok || value != "https://page.example/watch" {
+		t.Fatalf("expected sniffed stream yt-dlp download to preserve referer, got %#v", got)
+	}
+	if _, ok := findHeader(got, "User-Agent"); !ok {
+		t.Fatalf("expected sniffed stream yt-dlp download to include resource user-agent, got %#v", got)
+	}
+}
+
 func TestCreateDownloadedSubtitleFileStoresHybridSourceAndSubtitleDocument(t *testing.T) {
 	t.Parallel()
 
