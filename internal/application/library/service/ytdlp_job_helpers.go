@@ -291,10 +291,14 @@ func (service *LibraryService) collectDownloadedThumbnailPaths(
 }
 
 func (service *LibraryService) runYTDLPOperation(ctx context.Context, operation library.LibraryOperation, history library.HistoryRecord, request dto.CreateYTDLPJobRequest) {
-	service.runYTDLPOperationWithHeaders(ctx, operation, history, request, nil)
+	service.runYTDLPOperationWithHeaderPolicy(ctx, operation, history, request, nil, false)
 }
 
 func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context, operation library.LibraryOperation, history library.HistoryRecord, request dto.CreateYTDLPJobRequest, headers map[string]string) {
+	service.runYTDLPOperationWithHeaderPolicy(ctx, operation, history, request, headers, true)
+}
+
+func (service *LibraryService) runYTDLPOperationWithHeaderPolicy(ctx context.Context, operation library.LibraryOperation, history library.HistoryRecord, request dto.CreateYTDLPJobRequest, headers map[string]string, useResourceDownloadHeaders bool) {
 	ctx, cancel := context.WithCancel(ctx)
 	if !service.registerOperationRun(operation.ID, cancel) {
 		cancel()
@@ -354,16 +358,19 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 	persistLogsOnFailure := logPolicy != ytdlpLogPolicyNever
 	persistLogsOnSuccess := logPolicy == ytdlpLogPolicyAlways
 	thumbnailPrefetch := &ytdlpThumbnailPrefetch{}
-	downloadHeaders := normalizeResourceDownloadHeaders(headers, request.URL)
-	streamPreflight := service.preflightYTDLPStream(ctx, request.URL, downloadHeaders, reporter, operation.ID)
-	if streamPreflight.IsUnsupported() {
-		metadataPayload := appendYTDLPStreamPreflightMetadata(nil, streamPreflight)
-		errorCode := ytdlpErrorCodeUnsupportedStreamEncryption
-		if streamPreflight.DRM {
-			errorCode = ytdlpErrorCodeDRMProtected
+	downloadHeaders := resolveYTDLPDownloadHeaders(useResourceDownloadHeaders, headers, request.URL)
+	streamPreflight := appytdlp.StreamManifestPreflight{}
+	if useResourceDownloadHeaders {
+		streamPreflight = service.preflightYTDLPStream(ctx, request.URL, downloadHeaders, reporter, operation.ID)
+		if streamPreflight.IsUnsupported() {
+			metadataPayload := appendYTDLPStreamPreflightMetadata(nil, streamPreflight)
+			errorCode := ytdlpErrorCodeUnsupportedStreamEncryption
+			if streamPreflight.DRM {
+				errorCode = ytdlpErrorCodeDRMProtected
+			}
+			service.failYTDLPOperation(ctx, &operation, &history, fmt.Errorf("%s", streamPreflight.UnsupportedReason), errorCode, buildOperationOutputPayload("", nil, nil, nil, metadataPayload, appytdlp.LogSnapshot{}))
+			return
 		}
-		service.failYTDLPOperation(ctx, &operation, &history, fmt.Errorf("%s", streamPreflight.UnsupportedReason), errorCode, buildOperationOutputPayload("", nil, nil, nil, metadataPayload, appytdlp.LogSnapshot{}))
-		return
 	}
 	reporter.updateDetail("Starting", progressText("library.progressDetail.startingYtdlp"))
 	command, err := appytdlp.BuildCommand(ctx, appytdlp.CommandOptions{
@@ -556,6 +563,13 @@ func (service *LibraryService) runYTDLPOperationWithHeaders(ctx context.Context,
 		service.syncListenLocalTrackFromFile(ctx, fileItem, nil)
 		service.publishFileUpdate(service.mustBuildFileDTO(ctx, fileItem))
 	}
+}
+
+func resolveYTDLPDownloadHeaders(useResourceDownloadHeaders bool, headers map[string]string, rawURL string) map[string]string {
+	if !useResourceDownloadHeaders {
+		return nil
+	}
+	return normalizeResourceDownloadHeaders(headers, rawURL)
 }
 
 func (service *LibraryService) resolveYTDLPConcurrentFragments(ctx context.Context) int {
