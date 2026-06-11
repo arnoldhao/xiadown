@@ -291,6 +291,7 @@ function buildText(language: SupportedLanguage) {
         localImport: t("xiadown.petGallery.origins.localImport", language),
         codexPetsNet: t("xiadown.petGallery.origins.codexPetsNet", language),
         codexpetXyz: t("xiadown.petGallery.origins.codexpetXyz", language),
+        petdexDev: t("xiadown.petGallery.origins.petdexDev", language),
       },
       animations: {
         idle: t("xiadown.petGallery.animations.idle", language),
@@ -352,6 +353,7 @@ function buildText(language: SupportedLanguage) {
         sites: {
           codexPetsNet: t("xiadown.petGallery.importDialog.sites.codexPetsNet", language),
           codexpetXyz: t("xiadown.petGallery.importDialog.sites.codexpetXyz", language),
+          petdexDev: t("xiadown.petGallery.importDialog.sites.petdexDev", language),
         },
         browserStatuses: {
           notOpen: t("xiadown.petGallery.importDialog.browserStatuses.notOpen", language),

@@ -9,16 +9,22 @@ import (
 	settingsdto "xiadown/internal/application/settings/dto"
 )
 
-func TestNormalizeOnlinePetImportSiteIDSupportsCodexpetXYZ(t *testing.T) {
-	tests := []string{
-		"codexpet-xyz",
-		"codexpet.xyz",
-		"https://codexpet.xyz/",
+func TestNormalizeOnlinePetImportSiteIDSupportsKnownSites(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "codexpet-xyz", want: onlinePetImportSiteCodexpetXYZ},
+		{input: "codexpet.xyz", want: onlinePetImportSiteCodexpetXYZ},
+		{input: "https://codexpet.xyz/", want: onlinePetImportSiteCodexpetXYZ},
+		{input: "petdex-dev", want: onlinePetImportSitePetdexDev},
+		{input: "petdex.dev", want: onlinePetImportSitePetdexDev},
+		{input: "https://petdex.dev/", want: onlinePetImportSitePetdexDev},
 	}
 
-	for _, input := range tests {
-		if got := normalizeOnlinePetImportSiteID(input); got != onlinePetImportSiteCodexpetXYZ {
-			t.Fatalf("normalizeOnlinePetImportSiteID(%q) = %q, want %q", input, got, onlinePetImportSiteCodexpetXYZ)
+	for _, test := range tests {
+		if got := normalizeOnlinePetImportSiteID(test.input); got != test.want {
+			t.Fatalf("normalizeOnlinePetImportSiteID(%q) = %q, want %q", test.input, got, test.want)
 		}
 	}
 }
@@ -33,6 +39,19 @@ func TestOnlinePetImportSiteSupportsCodexpetXYZ(t *testing.T) {
 	}
 	if siteURL != "https://codexpet.xyz/" {
 		t.Fatalf("siteURL = %q, want https://codexpet.xyz/", siteURL)
+	}
+}
+
+func TestOnlinePetImportSiteSupportsPetdexDev(t *testing.T) {
+	label, siteURL, err := onlinePetImportSite(onlinePetImportSitePetdexDev)
+	if err != nil {
+		t.Fatalf("onlinePetImportSite(%q) returned error: %v", onlinePetImportSitePetdexDev, err)
+	}
+	if label != "petdex.dev" {
+		t.Fatalf("label = %q, want petdex.dev", label)
+	}
+	if siteURL != "https://petdex.dev" {
+		t.Fatalf("siteURL = %q, want https://petdex.dev", siteURL)
 	}
 }
 

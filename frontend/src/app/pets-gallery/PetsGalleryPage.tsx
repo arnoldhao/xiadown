@@ -731,6 +731,9 @@ const PET_IMPORT_SITE_OPTIONS = [
   {
     id: "codexpet-xyz",
   },
+  {
+    id: "petdex-dev",
+  },
 ] as const;
 
 function PetImportDialog(props: {
@@ -1141,6 +1144,8 @@ function resolvePetImportSiteLabel(text: XiaText, siteId: string) {
   switch (siteId) {
     case "codexpet-xyz":
       return text.petGallery.importDialog.sites.codexpetXyz;
+    case "petdex-dev":
+      return text.petGallery.importDialog.sites.petdexDev;
     case "codex-pets-net":
     default:
       return text.petGallery.importDialog.sites.codexPetsNet;
@@ -1233,6 +1238,9 @@ function resolvePetSourceLabel(text: XiaText, pet: Pet) {
   }
   if (origin === "codexpet.xyz") {
     return text.petGallery.origins.codexpetXyz;
+  }
+  if (origin === "petdex.dev") {
+    return text.petGallery.origins.petdexDev;
   }
   return text.petGallery.origins.codexPetsNet;
 }
