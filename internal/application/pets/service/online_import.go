@@ -33,6 +33,7 @@ const (
 
 	onlinePetImportSiteCodexPetsNet = "codex-pets-net"
 	onlinePetImportSiteCodexpetXYZ  = "codexpet-xyz"
+	onlinePetImportSitePetdexDev    = "petdex-dev"
 )
 
 type onlinePetImportSession struct {
@@ -500,6 +501,8 @@ func normalizeOnlinePetImportSiteID(value string) string {
 		return onlinePetImportSiteCodexPetsNet
 	case lower == onlinePetImportSiteCodexpetXYZ, lower == "codexpet.xyz", host == "codexpet.xyz":
 		return onlinePetImportSiteCodexpetXYZ
+	case lower == onlinePetImportSitePetdexDev, lower == "petdex.dev", host == "petdex.dev":
+		return onlinePetImportSitePetdexDev
 	default:
 		return trimmed
 	}
@@ -511,6 +514,8 @@ func onlinePetImportSite(siteID string) (string, string, error) {
 		return "codex-pets.net", "https://codex-pets.net", nil
 	case onlinePetImportSiteCodexpetXYZ:
 		return "codexpet.xyz", "https://codexpet.xyz/", nil
+	case onlinePetImportSitePetdexDev:
+		return "petdex.dev", "https://petdex.dev", nil
 	default:
 		return "", "", newPetErrorf(petErrorCodeOnlineUnsupportedSite, "unsupported pet import site %q", siteID)
 	}

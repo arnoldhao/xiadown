@@ -1189,7 +1189,8 @@
       "origins": {
         "localImport": "Nhập cục bộ",
         "codexPetsNet": "codex-pets.net",
-        "codexpetXyz": "codexpet.xyz"
+        "codexpetXyz": "codexpet.xyz",
+        "petdexDev": "petdex.dev"
       },
       "animations": {
         "idle": "Rảnh",
@@ -1250,7 +1251,8 @@
         "finish": "Hoàn tất nhập",
         "sites": {
           "codexPetsNet": "codex-pets.net",
-          "codexpetXyz": "codexpet.xyz"
+          "codexpetXyz": "codexpet.xyz",
+          "petdexDev": "petdex.dev"
         },
         "browserStatuses": {
           "notOpen": "Chưa mở",

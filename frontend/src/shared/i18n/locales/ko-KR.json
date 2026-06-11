@@ -1189,7 +1189,8 @@
       "origins": {
         "localImport": "로컬 가져오기",
         "codexPetsNet": "codex-pets.net",
-        "codexpetXyz": "codexpet.xyz"
+        "codexpetXyz": "codexpet.xyz",
+        "petdexDev": "petdex.dev"
       },
       "animations": {
         "idle": "대기",
@@ -1250,7 +1251,8 @@
         "finish": "가져오기 완료",
         "sites": {
           "codexPetsNet": "codex-pets.net",
-          "codexpetXyz": "codexpet.xyz"
+          "codexpetXyz": "codexpet.xyz",
+          "petdexDev": "petdex.dev"
         },
         "browserStatuses": {
           "notOpen": "열리지 않음",

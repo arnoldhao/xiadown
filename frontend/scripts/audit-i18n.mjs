@@ -38,6 +38,7 @@ const englishStylePreservePhrases = [
   "Codex",
   "codex-pets.net",
   "codexpet.xyz",
+  "petdex.dev",
   "pet.json",
   "spritesheet.webp",
   "hatch-pet",

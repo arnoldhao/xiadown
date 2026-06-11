@@ -1189,7 +1189,8 @@
       "origins": {
         "localImport": "本地导入",
         "codexPetsNet": "codex-pets.net",
-        "codexpetXyz": "codexpet.xyz"
+        "codexpetXyz": "codexpet.xyz",
+        "petdexDev": "petdex.dev"
       },
       "animations": {
         "idle": "待机",
@@ -1250,7 +1251,8 @@
         "finish": "完成导入",
         "sites": {
           "codexPetsNet": "codex-pets.net",
-          "codexpetXyz": "codexpet.xyz"
+          "codexpetXyz": "codexpet.xyz",
+          "petdexDev": "petdex.dev"
         },
         "browserStatuses": {
           "notOpen": "未打开",
