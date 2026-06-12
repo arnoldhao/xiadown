@@ -172,16 +172,26 @@ func (session *connectorAppSessionWindow) Close() {
 		return
 	}
 	session.closeOnce.Do(func() {
+		captureBeforeClose := connectorAppSessionCaptureBeforeClose()
 		session.mu.Lock()
 		window := session.window
-		if !connectorAppSessionCaptureBeforeClose() {
+		alreadyClosing := session.closing || session.closed
+		if !captureBeforeClose {
 			session.window = nil
+			if alreadyClosing {
+				window = nil
+			} else {
+				session.closing = true
+				session.closed = true
+			}
+		} else if alreadyClosing {
+			window = nil
 		}
 		session.mu.Unlock()
 		if window != nil {
 			window.Close()
 		}
-		if !connectorAppSessionCaptureBeforeClose() {
+		if !captureBeforeClose {
 			session.markDone()
 		}
 	})
@@ -192,11 +202,17 @@ func (session *connectorAppSessionWindow) handleWindowClosing(event *application
 		return
 	}
 	if !connectorAppSessionCaptureBeforeClose() {
+		session.mu.Lock()
+		session.closing = true
+		session.closed = true
+		session.mu.Unlock()
 		session.markDone()
 		return
 	}
 	session.mu.Lock()
 	if session.allowClose {
+		session.closed = true
+		session.window = nil
 		session.mu.Unlock()
 		session.markDone()
 		return
@@ -237,7 +253,6 @@ func (session *connectorAppSessionWindow) captureCookiesAndClose() {
 	session.closed = true
 	session.mu.Unlock()
 
-	session.markDone()
 	if window != nil {
 		window.Close()
 	}
@@ -247,6 +262,7 @@ func (session *connectorAppSessionWindow) captureCookiesAndClose() {
 		session.window = nil
 	}
 	session.mu.Unlock()
+	session.markDone()
 }
 
 func (session *connectorAppSessionWindow) markDone() {

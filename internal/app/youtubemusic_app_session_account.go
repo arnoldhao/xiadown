@@ -187,17 +187,8 @@ func mapBilibiliNavAccount(decoded bilibiliNavResponse) appsessionsdto.AppSessio
 			tierKey = "vip_active"
 		}
 		tierLabel = vipLabel
-		if tierLabel == "" {
-			tierLabel = "VIP"
-		}
 	}
-	badges := make([]appsessionsdto.AppSessionBadge, 0, 2)
-	if tierLabel != "" {
-		badges = append(badges, appsessionsdto.AppSessionBadge{
-			Key:   tierKey,
-			Label: tierLabel,
-		})
-	}
+	badges := make([]appsessionsdto.AppSessionBadge, 0, 1)
 	if decoded.Data.LevelInfo.CurrentLevel > 0 {
 		levelLabel := fmt.Sprintf("LV%d", decoded.Data.LevelInfo.CurrentLevel)
 		badges = append(badges, appsessionsdto.AppSessionBadge{

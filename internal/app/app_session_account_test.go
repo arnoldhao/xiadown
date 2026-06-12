@@ -75,8 +75,11 @@ func TestFetchBilibiliAppSessionAccountFromURL(t *testing.T) {
 	if account.TierKey != "vip_annual" || account.TierLabel != "Annual VIP" {
 		t.Fatalf("tier = %q %q", account.TierKey, account.TierLabel)
 	}
-	if len(account.Badges) != 2 {
+	if len(account.Badges) != 1 {
 		t.Fatalf("badges count = %d", len(account.Badges))
+	}
+	if account.Badges[0].Key != "level_6" || account.Badges[0].Label != "LV6" {
+		t.Fatalf("badges = %#v", account.Badges)
 	}
 	if account.Metadata["mid"] != int64(123456) {
 		t.Fatalf("mid metadata = %#v", account.Metadata["mid"])
@@ -102,6 +105,49 @@ func TestBilibiliAccountCookiesUsesBilibiliDomainCookies(t *testing.T) {
 	}
 	if matched[0].Name != "SESSDATA" || matched[1].Name != "bili_jct" {
 		t.Fatalf("matched cookies = %#v", matched)
+	}
+}
+
+func TestMapBilibiliNavAccountUsesStableVipKeyWhenAPIOmitsLabel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		vipType     int
+		wantTierKey string
+	}{
+		{
+			name:        "monthly vip",
+			vipType:     1,
+			wantTierKey: "vip",
+		},
+		{
+			name:        "annual vip",
+			vipType:     2,
+			wantTierKey: "vip_annual",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			var decoded bilibiliNavResponse
+			decoded.Data.IsLogin = true
+			decoded.Data.Mid = 123456
+			decoded.Data.Uname = "Bili User"
+			decoded.Data.Vip.Type = test.vipType
+			decoded.Data.Vip.Status = 1
+
+			account := mapBilibiliNavAccount(decoded)
+			if account.TierKey != test.wantTierKey || account.TierLabel != "" {
+				t.Fatalf("tier = %q %q", account.TierKey, account.TierLabel)
+			}
+			if len(account.Badges) != 0 {
+				t.Fatalf("badges = %#v", account.Badges)
+			}
+		})
 	}
 }
 
