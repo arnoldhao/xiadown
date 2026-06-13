@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import type {
   AppSession,
   AppSessionAccount,
+  AppSessionBadge,
   StartAppSessionConnectResult,
 } from "@/shared/contracts/appSessions";
 import { type SupportedLanguage, type TFunction, useI18n } from "@/shared/i18n";
@@ -103,6 +104,9 @@ const APP_SESSION_LABEL_KEYS = {
   youtubeDomains: "settings.appSessions.youtubeDomains",
   bilibiliIdentity: "settings.appSessions.bilibiliIdentity",
   bilibiliMembership: "settings.appSessions.bilibiliMembership",
+  bilibiliVip: "settings.appSessions.bilibiliVip",
+  bilibiliAnnualVip: "settings.appSessions.bilibiliAnnualVip",
+  bilibiliActiveVip: "settings.appSessions.bilibiliActiveVip",
   socialIdentity: "settings.appSessions.socialIdentity",
   genericIdentity: "settings.appSessions.genericIdentity",
   accountFallbackName: "settings.appSessions.accountFallbackName",
@@ -235,6 +239,46 @@ function normalizeHandle(handle?: string) {
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 
+function resolveBilibiliTierLabel(tierKey: string, labels: AppSessionLabels) {
+  switch (tierKey.trim()) {
+    case "vip":
+      return labels.bilibiliVip;
+    case "vip_annual":
+      return labels.bilibiliAnnualVip;
+    case "vip_active":
+      return labels.bilibiliActiveVip;
+    default:
+      return "";
+  }
+}
+
+function resolveAccountTierLabel(
+  account: AppSessionAccount | null | undefined,
+  siteKey: string,
+  labels: AppSessionLabels,
+) {
+  const tierKey = account?.tierKey?.trim() ?? "";
+  const tierLabel = account?.tierLabel?.trim() ?? "";
+  if (siteKey === "bilibili") {
+    return resolveBilibiliTierLabel(tierKey, labels) || tierLabel || tierKey;
+  }
+  return tierLabel || tierKey;
+}
+
+function resolveAccountBadgeLabel(
+  badge: AppSessionBadge,
+  siteKey: string,
+  labels: AppSessionLabels,
+) {
+  const badgeKey = badge.key?.trim() ?? "";
+  if (siteKey === "bilibili") {
+    if (resolveBilibiliTierLabel(badgeKey, labels)) {
+      return "";
+    }
+  }
+  return badge.label?.trim() || badgeKey;
+}
+
 function resolveDialogError(error: unknown, labels: AppSessionLabels) {
   const message = error instanceof Error ? error.message : String(error ?? "");
   const normalized = message.toLowerCase();
@@ -304,10 +348,10 @@ function AppSessionAccountDetail(props: {
   const siteKey = props.session.siteKey.trim().toLowerCase();
   const isYouTube = siteKey === "youtube";
   const canResolveAccountInfo = isYouTube || siteKey === "bilibili";
-  const tierLabel = account?.tierLabel?.trim() || account?.tierKey?.trim() || "";
+  const tierLabel = resolveAccountTierLabel(account, siteKey, props.labels);
   const badgeLabels = props.isConnected
     ? (account?.badges ?? [])
-        .map((badge) => badge.label?.trim() || badge.key?.trim())
+        .map((badge) => resolveAccountBadgeLabel(badge, siteKey, props.labels))
         .filter((value): value is string => Boolean(value))
     : [];
   const displayName = props.isConnected

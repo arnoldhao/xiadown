@@ -569,7 +569,7 @@ func connectorAppSessionNativeSupported() bool {
 }
 
 func connectorAppSessionCaptureBeforeClose() bool {
-	return false
+	return true
 }
 
 func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, targetURL string, siteKey string, records []appcookies.Record, _ []string) {
