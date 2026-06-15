@@ -4,6 +4,11 @@ export type AppSessionCredentialState =
   | "connected"
   | "disconnected"
   | "expired";
+export type AppSessionAccountVerificationStatus =
+  | "verifying"
+  | "verified"
+  | "unverified"
+  | "unsupported";
 
 export interface AppSessionCookie {
   name: string;
@@ -47,6 +52,9 @@ export interface AppSession {
   policyKey?: string;
   capabilities?: string[];
   providerSupported: boolean;
+  accountVerificationStatus?: AppSessionAccountVerificationStatus | string;
+  accountVerificationError?: string;
+  accountVerificationStartedAt?: string;
   lastVerifiedAt?: string;
 }
 

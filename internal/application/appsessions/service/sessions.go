@@ -116,7 +116,7 @@ func (service *AppSessionsService) startBrowserMonitor(sessionID string) {
 				return
 			}
 			<-browser.Done()
-			if session.Purpose == browserSessionPurposeConnect {
+			if session.Purpose == browserSessionPurposeConnect || session.Purpose == browserSessionPurposeOpen {
 				service.triggerSessionFinalize(sessionID, "browser_closed")
 			} else {
 				service.updateSession(sessionID, func(current *browserSession) {

@@ -67,11 +67,29 @@ func (handler *DependenciesHandler) InstallDependency(ctx context.Context, reque
 				zap.L().Error("dependencies: install task panic", zap.Any("error", r), zap.Stack("stack"))
 			}
 		}()
+		zap.L().Info("dependencies: install task started", zap.String("name", name), zap.String("version", strings.TrimSpace(request.Version)))
 		result, err := handler.service.InstallDependency(context.Background(), request)
 		if handler.events != nil {
 			handler.events.EmitDependenciesUpdated()
 		}
-		if err == nil && handler.telemetry != nil {
+		if err != nil {
+			state, stateErr := handler.service.GetInstallState(context.Background(), dto.GetDependencyInstallStateRequest{Name: name})
+			fields := []zap.Field{
+				zap.String("name", name),
+				zap.Error(err),
+			}
+			if stateErr == nil {
+				fields = append(fields,
+					zap.String("stage", state.Stage),
+					zap.Int("progress", state.Progress),
+					zap.String("message", state.Message),
+				)
+			}
+			zap.L().Error("dependencies: install task failed", fields...)
+			return
+		}
+		zap.L().Info("dependencies: install task succeeded", zap.String("name", result.Name), zap.String("version", result.Version), zap.String("execPath", result.ExecPath))
+		if handler.telemetry != nil {
 			handler.telemetry.TrackDependencyInstalled(context.Background(), result.Name)
 		}
 	}(request)

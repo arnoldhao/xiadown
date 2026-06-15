@@ -10,19 +10,22 @@ import (
 type SiteAppSessionRow struct {
 	bun.BaseModel `bun:"table:site_app_sessions"`
 
-	ID                  string         `bun:"id,pk"`
-	SiteKey             string         `bun:"site_key,unique"`
-	Status              string         `bun:"status"`
-	AccountDisplayName  sql.NullString `bun:"account_display_name"`
-	AccountHandle       sql.NullString `bun:"account_handle"`
-	AccountAvatarURL    sql.NullString `bun:"account_avatar_url"`
-	AccountTierKey      sql.NullString `bun:"account_tier_key"`
-	AccountTierLabel    sql.NullString `bun:"account_tier_label"`
-	AccountBadgesJSON   sql.NullString `bun:"account_badges_json"`
-	AccountMetadataJSON sql.NullString `bun:"account_metadata_json"`
-	LastVerifiedAt      sql.NullTime   `bun:"last_verified_at"`
-	CreatedAt           time.Time      `bun:"created_at"`
-	UpdatedAt           time.Time      `bun:"updated_at"`
+	ID                           string         `bun:"id,pk"`
+	SiteKey                      string         `bun:"site_key,unique"`
+	Status                       string         `bun:"status"`
+	AccountDisplayName           sql.NullString `bun:"account_display_name"`
+	AccountHandle                sql.NullString `bun:"account_handle"`
+	AccountAvatarURL             sql.NullString `bun:"account_avatar_url"`
+	AccountTierKey               sql.NullString `bun:"account_tier_key"`
+	AccountTierLabel             sql.NullString `bun:"account_tier_label"`
+	AccountBadgesJSON            sql.NullString `bun:"account_badges_json"`
+	AccountMetadataJSON          sql.NullString `bun:"account_metadata_json"`
+	AccountVerificationStatus    sql.NullString `bun:"account_verification_status"`
+	AccountVerificationError     sql.NullString `bun:"account_verification_error"`
+	AccountVerificationStartedAt sql.NullTime   `bun:"account_verification_started_at"`
+	LastVerifiedAt               sql.NullTime   `bun:"last_verified_at"`
+	CreatedAt                    time.Time      `bun:"created_at"`
+	UpdatedAt                    time.Time      `bun:"updated_at"`
 }
 
 type TelemetryStateRow struct {

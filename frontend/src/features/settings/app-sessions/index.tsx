@@ -1,4 +1,4 @@
-import { System } from "@wailsio/runtime";
+import { Events, System } from "@wailsio/runtime";
 import {
   AlertCircle,
   CircleOff,
@@ -23,6 +23,7 @@ import type {
 } from "@/shared/contracts/appSessions";
 import { type SupportedLanguage, type TFunction, useI18n } from "@/shared/i18n";
 import {
+  APP_SESSIONS_CHANGED_EVENT,
   useAppSessionConnectSession,
   useAppSessions,
   useClearAppSession,
@@ -113,13 +114,19 @@ const APP_SESSION_LABEL_KEYS = {
   disconnectedName: "settings.appSessions.disconnectedName",
   signIn: "settings.appSessions.signIn",
   signOut: "settings.appSessions.signOut",
+  verifyLogin: "settings.appSessions.verifyLogin",
   verifyStatus: "settings.appSessions.verifyStatus",
+  verificationVerified: "settings.appSessions.verificationVerified",
+  verificationVerifying: "settings.appSessions.verificationVerifying",
+  verificationUnverified: "settings.appSessions.verificationUnverified",
+  verificationUnsupported: "settings.appSessions.verificationUnsupported",
   lastLoginAt: "settings.appSessions.lastLoginAt",
   expiresAt: "settings.appSessions.expiresAt",
   youtubeAccountFallbackName: "settings.appSessions.youtubeAccountFallbackName",
   youtubeDisconnectedName: "settings.appSessions.youtubeDisconnectedName",
   youtubeSignIn: "settings.appSessions.youtubeSignIn",
   youtubeSignOut: "settings.appSessions.youtubeSignOut",
+  youtubeVerifyLogin: "settings.appSessions.youtubeVerifyLogin",
   youtubeVerifyStatus: "settings.appSessions.youtubeVerifyStatus",
   youtubeLastLoginAt: "settings.appSessions.youtubeLastLoginAt",
   youtubeExpiresAt: "settings.appSessions.youtubeExpiresAt",
@@ -221,6 +228,34 @@ function normalizeStatus(session?: AppSession | null) {
     .trim()
     .toLowerCase();
   return STATUS_META[status] ? status : "disconnected";
+}
+
+function normalizeAccountVerificationStatus(session?: AppSession | null) {
+  const value = session?.accountVerificationStatus?.trim().toLowerCase() ?? "";
+  switch (value) {
+    case "verified":
+    case "verifying":
+    case "unsupported":
+      return value;
+    default:
+      return "unverified";
+  }
+}
+
+function accountVerificationStatusLabel(
+  session: AppSession,
+  labels: AppSessionLabels,
+) {
+  switch (normalizeAccountVerificationStatus(session)) {
+    case "verified":
+      return labels.verificationVerified;
+    case "verifying":
+      return labels.verificationVerifying;
+    case "unsupported":
+      return labels.verificationUnsupported;
+    default:
+      return labels.verificationUnverified;
+  }
 }
 
 function resolveAccountName(account?: AppSessionAccount | null) {
@@ -367,7 +402,10 @@ function AppSessionAccountDetail(props: {
   const normalizedHandle = normalizeHandle(accountHandle);
   const signInLabel = isYouTube ? props.labels.youtubeSignIn : props.labels.signIn;
   const signOutLabel = isYouTube ? props.labels.youtubeSignOut : props.labels.signOut;
+  const verifyLoginLabel = isYouTube ? props.labels.youtubeVerifyLogin : props.labels.verifyLogin;
   const verifyLabel = isYouTube ? props.labels.youtubeVerifyStatus : props.labels.verifyStatus;
+  const verificationStatus = normalizeAccountVerificationStatus(props.session);
+  const verificationStatusText = accountVerificationStatusLabel(props.session, props.labels);
   const lastLoginLabelKey = isYouTube ? props.labels.youtubeLastLoginAt : props.labels.lastLoginAt;
   const expiresAtLabelKey = isYouTube ? props.labels.youtubeExpiresAt : props.labels.expiresAt;
   const lastLoginLabel = formatRelativeTime(
@@ -438,7 +476,7 @@ function AppSessionAccountDetail(props: {
                   <ExternalLink className="h-4 w-4" />
                 )}
                 <span className="truncate">
-                  {verifyLabel}
+                  {verifyLoginLabel}
                 </span>
               </Button>
               <Button
@@ -472,6 +510,19 @@ function AppSessionAccountDetail(props: {
           {props.isConnected ? (
             <div className="mt-3 w-full rounded-[var(--app-radius-lg)] border border-border/70 bg-card/70 p-3 text-left shadow-sm">
               <div className="grid gap-2 text-xs">
+                {canResolveAccountInfo ? (
+                  <AppSessionInfoRow
+                    label={verifyLabel}
+                    value={
+                      <span className="inline-flex min-w-0 items-center justify-end gap-1.5">
+                        {verificationStatus === "verifying" ? (
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                        ) : null}
+                        <span className="truncate">{verificationStatusText}</span>
+                      </span>
+                    }
+                  />
+                ) : null}
                 <AppSessionInfoRow label={lastLoginLabelKey} value={lastLoginLabel} />
                 <AppSessionInfoRow label={expiresAtLabelKey} value={expiresAtLabel} />
                 {tierLabel ? (
@@ -560,6 +611,13 @@ export function AppSessionsSection() {
     { sessionId: activeBrowser?.sessionId ?? "" },
     activeBrowser !== null,
   );
+
+  React.useEffect(() => {
+    const offAppSessionsChanged = Events.On(APP_SESSIONS_CHANGED_EVENT, () => {
+      void sessionsQuery.refetch();
+    });
+    return () => offAppSessionsChanged();
+  }, [sessionsQuery.refetch]);
 
   const items = sessionsQuery.data ?? [];
   const resolveLabel = React.useCallback(
@@ -674,7 +732,12 @@ export function AppSessionsSection() {
       const isSelected = session.id === selectedId;
       const label = resolveLabel(session);
       const accountName = resolveAccountName(session.account);
-      const secondaryLabel = accountName && accountName !== label ? accountName : "";
+      const canResolveAccountInfo = ["youtube", "bilibili"].includes(session.siteKey.trim().toLowerCase());
+      const secondaryLabel = accountName && accountName !== label
+        ? accountName
+        : normalizeStatus(session) === "connected" && canResolveAccountInfo
+          ? accountVerificationStatusLabel(session, labels)
+          : "";
       return (
         <SidebarMenuItem key={session.id}>
           <SidebarMenuButton

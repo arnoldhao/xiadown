@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,11 +39,7 @@ func newAppSessionAccountFetcher(httpClientProvider youtubemusic.HTTPClientProvi
 		case "youtube":
 			return fetchYouTubeMusicAppSessionAccount(ctx, httpClientProvider, records)
 		case "bilibili":
-			account, err := fetchBilibiliAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
-			if err != nil {
-				log.Printf("app sessions: bilibili account fetch failed error=%v", err)
-			}
-			return account, err
+			return fetchBilibiliAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
 		case "tiktok", "instagram", "x", "facebook", "vimeo", "twitch", "niconico":
 			// Public account APIs for these sites are token/OAuth based; do not scrape private web pages from cookies here.
 			return appsessionsdto.AppSessionAccount{}, appsessions.ErrUnsupported

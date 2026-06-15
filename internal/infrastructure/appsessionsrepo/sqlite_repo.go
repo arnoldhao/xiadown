@@ -71,19 +71,22 @@ func (repo *SQLiteRepository) Save(ctx context.Context, session appsessions.Sess
 		updatedAt = createdAt
 	}
 	row := siteAppSessionRow{
-		ID:                  session.ID,
-		SiteKey:             session.SiteKey,
-		Status:              string(session.Status),
-		AccountDisplayName:  nullString(session.AccountDisplayName),
-		AccountHandle:       nullString(session.AccountHandle),
-		AccountAvatarURL:    nullString(session.AccountAvatarURL),
-		AccountTierKey:      nullString(session.AccountTierKey),
-		AccountTierLabel:    nullString(session.AccountTierLabel),
-		AccountBadgesJSON:   nullString(session.AccountBadgesJSON),
-		AccountMetadataJSON: nullString(session.AccountMetadataJSON),
-		LastVerifiedAt:      nullTime(session.LastVerifiedAt),
-		CreatedAt:           createdAt,
-		UpdatedAt:           updatedAt,
+		ID:                           session.ID,
+		SiteKey:                      session.SiteKey,
+		Status:                       string(session.Status),
+		AccountDisplayName:           nullString(session.AccountDisplayName),
+		AccountHandle:                nullString(session.AccountHandle),
+		AccountAvatarURL:             nullString(session.AccountAvatarURL),
+		AccountTierKey:               nullString(session.AccountTierKey),
+		AccountTierLabel:             nullString(session.AccountTierLabel),
+		AccountBadgesJSON:            nullString(session.AccountBadgesJSON),
+		AccountMetadataJSON:          nullString(session.AccountMetadataJSON),
+		AccountVerificationStatus:    nullString(string(session.AccountVerificationStatus)),
+		AccountVerificationError:     nullString(session.AccountVerificationError),
+		AccountVerificationStartedAt: nullTime(session.AccountVerificationStartedAt),
+		LastVerifiedAt:               nullTime(session.LastVerifiedAt),
+		CreatedAt:                    createdAt,
+		UpdatedAt:                    updatedAt,
 	}
 	_, err := repo.db.NewInsert().Model(&row).
 		On("CONFLICT(id) DO UPDATE").
@@ -96,6 +99,9 @@ func (repo *SQLiteRepository) Save(ctx context.Context, session appsessions.Sess
 		Set("account_tier_label = EXCLUDED.account_tier_label").
 		Set("account_badges_json = EXCLUDED.account_badges_json").
 		Set("account_metadata_json = EXCLUDED.account_metadata_json").
+		Set("account_verification_status = EXCLUDED.account_verification_status").
+		Set("account_verification_error = EXCLUDED.account_verification_error").
+		Set("account_verification_started_at = EXCLUDED.account_verification_started_at").
 		Set("last_verified_at = EXCLUDED.last_verified_at").
 		Set("updated_at = EXCLUDED.updated_at").
 		Exec(ctx)
@@ -109,19 +115,22 @@ func (repo *SQLiteRepository) Delete(ctx context.Context, id string) error {
 
 func rowToSession(row siteAppSessionRow) (appsessions.Session, error) {
 	return appsessions.NewSession(appsessions.SessionParams{
-		ID:                  row.ID,
-		SiteKey:             row.SiteKey,
-		Status:              row.Status,
-		AccountDisplayName:  stringOrEmpty(row.AccountDisplayName),
-		AccountHandle:       stringOrEmpty(row.AccountHandle),
-		AccountAvatarURL:    stringOrEmpty(row.AccountAvatarURL),
-		AccountTierKey:      stringOrEmpty(row.AccountTierKey),
-		AccountTierLabel:    stringOrEmpty(row.AccountTierLabel),
-		AccountBadgesJSON:   stringOrEmpty(row.AccountBadgesJSON),
-		AccountMetadataJSON: stringOrEmpty(row.AccountMetadataJSON),
-		LastVerifiedAt:      timeOrNil(row.LastVerifiedAt),
-		CreatedAt:           &row.CreatedAt,
-		UpdatedAt:           &row.UpdatedAt,
+		ID:                           row.ID,
+		SiteKey:                      row.SiteKey,
+		Status:                       row.Status,
+		AccountDisplayName:           stringOrEmpty(row.AccountDisplayName),
+		AccountHandle:                stringOrEmpty(row.AccountHandle),
+		AccountAvatarURL:             stringOrEmpty(row.AccountAvatarURL),
+		AccountTierKey:               stringOrEmpty(row.AccountTierKey),
+		AccountTierLabel:             stringOrEmpty(row.AccountTierLabel),
+		AccountBadgesJSON:            stringOrEmpty(row.AccountBadgesJSON),
+		AccountMetadataJSON:          stringOrEmpty(row.AccountMetadataJSON),
+		AccountVerificationStatus:    stringOrEmpty(row.AccountVerificationStatus),
+		AccountVerificationError:     stringOrEmpty(row.AccountVerificationError),
+		AccountVerificationStartedAt: timeOrNil(row.AccountVerificationStartedAt),
+		LastVerifiedAt:               timeOrNil(row.LastVerifiedAt),
+		CreatedAt:                    &row.CreatedAt,
+		UpdatedAt:                    &row.UpdatedAt,
 	})
 }
 

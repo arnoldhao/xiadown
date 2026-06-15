@@ -32,7 +32,7 @@ type connectorAppSessionWindow struct {
 	last       []appcookies.Record
 	closing    bool
 	allowClose bool
-	closed     bool
+	completed  bool
 	closeOnce  sync.Once
 }
 
@@ -134,9 +134,9 @@ func (session *connectorAppSessionWindow) Cookies(ctx context.Context) ([]appcoo
 	session.mu.Lock()
 	window := session.window
 	cached := append([]appcookies.Record(nil), session.last...)
-	closed := session.closed
+	completed := session.completed
 	session.mu.Unlock()
-	if closed && len(cached) > 0 {
+	if completed && len(cached) > 0 {
 		return cached, nil
 	}
 	if window == nil {
@@ -173,26 +173,26 @@ func (session *connectorAppSessionWindow) Close() {
 	}
 	session.closeOnce.Do(func() {
 		captureBeforeClose := connectorAppSessionCaptureBeforeClose()
+		var completeNow bool
 		session.mu.Lock()
 		window := session.window
-		alreadyClosing := session.closing || session.closed
-		if !captureBeforeClose {
-			session.window = nil
-			if alreadyClosing {
-				window = nil
-			} else {
-				session.closing = true
-				session.closed = true
-			}
-		} else if alreadyClosing {
+		if session.completed {
 			window = nil
+		} else {
+			session.closing = true
+			session.allowClose = true
+			if !captureBeforeClose || window == nil {
+				completeNow = session.completeCloseLocked(window)
+			}
 		}
 		session.mu.Unlock()
 		if window != nil {
 			window.Close()
 		}
-		if !captureBeforeClose {
-			session.markDone()
+		if completeNow {
+			session.closeDone()
+		} else if captureBeforeClose && window != nil {
+			session.completeClose(window)
 		}
 	})
 }
@@ -203,18 +203,20 @@ func (session *connectorAppSessionWindow) handleWindowClosing(event *application
 	}
 	if !connectorAppSessionCaptureBeforeClose() {
 		session.mu.Lock()
-		session.closing = true
-		session.closed = true
+		completeNow := session.completeCloseLocked(session.window)
 		session.mu.Unlock()
-		session.markDone()
+		if completeNow {
+			session.closeDone()
+		}
 		return
 	}
 	session.mu.Lock()
 	if session.allowClose {
-		session.closed = true
-		session.window = nil
+		completeNow := session.completeCloseLocked(session.window)
 		session.mu.Unlock()
-		session.markDone()
+		if completeNow {
+			session.closeDone()
+		}
 		return
 	}
 	if session.closing {
@@ -249,31 +251,51 @@ func (session *connectorAppSessionWindow) captureCookiesAndClose() {
 
 	session.mu.Lock()
 	window := session.window
+	if session.completed {
+		session.mu.Unlock()
+		return
+	}
 	session.allowClose = true
-	session.closed = true
 	session.mu.Unlock()
 
 	if window != nil {
 		window.Close()
+		return
 	}
 
-	session.mu.Lock()
-	if session.window == window {
-		session.window = nil
-	}
-	session.mu.Unlock()
-	session.markDone()
+	session.completeClose(nil)
 }
 
-func (session *connectorAppSessionWindow) markDone() {
+func (session *connectorAppSessionWindow) completeClose(window *application.WebviewWindow) {
 	if session == nil {
 		return
 	}
-	select {
-	case <-session.done:
-	default:
-		close(session.done)
+	session.mu.Lock()
+	completeNow := session.completeCloseLocked(window)
+	session.mu.Unlock()
+	if completeNow {
+		session.closeDone()
 	}
+}
+
+func (session *connectorAppSessionWindow) completeCloseLocked(window *application.WebviewWindow) bool {
+	if session == nil {
+		return false
+	}
+	if window == nil || session.window == window {
+		session.window = nil
+	}
+	session.closing = true
+	session.allowClose = true
+	if session.completed {
+		return false
+	}
+	session.completed = true
+	return true
+}
+
+func (session *connectorAppSessionWindow) closeDone() {
+	close(session.done)
 }
 
 func siteAppSessionAccount(siteKey string) string {

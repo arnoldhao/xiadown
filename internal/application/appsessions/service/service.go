@@ -15,12 +15,13 @@ import (
 )
 
 type AppSessionsService struct {
-	repo           appsessions.Repository
-	provider       AppSessionProvider
-	accountFetcher AppSessionAccountFetcher
-	changeListener AppSessionChangeListener
-	now            func() time.Time
-	newSessionID   func() string
+	repo                       appsessions.Repository
+	provider                   AppSessionProvider
+	accountFetcher             AppSessionAccountFetcher
+	changeListener             AppSessionChangeListener
+	now                        func() time.Time
+	newSessionID               func() string
+	accountVerificationTimeout time.Duration
 
 	mu            sync.Mutex
 	sessions      map[string]*browserSession
@@ -50,11 +51,12 @@ type Option func(*AppSessionsService)
 
 func NewAppSessionsService(repo appsessions.Repository, options ...Option) *AppSessionsService {
 	service := &AppSessionsService{
-		repo:          repo,
-		now:           time.Now,
-		newSessionID:  uuid.NewString,
-		sessions:      make(map[string]*browserSession),
-		sessionsByApp: make(map[string]string),
+		repo:                       repo,
+		now:                        time.Now,
+		newSessionID:               uuid.NewString,
+		accountVerificationTimeout: 30 * time.Second,
+		sessions:                   make(map[string]*browserSession),
+		sessionsByApp:              make(map[string]string),
 	}
 	for _, option := range options {
 		if option != nil {

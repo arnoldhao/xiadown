@@ -1,21 +1,24 @@
 package dto
 
 type AppSession struct {
-	ID                string             `json:"id"`
-	SiteKey           string             `json:"siteKey"`
-	Group             string             `json:"group"`
-	Label             string             `json:"label"`
-	Desc              string             `json:"desc"`
-	Status            string             `json:"status"`
-	CredentialState   string             `json:"credentialState"`
-	CookiesCount      int                `json:"cookiesCount"`
-	Cookies           []AppSessionCookie `json:"cookies"`
-	Domains           []string           `json:"domains,omitempty"`
-	Account           *AppSessionAccount `json:"account,omitempty"`
-	PolicyKey         string             `json:"policyKey,omitempty"`
-	Capabilities      []string           `json:"capabilities,omitempty"`
-	ProviderSupported bool               `json:"providerSupported"`
-	LastVerifiedAt    string             `json:"lastVerifiedAt"`
+	ID                           string             `json:"id"`
+	SiteKey                      string             `json:"siteKey"`
+	Group                        string             `json:"group"`
+	Label                        string             `json:"label"`
+	Desc                         string             `json:"desc"`
+	Status                       string             `json:"status"`
+	CredentialState              string             `json:"credentialState"`
+	CookiesCount                 int                `json:"cookiesCount"`
+	Cookies                      []AppSessionCookie `json:"cookies"`
+	Domains                      []string           `json:"domains,omitempty"`
+	Account                      *AppSessionAccount `json:"account,omitempty"`
+	PolicyKey                    string             `json:"policyKey,omitempty"`
+	Capabilities                 []string           `json:"capabilities,omitempty"`
+	ProviderSupported            bool               `json:"providerSupported"`
+	AccountVerificationStatus    string             `json:"accountVerificationStatus"`
+	AccountVerificationError     string             `json:"accountVerificationError,omitempty"`
+	AccountVerificationStartedAt string             `json:"accountVerificationStartedAt,omitempty"`
+	LastVerifiedAt               string             `json:"lastVerifiedAt"`
 }
 
 type AppSessionAccount struct {
