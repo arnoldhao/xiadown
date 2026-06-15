@@ -7,6 +7,7 @@ import (
 )
 
 type Status string
+type AccountVerificationStatus string
 
 const (
 	StatusDisconnected Status = "disconnected"
@@ -14,36 +15,49 @@ const (
 	StatusExpired      Status = "expired"
 )
 
+const (
+	AccountVerificationUnverified  AccountVerificationStatus = "unverified"
+	AccountVerificationVerifying   AccountVerificationStatus = "verifying"
+	AccountVerificationVerified    AccountVerificationStatus = "verified"
+	AccountVerificationUnsupported AccountVerificationStatus = "unsupported"
+)
+
 type Session struct {
-	ID                  string
-	SiteKey             string
-	Status              Status
-	AccountDisplayName  string
-	AccountHandle       string
-	AccountAvatarURL    string
-	AccountTierKey      string
-	AccountTierLabel    string
-	AccountBadgesJSON   string
-	AccountMetadataJSON string
-	LastVerifiedAt      *time.Time
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                           string
+	SiteKey                      string
+	Status                       Status
+	AccountDisplayName           string
+	AccountHandle                string
+	AccountAvatarURL             string
+	AccountTierKey               string
+	AccountTierLabel             string
+	AccountBadgesJSON            string
+	AccountMetadataJSON          string
+	AccountVerificationStatus    AccountVerificationStatus
+	AccountVerificationError     string
+	AccountVerificationStartedAt *time.Time
+	LastVerifiedAt               *time.Time
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
 }
 
 type SessionParams struct {
-	ID                  string
-	SiteKey             string
-	Status              string
-	AccountDisplayName  string
-	AccountHandle       string
-	AccountAvatarURL    string
-	AccountTierKey      string
-	AccountTierLabel    string
-	AccountBadgesJSON   string
-	AccountMetadataJSON string
-	LastVerifiedAt      *time.Time
-	CreatedAt           *time.Time
-	UpdatedAt           *time.Time
+	ID                           string
+	SiteKey                      string
+	Status                       string
+	AccountDisplayName           string
+	AccountHandle                string
+	AccountAvatarURL             string
+	AccountTierKey               string
+	AccountTierLabel             string
+	AccountBadgesJSON            string
+	AccountMetadataJSON          string
+	AccountVerificationStatus    string
+	AccountVerificationError     string
+	AccountVerificationStartedAt *time.Time
+	LastVerifiedAt               *time.Time
+	CreatedAt                    *time.Time
+	UpdatedAt                    *time.Time
 }
 
 func NewSession(params SessionParams) (Session, error) {
@@ -59,6 +73,10 @@ func NewSession(params SessionParams) (Session, error) {
 	if status == "" {
 		status = StatusDisconnected
 	}
+	verificationStatus := normalizeAccountVerificationStatus(params.AccountVerificationStatus)
+	if strings.TrimSpace(params.AccountVerificationStatus) == "" && params.LastVerifiedAt != nil && !params.LastVerifiedAt.IsZero() {
+		verificationStatus = AccountVerificationVerified
+	}
 
 	createdAt := time.Now()
 	updatedAt := createdAt
@@ -70,20 +88,36 @@ func NewSession(params SessionParams) (Session, error) {
 	}
 
 	return Session{
-		ID:                  id,
-		SiteKey:             siteKey,
-		Status:              status,
-		AccountDisplayName:  strings.TrimSpace(params.AccountDisplayName),
-		AccountHandle:       strings.TrimSpace(params.AccountHandle),
-		AccountAvatarURL:    strings.TrimSpace(params.AccountAvatarURL),
-		AccountTierKey:      strings.TrimSpace(params.AccountTierKey),
-		AccountTierLabel:    strings.TrimSpace(params.AccountTierLabel),
-		AccountBadgesJSON:   strings.TrimSpace(params.AccountBadgesJSON),
-		AccountMetadataJSON: strings.TrimSpace(params.AccountMetadataJSON),
-		LastVerifiedAt:      params.LastVerifiedAt,
-		CreatedAt:           createdAt,
-		UpdatedAt:           updatedAt,
+		ID:                           id,
+		SiteKey:                      siteKey,
+		Status:                       status,
+		AccountDisplayName:           strings.TrimSpace(params.AccountDisplayName),
+		AccountHandle:                strings.TrimSpace(params.AccountHandle),
+		AccountAvatarURL:             strings.TrimSpace(params.AccountAvatarURL),
+		AccountTierKey:               strings.TrimSpace(params.AccountTierKey),
+		AccountTierLabel:             strings.TrimSpace(params.AccountTierLabel),
+		AccountBadgesJSON:            strings.TrimSpace(params.AccountBadgesJSON),
+		AccountMetadataJSON:          strings.TrimSpace(params.AccountMetadataJSON),
+		AccountVerificationStatus:    verificationStatus,
+		AccountVerificationError:     strings.TrimSpace(params.AccountVerificationError),
+		AccountVerificationStartedAt: params.AccountVerificationStartedAt,
+		LastVerifiedAt:               params.LastVerifiedAt,
+		CreatedAt:                    createdAt,
+		UpdatedAt:                    updatedAt,
 	}, nil
+}
+
+func normalizeAccountVerificationStatus(value string) AccountVerificationStatus {
+	switch AccountVerificationStatus(strings.TrimSpace(value)) {
+	case AccountVerificationVerifying:
+		return AccountVerificationVerifying
+	case AccountVerificationVerified:
+		return AccountVerificationVerified
+	case AccountVerificationUnsupported:
+		return AccountVerificationUnsupported
+	default:
+		return AccountVerificationUnverified
+	}
 }
 
 type Repository interface {

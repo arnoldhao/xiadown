@@ -649,6 +649,9 @@ CREATE TABLE IF NOT EXISTS site_app_sessions (
 	account_tier_label TEXT,
 	account_badges_json TEXT,
 	account_metadata_json TEXT,
+	account_verification_status TEXT NOT NULL DEFAULT 'unverified',
+	account_verification_error TEXT,
+	account_verification_started_at TIMESTAMP,
 	last_verified_at TIMESTAMP,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -967,6 +970,7 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
 func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 	threadLastInteractivePresent := false
 	providerCompatibilityPresent := false
+	appSessionVerificationPresent := false
 	updates := []struct {
 		table     string
 		column    string
@@ -1105,6 +1109,21 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			column:    "validation_code",
 			statement: "ALTER TABLE pets ADD COLUMN validation_code TEXT",
 		},
+		{
+			table:     "site_app_sessions",
+			column:    "account_verification_status",
+			statement: "ALTER TABLE site_app_sessions ADD COLUMN account_verification_status TEXT NOT NULL DEFAULT 'unverified'",
+		},
+		{
+			table:     "site_app_sessions",
+			column:    "account_verification_error",
+			statement: "ALTER TABLE site_app_sessions ADD COLUMN account_verification_error TEXT",
+		},
+		{
+			table:     "site_app_sessions",
+			column:    "account_verification_started_at",
+			statement: "ALTER TABLE site_app_sessions ADD COLUMN account_verification_started_at TIMESTAMP",
+		},
 	}
 	for _, item := range updates {
 		hasTable, err := sqliteTableExists(ctx, db, item.table)
@@ -1125,6 +1144,9 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			if item.table == "providers" && item.column == "compatibility" {
 				providerCompatibilityPresent = true
 			}
+			if item.table == "site_app_sessions" && item.column == "account_verification_status" {
+				appSessionVerificationPresent = true
+			}
 			continue
 		}
 		if _, err := db.ExecContext(ctx, item.statement); err != nil {
@@ -1135,6 +1157,9 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 		}
 		if item.table == "providers" && item.column == "compatibility" {
 			providerCompatibilityPresent = true
+		}
+		if item.table == "site_app_sessions" && item.column == "account_verification_status" {
+			appSessionVerificationPresent = true
 		}
 	}
 	if threadLastInteractivePresent {
@@ -1153,6 +1178,16 @@ SET compatibility = CASE
 	ELSE 'openai'
 END
 WHERE TRIM(COALESCE(compatibility, '')) = ''
+`); err != nil {
+			return err
+		}
+	}
+	if appSessionVerificationPresent {
+		if _, err := db.ExecContext(ctx, `
+UPDATE site_app_sessions
+SET account_verification_status = 'verified'
+WHERE last_verified_at IS NOT NULL
+  AND TRIM(COALESCE(account_verification_status, '')) IN ('', 'unverified')
 `); err != nil {
 			return err
 		}

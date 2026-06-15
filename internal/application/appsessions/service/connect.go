@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"log"
 	"net/url"
 	"strings"
 	"sync"
@@ -202,7 +201,7 @@ func (service *AppSessionsService) finalizeSession(ctx context.Context, sessionI
 	<-session.finalizeDone
 	if triggered && completed {
 		service.notifyAppSessionChanged(ctx, AppSessionChangeEvent{
-			Action:     "finish",
+			Action:     appSessionFinalizeAction(session.Purpose),
 			AppSession: completedResult.AppSession,
 			Saved:      completedResult.Saved,
 			Reason:     completedResult.Reason,
@@ -224,6 +223,13 @@ func (service *AppSessionsService) finalizeSession(ctx context.Context, sessionI
 	return *session.FinalResult, triggered, nil
 }
 
+func appSessionFinalizeAction(purpose string) string {
+	if strings.TrimSpace(purpose) == browserSessionPurposeOpen {
+		return "verify-started"
+	}
+	return "finish"
+}
+
 func (service *AppSessionsService) performFinalize(ctx context.Context, session *browserSession, reason string) (dto.FinishAppSessionConnectResult, error) {
 	if session == nil {
 		return dto.FinishAppSessionConnectResult{}, appsessions.ErrSessionGone
@@ -231,10 +237,11 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 	records := append([]appcookies.Record(nil), session.LastCookies...)
 	if session.Browser != nil {
 		readCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
-		if liveRecords, err := session.Browser.Cookies(readCtx); err == nil && len(liveRecords) > 0 {
+		liveRecords, err := session.Browser.Cookies(readCtx)
+		cancel()
+		if err == nil && len(liveRecords) > 0 {
 			records = liveRecords
 		}
-		cancel()
 	}
 	filtered := filterAppSessionCookies(session.SiteKey, records)
 	current, err := service.repo.Get(ctx, session.AppSessionID)
@@ -256,29 +263,7 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 	}
 	if len(filtered) == 0 {
 		service.cleanupSession(session)
-		log.Printf("app sessions: finalize completed without matching cookies session=%s site=%s reason=%s", session.ID, session.SiteKey, reason)
 		return result, nil
-	}
-	account := dto.AppSessionAccount{}
-	if service.accountFetcher != nil {
-		accountCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		fetched, err := service.accountFetcher(accountCtx, session.SiteKey, filtered)
-		cancel()
-		if err != nil {
-			if appSessionRequiresAccountVerification(session.SiteKey) {
-				return service.rejectUnverifiedAppSession(ctx, session, current, result, err)
-			}
-			if !errors.Is(err, appsessions.ErrUnsupported) {
-				log.Printf("app sessions: account fetch failed session=%s site=%s error=%v", session.ID, session.SiteKey, err)
-			}
-		} else {
-			account = fetched
-		}
-	} else if appSessionRequiresAccountVerification(session.SiteKey) {
-		return service.rejectUnverifiedAppSession(ctx, session, current, result, appsessions.ErrUnsupported)
-	}
-	if appSessionRequiresAccountVerification(session.SiteKey) && !appSessionAccountVerified(account) {
-		return service.rejectUnverifiedAppSession(ctx, session, current, result, appsessions.ErrNoCookies)
 	}
 	if service.provider != nil {
 		if err := service.provider.SaveAppSessionCookies(ctx, session.SiteKey, filtered); err != nil {
@@ -286,21 +271,29 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 			return dto.FinishAppSessionConnectResult{}, err
 		}
 	}
-	now := service.now()
+	now := service.now().UTC().Round(0)
+	verificationStatus := appsessions.AccountVerificationUnsupported
+	verificationError := ""
+	var verificationStartedAt *time.Time
+	if appSessionRequiresAccountVerification(session.SiteKey) {
+		if service.accountFetcher != nil {
+			startedAt := now
+			verificationStatus = appsessions.AccountVerificationVerifying
+			verificationStartedAt = &startedAt
+		} else {
+			verificationStatus = appsessions.AccountVerificationUnverified
+			verificationError = appSessionVerificationErrorMessage(appsessions.ErrUnsupported)
+		}
+	}
 	updated, err := appsessions.NewSession(appsessions.SessionParams{
-		ID:                  current.ID,
-		SiteKey:             current.SiteKey,
-		Status:              string(appsessions.StatusConnected),
-		AccountDisplayName:  account.DisplayName,
-		AccountHandle:       account.Handle,
-		AccountAvatarURL:    account.AvatarURL,
-		AccountTierKey:      account.TierKey,
-		AccountTierLabel:    account.TierLabel,
-		AccountBadgesJSON:   encodeBadges(account.Badges),
-		AccountMetadataJSON: encodeMetadata(account.Metadata),
-		LastVerifiedAt:      &now,
-		CreatedAt:           &current.CreatedAt,
-		UpdatedAt:           &now,
+		ID:                           current.ID,
+		SiteKey:                      current.SiteKey,
+		Status:                       string(appsessions.StatusConnected),
+		AccountVerificationStatus:    string(verificationStatus),
+		AccountVerificationError:     verificationError,
+		AccountVerificationStartedAt: verificationStartedAt,
+		CreatedAt:                    &current.CreatedAt,
+		UpdatedAt:                    &now,
 	})
 	if err != nil {
 		service.cleanupSession(session)
@@ -312,40 +305,9 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 	}
 	result.AppSession = service.mapSessionDTOWithCookies(updated, filtered)
 	service.cleanupSession(session)
-	return result, nil
-}
-
-func (service *AppSessionsService) rejectUnverifiedAppSession(ctx context.Context, session *browserSession, current appsessions.Session, result dto.FinishAppSessionConnectResult, cause error) (dto.FinishAppSessionConnectResult, error) {
-	if service != nil && service.provider != nil {
-		if err := service.provider.ClearAppSession(ctx, current.SiteKey, appSessionCookieDomains(current.SiteKey)); err != nil &&
-			!errors.Is(err, appsessions.ErrNoCookies) &&
-			!errors.Is(err, appsessions.ErrUnsupported) {
-			log.Printf("app sessions: clear unverified session cookies failed session=%s site=%s error=%v", session.ID, current.SiteKey, err)
-		}
+	if verificationStatus == appsessions.AccountVerificationVerifying && verificationStartedAt != nil {
+		service.startAppSessionAccountVerification(updated, filtered, *verificationStartedAt)
 	}
-	if cause != nil && !errors.Is(cause, appsessions.ErrNoCookies) && !errors.Is(cause, appsessions.ErrUnsupported) {
-		log.Printf("app sessions: verified account fetch failed session=%s site=%s error=%v", session.ID, current.SiteKey, cause)
-	}
-	now := service.now()
-	updated, err := appsessions.NewSession(appsessions.SessionParams{
-		ID:        current.ID,
-		SiteKey:   current.SiteKey,
-		Status:    string(appsessions.StatusDisconnected),
-		CreatedAt: &current.CreatedAt,
-		UpdatedAt: &now,
-	})
-	if err != nil {
-		service.cleanupSession(session)
-		return dto.FinishAppSessionConnectResult{}, err
-	}
-	if err := service.repo.Save(ctx, updated); err != nil {
-		service.cleanupSession(session)
-		return dto.FinishAppSessionConnectResult{}, err
-	}
-	result.Saved = false
-	result.Domains = nil
-	result.AppSession = service.mapSessionDTOWithCookies(updated, nil)
-	service.cleanupSession(session)
 	return result, nil
 }
 

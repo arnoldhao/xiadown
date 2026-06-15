@@ -127,12 +127,13 @@ func (handler *AppSessionsHandler) handleAppSessionChanged(ctx context.Context, 
 		handler.telemetry.TrackAppSessionConnected(ctx, siteKey)
 	}
 	payload := map[string]any{
-		"action":       strings.TrimSpace(event.Action),
-		"appSessionId": strings.TrimSpace(event.AppSession.ID),
-		"siteKey":      siteKey,
-		"status":       strings.TrimSpace(event.AppSession.Status),
-		"saved":        event.Saved,
-		"reason":       strings.TrimSpace(event.Reason),
+		"action":             strings.TrimSpace(event.Action),
+		"appSessionId":       strings.TrimSpace(event.AppSession.ID),
+		"siteKey":            siteKey,
+		"status":             strings.TrimSpace(event.AppSession.Status),
+		"verificationStatus": strings.TrimSpace(event.AppSession.AccountVerificationStatus),
+		"saved":              event.Saved,
+		"reason":             strings.TrimSpace(event.Reason),
 	}
 	handler.dispatchAppSessionWindowEvent(AppSessionsChangedEvent, payload)
 	if siteKey == "youtube" {
