@@ -96,15 +96,15 @@ XiaDownはオンライン音楽プレーヤーであり、デュアルエンジ�
   </p>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="XiaDownの接続とアカウント分離画面" width="92%" />
+    <img src="./images/app_sessions.webp" alt="XiaDownのアプリセッションとサインイン状態画面" width="92%" />
     <br />
-    <sub>接続設定、Cookies、ブラウザProfileの分離</sub>
+    <sub>アプリセッション、サインイン検証、アカウント状態管理</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="XiaDownの依存ツール管理画面" width="92%" />
+    <img src="./images/settings_download.webp" alt="XiaDownのダウンロード設定と依存ツール管理画面" width="92%" />
     <br />
-    <sub>YT-DLP、FFmpeg、Bunの依存ツール自動管理</sub>
+    <sub>ダウンロード先、並列数、YT-DLP、FFmpeg、Bunの管理</sub>
   </p>
 
   <p align="center">
@@ -120,7 +120,17 @@ XiaDownはオンライン音楽プレーヤーであり、デュアルエンジ�
   </p>
 </details>
 
-## クイックスタート
+## インストール方法
+
+### Homebrew
+
+macOSではHomebrew caskでインストールできます：
+
+```bash
+brew install --cask arnoldhao/tap/xiadown
+```
+
+### インストーラーのダウンロード
 
 以下から最新パッケージを直接ダウンロードできます。過去のリリースは[GitHub Releases](https://github.com/arnoldhao/xiadown/releases)で確認できます。
 
@@ -144,6 +154,15 @@ XiaDownはオンライン音楽プレーヤーであり、デュアルエンジ�
 | 主流 | プライバシーと効率 | 特色・地域 |
 | --- | --- | --- |
 | Chrome、Chromium、Edge | Brave、Vivaldi、Arc、Helium | Opera、Opera GX、Yandex Browser |
+
+## ローカル開発
+
+GoとBunの環境を準備したら、Wails 3 CLIをインストールして開発モードを起動します：
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+wails3 dev
+```
 
 ## 免責事項
 

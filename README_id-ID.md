@@ -96,15 +96,15 @@ XiaDown dibuat sebagai alat harian untuk kreator konten: saat membutuhkan materi
   </p>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="Tampilan koneksi dan isolasi akun XiaDown" width="92%" />
+    <img src="./images/app_sessions.webp" alt="Tampilan sesi aplikasi dan status masuk XiaDown" width="92%" />
     <br />
-    <sub>Isolasi pengaturan koneksi, Cookies, dan Profile browser</sub>
+    <sub>Sesi aplikasi, verifikasi masuk, dan manajemen status akun</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="Tampilan manajemen alat dependensi XiaDown" width="92%" />
+    <img src="./images/settings_download.webp" alt="Tampilan pengaturan unduhan dan manajemen alat dependensi XiaDown" width="92%" />
     <br />
-    <sub>Manajemen otomatis YT-DLP, FFmpeg, dan Bun</sub>
+    <sub>Direktori unduhan, konkurensi, dan manajemen YT-DLP, FFmpeg, Bun</sub>
   </p>
 
   <p align="center">
@@ -120,7 +120,17 @@ XiaDown dibuat sebagai alat harian untuk kreator konten: saat membutuhkan materi
   </p>
 </details>
 
-## Mulai Cepat
+## Cara Instalasi
+
+### Homebrew
+
+Di macOS, instal dengan Homebrew cask:
+
+```bash
+brew install --cask arnoldhao/tap/xiadown
+```
+
+### Unduh installer
 
 Unduh paket terbaru secara langsung di bawah ini. Versi lama tersedia di [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
 
@@ -144,6 +154,15 @@ Browser yang saat ini didukung:
 | Utama | Privasi dan efisiensi | Khusus dan regional |
 | --- | --- | --- |
 | Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
+## Pengembangan lokal
+
+Setelah menyiapkan Go dan Bun, instal Wails 3 CLI lalu jalankan mode pengembangan:
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+wails3 dev
+```
 
 ## Penafian
 

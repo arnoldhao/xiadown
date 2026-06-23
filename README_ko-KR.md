@@ -96,15 +96,15 @@ XiaDown은 온라인 음악 플레이어이자 듀얼 엔진 동영상 다운로
   </p>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="XiaDown 연결 및 계정 격리 화면" width="92%" />
+    <img src="./images/app_sessions.webp" alt="XiaDown 앱 세션 및 로그인 상태 화면" width="92%" />
     <br />
-    <sub>연결 설정, Cookies, 브라우저 Profile 격리</sub>
+    <sub>앱 세션, 로그인 확인 및 계정 상태 관리</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="XiaDown 의존성 도구 관리 화면" width="92%" />
+    <img src="./images/settings_download.webp" alt="XiaDown 다운로드 설정 및 의존성 도구 관리 화면" width="92%" />
     <br />
-    <sub>YT-DLP, FFmpeg, Bun 의존성 자동 관리</sub>
+    <sub>다운로드 폴더, 동시 작업 수, YT-DLP, FFmpeg, Bun 관리</sub>
   </p>
 
   <p align="center">
@@ -120,7 +120,17 @@ XiaDown은 온라인 음악 플레이어이자 듀얼 엔진 동영상 다운로
   </p>
 </details>
 
-## 빠른 시작
+## 설치 방법
+
+### Homebrew
+
+macOS에서는 Homebrew cask로 설치할 수 있습니다:
+
+```bash
+brew install --cask arnoldhao/tap/xiadown
+```
+
+### 설치 패키지 다운로드
 
 아래에서 최신 설치 패키지를 바로 다운로드할 수 있습니다. 이전 버전은 [GitHub Releases](https://github.com/arnoldhao/xiadown/releases)에서 확인할 수 있습니다.
 
@@ -144,6 +154,15 @@ XiaDown은 온라인 음악 플레이어이자 듀얼 엔진 동영상 다운로
 | 주요 | 개인정보 보호와 효율 | 특화 및 지역 |
 | --- | --- | --- |
 | Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
+## 로컬 개발
+
+Go와 Bun 환경을 준비한 뒤 Wails 3 CLI를 설치하고 개발 모드를 시작합니다:
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+wails3 dev
+```
 
 ## 면책 조항
 

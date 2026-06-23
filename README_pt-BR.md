@@ -96,15 +96,15 @@ Ele é uma ferramenta diária criada para criadores de conteúdo: quando você p
   </p>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="Tela de conexões e isolamento de contas do XiaDown" width="92%" />
+    <img src="./images/app_sessions.webp" alt="Tela de sessões do app e status de login do XiaDown" width="92%" />
     <br />
-    <sub>Isolamento de conexões, Cookies e Profiles do navegador</sub>
+    <sub>Sessões do app, verificação de login e gerenciamento de status da conta</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="Tela de gerenciamento de ferramentas dependentes do XiaDown" width="92%" />
+    <img src="./images/settings_download.webp" alt="Tela de configurações de download e gerenciamento de ferramentas dependentes do XiaDown" width="92%" />
     <br />
-    <sub>Gerenciamento automático de YT-DLP, FFmpeg e Bun</sub>
+    <sub>Diretório de download, concorrência e gerenciamento de YT-DLP, FFmpeg e Bun</sub>
   </p>
 
   <p align="center">
@@ -120,7 +120,17 @@ Ele é uma ferramenta diária criada para criadores de conteúdo: quando você p
   </p>
 </details>
 
-## Início Rápido
+## Instalação
+
+### Homebrew
+
+No macOS, instale com Homebrew cask:
+
+```bash
+brew install --cask arnoldhao/tap/xiadown
+```
+
+### Baixar instaladores
 
 Baixe diretamente o pacote mais recente abaixo. Versões anteriores estão disponíveis em [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
 
@@ -144,6 +154,15 @@ Navegadores compatíveis atualmente:
 | Principais | Privacidade e eficiência | Especiais e regionais |
 | --- | --- | --- |
 | Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
+## Desenvolvimento local
+
+Depois de preparar Go e Bun, instale a CLI do Wails 3 e inicie o modo de desenvolvimento:
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+wails3 dev
+```
 
 ## Aviso Legal
 

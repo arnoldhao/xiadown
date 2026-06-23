@@ -96,15 +96,15 @@
   </p>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="下蛋连接与账号隔离界面" width="92%" />
+    <img src="./images/app_sessions.webp" alt="下蛋应用会话与登录状态界面" width="92%" />
     <br />
-    <sub>连接配置、Cookies 与浏览器 Profile 隔离</sub>
+    <sub>应用会话、登录校验与账号状态管理</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="下蛋依赖工具管理界面" width="92%" />
+    <img src="./images/settings_download.webp" alt="下蛋下载设置与依赖工具管理界面" width="92%" />
     <br />
-    <sub>YT-DLP、FFmpeg、Bun 依赖自动管理</sub>
+    <sub>下载目录、并发与 YT-DLP、FFmpeg、Bun 依赖管理</sub>
   </p>
 
   <p align="center">
@@ -120,7 +120,17 @@
   </p>
 </details>
 
-## 快速开始
+## 安装方式
+
+### Homebrew
+
+macOS 可通过 Homebrew cask 安装：
+
+```bash
+brew install --cask arnoldhao/tap/xiadown
+```
+
+### 下载安装包
 
 可直接下载最新安装包；历史版本见 [GitHub 发布页](https://github.com/arnoldhao/xiadown/releases)。
 
@@ -144,6 +154,15 @@
 | 主流 | 隐私与效率 | 特色与区域 |
 | --- | --- | --- |
 | Chrome、Chromium、Edge | Brave、Vivaldi、Arc、Helium | Opera、Opera GX、Yandex Browser |
+
+## 本地开发
+
+准备好 Go 与 Bun 环境后，安装 Wails 3 命令行并启动开发模式：
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+wails3 dev
+```
 
 ## 免责声明
 
