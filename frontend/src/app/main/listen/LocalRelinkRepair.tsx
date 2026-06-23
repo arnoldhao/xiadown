@@ -59,12 +59,12 @@ export function ListenLocalRelinkRepair(props: {
   const handleScanFolder = async () => {
     const currentMissing = missingFiles.data?.missing ?? [];
     const initialPath = currentMissing[0]?.oldPath ?? "";
-    const selected = await selectLibraryDirectory(props.text.completed.relinkChooseFolderTitle, initialPath);
-    if (!selected) {
-      return;
-    }
-    setClearConfirming(false);
     try {
+      const selected = await selectLibraryDirectory(props.text.completed.relinkChooseFolderTitle, initialPath);
+      if (!selected) {
+        return;
+      }
+      setClearConfirming(false);
       const result = await scanMissing.mutateAsync({
         directory: selected,
         fileIds: currentMissing.map((file) => file.fileId),

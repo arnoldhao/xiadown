@@ -2,6 +2,8 @@ package wails
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -71,6 +73,38 @@ func TestIsDialogCancelledError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isDialogCancelledError(tt.err); got != tt.want {
 				t.Fatalf("isDialogCancelledError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveExistingDialogDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	nestedDir := filepath.Join(tempDir, "library")
+	if err := os.Mkdir(nestedDir, 0o755); err != nil {
+		t.Fatalf("mkdir nested dir: %v", err)
+	}
+	filePath := filepath.Join(nestedDir, "video.mp4")
+	if err := os.WriteFile(filePath, []byte("media"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "empty", path: "", want: ""},
+		{name: "existing directory", path: nestedDir, want: nestedDir},
+		{name: "existing file", path: filePath, want: nestedDir},
+		{name: "missing child", path: filepath.Join(nestedDir, "missing", "video.mp4"), want: nestedDir},
+		{name: "missing relative path", path: filepath.Join("missing", "video.mp4"), want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveExistingDialogDirectory(tt.path); got != tt.want {
+				t.Fatalf("resolveExistingDialogDirectory() = %q, want %q", got, tt.want)
 			}
 		})
 	}
