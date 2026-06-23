@@ -264,7 +264,7 @@ export function useApplyListenLocalRelinks() {
 }
 
 export async function selectLibraryDirectory(title: string, initialPath: string): Promise<string> {
-  return String((await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.SelectLibraryDirectory`, title, initialPath)) ?? "").trim();
+  return String((await LibraryHandler.SelectLibraryDirectory(title, initialPath)) ?? "").trim();
 }
 
 export function usePrepareYTDLPDownload() {

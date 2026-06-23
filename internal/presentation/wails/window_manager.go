@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -233,8 +235,8 @@ func (manager *WindowManager) selectDirectoryDialog(title string, initialDir str
 		SetTitle(title).
 		CanChooseDirectories(true).
 		CanChooseFiles(false)
-	if initialDir != "" {
-		dialog = dialog.SetDirectory(initialDir)
+	if directory := resolveExistingDialogDirectory(initialDir); directory != "" {
+		dialog = dialog.SetDirectory(directory)
 	}
 	if attachWindow != nil {
 		dialog = dialog.AttachToWindow(attachWindow)
@@ -244,6 +246,25 @@ func (manager *WindowManager) selectDirectoryDialog(title string, initialDir str
 		return "", nil
 	}
 	return selected, err
+}
+
+func resolveExistingDialogDirectory(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(trimmed)
+	for {
+		info, err := os.Stat(cleaned)
+		if err == nil && info.IsDir() {
+			return cleaned
+		}
+		parent := filepath.Dir(cleaned)
+		if parent == cleaned || parent == "." {
+			return ""
+		}
+		cleaned = parent
+	}
 }
 
 func (manager *WindowManager) SelectFilesDialog(title string, initialDir string) ([]string, error) {
