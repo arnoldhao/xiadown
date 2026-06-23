@@ -88,7 +88,11 @@ func (service *LibraryService) scheduleAutoRetryYTDLP(ctx context.Context, opera
 	if err != nil {
 		return "", false
 	}
-	go service.runDownloadOperation(context.Background(), newOperation, newHistory, retryRequest)
+	if isResourceDownloadRequest(retryRequest) {
+		go service.runDownloadOperation(context.Background(), newOperation, newHistory, retryRequest)
+	} else {
+		service.signalDownloadScheduler()
+	}
 	return newOperation.ID, true
 }
 
@@ -194,7 +198,11 @@ func (service *LibraryService) RetryYTDLPOperation(ctx context.Context, request 
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
-	go service.runDownloadOperation(context.Background(), newOperation, newHistory, input)
+	if isResourceDownloadRequest(input) {
+		go service.runDownloadOperation(context.Background(), newOperation, newHistory, input)
+	} else {
+		service.signalDownloadScheduler()
+	}
 	return toOperationDTO(newOperation), nil
 }
 

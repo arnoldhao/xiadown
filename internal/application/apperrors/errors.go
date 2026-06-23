@@ -17,6 +17,13 @@ const (
 	CodeNetworkError      Code = "network_error"
 	CodeParsing           Code = "parsing_error"
 
+	CodeDownloadURLRequired    Code = "download_url_required"
+	CodeDownloadURLInvalid     Code = "download_url_invalid"
+	CodeDownloadURLUnsupported Code = "download_url_unsupported"
+	CodeDownloadURLMultiple    Code = "download_url_multiple"
+	CodeDownloadBatchEmpty     Code = "download_batch_empty"
+	CodeDownloadBatchTooLarge  Code = "download_batch_too_large"
+
 	CodeResourceUnsupportedDomain    Code = "resource_unsupported_domain"
 	CodeResourceBrowserUnavailable   Code = "resource_browser_unavailable"
 	CodeResourceBrowserLaunchFailed  Code = "resource_browser_launch_failed"

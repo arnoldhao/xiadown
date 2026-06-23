@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"xiadown/internal/application/apperrors"
 	appsessionsdto "xiadown/internal/application/appsessions/dto"
 	appsessionsservice "xiadown/internal/application/appsessions/service"
 	"xiadown/internal/application/events"
@@ -69,6 +70,10 @@ type LibraryService struct {
 	runMu                    sync.Mutex
 	runCancels               map[string]context.CancelFunc
 	runDone                  map[string]chan struct{}
+	downloadSchedulerMu      sync.Mutex
+	downloadSchedulerActive  map[string]struct{}
+	downloadSchedulerRunning bool
+	downloadSchedulerPending bool
 	resourceSniffLifecycleMu sync.Mutex
 	resourceSniffMu          sync.Mutex
 	resourceSniffs           map[string]*resourceSniffSession
@@ -100,30 +105,31 @@ func NewLibraryService(
 	telemetry Telemetry,
 ) *LibraryService {
 	return &LibraryService{
-		libraries:             libraries,
-		moduleConfig:          moduleConfig,
-		files:                 files,
-		localTracks:           localTracks,
-		operations:            operations,
-		processes:             processes,
-		operationChunks:       operationChunks,
-		histories:             histories,
-		workspace:             workspace,
-		fileEvents:            fileEvents,
-		subtitles:             subtitles,
-		presets:               presets,
-		settings:              settings,
-		iconResolver:          iconResolver,
-		tools:                 tools,
-		proxyClient:           proxyClient,
-		appSessions:           appSessions,
-		bus:                   bus,
-		telemetry:             telemetry,
-		runCancels:            make(map[string]context.CancelFunc),
-		runDone:               make(map[string]chan struct{}),
-		resourceSniffs:        make(map[string]*resourceSniffSession),
-		resourcePreviewLeases: make(map[string]resourceSniffPreviewLease),
-		resourceMedia:         make(map[string]resourceMedia),
+		libraries:               libraries,
+		moduleConfig:            moduleConfig,
+		files:                   files,
+		localTracks:             localTracks,
+		operations:              operations,
+		processes:               processes,
+		operationChunks:         operationChunks,
+		histories:               histories,
+		workspace:               workspace,
+		fileEvents:              fileEvents,
+		subtitles:               subtitles,
+		presets:                 presets,
+		settings:                settings,
+		iconResolver:            iconResolver,
+		tools:                   tools,
+		proxyClient:             proxyClient,
+		appSessions:             appSessions,
+		bus:                     bus,
+		telemetry:               telemetry,
+		runCancels:              make(map[string]context.CancelFunc),
+		runDone:                 make(map[string]chan struct{}),
+		downloadSchedulerActive: make(map[string]struct{}),
+		resourceSniffs:          make(map[string]*resourceSniffSession),
+		resourcePreviewLeases:   make(map[string]resourceSniffPreviewLease),
+		resourceMedia:           make(map[string]resourceMedia),
 		nowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -280,6 +286,9 @@ func (service *LibraryService) RecoverPendingJobs(ctx context.Context) {
 			if err := json.Unmarshal([]byte(item.InputJSON), &request); err != nil {
 				continue
 			}
+			if !isResourceDownloadRequest(request) {
+				continue
+			}
 			history, err := service.findOrRebuildOperationHistory(ctx, item, request)
 			if err != nil {
 				continue
@@ -293,6 +302,7 @@ func (service *LibraryService) RecoverPendingJobs(ctx context.Context) {
 			go service.runTranscodeOperation(context.Background(), item, request)
 		}
 	}
+	service.signalDownloadScheduler()
 }
 
 func (service *LibraryService) markInterruptedOperation(ctx context.Context, operation library.LibraryOperation) {
@@ -753,7 +763,11 @@ func (service *LibraryService) resumeDownloadOperation(ctx context.Context, item
 		return dto.LibraryOperationDTO{}, err
 	}
 	operationDTO := toOperationDTO(item)
-	go service.runDownloadOperation(context.Background(), item, history, resumeRequest)
+	if isResourceDownloadRequest(resumeRequest) {
+		go service.runDownloadOperation(context.Background(), item, history, resumeRequest)
+	} else {
+		service.signalDownloadScheduler()
+	}
 	return operationDTO, nil
 }
 
@@ -1077,8 +1091,64 @@ func (service *LibraryService) CreateYTDLPJob(ctx context.Context, request dto.C
 		service.discardResourceMediaSnapshots(claimedResourceMediaID)
 		return dto.LibraryOperationDTO{}, err
 	}
-	go service.runDownloadOperation(context.Background(), operation, history, withYTDLPOperationLibrary(request, operation))
+	if isResourceDownloadRequest(request) {
+		go service.runDownloadOperation(context.Background(), operation, history, withYTDLPOperationLibrary(request, operation))
+	} else {
+		service.signalDownloadScheduler()
+	}
 	return toOperationDTO(operation), nil
+}
+
+func (service *LibraryService) CreateYTDLPBatchJobs(ctx context.Context, request dto.CreateYTDLPBatchJobsRequest) (dto.CreateYTDLPBatchJobsResponse, error) {
+	if len(request.Items) == 0 {
+		return dto.CreateYTDLPBatchJobsResponse{}, apperrors.New(apperrors.CodeDownloadBatchEmpty, "download batch is empty")
+	}
+	if len(request.Items) > 100 {
+		return dto.CreateYTDLPBatchJobsResponse{}, apperrors.New(apperrors.CodeDownloadBatchTooLarge, "download batch is too large")
+	}
+	batchRunID := uuid.NewString()
+	normalizedItems, err := normalizeYTDLPBatchItems(request.Items, batchRunID)
+	if err != nil {
+		return dto.CreateYTDLPBatchJobsResponse{}, err
+	}
+	operations := make([]dto.LibraryOperationDTO, 0, len(normalizedItems))
+	for _, item := range normalizedItems {
+		operation, _, _, err := service.createDownloadOperation(ctx, item)
+		if err != nil {
+			return dto.CreateYTDLPBatchJobsResponse{}, err
+		}
+		operations = append(operations, toOperationDTO(operation))
+	}
+	service.signalDownloadScheduler()
+	return dto.CreateYTDLPBatchJobsResponse{Operations: operations}, nil
+}
+
+func normalizeYTDLPBatchItems(items []dto.CreateYTDLPJobRequest, batchRunID string) ([]dto.CreateYTDLPJobRequest, error) {
+	normalizedItems := make([]dto.CreateYTDLPJobRequest, 0, len(items))
+	for _, item := range items {
+		if isResourceDownloadRequest(item) {
+			return nil, apperrors.New(apperrors.CodeDownloadURLUnsupported, "resource downloads cannot be created as a batch")
+		}
+		resolvedItems, err := parseDownloadURLs(item.URL)
+		if err != nil {
+			return nil, err
+		}
+		for _, resolvedItem := range resolvedItems {
+			next := item
+			next.URL = resolvedItem.URL
+			if strings.TrimSpace(next.RunID) == "" {
+				next.RunID = batchRunID
+			}
+			normalizedItems = append(normalizedItems, next)
+			if len(normalizedItems) > 100 {
+				return nil, apperrors.New(apperrors.CodeDownloadBatchTooLarge, "download batch is too large")
+			}
+		}
+	}
+	if len(normalizedItems) == 0 {
+		return nil, apperrors.New(apperrors.CodeDownloadBatchEmpty, "download batch is empty")
+	}
+	return normalizedItems, nil
 }
 
 func (service *LibraryService) CreateVideoImport(ctx context.Context, request dto.CreateVideoImportRequest) (dto.LibraryFileDTO, error) {

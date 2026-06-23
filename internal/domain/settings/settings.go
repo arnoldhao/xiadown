@@ -54,6 +54,7 @@ type Settings struct {
 	resourceSniffScope       ResourceSniffScope
 	resourceSniffMinBytes    int
 	resourceSniffRetain      int
+	ytdlpConcurrentDownloads int
 	ytdlpConcurrentFragments int
 	appearanceConfig         map[string]any
 }
@@ -86,6 +87,7 @@ type SettingsParams struct {
 	ResourceSniffScope       string
 	ResourceSniffMinBytes    int
 	ResourceSniffRetain      int
+	YTDLPConcurrentDownloads int
 	YTDLPConcurrentFragments int
 	AppearanceConfig         map[string]any
 }
@@ -171,6 +173,12 @@ const (
 	DefaultSyncedLyricsEnabled = true
 	DefaultRomanizedLyrics     = true
 	DefaultPinyinLyrics        = true
+)
+
+const (
+	DefaultYTDLPConcurrentDownloads = 3
+	MinYTDLPConcurrentDownloads     = 1
+	MaxYTDLPConcurrentDownloads     = 5
 )
 
 const (
@@ -384,6 +392,14 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		return Settings{}, fmt.Errorf("%w: resource sniff retain limit", ErrInvalidSettings)
 	}
 
+	ytdlpConcurrentDownloads := params.YTDLPConcurrentDownloads
+	if ytdlpConcurrentDownloads <= 0 {
+		ytdlpConcurrentDownloads = DefaultYTDLPConcurrentDownloads
+	}
+	if ytdlpConcurrentDownloads < MinYTDLPConcurrentDownloads || ytdlpConcurrentDownloads > MaxYTDLPConcurrentDownloads {
+		return Settings{}, fmt.Errorf("%w: yt-dlp concurrent downloads", ErrInvalidSettings)
+	}
+
 	ytdlpConcurrentFragments := params.YTDLPConcurrentFragments
 	if ytdlpConcurrentFragments <= 0 {
 		ytdlpConcurrentFragments = DefaultYTDLPConcurrentFragments
@@ -420,6 +436,7 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		resourceSniffScope:       resourceSniffScope,
 		resourceSniffMinBytes:    resourceSniffMinBytes,
 		resourceSniffRetain:      resourceSniffRetain,
+		ytdlpConcurrentDownloads: ytdlpConcurrentDownloads,
 		ytdlpConcurrentFragments: ytdlpConcurrentFragments,
 		appearanceConfig:         cloneAnyMap(params.AppearanceConfig),
 	}, nil
@@ -456,6 +473,7 @@ func DefaultSettingsWithLanguage(language string) Settings {
 		resourceSniffScope:       DefaultResourceSniffScope,
 		resourceSniffMinBytes:    DefaultResourceSniffMinBytes,
 		resourceSniffRetain:      DefaultResourceSniffRetain,
+		ytdlpConcurrentDownloads: DefaultYTDLPConcurrentDownloads,
 		ytdlpConcurrentFragments: DefaultYTDLPConcurrentFragments,
 		appearanceConfig:         nil,
 	}
@@ -709,6 +727,9 @@ func (settings Settings) ResourceSniffScope() ResourceSniffScope {
 }
 func (settings Settings) ResourceSniffMinBytes() int { return settings.resourceSniffMinBytes }
 func (settings Settings) ResourceSniffRetain() int   { return settings.resourceSniffRetain }
+func (settings Settings) YTDLPConcurrentDownloads() int {
+	return settings.ytdlpConcurrentDownloads
+}
 func (settings Settings) YTDLPConcurrentFragments() int {
 	return settings.ytdlpConcurrentFragments
 }

@@ -20,12 +20,13 @@ import (
 )
 
 type SettingsHandler struct {
-	service   *service.SettingsService
-	windows   *WindowManager
-	logger    *logging.Logger
-	proxy     *proxy.Manager
-	autostart autoStartManager
-	players   []settingsOnlinePlayerResetter
+	service           *service.SettingsService
+	windows           *WindowManager
+	logger            *logging.Logger
+	proxy             *proxy.Manager
+	autostart         autoStartManager
+	players           []settingsOnlinePlayerResetter
+	downloadScheduler settingsDownloadScheduler
 }
 
 type autoStartManager interface {
@@ -40,8 +41,28 @@ type settingsPlaybackAudioQualitySyncer interface {
 	SetPlaybackAudioQuality(string) error
 }
 
-func NewSettingsHandler(service *service.SettingsService, windows *WindowManager, logger *logging.Logger, proxyMgr *proxy.Manager, autostartMgr *autostart.Manager, players ...settingsOnlinePlayerResetter) *SettingsHandler {
-	return &SettingsHandler{service: service, windows: windows, logger: logger, proxy: proxyMgr, autostart: autostartMgr, players: players}
+type settingsDownloadScheduler interface {
+	NotifyDownloadScheduler()
+}
+
+func NewSettingsHandler(
+	service *service.SettingsService,
+	windows *WindowManager,
+	logger *logging.Logger,
+	proxyMgr *proxy.Manager,
+	autostartMgr *autostart.Manager,
+	downloadScheduler settingsDownloadScheduler,
+	players ...settingsOnlinePlayerResetter,
+) *SettingsHandler {
+	return &SettingsHandler{
+		service:           service,
+		windows:           windows,
+		logger:            logger,
+		proxy:             proxyMgr,
+		autostart:         autostartMgr,
+		downloadScheduler: downloadScheduler,
+		players:           players,
+	}
 }
 
 func (handler *SettingsHandler) ServiceName() string {
@@ -165,6 +186,9 @@ func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.
 
 	if handler.windows != nil {
 		handler.windows.ApplySettings(updated)
+	}
+	if request.YTDLPConcurrentDownloads != nil && handler.downloadScheduler != nil {
+		handler.downloadScheduler.NotifyDownloadScheduler()
 	}
 	return updated, nil
 }

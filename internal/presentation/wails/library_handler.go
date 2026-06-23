@@ -214,6 +214,10 @@ func (handler *LibraryHandler) CreateYTDLPJob(ctx context.Context, request dto.C
 	return handler.service.CreateYTDLPJob(ctx, request)
 }
 
+func (handler *LibraryHandler) CreateYTDLPBatchJobs(ctx context.Context, request dto.CreateYTDLPBatchJobsRequest) (dto.CreateYTDLPBatchJobsResponse, error) {
+	return handler.service.CreateYTDLPBatchJobs(ctx, request)
+}
+
 func (handler *LibraryHandler) CheckYTDLPOperationFailure(ctx context.Context, request dto.CheckYTDLPOperationFailureRequest) (dto.CheckYTDLPOperationFailureResponse, error) {
 	return handler.service.CheckYTDLPOperationFailure(ctx, request)
 }

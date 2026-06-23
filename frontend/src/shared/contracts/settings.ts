@@ -85,6 +85,7 @@ export interface Settings {
   resourceSniffScope: ResourceSniffScope;
   resourceSniffMinBytes: number;
   resourceSniffRetain: number;
+  ytdlpConcurrentDownloads: number;
   ytdlpConcurrentFragments: number;
   mainBounds: WindowBounds;
   settingsBounds: WindowBounds;
@@ -117,6 +118,7 @@ export interface UpdateSettingsRequest {
   resourceSniffScope?: ResourceSniffScope;
   resourceSniffMinBytes?: number;
   resourceSniffRetain?: number;
+  ytdlpConcurrentDownloads?: number;
   ytdlpConcurrentFragments?: number;
   mainBounds?: WindowBounds;
   settingsBounds?: WindowBounds;

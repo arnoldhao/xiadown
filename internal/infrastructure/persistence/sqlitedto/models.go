@@ -107,6 +107,7 @@ type SettingsRow struct {
 	ResourceSniffScope       sql.NullString `bun:"resource_sniff_scope"`
 	ResourceSniffMinBytes    sql.NullInt64  `bun:"resource_sniff_min_bytes"`
 	ResourceSniffRetain      sql.NullInt64  `bun:"resource_sniff_retain"`
+	YTDLPConcurrentDownloads sql.NullInt64  `bun:"ytdlp_concurrent_downloads"`
 	YTDLPConcurrentFragments sql.NullInt64  `bun:"ytdlp_concurrent_fragments"`
 	AppearanceConfigJSON     sql.NullString `bun:"appearance_config_json"`
 	MainX                    sql.NullInt64  `bun:"main_x"`

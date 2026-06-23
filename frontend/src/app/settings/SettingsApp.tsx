@@ -664,6 +664,10 @@ export function SettingsApp() {
     value,
     label: String(value),
   }));
+  const ytdlpConcurrentDownloadOptions = [1, 2, 3, 4, 5].map((value) => ({
+    value,
+    label: String(value),
+  }));
   const dreamApps = [
     {
       id: "dreamcreator",
@@ -1525,7 +1529,11 @@ export function SettingsApp() {
                       title={text.actions.chooseFolder}
                       aria-label={text.actions.chooseFolder}
                     >
-                      {selectDownloadDirectory.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+                      {selectDownloadDirectory.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Pencil className="h-4 w-4" />
+                      )}
                     </Button>
                     {(currentSettings?.downloadDirectory ?? "").trim() ? (
                       <Button
@@ -1533,7 +1541,11 @@ export function SettingsApp() {
                         variant="outline"
                         size="compactIcon"
                         className="shrink-0"
-                        onClick={() => void openLibraryPath.mutateAsync({ path: currentSettings?.downloadDirectory ?? "" })}
+                        onClick={() =>
+                          void openLibraryPath.mutateAsync({
+                            path: currentSettings?.downloadDirectory ?? "",
+                          })
+                        }
                         title={text.actions.open}
                         aria-label={text.actions.open}
                       >
@@ -1541,6 +1553,54 @@ export function SettingsApp() {
                       </Button>
                     ) : null}
                   </div>
+                </SettingsCompactRow>
+                <SettingsCompactSeparator />
+                <SettingsCompactRow
+                  label={
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">
+                        {text.settings.ytdlpConcurrentDownloads}
+                      </span>
+                      <TooltipProvider delayDuration={0}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              aria-label={text.settings.ytdlpConcurrentDownloadsHelp}
+                            >
+                              <CircleHelp className="h-3.5 w-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="top"
+                            multiline
+                            className="!max-w-[15rem] text-left leading-relaxed"
+                          >
+                            {text.settings.ytdlpConcurrentDownloadsHelp}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </span>
+                  }
+                >
+                  <Select
+                    value={String(
+                      currentSettings?.ytdlpConcurrentDownloads ?? 3,
+                    )}
+                    onChange={(event) =>
+                      void saveSettingsPatch({
+                        ytdlpConcurrentDownloads: Number(event.target.value),
+                      })
+                    }
+                    className="w-48"
+                  >
+                    {ytdlpConcurrentDownloadOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
                 </SettingsCompactRow>
                 <SettingsCompactSeparator />
                 <SettingsCompactRow
