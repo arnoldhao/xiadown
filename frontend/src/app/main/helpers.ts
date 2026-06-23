@@ -716,6 +716,12 @@ function completedCoverURLIsLegacyDefault(value?: string) {
   return (value ?? "").trim() === DEFAULT_COVER_IMAGE_URL;
 }
 
+export function isCompletedLibraryFileUnavailable(
+  file?: Pick<LibraryDTO["files"][number], "state"> | null,
+) {
+  return (file?.state.lastError ?? "").trim() === "missing_local_file";
+}
+
 export function resolveCompletedCoverFileKind(
   file: CompletedCoverFileLike,
 ): CompletedCoverFileKind {
@@ -1283,6 +1289,7 @@ export function isCompletedThumbnailLibraryFile(
   return Boolean(
     file &&
       !file.state.deleted &&
+      !isCompletedLibraryFileUnavailable(file) &&
       (file.kind ?? "").trim().toLowerCase() === "thumbnail" &&
       file.storage.localPath?.trim(),
   );

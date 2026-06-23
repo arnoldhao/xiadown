@@ -26,6 +26,67 @@ export interface LibraryFileStorageDTO {
   documentId?: string
 }
 
+export interface MissingLibraryFileDTO {
+  fileId: string
+  libraryId: string
+  name: string
+  kind: string
+  oldPath: string
+  format?: string
+  sizeBytes?: number
+  durationMs?: number
+  lastChecked?: string
+  lastError?: string
+  updatedAt?: string
+}
+
+export interface ListMissingLibraryFilesResponse {
+  checked: number
+  missing: MissingLibraryFileDTO[]
+}
+
+export interface ScanMissingLibraryFilesRequest {
+  directory: string
+  fileIds?: string[]
+}
+
+export interface ScanMissingLibraryFilesResponse {
+  directory: string
+  checked: number
+  missingCount: number
+  scannedFiles: number
+  matches: LibraryRelinkMatchDTO[]
+}
+
+export interface ApplyLibraryRelinksRequest {
+  matches: LibraryRelinkSelectionDTO[]
+}
+
+export interface LibraryRelinkSelectionDTO {
+  fileId: string
+  path: string
+}
+
+export interface ApplyLibraryRelinksResponse {
+  relinked: number
+  files: LibraryFileDTO[]
+}
+
+export interface LibraryRelinkMatchDTO {
+  fileId: string
+  libraryId: string
+  name: string
+  kind: string
+  oldPath: string
+  newPath: string
+  format?: string
+  sizeBytes?: number
+  durationMs?: number
+  score: number
+  confidence: "exact" | "candidate" | "mismatch" | string
+  reasons?: string[]
+}
+
 export interface LibraryImportOriginDTO {
   batchId: string
   importPath: string

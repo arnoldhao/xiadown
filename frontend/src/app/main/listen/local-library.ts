@@ -38,7 +38,7 @@ export type ListenLocalTrackIndexState = {
   refreshing: boolean;
   clearingMissing: boolean;
   refresh: () => Promise<void>;
-  clearMissing: () => Promise<void>;
+  clearMissing: () => Promise<number>;
 };
 
 export function useListenLocalTracks(
@@ -116,7 +116,7 @@ export function useListenLocalTracks(
   const clearMissing = React.useCallback(async () => {
     const baseURL = normalizeListenHTTPBaseURL(httpBaseURL);
     if (!baseURL || clearingMissing) {
-      return;
+      return 0;
     }
     setClearingMissing(true);
     try {
@@ -127,7 +127,9 @@ export function useListenLocalTracks(
       if (!response.ok) {
         throw new Error(`listen local clear failed: ${response.status}`);
       }
+      const payload = (await response.json()) as { removed?: number };
       await loadTracks();
+      return Number.isFinite(payload.removed) ? Number(payload.removed) : 0;
     } finally {
       setClearingMissing(false);
     }

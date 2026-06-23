@@ -8,6 +8,8 @@ import type {
   CancelOperationRequest,
   CancelResourceSniffRequest,
   ClearResourceSniffResourcesRequest,
+  ApplyLibraryRelinksRequest,
+  ApplyLibraryRelinksResponse,
   CreateTranscodeJobRequest,
   CreateYTDLPJobRequest,
   DeleteFilesRequest,
@@ -16,6 +18,7 @@ import type {
   LibraryDTO,
   LibraryOperationDTO,
   GetResourceSniffPreviewRequest,
+  ListMissingLibraryFilesResponse,
   ListResourceSniffResourcesRequest,
   ListResourceSniffResourcesResponse,
   ListOperationsRequest,
@@ -40,6 +43,8 @@ import type {
   ResourceSniffPreviewResponse,
   ResourceSniffSession,
   ResumeOperationRequest,
+  ScanMissingLibraryFilesRequest,
+  ScanMissingLibraryFilesResponse,
   StartResourceSniffRequest,
   StartResourceSniffResult,
   StopCDPBrowserRuntimeRequest,
@@ -198,6 +203,66 @@ export function useOpenLibraryFileLocation() {
       await LibraryHandler.OpenFileLocation(LibraryBindings.OpenFileLocationRequest.createFrom(request));
     },
   });
+}
+
+export function useListMissingLibraryFiles() {
+  return useMutation({
+    mutationFn: async (): Promise<ListMissingLibraryFilesResponse> => {
+      return (await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.ListMissingLibraryFiles`)) as ListMissingLibraryFilesResponse;
+    },
+  });
+}
+
+export function useScanMissingLibraryFiles() {
+  return useMutation({
+    mutationFn: async (request: ScanMissingLibraryFilesRequest): Promise<ScanMissingLibraryFilesResponse> => {
+      return (await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.ScanMissingLibraryFiles`, request)) as ScanMissingLibraryFilesResponse;
+    },
+  });
+}
+
+export function useApplyLibraryRelinks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: ApplyLibraryRelinksRequest): Promise<ApplyLibraryRelinksResponse> => {
+      return (await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.ApplyLibraryRelinks`, request)) as ApplyLibraryRelinksResponse;
+    },
+    onSuccess: () => {
+      invalidateLibraryQueries(queryClient);
+    },
+  });
+}
+
+export function useListMissingListenLocalFiles() {
+  return useMutation({
+    mutationFn: async (): Promise<ListMissingLibraryFilesResponse> => {
+      return (await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.ListMissingListenLocalFiles`)) as ListMissingLibraryFilesResponse;
+    },
+  });
+}
+
+export function useScanMissingListenLocalFiles() {
+  return useMutation({
+    mutationFn: async (request: ScanMissingLibraryFilesRequest): Promise<ScanMissingLibraryFilesResponse> => {
+      return (await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.ScanMissingListenLocalFiles`, request)) as ScanMissingLibraryFilesResponse;
+    },
+  });
+}
+
+export function useApplyListenLocalRelinks() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: ApplyLibraryRelinksRequest): Promise<ApplyLibraryRelinksResponse> => {
+      return (await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.ApplyListenLocalRelinks`, request)) as ApplyLibraryRelinksResponse;
+    },
+    onSuccess: () => {
+      invalidateLibraryQueries(queryClient);
+    },
+  });
+}
+
+export async function selectLibraryDirectory(title: string, initialPath: string): Promise<string> {
+  return String((await Call.ByName(`${LIBRARY_HANDLER_SERVICE}.SelectLibraryDirectory`, title, initialPath)) ?? "").trim();
 }
 
 export function usePrepareYTDLPDownload() {

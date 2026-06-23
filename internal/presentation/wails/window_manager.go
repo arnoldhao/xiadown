@@ -218,6 +218,14 @@ func (manager *WindowManager) HandleSecondInstanceLaunch() {
 }
 
 func (manager *WindowManager) SelectDirectoryDialog(title string, initialDir string) (string, error) {
+	return manager.selectDirectoryDialog(title, initialDir, manager.settingsWindow)
+}
+
+func (manager *WindowManager) SelectMainDirectoryDialog(title string, initialDir string) (string, error) {
+	return manager.selectDirectoryDialog(title, initialDir, manager.mainWindow)
+}
+
+func (manager *WindowManager) selectDirectoryDialog(title string, initialDir string, attachWindow *application.WebviewWindow) (string, error) {
 	if manager == nil || manager.app == nil {
 		return "", fmt.Errorf("app not available")
 	}
@@ -228,8 +236,8 @@ func (manager *WindowManager) SelectDirectoryDialog(title string, initialDir str
 	if initialDir != "" {
 		dialog = dialog.SetDirectory(initialDir)
 	}
-	if manager.settingsWindow != nil {
-		dialog = dialog.AttachToWindow(manager.settingsWindow)
+	if attachWindow != nil {
+		dialog = dialog.AttachToWindow(attachWindow)
 	}
 	selected, err := dialog.PromptForSingleSelection()
 	if isDialogCancelledError(err) {

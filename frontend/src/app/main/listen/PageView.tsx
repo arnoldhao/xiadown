@@ -1,4 +1,4 @@
-import { ArrowLeft,BookmarkPlus,Compass,History,Home,Link2,ListEnd,ListStart,Loader2,LogOut,PanelLeftClose,PanelLeftOpen,Play,Radio,RefreshCw,Search,Shuffle,Sparkles,Tags,Trash2,Trophy,UserCheck,UserPlus,UserRound,X } from "lucide-react";
+import { ArrowLeft,BookmarkPlus,Compass,History,Home,Link2,ListEnd,ListStart,Loader2,LogOut,PanelLeftClose,PanelLeftOpen,Play,Radio,RefreshCw,Search,Shuffle,Sparkles,Tags,Trophy,UserCheck,UserPlus,UserRound,Wrench,X } from "lucide-react";
 import * as React from "react";
 import { siYoutube } from "simple-icons";
 
@@ -39,7 +39,7 @@ const LISTEN_HEADER_FULL_TABS_REM = 14.625;
 const LISTEN_HEADER_COMPACT_TABS_REM = 6.75;
 const LISTEN_HEADER_HUSH_ACTIONS_REM = 6.25;
 const LISTEN_HEADER_MUSE_ACTIONS_REM = 12.5;
-const LISTEN_HEADER_LINGER_ACTIONS_REM = 4.25;
+const LISTEN_HEADER_LINGER_ACTIONS_REM = 2.25;
 const LISTEN_ARTIST_TOP_SONGS_PREVIEW_LIMIT = 5;
 const LISTEN_SEARCH_SONGS_PREVIEW_LIMIT = 5;
 const LISTEN_LOCAL_MODIFIED_DAY_MS = 24 * 60 * 60 * 1000;
@@ -196,8 +196,7 @@ type ListenPageViewActions = {
   moveOnlineQueueItem: (item: ListenOnlineItem, direction: -1 | 1) => void;
   undoOnlineQueueEdit: () => void;
   redoOnlineQueueEdit: () => void;
-  refreshLocalTracks: () => void;
-  clearMissingLocalTracks: () => void;
+  openRepairMissingLocalTracks: () => void;
   handlePlaybackEnded: () => void;
   setOnlinePlaying: (playing: boolean) => void;
   setOnlineState: (state: ListenRemotePlaybackState) => void;
@@ -547,32 +546,20 @@ function ListenHeaderActionButton(props: {
 
 function ListenLingerHeaderActionGroup(props: {
   text: ListenPageProps["text"];
-  refreshing: boolean;
   clearingMissing: boolean;
-  onRefresh: () => void;
-  onClearMissing: () => void;
+  onRepairMissing: () => void;
 }) {
-  const busy = props.refreshing || props.clearingMissing;
   return (
     <div className="app-dream-button-group app-completed-toolbar-actions inline-flex h-9 shrink-0 items-center p-0.5">
       <ListenHeaderActionButton
-        label={props.text.listen.localRefresh}
-        disabled={busy}
-        onClick={props.onRefresh}
-      >
-        <RefreshCw
-          className={cn("h-4 w-4", props.refreshing ? "animate-spin" : "")}
-        />
-      </ListenHeaderActionButton>
-      <ListenHeaderActionButton
-        label={props.text.listen.localClearMissing}
-        disabled={busy}
-        onClick={props.onClearMissing}
+        label={props.text.completed.relinkDialogTitle}
+        disabled={props.clearingMissing}
+        onClick={props.onRepairMissing}
       >
         {props.clearingMissing ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Trash2 className="h-4 w-4" />
+          <Wrench className="h-4 w-4" />
         )}
       </ListenHeaderActionButton>
     </div>
@@ -1064,8 +1051,8 @@ function prefetchListenImages(
 
 export function ListenPageView(view: ListenPageViewProps) {
   const props = view.page;
-  const { isWindows, isMac, listOpen, query, searchPlaceholder, mode, playbackMode, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistTracks, filteredPlaylistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localTracksLoading, localTracksRefreshing, localTracksClearingMissing, activeOnline, selectedLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems, onlinePlaying, onlinePlaybackArmed, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, onlineObservedPlaybackAudioQuality, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind } = view.state;
-  const { setListOpen, setQuery, selectFirstResult, setMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary, changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks, clearMissingLocalTracks, handlePlaybackEnded, setOnlinePlaying, setOnlineState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse, openSelectedLocalDirectory } = view.actions;
+  const { isWindows, isMac, listOpen, query, searchPlaceholder, mode, playbackMode, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistTracks, filteredPlaylistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localTracksLoading, localTracksClearingMissing, activeOnline, selectedLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems, onlinePlaying, onlinePlaybackArmed, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, onlineObservedPlaybackAudioQuality, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind } = view.state;
+  const { setListOpen, setQuery, selectFirstResult, setMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary, changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, openRepairMissingLocalTracks, handlePlaybackEnded, setOnlinePlaying, setOnlineState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse, openSelectedLocalDirectory } = view.actions;
   const hushFullscreen = playbackMode === "hush" && !listOpen;
   const activeLocalSelectedId =
     playbackMode === "linger" && selectedLocal ? selectedLocalId : "";
@@ -1298,10 +1285,8 @@ export function ListenPageView(view: ListenPageViewProps) {
     ) : mode === "linger" ? (
       <ListenLingerHeaderActionGroup
         text={props.text}
-        refreshing={localTracksRefreshing}
         clearingMissing={localTracksClearingMissing}
-        onRefresh={refreshLocalTracks}
-        onClearMissing={clearMissingLocalTracks}
+        onRepairMissing={openRepairMissingLocalTracks}
       />
     ) : mode === "muse" ? (
       <ListenOnlineSourceTabs

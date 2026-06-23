@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   COMPLETED_TEXT_PREVIEW_MAX_BYTES,
+  buildCompletedCoverLookup,
   canPreviewCompletedFile,
   getAppErrorCode,
   isCompletedPreviewTooLarge,
@@ -210,5 +211,24 @@ describe("completed preview helpers", () => {
         format: "MP3",
       }),
     ).toBe("/completed-defaults/audio.jpg");
+  });
+
+  test("ignores missing thumbnail files when building completed covers", () => {
+    const lookup = buildCompletedCoverLookup("http://127.0.0.1:34115", {
+      files: [
+        {
+          id: "thumb-1",
+          kind: "thumbnail",
+          latestOperationId: "op-1",
+          origin: { operationId: "op-1" },
+          lineage: { rootFileId: "root-1" },
+          state: { deleted: false, lastError: "missing_local_file" },
+          storage: { localPath: "/downloads/missing-cover.webp" },
+        },
+      ],
+    } as any);
+
+    expect(lookup.byOperationId.get("op-1")).toBeUndefined();
+    expect(lookup.byRootFileId.get("root-1")).toBeUndefined();
   });
 });

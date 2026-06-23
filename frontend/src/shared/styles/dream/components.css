@@ -2680,6 +2680,35 @@
     padding: 0;
   }
 
+  .app-file-relink-scroll-area {
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
+  }
+
+  .app-file-relink-scroll-area::-webkit-scrollbar {
+    width: 0.5rem;
+  }
+
+  .app-file-relink-scroll-area::-webkit-scrollbar-thumb {
+    border: 0.125rem solid transparent;
+    border-radius: 999px;
+    background-color: hsl(var(--muted-foreground) / 0.45);
+    background-clip: content-box;
+  }
+
+  .app-file-relink-scroll-area::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.62);
+  }
+
+  .app-file-relink-scroll-area::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   .app-dialog-row {
     position: relative;
     min-height: var(--app-settings-row-compact-height);
