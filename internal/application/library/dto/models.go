@@ -617,6 +617,14 @@ type CreateYTDLPJobRequest struct {
 	ResourceMediaID                string   `json:"resourceMediaId,omitempty"`
 }
 
+type CreateYTDLPBatchJobsRequest struct {
+	Items []CreateYTDLPJobRequest `json:"items"`
+}
+
+type CreateYTDLPBatchJobsResponse struct {
+	Operations []LibraryOperationDTO `json:"operations"`
+}
+
 type CheckYTDLPOperationFailureRequest struct {
 	OperationID string `json:"operationId"`
 }
@@ -657,7 +665,7 @@ type GetYTDLPOperationLogResponse struct {
 type PrepareYTDLPDownloadRequest struct {
 	URL string `json:"url"`
 }
-type PrepareYTDLPDownloadResponse struct {
+type PreparedYTDLPDownloadURL struct {
 	URL                       string `json:"url"`
 	Domain                    string `json:"domain"`
 	Icon                      string `json:"icon,omitempty"`
@@ -666,6 +674,18 @@ type PrepareYTDLPDownloadResponse struct {
 	AppSessionCredentialMode  string `json:"appSessionCredentialMode,omitempty"`
 	AppSessionCredentialState string `json:"appSessionCredentialState,omitempty"`
 	Reachable                 bool   `json:"reachable,omitempty"`
+}
+type PrepareYTDLPDownloadResponse struct {
+	Mode                      string                     `json:"mode,omitempty"`
+	URL                       string                     `json:"url"`
+	Domain                    string                     `json:"domain"`
+	Icon                      string                     `json:"icon,omitempty"`
+	AppSessionID              string                     `json:"appSessionId,omitempty"`
+	AppSessionAvailable       bool                       `json:"appSessionAvailable"`
+	AppSessionCredentialMode  string                     `json:"appSessionCredentialMode,omitempty"`
+	AppSessionCredentialState string                     `json:"appSessionCredentialState,omitempty"`
+	Reachable                 bool                       `json:"reachable,omitempty"`
+	URLs                      []PreparedYTDLPDownloadURL `json:"urls,omitempty"`
 }
 
 type ResolveDomainIconRequest struct {

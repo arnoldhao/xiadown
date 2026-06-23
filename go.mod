@@ -22,6 +22,7 @@ require (
 	golang.org/x/sys v0.43.0
 	golang.org/x/text v0.37.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
+	mvdan.cc/xurls/v2 v2.6.0
 )
 
 require (

@@ -2,23 +2,58 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"net/url"
 	"regexp"
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
+	"mvdan.cc/xurls/v2"
 
+	"xiadown/internal/application/apperrors"
 	"xiadown/internal/application/library/dto"
 )
 
 func (service *LibraryService) PrepareYTDLPDownload(ctx context.Context, request dto.PrepareYTDLPDownloadRequest) (dto.PrepareYTDLPDownloadResponse, error) {
-	resolvedURL, domain, err := validateDownloadURL(request.URL)
+	resolvedItems, err := parseDownloadURLs(request.URL)
 	if err != nil {
 		return dto.PrepareYTDLPDownloadResponse{}, err
 	}
+	if len(resolvedItems) == 0 {
+		return dto.PrepareYTDLPDownloadResponse{}, apperrors.New(apperrors.CodeDownloadURLInvalid, "invalid url or unsupported video path")
+	}
 
+	preparedURLs := make([]dto.PreparedYTDLPDownloadURL, 0, len(resolvedItems))
+	for _, item := range resolvedItems {
+		preparedURLs = append(preparedURLs, service.prepareYTDLPDownloadURL(ctx, item))
+	}
+	first := preparedURLs[0]
+	mode := "single"
+	if len(preparedURLs) > 1 {
+		mode = "batch"
+	}
+	return dto.PrepareYTDLPDownloadResponse{
+		Mode:                      mode,
+		URL:                       first.URL,
+		Domain:                    first.Domain,
+		Icon:                      first.Icon,
+		AppSessionID:              first.AppSessionID,
+		AppSessionAvailable:       first.AppSessionAvailable,
+		AppSessionCredentialMode:  first.AppSessionCredentialMode,
+		AppSessionCredentialState: first.AppSessionCredentialState,
+		Reachable:                 first.Reachable,
+		URLs:                      preparedURLs,
+	}, nil
+}
+
+type normalizedDownloadURL struct {
+	URL    string
+	Domain string
+}
+
+func (service *LibraryService) prepareYTDLPDownloadURL(ctx context.Context, item normalizedDownloadURL) dto.PreparedYTDLPDownloadURL {
+	resolvedURL := strings.TrimSpace(item.URL)
+	domain := strings.TrimSpace(item.Domain)
 	appSessionAvailability := service.resolveAppSessionAvailability(ctx, domain)
 	icon := ""
 	if domain != "" && service.iconResolver != nil {
@@ -33,7 +68,7 @@ func (service *LibraryService) PrepareYTDLPDownload(ctx context.Context, request
 		}
 	}
 
-	return dto.PrepareYTDLPDownloadResponse{
+	return dto.PreparedYTDLPDownloadURL{
 		URL:                       resolvedURL,
 		Domain:                    domain,
 		Icon:                      icon,
@@ -41,7 +76,7 @@ func (service *LibraryService) PrepareYTDLPDownload(ctx context.Context, request
 		AppSessionAvailable:       appSessionAvailability.Available,
 		AppSessionCredentialMode:  appSessionAvailability.CredentialMode,
 		AppSessionCredentialState: appSessionAvailability.CredentialState,
-	}, nil
+	}
 }
 
 func (service *LibraryService) ResolveDomainIcon(ctx context.Context, request dto.ResolveDomainIconRequest) (dto.ResolveDomainIconResponse, error) {
@@ -91,20 +126,107 @@ func (service *LibraryService) ListTranscodePresetsForDownload(ctx context.Conte
 }
 
 func validateDownloadURL(rawURL string) (string, string, error) {
+	resolvedItems, err := parseDownloadURLs(rawURL)
+	if err != nil {
+		return "", "", err
+	}
+	if len(resolvedItems) != 1 {
+		return "", "", apperrors.New(apperrors.CodeDownloadURLMultiple, "multiple download urls require batch download")
+	}
+	return resolvedItems[0].URL, resolvedItems[0].Domain, nil
+}
+
+func parseDownloadURLs(rawURL string) ([]normalizedDownloadURL, error) {
 	trimmed := strings.TrimSpace(rawURL)
 	if trimmed == "" {
-		return "", "", fmt.Errorf("url is required")
+		return nil, apperrors.New(apperrors.CodeDownloadURLRequired, "url is required")
 	}
 
-	if resolvedURL, domain, ok := normalizeDownloadURLWithDomain(trimmed); ok {
-		return resolvedURL, domain, nil
+	result := make([]normalizedDownloadURL, 0, 1)
+	seen := make(map[string]struct{})
+	addCandidate := func(candidate string) {
+		candidate = sanitizeExtractedURLCandidate(candidate)
+		if candidate == "" {
+			return
+		}
+		if resolvedURL, domain, ok := normalizeDownloadURLWithDomain(candidate); ok {
+			if _, exists := seen[resolvedURL]; !exists {
+				seen[resolvedURL] = struct{}{}
+				result = append(result, normalizedDownloadURL{URL: resolvedURL, Domain: domain})
+			}
+			return
+		}
+		if resolvedURL, domain, ok := normalizeKnownVideoSuffix(candidate); ok {
+			if _, exists := seen[resolvedURL]; !exists {
+				seen[resolvedURL] = struct{}{}
+				result = append(result, normalizedDownloadURL{URL: resolvedURL, Domain: domain})
+			}
+		}
 	}
 
-	if resolvedURL, domain, ok := normalizeKnownVideoSuffix(trimmed); ok {
-		return resolvedURL, domain, nil
+	addCandidate(trimmed)
+
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line == trimmed || containsWhitespace(line) {
+			continue
+		}
+		addCandidate(line)
 	}
 
-	return "", "", fmt.Errorf("invalid url or unsupported video path")
+	for _, candidate := range explicitURLPattern.FindAllString(trimmed, -1) {
+		addCandidate(candidate)
+	}
+	for _, candidate := range relaxedURLPattern.FindAllString(trimmed, -1) {
+		candidate = sanitizeExtractedURLCandidate(candidate)
+		if candidate == "" || strings.Contains(candidate, "://") || isRelaxedEmailCandidate(candidate) || isLowConfidenceRelaxedCandidate(trimmed, candidate) {
+			continue
+		}
+		addCandidate(candidate)
+	}
+
+	if len(result) == 0 {
+		return nil, apperrors.New(apperrors.CodeDownloadURLInvalid, "invalid url or unsupported video path")
+	}
+	return result, nil
+}
+
+func containsWhitespace(value string) bool {
+	return strings.ContainsAny(value, " \t\r\n")
+}
+
+func sanitizeExtractedURLCandidate(candidate string) string {
+	trimmed := strings.TrimSpace(candidate)
+	if fields := strings.Fields(trimmed); len(fields) > 0 {
+		trimmed = fields[0]
+	}
+	trimmed = strings.Trim(trimmed, "\"'“”‘’<>")
+	trimmed = strings.TrimLeft(trimmed, "([{【《「『")
+	trimmed = strings.TrimRight(trimmed, ".,;!?)\\]}。，；！？】》」』、\"'“”‘’>")
+	return strings.TrimSpace(trimmed)
+}
+
+func isRelaxedEmailCandidate(candidate string) bool {
+	if strings.Contains(candidate, "://") || !strings.Contains(candidate, "@") {
+		return false
+	}
+	parsed, err := url.Parse("https://" + candidate)
+	if err != nil {
+		return true
+	}
+	return parsed.User != nil && strings.TrimSpace(parsed.Path) == ""
+}
+
+func isLowConfidenceRelaxedCandidate(rawInput string, candidate string) bool {
+	if strings.EqualFold(strings.TrimSpace(rawInput), strings.TrimSpace(candidate)) {
+		return false
+	}
+	parsed, err := url.Parse("https://" + candidate)
+	if err != nil {
+		return true
+	}
+	path := strings.TrimSpace(parsed.EscapedPath())
+	return (path == "" || path == "/") && parsed.RawQuery == "" && parsed.Fragment == ""
 }
 
 func normalizeDownloadURLWithDomain(rawURL string) (string, string, bool) {
@@ -190,11 +312,21 @@ func isDNSHostname(host string) bool {
 }
 
 var (
+	explicitURLPattern        = mustStrictXURLPattern("https?://")
+	relaxedURLPattern         = xurls.Relaxed()
 	youtubeIDPattern          = regexp.MustCompile(`^[0-9A-Za-z_-]{11}$`)
 	bilibiliVideoIDPattern    = regexp.MustCompile(`(?i)^(?:av\d+|bv[^/?#&]+)$`)
 	bilibiliVideoPathPattern  = regexp.MustCompile(`(?i)^video/(?:av\d+|bv[^/?#&]+)(?:[/?#].*)?$`)
 	bilibiliFestivalPathMatch = regexp.MustCompile(`(?i)^festival/[^/?#]+(?:[/?#].*)?$`)
 )
+
+func mustStrictXURLPattern(scheme string) *regexp.Regexp {
+	pattern, err := xurls.StrictMatchingScheme(scheme)
+	if err != nil {
+		panic(err)
+	}
+	return pattern
+}
 
 func normalizeKnownVideoSuffix(rawURL string) (string, string, bool) {
 	if resolvedURL, ok := normalizeYouTubeVideoSuffix(rawURL); ok {

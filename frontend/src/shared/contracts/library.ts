@@ -562,6 +562,14 @@ export interface CreateYTDLPJobRequest {
   resourceMediaId?: string
 }
 
+export interface CreateYTDLPBatchJobsRequest {
+  items: CreateYTDLPJobRequest[]
+}
+
+export interface CreateYTDLPBatchJobsResponse {
+  operations: LibraryOperationDTO[]
+}
+
 export interface CheckYTDLPOperationFailureRequest {
   operationId: string
 }
@@ -603,7 +611,7 @@ export interface PrepareYTDLPDownloadRequest {
   url: string
 }
 
-export interface PrepareYTDLPDownloadResponse {
+export interface PreparedYTDLPDownloadURL {
   url: string
   domain: string
   icon?: string
@@ -612,6 +620,19 @@ export interface PrepareYTDLPDownloadResponse {
   appSessionCredentialMode?: string
   appSessionCredentialState?: string
   reachable?: boolean
+}
+
+export interface PrepareYTDLPDownloadResponse {
+  mode?: "single" | "batch" | string
+  url: string
+  domain: string
+  icon?: string
+  appSessionId?: string
+  appSessionAvailable: boolean
+  appSessionCredentialMode?: string
+  appSessionCredentialState?: string
+  reachable?: boolean
+  urls?: PreparedYTDLPDownloadURL[]
 }
 
 export interface ResolveDomainIconRequest {

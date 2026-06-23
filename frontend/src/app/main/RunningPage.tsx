@@ -1257,10 +1257,12 @@ export function RunningPage(props: RunningPageProps) {
           setCancelConfirmError("");
         }}
       >
-        <DialogContent className="max-w-sm">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[calc(100vh-2rem)]">
           <DialogHeader>
-            <DialogTitle>{text.running.cancelConfirmTitle}</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+              {text.running.cancelConfirmTitle}
+            </DialogTitle>
+            <DialogDescription className="max-h-32 overflow-y-auto break-words text-left leading-5 [overflow-wrap:anywhere]">
               {formatRunningTemplate(text.running.cancelConfirmDescription, {
                 name:
                   cancelConfirmOperation?.name.trim() ||
@@ -1270,7 +1272,7 @@ export function RunningPage(props: RunningPageProps) {
             </DialogDescription>
           </DialogHeader>
           {cancelConfirmError ? (
-            <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="danger">
+            <div className="app-dream-status-message max-h-24 overflow-y-auto break-words px-3 py-2 text-xs leading-5 [overflow-wrap:anywhere]" data-intent="danger">
               {cancelConfirmError}
             </div>
           ) : null}

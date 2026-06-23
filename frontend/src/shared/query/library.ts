@@ -11,6 +11,8 @@ import type {
   ApplyLibraryRelinksRequest,
   ApplyLibraryRelinksResponse,
   CreateTranscodeJobRequest,
+  CreateYTDLPBatchJobsRequest,
+  CreateYTDLPBatchJobsResponse,
   CreateYTDLPJobRequest,
   DeleteFilesRequest,
   DeleteOperationRequest,
@@ -471,6 +473,34 @@ export function useCreateYTDLPJob() {
       )) as LibraryOperationDTO;
     },
     onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+  });
+}
+
+export function useCreateYTDLPBatchJobs() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      request: CreateYTDLPBatchJobsRequest,
+    ): Promise<CreateYTDLPBatchJobsResponse> => {
+      return (await Call.ByName(
+        `${LIBRARY_HANDLER_SERVICE}.CreateYTDLPBatchJobs`,
+        request,
+      )) as CreateYTDLPBatchJobsResponse;
+    },
+    onSuccess: (response) => {
+      const libraryIds = new Set(
+        response.operations
+          .map((operation) => operation.libraryId)
+          .filter(Boolean),
+      );
+      if (libraryIds.size === 0) {
+        invalidateLibraryQueries(queryClient);
+        return;
+      }
+      for (const libraryId of libraryIds) {
+        invalidateLibraryQueries(queryClient, libraryId);
+      }
+    },
   });
 }
 

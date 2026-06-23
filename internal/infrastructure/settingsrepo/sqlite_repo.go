@@ -124,6 +124,7 @@ func (repo *SQLiteSettingsRepository) Get(ctx context.Context) (settings.Setting
 		ResourceSniffScope:       resourceSniffScope,
 		ResourceSniffMinBytes:    clampResourceSniffMinBytes(row.ResourceSniffMinBytes),
 		ResourceSniffRetain:      clampResourceSniffRetain(row.ResourceSniffRetain),
+		YTDLPConcurrentDownloads: clampYTDLPConcurrentDownloads(row.YTDLPConcurrentDownloads),
 		YTDLPConcurrentFragments: clampYTDLPConcurrentFragments(row.YTDLPConcurrentFragments),
 		AppearanceConfig:         parseAnyMap(row.AppearanceConfigJSON),
 	})
@@ -156,6 +157,7 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		ResourceSniffScope:       nullString(current.ResourceSniffScope().String()),
 		ResourceSniffMinBytes:    nullInt64(current.ResourceSniffMinBytes()),
 		ResourceSniffRetain:      nullInt64(current.ResourceSniffRetain()),
+		YTDLPConcurrentDownloads: nullInt64(current.YTDLPConcurrentDownloads()),
 		YTDLPConcurrentFragments: nullInt64(current.YTDLPConcurrentFragments()),
 		AppearanceConfigJSON:     jsonAnyMap(current.AppearanceConfig()),
 		MainX:                    nullInt64(current.MainBounds().X()),
@@ -205,6 +207,7 @@ func (repo *SQLiteSettingsRepository) Save(ctx context.Context, current settings
 		Set("resource_sniff_scope = EXCLUDED.resource_sniff_scope").
 		Set("resource_sniff_min_bytes = EXCLUDED.resource_sniff_min_bytes").
 		Set("resource_sniff_retain = EXCLUDED.resource_sniff_retain").
+		Set("ytdlp_concurrent_downloads = EXCLUDED.ytdlp_concurrent_downloads").
 		Set("ytdlp_concurrent_fragments = EXCLUDED.ytdlp_concurrent_fragments").
 		Set("appearance_config_json = EXCLUDED.appearance_config_json").
 		Set("main_x = EXCLUDED.main_x").
@@ -348,6 +351,23 @@ func clampYTDLPConcurrentFragments(value sql.NullInt64) int {
 	}
 	if val > settings.MaxYTDLPConcurrentFragments {
 		return settings.MaxYTDLPConcurrentFragments
+	}
+	return val
+}
+
+func clampYTDLPConcurrentDownloads(value sql.NullInt64) int {
+	if !value.Valid {
+		return settings.DefaultYTDLPConcurrentDownloads
+	}
+	val := int(value.Int64)
+	if val <= 0 {
+		return settings.DefaultYTDLPConcurrentDownloads
+	}
+	if val < settings.MinYTDLPConcurrentDownloads {
+		return settings.MinYTDLPConcurrentDownloads
+	}
+	if val > settings.MaxYTDLPConcurrentDownloads {
+		return settings.MaxYTDLPConcurrentDownloads
 	}
 	return val
 }

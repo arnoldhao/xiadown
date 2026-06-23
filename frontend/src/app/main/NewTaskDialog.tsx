@@ -1,5 +1,6 @@
 import {
   AudioLines,
+  ChevronDown,
   Download,
   FileCog,
   FolderOpen,
@@ -19,6 +20,7 @@ import type {
   CreateYTDLPJobRequest,
   LibraryMediaInfoDTO,
   ParseYTDLPDownloadResponse,
+  PreparedYTDLPDownloadURL,
   PrepareYTDLPDownloadResponse,
   ProbeTranscodeInputRequest,
   ResourceSniffFailure,
@@ -32,6 +34,7 @@ import {
 } from "@/shared/query/dependencies";
 import {
   useCreateTranscodeJob,
+  useCreateYTDLPBatchJobs,
   useCreateYTDLPJob,
   useCancelResourceSniff,
   useParseYTDLPDownload,
@@ -56,6 +59,11 @@ import {
   DialogScrollArea,
   DialogTitle,
 } from "@/shared/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/shared/ui/dropdown-menu";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
@@ -79,6 +87,7 @@ import {
   formatCompletedDuration,
   formatCompletedFrameRate,
   formatCompletedResolution,
+  getAppErrorCode,
   parseAppErrorMessage,
   resolveUnknownErrorMessage,
 } from "@/app/main/helpers";
@@ -112,9 +121,61 @@ import type {
 
 type DownloadEntryMode = "direct" | "sniff";
 
+type BatchDownloadItemState = {
+  id: string;
+  url: string;
+  domain?: string;
+  appSessionId?: string;
+  appSessionAvailable?: boolean;
+  appSessionCredentialMode?: string;
+  useAppSession: boolean;
+  quality: DownloadQuality;
+  subtitles: boolean;
+  transcodePresetId: string;
+  deleteSourceFileAfterTranscode: boolean;
+};
+
 function downloadAppSessionModeCanExportCookies(mode: string) {
   const normalized = mode.trim().toLowerCase();
   return normalized === "cookies" || normalized === "app_session";
+}
+
+function preparedURLToBatchItem(
+  item: PreparedYTDLPDownloadURL,
+  index: number,
+): BatchDownloadItemState {
+  const canUseAppSession =
+    Boolean(item.appSessionAvailable) &&
+    downloadAppSessionModeCanExportCookies(item.appSessionCredentialMode ?? "");
+  return {
+    id: `${index}-${item.url}`,
+    url: item.url,
+    domain: item.domain,
+    appSessionId: item.appSessionId,
+    appSessionAvailable: item.appSessionAvailable,
+    appSessionCredentialMode: item.appSessionCredentialMode,
+    useAppSession: canUseAppSession,
+    quality: "best",
+    subtitles: false,
+    transcodePresetId: "",
+    deleteSourceFileAfterTranscode: true,
+  };
+}
+
+function batchDownloadItemMediaType(item: BatchDownloadItemState): SourceMediaType {
+  return item.quality === "audio" ? "audio" : "video";
+}
+
+function batchDownloadItemCanUseAppSession(item: BatchDownloadItemState) {
+  return (
+    Boolean(item.appSessionId?.trim()) &&
+    Boolean(item.appSessionAvailable) &&
+    downloadAppSessionModeCanExportCookies(item.appSessionCredentialMode ?? "")
+  );
+}
+
+function replaceCountToken(template: string, count: number) {
+  return template.replace("{count}", String(count));
 }
 
 export function InlineSwitch(props: {
@@ -377,6 +438,7 @@ export function NewTaskDialog(props: {
   const parseResourceSniff = useParseResourceSniff();
   const cancelResourceSniff = useCancelResourceSniff();
   const createYTDLP = useCreateYTDLPJob();
+  const createYTDLPBatch = useCreateYTDLPBatchJobs();
   const queueYTDLP = useCreateYTDLPJob();
   const presetsQuery = useTranscodePresets();
   const createTranscode = useCreateTranscodeJob();
@@ -388,6 +450,9 @@ export function NewTaskDialog(props: {
   const [downloadUrl, setDownloadUrl] = React.useState(props.initialUrl ?? "");
   const [downloadPrepared, setDownloadPrepared] =
     React.useState<PrepareYTDLPDownloadResponse | null>(null);
+  const [batchDownloadItems, setBatchDownloadItems] = React.useState<
+    BatchDownloadItemState[]
+  >([]);
   const [downloadUseAppSession, setDownloadUseAppSession] = React.useState(false);
   const [downloadTab, setDownloadTab] =
     React.useState<DownloadDialogTab>("quick");
@@ -601,6 +666,12 @@ export function NewTaskDialog(props: {
     () => parseAppErrorMessage(customParseError),
     [customParseError],
   );
+  const downloadIsBatch =
+    downloadPrepared?.mode === "batch" || batchDownloadItems.length > 1;
+  const batchDownloadCountLabel = replaceCountToken(
+    text.dialogs.batchDownloadCount,
+    batchDownloadItems.length,
+  );
   const preparedDownloadUrl = (downloadPrepared?.url ?? downloadUrl).trim();
   const downloadUrlDisplayParts = buildDownloadUrlDisplayParts(
     preparedDownloadUrl,
@@ -612,7 +683,7 @@ export function NewTaskDialog(props: {
   )
     .trim()
     .toLowerCase();
-  const downloadShowsSniffMode = downloadTab === "sniff";
+  const downloadShowsSniffMode = downloadTab === "sniff" && !downloadIsBatch;
   const downloadMatchesCookieExportAppSession =
     Boolean(downloadPrepared?.appSessionId?.trim()) &&
     downloadAppSessionModeCanExportCookies(downloadAppSessionMode);
@@ -645,6 +716,14 @@ export function NewTaskDialog(props: {
       icon: <SlidersHorizontal className="h-3.5 w-3.5" />,
     },
   ];
+  const batchDownloadTabItems = [
+    {
+      value: "batch",
+      label: `${text.dialogs.batchDownload} · ${batchDownloadItems.length}`,
+      icon: <Download className="h-3.5 w-3.5" />,
+      tooltip: batchDownloadCountLabel,
+    },
+  ] as const;
   const activeDownloadMode =
     activeMode === "download" || activeMode === "sniff";
   const activeDownloadEntryMode: DownloadEntryMode =
@@ -953,7 +1032,8 @@ export function NewTaskDialog(props: {
       : "";
   const showDownloadFooter =
     downloadStep === "config" &&
-    (downloadTab === "quick" ||
+    (downloadIsBatch ||
+      downloadTab === "quick" ||
       ((downloadTab === "custom" || downloadTab === "sniff") &&
         Boolean(customParseResult)));
   const showTranscodeFooter =
@@ -985,6 +1065,7 @@ export function NewTaskDialog(props: {
     setDownloadStep("input");
     setDownloadUrl(props.initialUrl ?? "");
     setDownloadPrepared(null);
+    setBatchDownloadItems([]);
     setDownloadUseAppSession(false);
     setDownloadTab(initialMode === "sniff" ? "sniff" : "quick");
     setDownloadPrepareError("");
@@ -1159,6 +1240,7 @@ export function NewTaskDialog(props: {
     parseDownload.reset();
     parseResourceSniff.reset();
     setDownloadPrepared(null);
+    setBatchDownloadItems([]);
     setDownloadStep("input");
     setDownloadUseAppSession(false);
     setDownloadTab(activeMode === "sniff" ? "sniff" : "quick");
@@ -1289,6 +1371,36 @@ export function NewTaskDialog(props: {
     ],
   );
 
+  const resolveDownloadErrorMessage = React.useCallback(
+    (error: unknown) => {
+      switch (getAppErrorCode(error)) {
+        case "download_url_required":
+          return text.dialogs.downloadUrlRequired;
+        case "download_url_invalid":
+          return text.dialogs.downloadUrlInvalid;
+        case "download_url_unsupported":
+          return text.dialogs.downloadUrlUnsupported;
+        case "download_url_multiple":
+          return text.dialogs.downloadUrlMultiple;
+        case "download_batch_empty":
+          return text.dialogs.downloadBatchEmpty;
+        case "download_batch_too_large":
+          return text.dialogs.downloadBatchTooLarge;
+        default:
+          return resolveUnknownErrorMessage(error, text.common.unknown);
+      }
+    },
+    [
+      text.common.unknown,
+      text.dialogs.downloadBatchEmpty,
+      text.dialogs.downloadBatchTooLarge,
+      text.dialogs.downloadUrlInvalid,
+      text.dialogs.downloadUrlMultiple,
+      text.dialogs.downloadUrlRequired,
+      text.dialogs.downloadUrlUnsupported,
+    ],
+  );
+
   const handlePrepareDownload = React.useCallback(
     async (
       mode: DownloadEntryMode,
@@ -1307,9 +1419,44 @@ export function NewTaskDialog(props: {
       setResourceSniffTechnicalError("");
       try {
         const prepared = await prepareDownload.mutateAsync({ url });
+        const preparedURLs =
+          prepared.urls && prepared.urls.length > 0
+            ? prepared.urls
+            : prepared.url
+              ? [
+                  {
+                    url: prepared.url,
+                    domain: prepared.domain,
+                    appSessionId: prepared.appSessionId,
+                    appSessionAvailable: prepared.appSessionAvailable,
+                    appSessionCredentialMode:
+                      prepared.appSessionCredentialMode,
+                    appSessionCredentialState:
+                      prepared.appSessionCredentialState,
+                  },
+                ]
+              : [];
+        if (prepared.mode === "batch" || preparedURLs.length > 1) {
+          const batchItems = preparedURLs.map(preparedURLToBatchItem);
+          setActiveMode("download");
+          setDownloadPrepared(prepared);
+          setBatchDownloadItems(batchItems);
+          setDownloadUrl(batchItems.map((item) => item.url).join("\n"));
+          setDownloadUseAppSession(false);
+          setDownloadStep("config");
+          setDownloadTab("quick");
+          setCustomParseResult(null);
+          setCustomFormatId("");
+          setCustomSubtitleId("");
+          setCustomPresetId("");
+          setDownloadKeepOnlyTranscodedFile(true);
+          setCustomParseError("");
+          return;
+        }
         const nextTab: DownloadDialogTab = mode === "sniff" ? "sniff" : "quick";
         setActiveMode(nextTab === "sniff" ? "sniff" : "download");
         setDownloadPrepared(prepared);
+        setBatchDownloadItems([]);
         setDownloadUrl(prepared.url || url);
         setDownloadUseAppSession(
           Boolean(
@@ -1331,9 +1478,7 @@ export function NewTaskDialog(props: {
           await startPreparedResourceSniff(prepared);
         }
       } catch (error) {
-        setDownloadPrepareError(
-          resolveUnknownErrorMessage(error, text.common.unknown),
-        );
+        setDownloadPrepareError(resolveDownloadErrorMessage(error));
       } finally {
         setDownloadPrepareIntent(null);
       }
@@ -1341,8 +1486,8 @@ export function NewTaskDialog(props: {
     [
       downloadUrl,
       prepareDownload,
+      resolveDownloadErrorMessage,
       startPreparedResourceSniff,
-      text.common.unknown,
     ],
   );
 
@@ -1558,9 +1703,56 @@ export function NewTaskDialog(props: {
       });
       await closeDialogAfterResourceCleanup();
     } catch (error) {
-      setDownloadSubmitError(
-        resolveUnknownErrorMessage(error, text.common.unknown),
+      setDownloadSubmitError(resolveDownloadErrorMessage(error));
+    }
+  };
+
+  const updateBatchDownloadItem = React.useCallback(
+    (id: string, patch: Partial<BatchDownloadItemState>) => {
+      setBatchDownloadItems((items) =>
+        items.map((item) => {
+          if (item.id !== id) {
+            return item;
+          }
+          const next = { ...item, ...patch };
+          if (patch.quality && patch.quality !== item.quality) {
+            next.transcodePresetId = "";
+          }
+          return next;
+        }),
       );
+    },
+    [],
+  );
+
+  const handleStartBatchDownload = async () => {
+    if (batchDownloadItems.length === 0) {
+      return;
+    }
+    setDownloadSubmitError("");
+    try {
+      await createYTDLPBatch.mutateAsync({
+        items: batchDownloadItems.map((item) => ({
+          url: item.url,
+          source: "xiadown.download.dialog",
+          caller: "main",
+          mode: "quick",
+          quality: item.quality,
+          writeThumbnail: true,
+          subtitleAll: item.subtitles,
+          subtitleAuto: item.subtitles,
+          transcodePresetId: item.transcodePresetId || undefined,
+          deleteSourceFileAfterTranscode: item.transcodePresetId
+            ? item.deleteSourceFileAfterTranscode
+            : undefined,
+          appSessionId: item.appSessionId || undefined,
+          useAppSession:
+            item.useAppSession && batchDownloadItemCanUseAppSession(item),
+        })),
+      });
+      await closeDialogAfterResourceCleanup();
+    } catch (error) {
+      setDownloadSubmitError(resolveDownloadErrorMessage(error));
     }
   };
 
@@ -1620,9 +1812,7 @@ export function NewTaskDialog(props: {
       setResourceSniffFailure(null);
       setResourceSniffTechnicalError("");
     } catch (error) {
-      setDownloadSubmitError(
-        resolveUnknownErrorMessage(error, text.common.unknown),
-      );
+      setDownloadSubmitError(resolveDownloadErrorMessage(error));
     }
   };
 
@@ -1644,9 +1834,7 @@ export function NewTaskDialog(props: {
       }
       await closeDialogAfterResourceCleanup();
     } catch (error) {
-      setDownloadSubmitError(
-        resolveUnknownErrorMessage(error, text.common.unknown),
-      );
+      setDownloadSubmitError(resolveDownloadErrorMessage(error));
     }
   };
 
@@ -1864,136 +2052,153 @@ export function NewTaskDialog(props: {
 
             {activeDownloadMode && downloadStep === "config" ? (
               <>
-                <DialogListCard className="app-new-task-panel">
-                  <DialogListCardContent className="p-3">
-                    <div
-                      className="app-new-task-field-strip app-new-task-url-card-strip h-9 w-full min-w-0 overflow-hidden"
-                      data-mode={downloadShowsSniffMode ? "sniff" : "app-session"}
-                    >
-                      <div className="app-new-task-url-card-link flex h-full min-w-0 items-center">
-                        <div
-                          className="app-new-task-url-card-url flex h-full min-w-0 flex-1 items-center gap-1.5 px-3"
-                          title={preparedDownloadUrl}
-                        >
-                          <SiteBrandIcon
-                            siteKey={downloadSiteKey}
-                            fallback="globe"
-                            className="app-new-task-url-card-icon h-3.5 w-3.5 shrink-0"
-                          />
-                          <span
-                            className="app-new-task-url-card-text min-w-0 flex-1"
-                            dir="ltr"
+                {!downloadIsBatch ? (
+                  <DialogListCard className="app-new-task-panel">
+                    <DialogListCardContent className="p-3">
+                      <div
+                        className="app-new-task-field-strip app-new-task-url-card-strip h-9 w-full min-w-0 overflow-hidden"
+                        data-mode={
+                          downloadShowsSniffMode ? "sniff" : "app-session"
+                        }
+                      >
+                        <div className="app-new-task-url-card-link flex h-full min-w-0 items-center">
+                          <div
+                            className="app-new-task-url-card-url flex h-full min-w-0 flex-1 items-center gap-1.5 px-3"
+                            title={preparedDownloadUrl}
                           >
-                            {downloadUrlDisplayParts.prefix ? (
-                              <span className="app-new-task-url-card-url-muted">
-                                {downloadUrlDisplayParts.prefix}
-                              </span>
-                            ) : null}
-                            <span className="app-new-task-url-card-url-domain">
-                              {downloadUrlDisplayParts.domain ||
-                                preparedDownloadUrl}
-                            </span>
-                            {downloadUrlDisplayParts.suffix ? (
-                              <span className="app-new-task-url-card-url-muted">
-                                {downloadUrlDisplayParts.suffix}
-                              </span>
-                            ) : null}
-                          </span>
-                        </div>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="compactIcon"
-                              className="app-new-task-field-action !h-full !w-9 shrink-0"
-                              aria-label={text.dialogs.modifyLink}
-                              onClick={() => {
-                                if (downloadPrepared?.url) {
-                                  setDownloadUrl(downloadPrepared.url);
-                                }
-                                resetDownloadConfig();
-                              }}
+                            <SiteBrandIcon
+                              siteKey={downloadSiteKey}
+                              fallback="globe"
+                              className="app-new-task-url-card-icon h-3.5 w-3.5 shrink-0"
+                            />
+                            <span
+                              className="app-new-task-url-card-text min-w-0 flex-1"
+                              dir="ltr"
                             >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>{text.dialogs.modifyLink}</TooltipContent>
-                        </Tooltip>
-                      </div>
-                      <div className="app-new-task-url-card-mode-slot relative h-full min-w-0 overflow-hidden">
-                        <div
-                          className="app-new-task-url-card-mode-panel"
-                          data-panel="app-session"
-                          data-visible={
-                            downloadShowsSniffMode ? "false" : "true"
-                          }
-                          aria-hidden={
-                            downloadShowsSniffMode ? "true" : undefined
-                          }
-                        >
-                          <span className="app-new-task-url-card-mode-label">
-                            {downloadAppSessionStatusLabel}
-                          </span>
-                          {downloadAppSessionCanExportCookies ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="flex shrink-0 items-center justify-center">
-                                  <InlineSwitch
-                                    checked={downloadUseAppSession}
-                                    onChange={setDownloadUseAppSession}
-                                    ariaLabel={text.dialogs.appSessionCookiesDownload}
-                                  />
+                              {downloadUrlDisplayParts.prefix ? (
+                                <span className="app-new-task-url-card-url-muted">
+                                  {downloadUrlDisplayParts.prefix}
                                 </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {text.dialogs.appSessionCookiesDownload}
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : downloadMatchesCookieExportAppSession ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-flex shrink-0">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="compactIcon"
-                                    className="app-new-task-url-card-manage-button !h-7 !w-7"
-                                    aria-label={text.dialogs.openConnections}
-                                    disabled={!props.onOpenConnections}
-                                    onClick={handleOpenConnections}
-                                  >
-                                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                                  </Button>
+                              ) : null}
+                              <span className="app-new-task-url-card-url-domain">
+                                {downloadUrlDisplayParts.domain ||
+                                  preparedDownloadUrl}
+                              </span>
+                              {downloadUrlDisplayParts.suffix ? (
+                                <span className="app-new-task-url-card-url-muted">
+                                  {downloadUrlDisplayParts.suffix}
                                 </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {text.dialogs.openConnections}
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : null}
+                              ) : null}
+                            </span>
+                          </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="compactIcon"
+                                className="app-new-task-field-action !h-full !w-9 shrink-0"
+                                aria-label={text.dialogs.modifyLink}
+                                onClick={() => {
+                                  if (downloadPrepared?.url) {
+                                    setDownloadUrl(downloadPrepared.url);
+                                  }
+                                  resetDownloadConfig();
+                                }}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {text.dialogs.modifyLink}
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
-                        <div
-                          className="app-new-task-url-card-mode-panel app-new-task-url-card-mode-panel-sniff"
-                          data-panel="sniff"
-                          data-visible={
-                            downloadShowsSniffMode ? "true" : "false"
-                          }
-                          aria-hidden={
-                            downloadShowsSniffMode ? undefined : "true"
-                          }
-                        >
-                          <Radar className="h-3.5 w-3.5 shrink-0" />
-                          <span className="app-new-task-url-card-mode-label">
-                            {text.dialogs.sniffMode}
-                          </span>
+                        <div className="app-new-task-url-card-mode-slot relative h-full min-w-0 overflow-hidden">
+                          <div
+                            className="app-new-task-url-card-mode-panel"
+                            data-panel="app-session"
+                            data-visible={
+                              downloadShowsSniffMode ? "false" : "true"
+                            }
+                            aria-hidden={
+                              downloadShowsSniffMode ? "true" : undefined
+                            }
+                          >
+                            <span className="app-new-task-url-card-mode-label">
+                              {downloadAppSessionStatusLabel}
+                            </span>
+                            {downloadAppSessionCanExportCookies ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="flex shrink-0 items-center justify-center">
+                                    <InlineSwitch
+                                      checked={downloadUseAppSession}
+                                      onChange={setDownloadUseAppSession}
+                                      ariaLabel={
+                                        text.dialogs.appSessionCookiesDownload
+                                      }
+                                    />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {text.dialogs.appSessionCookiesDownload}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : downloadMatchesCookieExportAppSession ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex shrink-0">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="compactIcon"
+                                      className="app-new-task-url-card-manage-button !h-7 !w-7"
+                                      aria-label={text.dialogs.openConnections}
+                                      disabled={!props.onOpenConnections}
+                                      onClick={handleOpenConnections}
+                                    >
+                                      <SlidersHorizontal className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {text.dialogs.openConnections}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
+                          </div>
+                          <div
+                            className="app-new-task-url-card-mode-panel app-new-task-url-card-mode-panel-sniff"
+                            data-panel="sniff"
+                            data-visible={
+                              downloadShowsSniffMode ? "true" : "false"
+                            }
+                            aria-hidden={
+                              downloadShowsSniffMode ? undefined : "true"
+                            }
+                          >
+                            <Radar className="h-3.5 w-3.5 shrink-0" />
+                            <span className="app-new-task-url-card-mode-label">
+                              {text.dialogs.sniffMode}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </DialogListCardContent>
-                </DialogListCard>
+                    </DialogListCardContent>
+                  </DialogListCard>
+                ) : null}
 
-                {downloadTab !== "sniff" ? (
+                {downloadIsBatch ? (
+                  <div className="flex justify-center">
+                    <DreamSegmentSwitch
+                      value="batch"
+                      className="app-new-task-download-mode-switch"
+                      items={batchDownloadTabItems}
+                      onValueChange={() => undefined}
+                    />
+                  </div>
+                ) : downloadTab !== "sniff" ? (
                   <div className="flex justify-center">
                     <DreamSegmentSwitch
                       value={downloadTab}
@@ -2004,7 +2209,275 @@ export function NewTaskDialog(props: {
                   </div>
                 ) : null}
 
-                {downloadTab === "quick" ? (
+                {downloadIsBatch ? (
+                  <DialogListCard className="app-new-task-panel app-new-task-list-panel">
+                    <DialogListCardContent className="max-h-[12.25rem] overflow-y-auto">
+                      <table className="w-full table-fixed text-sm">
+                        <colgroup>
+                          <col />
+                          <col className="w-[6.25rem]" />
+                          <col className="w-[5.75rem]" />
+                        </colgroup>
+                        <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur">
+                          <tr className="border-b border-border/60 text-[11px] font-medium text-muted-foreground">
+                            <th className="px-3 py-2 text-center font-medium" scope="col">
+                              {text.completed.taskDataFields.url}
+                            </th>
+                            <th className="px-3 py-2 text-center font-medium" scope="col">
+                              {text.dialogs.useAppSession}
+                            </th>
+                            <th className="px-3 py-2 text-center font-medium" scope="col">
+                              {text.dialogs.quality}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {batchDownloadItems.map((item) => {
+                            const displayParts = buildDownloadUrlDisplayParts(
+                              item.url,
+                              item.domain,
+                            );
+                            const batchPresets = filterTranscodePresetsForMediaType(
+                              presetsQuery.data ?? [],
+                              batchDownloadItemMediaType(item),
+                            );
+                            const selectedBatchPreset =
+                              batchPresets.find(
+                                (preset) => preset.id === item.transcodePresetId,
+                              ) ?? null;
+                            const selectedBatchQualityLabel =
+                              item.quality === "audio"
+                                ? text.dialogs.qualityAudio
+                                : text.dialogs.qualityBest;
+                            const selectedBatchParamsSummary = [
+                              selectedBatchQualityLabel,
+                              item.subtitles
+                                ? text.dialogs.subtitles
+                                : text.dialogs.noSubtitle,
+                              selectedBatchPreset?.name ??
+                                text.dialogs.noTranscode,
+                            ].join(" / ");
+                            const canUseBatchAppSession =
+                              batchDownloadItemCanUseAppSession(item);
+                            const batchAppSessionTooltip = canUseBatchAppSession
+                              ? text.dialogs.appSessionCookiesDownload
+                              : item.appSessionId
+                                ? text.dialogs.appSessionNotConfigured
+                                : text.dialogs.noAvailableAppSession;
+
+                            return (
+                              <tr
+                                key={item.id}
+                                className="border-b border-border/60 transition-colors last:border-b-0 hover:bg-muted/30"
+                              >
+                                <td className="px-3 py-3 align-middle">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div
+                                        className="min-w-0 truncate text-xs"
+                                        dir="ltr"
+                                      >
+                                        {displayParts.prefix ? (
+                                          <span className="text-muted-foreground">
+                                            {displayParts.prefix}
+                                          </span>
+                                        ) : null}
+                                        <span className="font-medium text-foreground">
+                                          {displayParts.domain || item.url}
+                                        </span>
+                                        {displayParts.suffix ? (
+                                          <span className="text-muted-foreground">
+                                            {displayParts.suffix}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent
+                                      align="start"
+                                      className="font-mono"
+                                      multiline
+                                      side="bottom"
+                                    >
+                                      {item.url}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </td>
+                                <td className="px-3 py-3 text-center align-middle">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-flex items-center justify-center">
+                                        <InlineSwitch
+                                          checked={
+                                            canUseBatchAppSession &&
+                                            item.useAppSession
+                                          }
+                                          disabled={!canUseBatchAppSession}
+                                          onChange={(checked) =>
+                                            updateBatchDownloadItem(item.id, {
+                                              useAppSession: checked,
+                                            })
+                                          }
+                                          ariaLabel={
+                                            text.dialogs
+                                              .appSessionCookiesDownload
+                                          }
+                                        />
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {batchAppSessionTooltip}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </td>
+                                <td className="px-3 py-3 text-right align-middle">
+                                  <div className="flex justify-end">
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="compact"
+                                          className="h-8 w-[5.75rem] justify-between px-2"
+                                          title={selectedBatchParamsSummary}
+                                          aria-label={text.dialogs.quality}
+                                        >
+                                          <span className="min-w-0 flex-1 truncate text-left">
+                                            {selectedBatchQualityLabel}
+                                          </span>
+                                          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent
+                                        align="end"
+                                        className="w-[18rem] p-2"
+                                      >
+                                        <div className="space-y-1.5">
+                                          <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
+                                            <span className="text-muted-foreground">
+                                              {text.dialogs.quality}
+                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                              <Button
+                                                type="button"
+                                                variant={
+                                                  item.quality === "best"
+                                                    ? "default"
+                                                    : "outline"
+                                                }
+                                                size="compact"
+                                                onClick={() =>
+                                                  updateBatchDownloadItem(
+                                                    item.id,
+                                                    { quality: "best" },
+                                                  )
+                                                }
+                                              >
+                                                {text.dialogs.qualityBest}
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                variant={
+                                                  item.quality === "audio"
+                                                    ? "default"
+                                                    : "outline"
+                                                }
+                                                size="compact"
+                                                onClick={() =>
+                                                  updateBatchDownloadItem(
+                                                    item.id,
+                                                    { quality: "audio" },
+                                                  )
+                                                }
+                                              >
+                                                {text.dialogs.qualityAudio}
+                                              </Button>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
+                                            <span className="text-muted-foreground">
+                                              {text.dialogs.subtitles}
+                                            </span>
+                                            <InlineSwitch
+                                              checked={item.subtitles}
+                                              onChange={(checked) =>
+                                                updateBatchDownloadItem(item.id, {
+                                                  subtitles: checked,
+                                                })
+                                              }
+                                              ariaLabel={text.dialogs.subtitles}
+                                            />
+                                          </div>
+                                          <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
+                                            <span className="text-muted-foreground">
+                                              {text.actions.transcode}
+                                            </span>
+                                            <Select
+                                              value={item.transcodePresetId}
+                                              onChange={(event) =>
+                                                updateBatchDownloadItem(item.id, {
+                                                  transcodePresetId:
+                                                    event.target.value,
+                                                })
+                                              }
+                                              className="h-8 w-40 text-xs"
+                                              aria-label={text.actions.transcode}
+                                            >
+                                              <option value="">
+                                                {text.dialogs.noTranscode}
+                                              </option>
+                                              {batchPresets.map((preset) => (
+                                                <option
+                                                  key={preset.id}
+                                                  value={preset.id}
+                                                >
+                                                  {preset.name}
+                                                </option>
+                                              ))}
+                                            </Select>
+                                          </div>
+                                          {item.transcodePresetId ? (
+                                            <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
+                                              <span className="text-muted-foreground">
+                                                {
+                                                  text.dialogs
+                                                    .keepOnlyTranscodedFile
+                                                }
+                                              </span>
+                                              <InlineSwitch
+                                                checked={
+                                                  item.deleteSourceFileAfterTranscode
+                                                }
+                                                onChange={(checked) =>
+                                                  updateBatchDownloadItem(
+                                                    item.id,
+                                                    {
+                                                      deleteSourceFileAfterTranscode:
+                                                        checked,
+                                                    },
+                                                  )
+                                                }
+                                                ariaLabel={
+                                                  text.dialogs
+                                                    .keepOnlyTranscodedFile
+                                                }
+                                              />
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </DialogListCardContent>
+                  </DialogListCard>
+                ) : null}
+
+                {downloadTab === "quick" && !downloadIsBatch ? (
                   <DialogListCard className="app-new-task-panel app-new-task-list-panel">
                     <DialogListCardContent>
                       <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
@@ -2680,21 +3153,25 @@ export function NewTaskDialog(props: {
             <Button
               type="button"
               onClick={() =>
-                void (downloadTab === "quick"
-                  ? handleStartQuickDownload()
-                  : handleStartCustomDownload())
+                void (downloadIsBatch
+                  ? handleStartBatchDownload()
+                  : downloadTab === "quick"
+                    ? handleStartQuickDownload()
+                    : handleStartCustomDownload())
               }
               disabled={
                 downloadRequiresSniffDesk ||
                 createYTDLP.isPending ||
+                createYTDLPBatch.isPending ||
                 queueYTDLP.isPending ||
                 !downloadPrepared ||
                 !ytdlpInstalled ||
+                (downloadIsBatch && batchDownloadItems.length === 0) ||
                 ((downloadTab === "custom" || downloadTab === "sniff") &&
                   (!customParseResult || !customSelectedFormat))
               }
             >
-              {createYTDLP.isPending ? (
+              {createYTDLP.isPending || createYTDLPBatch.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : null}
               {text.actions.startTask}

@@ -36,6 +36,7 @@ type Settings struct {
 	ResourceSniffScope       string         `json:"resourceSniffScope"`
 	ResourceSniffMinBytes    int            `json:"resourceSniffMinBytes"`
 	ResourceSniffRetain      int            `json:"resourceSniffRetain"`
+	YTDLPConcurrentDownloads int            `json:"ytdlpConcurrentDownloads"`
 	YTDLPConcurrentFragments int            `json:"ytdlpConcurrentFragments"`
 	Proxy                    Proxy          `json:"proxy"`
 	AppearanceConfig         map[string]any `json:"appearanceConfig,omitempty"`
@@ -67,6 +68,7 @@ type UpdateSettingsRequest struct {
 	ResourceSniffScope       *string        `json:"resourceSniffScope"`
 	ResourceSniffMinBytes    *int           `json:"resourceSniffMinBytes"`
 	ResourceSniffRetain      *int           `json:"resourceSniffRetain"`
+	YTDLPConcurrentDownloads *int           `json:"ytdlpConcurrentDownloads"`
 	YTDLPConcurrentFragments *int           `json:"ytdlpConcurrentFragments"`
 	Proxy                    *Proxy         `json:"proxy"`
 	AppearanceConfig         map[string]any `json:"appearanceConfig,omitempty"`

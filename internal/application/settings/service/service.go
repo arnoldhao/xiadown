@@ -179,6 +179,11 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		ytdlpConcurrentFragments = *request.YTDLPConcurrentFragments
 	}
 
+	ytdlpConcurrentDownloads := current.YTDLPConcurrentDownloads()
+	if request.YTDLPConcurrentDownloads != nil {
+		ytdlpConcurrentDownloads = *request.YTDLPConcurrentDownloads
+	}
+
 	proxyParams := proxySettingsParamsFromDomain(current.Proxy())
 	if request.Proxy != nil {
 		proxyParams = proxySettingsParamsFromDTO(*request.Proxy)
@@ -250,6 +255,7 @@ func (service *SettingsService) UpdateSettings(ctx context.Context, request dto.
 		ResourceSniffScope:       resourceSniffScope,
 		ResourceSniffMinBytes:    resourceSniffMinBytes,
 		ResourceSniffRetain:      resourceSniffRetain,
+		YTDLPConcurrentDownloads: ytdlpConcurrentDownloads,
 		YTDLPConcurrentFragments: ytdlpConcurrentFragments,
 		AppearanceConfig:         appearanceConfig,
 	})
@@ -345,6 +351,7 @@ func toDTO(current settings.Settings, effective settings.AppearanceMode, systemT
 		ResourceSniffScope:       current.ResourceSniffScope().String(),
 		ResourceSniffMinBytes:    current.ResourceSniffMinBytes(),
 		ResourceSniffRetain:      current.ResourceSniffRetain(),
+		YTDLPConcurrentDownloads: current.YTDLPConcurrentDownloads(),
 		YTDLPConcurrentFragments: current.YTDLPConcurrentFragments(),
 		Proxy:                    toProxyDTO(current.Proxy()),
 		AppearanceConfig:         current.AppearanceConfig(),

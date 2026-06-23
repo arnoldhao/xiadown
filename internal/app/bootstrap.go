@@ -415,7 +415,8 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	realtimeServer.Handle("/api/listen/live/user-catalog/", listenLiveUserCatalogHandler)
 
 	osNotifications := notifications.New()
-	app.RegisterService(application.NewService(wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, listenPlayer, listenLivePlayer)))
+	settingsHandler := wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, libraryService, listenPlayer, listenLivePlayer)
+	app.RegisterService(application.NewService(settingsHandler))
 	app.RegisterService(application.NewService(wails.NewAppSessionsHandler(appSessionsService, windowManager, telemetryService, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewDependenciesHandler(dependenciesService, windowManager, telemetryService)))
 	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService, windowManager)))
