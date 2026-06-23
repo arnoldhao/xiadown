@@ -96,15 +96,15 @@ XiaDown là trình phát nhạc trực tuyến, đồng thời là công cụ t�
   </p>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="Màn hình kết nối và cách ly tài khoản của XiaDown" width="92%" />
+    <img src="./images/app_sessions.webp" alt="Màn hình phiên ứng dụng và trạng thái đăng nhập của XiaDown" width="92%" />
     <br />
-    <sub>Cách ly cấu hình kết nối, Cookies và Profile trình duyệt</sub>
+    <sub>Phiên ứng dụng, xác minh đăng nhập và quản lý trạng thái tài khoản</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="Màn hình quản lý công cụ phụ thuộc của XiaDown" width="92%" />
+    <img src="./images/settings_download.webp" alt="Màn hình cài đặt tải xuống và quản lý công cụ phụ thuộc của XiaDown" width="92%" />
     <br />
-    <sub>Tự động quản lý YT-DLP, FFmpeg và Bun</sub>
+    <sub>Thư mục tải xuống, số tác vụ đồng thời và quản lý YT-DLP, FFmpeg, Bun</sub>
   </p>
 
   <p align="center">
@@ -120,7 +120,17 @@ XiaDown là trình phát nhạc trực tuyến, đồng thời là công cụ t�
   </p>
 </details>
 
-## Bắt Đầu Nhanh
+## Cài Đặt
+
+### Homebrew
+
+Trên macOS, cài bằng Homebrew cask:
+
+```bash
+brew install --cask arnoldhao/tap/xiadown
+```
+
+### Tải bộ cài
 
 Tải trực tiếp gói mới nhất bên dưới. Các phiên bản cũ có trên [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
 
@@ -144,6 +154,15 @@ Các trình duyệt hiện được hỗ trợ:
 | Phổ biến | Quyền riêng tư và hiệu quả | Chuyên biệt và khu vực |
 | --- | --- | --- |
 | Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
+## Phát triển cục bộ
+
+Sau khi chuẩn bị môi trường Go và Bun, cài Wails 3 CLI rồi khởi động chế độ phát triển:
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+wails3 dev
+```
 
 ## Tuyên Bố Miễn Trừ Trách Nhiệm
 

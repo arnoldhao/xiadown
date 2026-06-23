@@ -96,15 +96,15 @@ It is a daily tool built for content creators: when you need material, use sniff
   </p>
 
   <p align="center">
-    <img src="./images/connector.webp" alt="XiaDown connection and account isolation view" width="92%" />
+    <img src="./images/app_sessions.webp" alt="XiaDown app sessions and sign-in status view" width="92%" />
     <br />
-    <sub>Connection settings, Cookies, and browser Profile isolation</sub>
+    <sub>App sessions, sign-in verification, and account status management</sub>
   </p>
 
   <p align="center">
-    <img src="./images/tools.webp" alt="XiaDown dependency tool management view" width="92%" />
+    <img src="./images/settings_download.webp" alt="XiaDown download settings and dependency tool management view" width="92%" />
     <br />
-    <sub>Automatic management for YT-DLP, FFmpeg, and Bun</sub>
+    <sub>Download directory, concurrency, and YT-DLP, FFmpeg, Bun management</sub>
   </p>
 
   <p align="center">
@@ -120,7 +120,17 @@ It is a daily tool built for content creators: when you need material, use sniff
   </p>
 </details>
 
-## Quick Start
+## Installation
+
+### Homebrew
+
+On macOS, install with Homebrew cask:
+
+```bash
+brew install --cask arnoldhao/tap/xiadown
+```
+
+### Download Installers
 
 Download the latest package directly below. Older versions are available on [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
 
@@ -144,6 +154,15 @@ Currently supported browsers:
 | Mainstream | Privacy and Productivity | Specialty and Regional |
 | --- | --- | --- |
 | Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+
+## Local Development
+
+After preparing Go and Bun, install the Wails 3 CLI and start development mode:
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
+wails3 dev
+```
 
 ## Disclaimer
 
