@@ -2,6 +2,9 @@ package wails
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
 
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/application/library/service"
@@ -9,10 +12,11 @@ import (
 
 type LibraryHandler struct {
 	service *service.LibraryService
+	windows *WindowManager
 }
 
-func NewLibraryHandler(service *service.LibraryService) *LibraryHandler {
-	return &LibraryHandler{service: service}
+func NewLibraryHandler(service *service.LibraryService, windows *WindowManager) *LibraryHandler {
+	return &LibraryHandler{service: service, windows: windows}
 }
 
 func (handler *LibraryHandler) ServiceName() string {
@@ -61,6 +65,37 @@ func (handler *LibraryHandler) RenameOperation(ctx context.Context, request dto.
 
 func (handler *LibraryHandler) RenameFile(ctx context.Context, request dto.RenameFileRequest) (dto.LibraryFileDTO, error) {
 	return handler.service.RenameFile(ctx, request)
+}
+
+func (handler *LibraryHandler) ListMissingLibraryFiles(ctx context.Context) (dto.ListMissingLibraryFilesResponse, error) {
+	return handler.service.ListMissingLibraryFiles(ctx)
+}
+
+func (handler *LibraryHandler) ScanMissingLibraryFiles(ctx context.Context, request dto.ScanMissingLibraryFilesRequest) (dto.ScanMissingLibraryFilesResponse, error) {
+	return handler.service.ScanMissingLibraryFiles(ctx, request)
+}
+
+func (handler *LibraryHandler) ApplyLibraryRelinks(ctx context.Context, request dto.ApplyLibraryRelinksRequest) (dto.ApplyLibraryRelinksResponse, error) {
+	return handler.service.ApplyLibraryRelinks(ctx, request)
+}
+
+func (handler *LibraryHandler) ListMissingListenLocalFiles(ctx context.Context) (dto.ListMissingLibraryFilesResponse, error) {
+	return handler.service.ListMissingListenLocalFiles(ctx)
+}
+
+func (handler *LibraryHandler) ScanMissingListenLocalFiles(ctx context.Context, request dto.ScanMissingLibraryFilesRequest) (dto.ScanMissingLibraryFilesResponse, error) {
+	return handler.service.ScanMissingListenLocalFiles(ctx, request)
+}
+
+func (handler *LibraryHandler) ApplyListenLocalRelinks(ctx context.Context, request dto.ApplyLibraryRelinksRequest) (dto.ApplyLibraryRelinksResponse, error) {
+	return handler.service.ApplyListenLocalRelinks(ctx, request)
+}
+
+func (handler *LibraryHandler) SelectLibraryDirectory(_ context.Context, title string, initialPath string) (string, error) {
+	if handler == nil || handler.windows == nil {
+		return "", fmt.Errorf("window manager not available")
+	}
+	return handler.windows.SelectMainDirectoryDialog(strings.TrimSpace(title), initialDirectoryFromPath(initialPath))
 }
 
 func (handler *LibraryHandler) CancelOperation(ctx context.Context, request dto.CancelOperationRequest) (dto.LibraryOperationDTO, error) {
@@ -217,4 +252,16 @@ func (handler *LibraryHandler) SaveTranscodePreset(ctx context.Context, preset d
 
 func (handler *LibraryHandler) DeleteTranscodePreset(ctx context.Context, request dto.DeleteTranscodePresetRequest) error {
 	return handler.service.DeleteTranscodePreset(ctx, request)
+}
+
+func initialDirectoryFromPath(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(trimmed)
+	if strings.TrimSpace(filepath.Ext(cleaned)) == "" {
+		return cleaned
+	}
+	return filepath.Dir(cleaned)
 }

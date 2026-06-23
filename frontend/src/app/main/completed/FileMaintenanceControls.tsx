@@ -1,20 +1,21 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, Wrench } from "lucide-react";
 import * as React from "react";
 
+import { FileRelinkDialog } from "@/app/main/file-relink/FileRelinkDialog";
 import { getXiaText } from "@/features/xiadown/shared";
-import { cn } from "@/lib/utils";
 import { messageBus } from "@/shared/message";
-import { invalidateLibraryQueries } from "@/shared/query/library";
+import {
+  invalidateLibraryQueries,
+  selectLibraryDirectory,
+  useApplyLibraryRelinks,
+  useListMissingLibraryFiles,
+  useScanMissingLibraryFiles,
+} from "@/shared/query/library";
 import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 import { resolveUnknownErrorMessage } from "@/app/main/helpers";
-
-type VerifyFilesResponse = {
-  checked?: number;
-  missing?: number;
-};
 
 type ClearMissingFilesResponse = {
   checked?: number;
@@ -30,38 +31,37 @@ export function CompletedFileMaintenanceControls(props: {
   httpBaseURL: string;
 }) {
   const [action, setAction] = React.useState<"" | "verify" | "clear">("");
+  const [dialogOpen, setDialogOpen] = React.useState(false);
   const queryClient = useQueryClient();
+  const missingFiles = useListMissingLibraryFiles();
+  const scanMissing = useScanMissingLibraryFiles();
+  const applyRelinks = useApplyLibraryRelinks();
+  const [selectedMatches, setSelectedMatches] = React.useState<Record<string, string>>({});
+  const [clearConfirming, setClearConfirming] = React.useState(false);
 
-  const runMaintenance = async (nextAction: "verify" | "clear") => {
+  const loadMissingFiles = React.useCallback(async () => {
+    const result = await missingFiles.mutateAsync();
+    setSelectedMatches({});
+    setClearConfirming(false);
+    scanMissing.reset();
+    return result;
+  }, [missingFiles, scanMissing]);
+
+  const runClearMissingFiles = async () => {
     const baseURL = props.httpBaseURL.trim().replace(/\/+$/, "");
     if (!baseURL || action) {
       return;
     }
-    setAction(nextAction);
+    setAction("clear");
     try {
-      const endpoint =
-        nextAction === "verify"
-          ? "/api/library/files/verify"
-          : "/api/library/files/clear-missing";
-      const response = await fetch(`${baseURL}${endpoint}`, {
+      const response = await fetch(`${baseURL}/api/library/files/clear-missing`, {
         method: "POST",
         headers: { Accept: "application/json" },
       });
       if (!response.ok) {
         throw new Error(`library file maintenance failed: ${response.status}`);
       }
-      const result = (await response.json()) as VerifyFilesResponse & ClearMissingFilesResponse;
-      if (nextAction === "verify") {
-        const missing = Number.isFinite(result.missing) ? Number(result.missing) : 0;
-        messageBus.publishToast({
-          intent: missing > 0 ? "warning" : "success",
-          description:
-            missing > 0
-              ? formatCountMessage(props.text.completed.verifyFilesMissingToast, missing)
-              : props.text.completed.verifyFilesValidToast,
-        });
-        return;
-      }
+      const result = (await response.json()) as ClearMissingFilesResponse;
       const removed = Number.isFinite(result.removed) ? Number(result.removed) : 0;
       messageBus.publishToast({
         intent: removed > 0 ? "success" : "info",
@@ -71,6 +71,9 @@ export function CompletedFileMaintenanceControls(props: {
             : props.text.completed.clearMissingFilesNoneToast,
       });
       invalidateLibraryQueries(queryClient);
+      if (dialogOpen) {
+        await loadMissingFiles();
+      }
     } catch (error) {
       messageBus.publishToast({
         intent: "danger",
@@ -79,6 +82,91 @@ export function CompletedFileMaintenanceControls(props: {
     } finally {
       setAction("");
     }
+  };
+
+  const handleOpenRelinkDialog = async () => {
+    if (action) {
+      return;
+    }
+    setDialogOpen(true);
+    setAction("verify");
+    try {
+      await loadMissingFiles();
+    } catch (error) {
+      messageBus.publishToast({
+        intent: "danger",
+        description: `${props.text.completed.fileMaintenanceFailed}: ${resolveUnknownErrorMessage(error, props.text.common.unknown)}`,
+      });
+    } finally {
+      setAction("");
+    }
+  };
+
+  const handleScanFolder = async () => {
+    const currentMissing = missingFiles.data?.missing ?? [];
+    const initialPath = currentMissing[0]?.oldPath ?? "";
+    const selected = await selectLibraryDirectory(props.text.completed.relinkChooseFolderTitle, initialPath);
+    if (!selected) {
+      return;
+    }
+    setClearConfirming(false);
+    try {
+      const result = await scanMissing.mutateAsync({
+        directory: selected,
+        fileIds: currentMissing.map((file) => file.fileId),
+      });
+      const nextSelections: Record<string, string> = {};
+      for (const match of result.matches) {
+        if (!nextSelections[match.fileId]) {
+          nextSelections[match.fileId] = match.newPath;
+        }
+      }
+      setSelectedMatches(nextSelections);
+      messageBus.publishToast({
+        intent: result.matches.length > 0 ? "success" : "info",
+        description:
+          result.matches.length > 0
+            ? formatCountMessage(props.text.completed.relinkScanFoundToast, result.matches.length)
+            : props.text.completed.relinkScanNoneToast,
+      });
+    } catch (error) {
+      messageBus.publishToast({
+        intent: "danger",
+        description: `${props.text.completed.relinkScanFailed}: ${resolveUnknownErrorMessage(error, props.text.common.unknown)}`,
+      });
+    }
+  };
+
+  const handleApplySelectedMatches = async () => {
+    const matches = Object.entries(selectedMatches)
+      .filter(([, path]) => path.trim())
+      .map(([fileId, path]) => ({ fileId, path }));
+    if (matches.length === 0) {
+      return;
+    }
+    setClearConfirming(false);
+    try {
+      const result = await applyRelinks.mutateAsync({ matches });
+      messageBus.publishToast({
+        intent: "success",
+        description: formatCountMessage(props.text.completed.relinkApplySuccessToast, result.relinked),
+      });
+      await loadMissingFiles();
+    } catch (error) {
+      messageBus.publishToast({
+        intent: "danger",
+        description: `${props.text.completed.relinkApplyFailed}: ${resolveUnknownErrorMessage(error, props.text.common.unknown)}`,
+      });
+    }
+  };
+
+  const handleClearMissingFromDialog = async () => {
+    if (!clearConfirming) {
+      setClearConfirming(true);
+      return;
+    }
+    await runClearMissingFiles();
+    setClearConfirming(false);
   };
 
   return (
@@ -90,41 +178,39 @@ export function CompletedFileMaintenanceControls(props: {
             variant="ghost"
             size="icon"
             className="app-completed-toolbar-button h-8 w-8 p-0"
-            aria-label={props.text.completed.verifyFiles}
+            aria-label={props.text.completed.relinkDialogTitle}
             disabled={action !== ""}
-            onClick={() => void runMaintenance("verify")}
+            onClick={() => void handleOpenRelinkDialog()}
           >
-            <RefreshCw
-              className={cn("h-4 w-4", action === "verify" ? "animate-spin" : "")}
-            />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {props.text.completed.verifyFiles}
-        </TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="app-completed-toolbar-button h-8 w-8 p-0"
-            aria-label={props.text.completed.clearMissingFiles}
-            disabled={action !== ""}
-            onClick={() => void runMaintenance("clear")}
-          >
-            {action === "clear" ? (
+            {action === "verify" ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Trash2 className="h-4 w-4" />
+              <Wrench className="h-4 w-4" />
             )}
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">
-          {props.text.completed.clearMissingFiles}
+          {props.text.completed.relinkDialogTitle}
         </TooltipContent>
       </Tooltip>
+      <FileRelinkDialog
+        open={dialogOpen}
+        text={props.text}
+        loading={missingFiles.isPending || action === "verify"}
+        relinking={applyRelinks.isPending}
+        scanning={scanMissing.isPending}
+        clearing={action === "clear"}
+        clearConfirming={clearConfirming}
+        clearLabel={props.text.completed.clearMissingFiles}
+        confirmClearLabel={props.text.completed.confirmClearMissingFiles}
+        missing={missingFiles.data?.missing ?? []}
+        matches={scanMissing.data?.matches ?? []}
+        selectedMatches={selectedMatches}
+        onOpenChange={setDialogOpen}
+        onScanFolder={handleScanFolder}
+        onApplyMatches={handleApplySelectedMatches}
+        onClearMissing={handleClearMissingFromDialog}
+      />
     </>
   );
 }

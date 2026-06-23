@@ -21,7 +21,7 @@ import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripP
 import { CompletedFileDetailContent,CompletedFileDetailHeader,CompletedTaskDetailContent,CompletedTaskDetailHeader,SelectionCheckbox } from "@/app/main/completed/detail-components";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
-import { COMPLETED_FILE_TYPE_ORDER,buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileCoverURL,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileExplicitCoverURL,resolveCompletedOperationExplicitCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTaskCoverURL,resolveCompletedTaskFileTypeSummaries,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
+import { COMPLETED_FILE_TYPE_ORDER,buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,isCompletedLibraryFileUnavailable,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileCoverURL,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileExplicitCoverURL,resolveCompletedOperationExplicitCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTaskCoverURL,resolveCompletedTaskFileTypeSummaries,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
 import { COMPLETED_FILE_PAGE_SIZE_OPTIONS,COMPLETED_TASK_PAGE_SIZE_OPTIONS,SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME,SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME,SIDEBAR_DROPDOWN_ITEM_CLASS_NAME } from "@/app/main/main-constants";
 import type { CompletedContextMenuTarget,CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedTaskEntry,CompletedViewMode } from "@/app/main/types";
 
@@ -354,6 +354,7 @@ export function CompletedPage(props: {
               file,
               coverLookup,
             );
+            const fileUnavailable = isCompletedLibraryFileUnavailable(file);
             const entry: CompletedFileEntry = {
               id: file.id,
               libraryId: library.id,
@@ -386,7 +387,7 @@ export function CompletedPage(props: {
                 file.updatedAt ||
                 library.updatedAt ||
                 "",
-              previewURL: localPath
+              previewURL: !fileUnavailable && localPath
                 ? buildAssetPreviewURL(props.httpBaseURL, localPath)
                 : "",
               coverURL: "",

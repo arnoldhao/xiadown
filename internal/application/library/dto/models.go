@@ -524,6 +524,67 @@ type ClearMissingLibraryFilesResponse struct {
 	Removed int `json:"removed"`
 }
 
+type MissingLibraryFileDTO struct {
+	FileID      string `json:"fileId"`
+	LibraryID   string `json:"libraryId"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	OldPath     string `json:"oldPath"`
+	Format      string `json:"format,omitempty"`
+	SizeBytes   *int64 `json:"sizeBytes,omitempty"`
+	DurationMs  *int64 `json:"durationMs,omitempty"`
+	LastChecked string `json:"lastChecked,omitempty"`
+	LastError   string `json:"lastError,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
+}
+
+type ListMissingLibraryFilesResponse struct {
+	Checked int                     `json:"checked"`
+	Missing []MissingLibraryFileDTO `json:"missing"`
+}
+
+type ScanMissingLibraryFilesRequest struct {
+	Directory string   `json:"directory"`
+	FileIDs   []string `json:"fileIds,omitempty"`
+}
+
+type ScanMissingLibraryFilesResponse struct {
+	Directory    string                  `json:"directory"`
+	Checked      int                     `json:"checked"`
+	MissingCount int                     `json:"missingCount"`
+	ScannedFiles int                     `json:"scannedFiles"`
+	Matches      []LibraryRelinkMatchDTO `json:"matches"`
+}
+
+type ApplyLibraryRelinksRequest struct {
+	Matches []LibraryRelinkSelectionDTO `json:"matches"`
+}
+
+type LibraryRelinkSelectionDTO struct {
+	FileID string `json:"fileId"`
+	Path   string `json:"path"`
+}
+
+type ApplyLibraryRelinksResponse struct {
+	Relinked int              `json:"relinked"`
+	Files    []LibraryFileDTO `json:"files"`
+}
+
+type LibraryRelinkMatchDTO struct {
+	FileID     string   `json:"fileId"`
+	LibraryID  string   `json:"libraryId"`
+	Name       string   `json:"name"`
+	Kind       string   `json:"kind"`
+	OldPath    string   `json:"oldPath"`
+	NewPath    string   `json:"newPath"`
+	Format     string   `json:"format,omitempty"`
+	SizeBytes  *int64   `json:"sizeBytes,omitempty"`
+	DurationMs *int64   `json:"durationMs,omitempty"`
+	Score      int      `json:"score"`
+	Confidence string   `json:"confidence"`
+	Reasons    []string `json:"reasons,omitempty"`
+}
+
 type CreateYTDLPJobRequest struct {
 	URL                            string   `json:"url"`
 	LibraryID                      string   `json:"libraryId,omitempty"`

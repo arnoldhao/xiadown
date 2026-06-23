@@ -418,7 +418,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	app.RegisterService(application.NewService(wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewAppSessionsHandler(appSessionsService, windowManager, telemetryService, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewDependenciesHandler(dependenciesService, windowManager, telemetryService)))
-	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService)))
+	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService, windowManager)))
 	app.RegisterService(application.NewService(wails.NewSystemHandler(fontService)))
 	app.RegisterService(application.NewService(wails.NewOSNotificationHandlerWithHTTPClientProvider(osNotifications, app, proxyManager)))
 	app.RegisterService(application.NewService(wails.NewRealtimeHandler(realtimeServer)))
