@@ -12,6 +12,7 @@ import {
 getPathBaseName,
 stripPathExtension
 } from "@/shared/utils/resourceHelpers";
+import { formatBytes } from "@/shared/utils/formatBytes";
 
 import { AUDIO_FILE_EXTENSIONS,SITE_KEYS,VIDEO_FILE_EXTENSIONS,formatCodecLabel,resolveSiteKeyForDomain } from "@/app/main/helpers";
 import type { SelectOption,SourceMediaType } from "@/app/main/types";
@@ -58,11 +59,66 @@ export function selectAudioFormatId(formats: YTDLPFormatOption[]) {
     return "";
   }
   const best = audioFormats.reduce((currentBest, current) => {
+    const bestBitrate = audioFormatBitrateScore(currentBest);
+    const currentBitrate = audioFormatBitrateScore(current);
+    if (currentBitrate !== bestBitrate) {
+      return currentBitrate > bestBitrate ? current : currentBest;
+    }
     const bestSize = currentBest.filesize ?? 0;
     const currentSize = current.filesize ?? 0;
     return currentSize > bestSize ? current : currentBest;
   });
   return best.id;
+}
+
+function audioFormatBitrateScore(format: YTDLPFormatOption) {
+  for (const value of [format.abr, format.tbr]) {
+    if (value && Number.isFinite(value) && value > 0) {
+      return value;
+    }
+  }
+  return 0;
+}
+
+function formatKbps(value?: number) {
+  if (!value || !Number.isFinite(value) || value <= 0) {
+    return "";
+  }
+  return `${Math.round(value)}k`;
+}
+
+export function formatAudioTrackLabel(format: YTDLPFormatOption) {
+  const parts: string[] = [];
+  const language = format.language?.trim();
+  if (language) {
+    parts.push(language);
+  }
+  const note = format.formatNote?.trim();
+  if (note && !parts.some((part) => part.toLowerCase() === note.toLowerCase())) {
+    parts.push(note);
+  }
+  const bitrate = formatKbps(audioFormatBitrateScore(format));
+  if (bitrate && !parts.some((part) => part.includes(bitrate))) {
+    parts.push(bitrate);
+  }
+  if (format.audioChannels && format.audioChannels > 0) {
+    parts.push(`${format.audioChannels}ch`);
+  }
+  if (format.ext) {
+    parts.push(format.ext);
+  }
+  const codec = format.acodec ? formatCodecLabel(format.acodec) : "";
+  if (codec) {
+    parts.push(codec);
+  }
+  const size = format.filesize && format.filesize > 0 ? formatBytes(format.filesize) : "";
+  if (size && size !== "-") {
+    parts.push(size);
+  }
+  if (parts.length > 0) {
+    return parts.join(" · ");
+  }
+  return format.label || format.id;
 }
 
 export function formatSubtitleLabel(subtitle: YTDLPSubtitleOption) {

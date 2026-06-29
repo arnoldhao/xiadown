@@ -51,3 +51,29 @@ func getInt64(values map[string]any, key string) (int64, error) {
 		return 0, fmt.Errorf("unsupported value for %s", key)
 	}
 }
+
+func getFloat64(values map[string]any, key string) (float64, error) {
+	if values == nil {
+		return 0, fmt.Errorf("missing key %s", key)
+	}
+	raw, ok := values[key]
+	if !ok {
+		return 0, fmt.Errorf("missing key %s", key)
+	}
+	switch value := raw.(type) {
+	case float64:
+		return value, nil
+	case int64:
+		return float64(value), nil
+	case int:
+		return float64(value), nil
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if err != nil {
+			return 0, err
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("unsupported value for %s", key)
+	}
+}

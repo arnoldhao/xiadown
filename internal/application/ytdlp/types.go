@@ -51,10 +51,11 @@ type CommandOptions struct {
 }
 
 type InfoOptions struct {
-	ExecPath    string
-	Tools       ToolResolver
-	URL         string
-	CookiesPath string
-	ProxyURL    string
-	Timeout     time.Duration
+	ExecPath     string
+	Tools        ToolResolver
+	URL          string
+	CookiesPath  string
+	ProxyURL     string
+	FlatPlaylist bool
+	Timeout      time.Duration
 }

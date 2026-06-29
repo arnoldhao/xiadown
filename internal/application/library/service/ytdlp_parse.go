@@ -31,12 +31,13 @@ func (service *LibraryService) ParseYTDLPDownload(ctx context.Context, request d
 	}
 
 	info, err := appytdlp.FetchInfo(ctx, appytdlp.InfoOptions{
-		ExecPath:    "",
-		Tools:       service.tools,
-		URL:         resolvedURL,
-		CookiesPath: cookiesPath,
-		ProxyURL:    service.resolveYTDLPProxy(resolvedURL),
-		Timeout:     ytdlpParseInfoTimeout,
+		ExecPath:     "",
+		Tools:        service.tools,
+		URL:          resolvedURL,
+		CookiesPath:  cookiesPath,
+		ProxyURL:     service.resolveYTDLPProxy(resolvedURL),
+		FlatPlaylist: true,
+		Timeout:      ytdlpParseInfoTimeout,
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -49,8 +50,23 @@ func (service *LibraryService) ParseYTDLPDownload(ctx context.Context, request d
 	extractor := resolveYTDLPExtractor(info)
 	author := resolveYTDLPAuthor(info)
 	thumbnailURL := resolveYTDLPThumbnail(info)
+	pageURL := strings.TrimSpace(getString(info, "webpage_url", "original_url"))
 	if domain == "" {
-		domain = extractRegistrableDomain(getString(info, "webpage_url"))
+		domain = extractRegistrableDomain(pageURL)
+	}
+	playlistItems := service.buildYTDLPPlaylistItems(ctx, info)
+	if len(playlistItems) > 0 {
+		return dto.ParseYTDLPDownloadResponse{
+			Title:         title,
+			Domain:        domain,
+			Extractor:     extractor,
+			Author:        author,
+			ThumbnailURL:  thumbnailURL,
+			PageURL:       pageURL,
+			PlaylistItems: playlistItems,
+			Formats:       []dto.YTDLPFormatOption{},
+			Subtitles:     []dto.YTDLPSubtitleOption{},
+		}, nil
 	}
 	formats := buildYTDLPFormatOptions(info)
 	subtitles := buildYTDLPSubtitleOptions(info)
@@ -64,9 +80,77 @@ func (service *LibraryService) ParseYTDLPDownload(ctx context.Context, request d
 		Extractor:    extractor,
 		Author:       author,
 		ThumbnailURL: thumbnailURL,
+		PageURL:      pageURL,
 		Formats:      formats,
 		Subtitles:    subtitles,
 	}, nil
+}
+
+func (service *LibraryService) buildYTDLPPlaylistItems(ctx context.Context, info map[string]any) []dto.PreparedYTDLPDownloadURL {
+	rawEntries, ok := info["entries"].([]any)
+	if !ok || len(rawEntries) == 0 {
+		return nil
+	}
+	result := make([]dto.PreparedYTDLPDownloadURL, 0, len(rawEntries))
+	seen := make(map[string]struct{}, len(rawEntries))
+	for _, rawEntry := range rawEntries {
+		entry, ok := rawEntry.(map[string]any)
+		if !ok {
+			continue
+		}
+		candidate := resolveYTDLPPlaylistEntryURL(info, entry)
+		if candidate == "" {
+			continue
+		}
+		resolvedURL, domain, ok := normalizeDownloadURLWithDomain(candidate)
+		if !ok {
+			resolvedURL, domain, ok = normalizeKnownVideoSuffix(candidate)
+		}
+		if !ok || resolvedURL == "" {
+			continue
+		}
+		if _, exists := seen[resolvedURL]; exists {
+			continue
+		}
+		seen[resolvedURL] = struct{}{}
+		result = append(result, service.prepareYTDLPDownloadURL(ctx, normalizedDownloadURL{URL: resolvedURL, Domain: domain}))
+	}
+	return result
+}
+
+func resolveYTDLPPlaylistEntryURL(playlistInfo map[string]any, entry map[string]any) string {
+	for _, key := range []string{"webpage_url", "original_url", "url"} {
+		candidate := strings.TrimSpace(getString(entry, key))
+		if candidate == "" {
+			continue
+		}
+		if strings.HasPrefix(candidate, "http://") || strings.HasPrefix(candidate, "https://") {
+			return candidate
+		}
+		if strings.HasPrefix(candidate, "//") {
+			return "https:" + candidate
+		}
+	}
+
+	entryID := strings.TrimSpace(getString(entry, "id"))
+	if entryID == "" {
+		entryID = strings.TrimSpace(getString(entry, "url"))
+	}
+	if entryID == "" {
+		return ""
+	}
+	extractor := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+		getString(entry, "ie_key", "extractor_key", "extractor"),
+		getString(playlistInfo, "ie_key", "extractor_key", "extractor"),
+		getString(playlistInfo, "extractor"),
+	)))
+	if strings.Contains(extractor, "youtube") {
+		return "https://www.youtube.com/watch?v=" + entryID
+	}
+	if strings.Contains(extractor, "bilibili") && strings.HasPrefix(strings.ToLower(entryID), "bv") {
+		return "https://www.bilibili.com/video/" + entryID
+	}
+	return ""
 }
 
 func resolveYTDLPExtractor(info map[string]any) string {
@@ -133,21 +217,33 @@ func buildYTDLPFormatOptions(info map[string]any) []dto.YTDLPFormatOption {
 		}
 		height := getInt(formatMap, "height")
 		ext := strings.TrimSpace(getString(formatMap, "ext"))
+		formatNote := strings.TrimSpace(getString(formatMap, "format_note"))
+		language := strings.TrimSpace(getString(formatMap, "language"))
+		tbr, _ := getFloat64(formatMap, "tbr")
+		abr, _ := getFloat64(formatMap, "abr")
+		vbr, _ := getFloat64(formatMap, "vbr")
+		audioChannels := getInt(formatMap, "audio_channels")
 		filesize, _ := getInt64(formatMap, "filesize")
 		if filesize == 0 {
 			filesize, _ = getInt64(formatMap, "filesize_approx")
 		}
 		label := buildYTDLPFormatLabel(formatMap, height, ext, vcodec, acodec, filesize, formatID)
 		result = append(result, dto.YTDLPFormatOption{
-			ID:       formatID,
-			Label:    label,
-			HasVideo: hasVideo,
-			HasAudio: hasAudio,
-			Ext:      ext,
-			Height:   height,
-			VCodec:   vcodec,
-			ACodec:   acodec,
-			Filesize: filesize,
+			ID:            formatID,
+			Label:         label,
+			HasVideo:      hasVideo,
+			HasAudio:      hasAudio,
+			Ext:           ext,
+			Height:        height,
+			VCodec:        vcodec,
+			ACodec:        acodec,
+			FormatNote:    formatNote,
+			Language:      language,
+			TBR:           tbr,
+			ABR:           abr,
+			VBR:           vbr,
+			AudioChannels: audioChannels,
+			Filesize:      filesize,
 		})
 	}
 	return result
