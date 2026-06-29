@@ -30,17 +30,7 @@ func FetchInfo(ctx context.Context, options InfoOptions) (map[string]any, error)
 	if execPath == "" {
 		return nil, fmt.Errorf("yt-dlp exec path not resolved")
 	}
-	args := []string{"--no-playlist", "--skip-download", "--dump-json"}
-	if explicitToolArgs := BuildExplicitToolArgs(ctx, options.Tools); len(explicitToolArgs) > 0 {
-		args = append(args, explicitToolArgs...)
-	}
-	if strings.TrimSpace(options.ProxyURL) != "" {
-		args = append(args, "--proxy", strings.TrimSpace(options.ProxyURL))
-	}
-	if strings.TrimSpace(options.CookiesPath) != "" {
-		args = append([]string{"--cookies", strings.TrimSpace(options.CookiesPath)}, args...)
-	}
-	args = append(args, targetURL)
+	args := BuildInfoArgs(options, BuildExplicitToolArgs(ctx, options.Tools))
 
 	runCtx := ctx
 	cancel := func() {}
@@ -98,6 +88,26 @@ func FetchInfo(ctx context.Context, options InfoOptions) (map[string]any, error)
 		return nil, fmt.Errorf("yt-dlp info json parse failed: %s", detail)
 	}
 	return info, nil
+}
+
+func BuildInfoArgs(options InfoOptions, explicitToolArgs []string) []string {
+	args := []string{"--skip-download"}
+	if options.FlatPlaylist {
+		args = append(args, "--flat-playlist", "--dump-single-json")
+	} else {
+		args = append(args, "--no-playlist", "--dump-json")
+	}
+	if len(explicitToolArgs) > 0 {
+		args = append(args, explicitToolArgs...)
+	}
+	if strings.TrimSpace(options.ProxyURL) != "" {
+		args = append(args, "--proxy", strings.TrimSpace(options.ProxyURL))
+	}
+	if strings.TrimSpace(options.CookiesPath) != "" {
+		args = append([]string{"--cookies", strings.TrimSpace(options.CookiesPath)}, args...)
+	}
+	args = append(args, strings.TrimSpace(options.URL))
+	return args
 }
 
 func truncateOutput(output []byte) string {

@@ -730,16 +730,17 @@ type YTDLPSubtitleOption struct {
 }
 
 type ParseYTDLPDownloadResponse struct {
-	Title             string                `json:"title,omitempty"`
-	Domain            string                `json:"domain,omitempty"`
-	Extractor         string                `json:"extractor,omitempty"`
-	Author            string                `json:"author,omitempty"`
-	ThumbnailURL      string                `json:"thumbnailUrl,omitempty"`
-	PageURL           string                `json:"pageUrl,omitempty"`
-	ResourceSessionID string                `json:"resourceSessionId,omitempty"`
-	ResourceMediaID   string                `json:"resourceMediaId,omitempty"`
-	Formats           []YTDLPFormatOption   `json:"formats"`
-	Subtitles         []YTDLPSubtitleOption `json:"subtitles"`
+	Title             string                     `json:"title,omitempty"`
+	Domain            string                     `json:"domain,omitempty"`
+	Extractor         string                     `json:"extractor,omitempty"`
+	Author            string                     `json:"author,omitempty"`
+	ThumbnailURL      string                     `json:"thumbnailUrl,omitempty"`
+	PageURL           string                     `json:"pageUrl,omitempty"`
+	ResourceSessionID string                     `json:"resourceSessionId,omitempty"`
+	ResourceMediaID   string                     `json:"resourceMediaId,omitempty"`
+	PlaylistItems     []PreparedYTDLPDownloadURL `json:"playlistItems,omitempty"`
+	Formats           []YTDLPFormatOption        `json:"formats"`
+	Subtitles         []YTDLPSubtitleOption      `json:"subtitles"`
 }
 
 type StartResourceSniffRequest struct {

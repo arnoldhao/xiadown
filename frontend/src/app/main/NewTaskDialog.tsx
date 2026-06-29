@@ -163,6 +163,28 @@ function preparedURLToBatchItem(
   };
 }
 
+function preparedDownloadFromPlaylistItems(
+  current: PrepareYTDLPDownloadResponse,
+  items: PreparedYTDLPDownloadURL[],
+): PrepareYTDLPDownloadResponse {
+  const first = items[0];
+  return {
+    ...current,
+    mode: "batch",
+    url: first?.url ?? current.url,
+    domain: first?.domain ?? current.domain,
+    icon: first?.icon ?? current.icon,
+    appSessionId: first?.appSessionId ?? current.appSessionId,
+    appSessionAvailable: first?.appSessionAvailable ?? current.appSessionAvailable,
+    appSessionCredentialMode:
+      first?.appSessionCredentialMode ?? current.appSessionCredentialMode,
+    appSessionCredentialState:
+      first?.appSessionCredentialState ?? current.appSessionCredentialState,
+    reachable: first?.reachable ?? current.reachable,
+    urls: items,
+  };
+}
+
 function batchDownloadItemMediaType(item: BatchDownloadItemState): SourceMediaType {
   return item.quality === "audio" ? "audio" : "video";
 }
@@ -968,6 +990,7 @@ export function NewTaskDialog(props: {
     customParsePageObservedRef.current = false;
     setCustomParseResult(null);
     setCustomFormatId("");
+    setCustomAudioFormatId("");
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParsePageUrl("");
@@ -1104,6 +1127,7 @@ export function NewTaskDialog(props: {
     setDownloadKeepOnlyTranscodedFile(true);
     setCustomParseResult(null);
     setCustomFormatId("");
+    setCustomAudioFormatId("");
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
@@ -1307,6 +1331,7 @@ export function NewTaskDialog(props: {
     setDownloadKeepOnlyTranscodedFile(true);
     setCustomParseResult(null);
     setCustomFormatId("");
+    setCustomAudioFormatId("");
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
@@ -1320,6 +1345,7 @@ export function NewTaskDialog(props: {
     parseResourceSniff.reset();
     setCustomParseResult(null);
     setCustomFormatId("");
+    setCustomAudioFormatId("");
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
@@ -1505,6 +1531,7 @@ export function NewTaskDialog(props: {
           setDownloadTab("quick");
           setCustomParseResult(null);
           setCustomFormatId("");
+          setCustomAudioFormatId("");
           setCustomSubtitleId("");
           setCustomPresetId("");
           setDownloadKeepOnlyTranscodedFile(true);
@@ -1528,6 +1555,7 @@ export function NewTaskDialog(props: {
         setDownloadTab(nextTab);
         setCustomParseResult(null);
         setCustomFormatId("");
+        setCustomAudioFormatId("");
         setCustomSubtitleId("");
         setCustomPresetId("");
         setDownloadKeepOnlyTranscodedFile(true);
@@ -1592,9 +1620,35 @@ export function NewTaskDialog(props: {
       ) {
         return;
       }
+      const playlistItems = (parsed.playlistItems ?? []).filter((item) =>
+        item.url.trim(),
+      );
+      if (playlistItems.length > 0) {
+        const playlistPrepared = preparedDownloadFromPlaylistItems(
+          downloadPrepared,
+          playlistItems,
+        );
+        const batchItems = playlistItems.map(preparedURLToBatchItem);
+        setActiveMode("download");
+        setDownloadPrepared(playlistPrepared);
+        setBatchDownloadItems(batchItems);
+        setDownloadUrl(batchItems.map((item) => item.url).join("\n"));
+        setDownloadUseAppSession(false);
+        setDownloadStep("config");
+        setDownloadTab("quick");
+        setCustomParseResult(null);
+        setCustomFormatId("");
+        setCustomAudioFormatId("");
+        setCustomSubtitleId("");
+        setCustomPresetId("");
+        setDownloadKeepOnlyTranscodedFile(true);
+        setCustomParseError("");
+        return;
+      }
       if (!hasDownloadableFormats(parsed)) {
         setCustomParseResult(null);
         setCustomFormatId("");
+        setCustomAudioFormatId("");
         setCustomSubtitleId("");
         setCustomPresetId("");
         setCustomParseError(noDownloadableMediaErrorMessage());
@@ -1603,6 +1657,7 @@ export function NewTaskDialog(props: {
       const defaultFormat = pickDefaultFormat(parsed.formats);
       setCustomParseResult(parsed);
       setCustomFormatId(defaultFormat?.id ?? "");
+      setCustomAudioFormatId("");
       setCustomSubtitleId("");
       setCustomPresetId("");
     } catch (error) {
@@ -1679,6 +1734,7 @@ export function NewTaskDialog(props: {
     if (!hasCurrentResult) {
       setCustomParseResult(null);
       setCustomFormatId("");
+      setCustomAudioFormatId("");
       setCustomSubtitleId("");
       setCustomPresetId("");
       setCustomParsePageUrl("");
@@ -1696,6 +1752,7 @@ export function NewTaskDialog(props: {
       if (response.failure) {
         setCustomParseResult(null);
         setCustomFormatId("");
+        setCustomAudioFormatId("");
         setCustomSubtitleId("");
         setCustomPresetId("");
         setCustomParsePageUrl("");
@@ -1716,6 +1773,7 @@ export function NewTaskDialog(props: {
       setCustomParseResult(parsed);
       setCustomParsePageUrl(parsedPageUrl);
       setCustomFormatId(defaultFormat?.id ?? "");
+      setCustomAudioFormatId("");
       setCustomSubtitleId("");
       setCustomPresetId("");
     } catch (error) {
@@ -1727,6 +1785,7 @@ export function NewTaskDialog(props: {
       }
       setCustomParseResult(null);
       setCustomFormatId("");
+      setCustomAudioFormatId("");
       setCustomSubtitleId("");
       setCustomPresetId("");
       setCustomParsePageUrl("");

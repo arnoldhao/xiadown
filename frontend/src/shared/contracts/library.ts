@@ -686,6 +686,7 @@ export interface ParseYTDLPDownloadResponse {
   pageUrl?: string
   resourceSessionId?: string
   resourceMediaId?: string
+  playlistItems?: PreparedYTDLPDownloadURL[]
   formats: YTDLPFormatOption[]
   subtitles: YTDLPSubtitleOption[]
 }

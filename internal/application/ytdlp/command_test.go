@@ -254,6 +254,31 @@ func TestBuildCommandAddsFormatSortForBitrateQuality(t *testing.T) {
 	}
 }
 
+func TestBuildCommandLimitsQuickPlaylistToFirstItem(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: filepath.Join(tempDir, "yt-dlp"),
+		Request: dto.CreateYTDLPJobRequest{
+			URL:  "https://www.youtube.com/playlist?list=PL123",
+			Mode: "quick",
+		},
+		OutputTemplate: filepath.Join(tempDir, "downloads", "%(title)s.%(ext)s"),
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	defer command.Cancel()
+	if command.Cleanup != nil {
+		defer command.Cleanup()
+	}
+
+	if !strings.Contains(strings.Join(command.Args, "\n"), "--playlist-items\n1") {
+		t.Fatalf("expected quick command to limit playlist to first item, got %v", command.Args)
+	}
+}
+
 func TestYTDLPFileLimitTargetRaisesWithinHardLimit(t *testing.T) {
 	t.Parallel()
 
@@ -417,6 +442,7 @@ func TestBuildSubtitleCommandLimitsQuickSubtitlePresetToManualSubtitles(t *testi
 	argsJoined := strings.Join(command.Args, "\n")
 	for _, expected := range []string{
 		"--skip-download",
+		"--playlist-items\n1",
 		"--write-subs",
 		"--sub-langs\nall,-live_chat",
 		"--sub-format\nvtt/best",
@@ -430,5 +456,33 @@ func TestBuildSubtitleCommandLimitsQuickSubtitlePresetToManualSubtitles(t *testi
 	}
 	if strings.Contains(argsJoined, "--write-auto-subs") {
 		t.Fatalf("expected quick subtitle command to avoid auto subtitles, got %v", command.Args)
+	}
+}
+
+func TestBuildInfoArgsUsesFlatPlaylistDumpSingleJSON(t *testing.T) {
+	t.Parallel()
+
+	args := BuildInfoArgs(InfoOptions{
+		URL:          " https://www.youtube.com/playlist?list=PL123 ",
+		FlatPlaylist: true,
+		ProxyURL:     "http://127.0.0.1:7890",
+		CookiesPath:  "/tmp/cookies.txt",
+	}, []string{"--ffmpeg-location", "/opt/ffmpeg"})
+	argsJoined := strings.Join(args, "\n")
+	for _, expected := range []string{
+		"--cookies\n/tmp/cookies.txt",
+		"--skip-download",
+		"--flat-playlist",
+		"--dump-single-json",
+		"--ffmpeg-location\n/opt/ffmpeg",
+		"--proxy\nhttp://127.0.0.1:7890",
+		"https://www.youtube.com/playlist?list=PL123",
+	} {
+		if !strings.Contains(argsJoined, expected) {
+			t.Fatalf("expected info args to contain %q, got %v", expected, args)
+		}
+	}
+	if strings.Contains(argsJoined, "--no-playlist") || strings.Contains(argsJoined, "--dump-json") {
+		t.Fatalf("expected flat playlist info args to avoid single-video flags, got %v", args)
 	}
 }

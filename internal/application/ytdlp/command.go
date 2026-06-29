@@ -50,6 +50,9 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 			args = append(args, "--downloader-args", trimmed)
 		}
 	}
+	if shouldLimitPlaylistToFirstItem(request) {
+		args = append(args, "--playlist-items", "1")
+	}
 	if strings.TrimSpace(proxyURL) != "" {
 		args = append(args, "--proxy", proxyURL)
 	}
@@ -109,6 +112,9 @@ func BuildSubtitleArgs(request dto.CreateYTDLPJobRequest, outputTemplate string,
 	if len(explicitToolArgs) > 0 {
 		args = append(args, explicitToolArgs...)
 	}
+	if shouldLimitPlaylistToFirstItem(request) {
+		args = append(args, "--playlist-items", "1")
+	}
 	if strings.TrimSpace(proxyURL) != "" {
 		args = append(args, "--proxy", proxyURL)
 	}
@@ -144,6 +150,10 @@ func BuildSubtitleArgs(request dto.CreateYTDLPJobRequest, outputTemplate string,
 		args = append([]string{"--cookies", strings.TrimSpace(cookiesPath)}, args...)
 	}
 	return args
+}
+
+func shouldLimitPlaylistToFirstItem(request dto.CreateYTDLPJobRequest) bool {
+	return strings.EqualFold(strings.TrimSpace(request.Mode), "quick")
 }
 
 func BuildCommand(ctx context.Context, options CommandOptions) (Command, error) {
