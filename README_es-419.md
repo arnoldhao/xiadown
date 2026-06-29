@@ -12,7 +12,8 @@
   <p>
     <a href="https://xiadown.dreamapp.cc/">Sitio web</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">Versiones</a> ·
-    <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a>
+    <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a> ·
+    <a href="https://ko-fi.com/arnoldhao">Patrocinar</a>
   </p>
   <p>
     <a href="./README.md">简体中文</a> ·
