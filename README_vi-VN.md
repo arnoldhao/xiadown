@@ -61,7 +61,7 @@ XiaDown là trình phát nhạc trực tuyến, đồng thời là công cụ t�
 ### 🔐 An Toàn và Cách Ly
 
 - **Tự động quản lý phụ thuộc**: tự động cài đặt, kiểm tra và nâng cấp YT-DLP, FFmpeg, Bun cùng các công cụ liên quan; đường dẫn công cụ do ứng dụng duy trì và không làm bẩn môi trường hệ thống.
-- **Cách ly thông tin xác thực và người dùng**: gọi năng lực trình duyệt cục bộ qua CDP và lưu bền vững Profiles cùng Cookies độc lập; dữ liệu đến từ thao tác đăng nhập chủ động của người dùng, còn cấu hình kết nối tách khỏi trình duyệt dùng hằng ngày.
+- **Cách ly thông tin xác thực và người dùng**: dữ liệu phiên ứng dụng đến từ thao tác đăng nhập chủ động của người dùng và được lưu trữ độc lập bằng cơ chế mã hóa hệ thống trên macOS và Windows; cấu hình kết nối tách khỏi trình duyệt dùng hằng ngày.
 
 ### 🎨 Tự Do Tùy Biến
 

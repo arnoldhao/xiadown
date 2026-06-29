@@ -61,7 +61,7 @@ Ele é uma ferramenta diária criada para criadores de conteúdo: quando você p
 ### 🔐 Segurança e Isolamento
 
 - **Gerenciamento automático de dependências**: instala, verifica e atualiza YT-DLP, FFmpeg, Bun e ferramentas relacionadas automaticamente; os caminhos são mantidos pelo app e não contaminam o ambiente do sistema.
-- **Isolamento de credenciais e usuário**: usa recursos do navegador local via CDP e persiste Profiles e Cookies independentes; os dados vêm de logins iniciados pelo usuário, e as conexões ficam separadas do navegador do dia a dia.
+- **Isolamento de credenciais e usuário**: os dados de sessões do app vêm de logins iniciados pelo usuário e são armazenados de forma independente com criptografia do sistema no macOS e no Windows; as conexões ficam separadas do navegador do dia a dia.
 
 ### 🎨 Liberdade
 
