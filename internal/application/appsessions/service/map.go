@@ -12,57 +12,33 @@ import (
 	"xiadown/internal/domain/appsessions"
 )
 
+const appSessionAccountExpiresAtMetadataKey = "_expiresAt"
+
 func (service *AppSessionsService) mapSessionDTO(ctx context.Context, session appsessions.Session) dto.AppSession {
-	cookies := service.storedCookies(ctx, session.SiteKey)
-	status := session.Status
-	if status == "" {
-		status = appsessions.StatusDisconnected
-	}
-	if len(cookies) == 0 {
-		status = appsessions.StatusDisconnected
-	} else if status == appsessions.StatusDisconnected {
-		status = appsessions.StatusConnected
-	}
-	policy, _ := sitepolicy.ForSiteKey(session.SiteKey)
-	lastVerified := ""
-	if session.LastVerifiedAt != nil {
-		lastVerified = session.LastVerifiedAt.Format(time.RFC3339)
-	}
-	verificationStartedAt := ""
-	if session.AccountVerificationStartedAt != nil {
-		verificationStartedAt = session.AccountVerificationStartedAt.Format(time.RFC3339)
-	}
-	return dto.AppSession{
-		ID:                           session.ID,
-		SiteKey:                      session.SiteKey,
-		Group:                        "video",
-		Label:                        appSessionSiteLabel(session.SiteKey),
-		Desc:                         appSessionSiteDesc(session.SiteKey),
-		Status:                       string(status),
-		CredentialState:              appSessionCredentialState(status, len(cookies)),
-		CookiesCount:                 len(cookies),
-		Cookies:                      mapCookiesDTO(cookies),
-		Domains:                      append([]string(nil), policy.Domains...),
-		Account:                      accountDTO(session, cookies),
-		PolicyKey:                    policy.Key,
-		Capabilities:                 append([]string(nil), policy.Capabilities...),
-		ProviderSupported:            service.provider != nil && service.provider.AppSessionsSupported(),
-		AccountVerificationStatus:    string(appSessionAccountVerificationStatus(session, len(cookies))),
-		AccountVerificationError:     session.AccountVerificationError,
-		AccountVerificationStartedAt: verificationStartedAt,
-		LastVerifiedAt:               lastVerified,
-	}
+	_ = ctx
+	return service.mapSessionDTOFromCookies(session, nil, false)
 }
 
 func (service *AppSessionsService) mapSessionDTOWithCookies(session appsessions.Session, cookies []appcookies.Record) dto.AppSession {
+	return service.mapSessionDTOFromCookies(session, cookies, true)
+}
+
+func (service *AppSessionsService) mapSessionDTOFromCookies(session appsessions.Session, cookies []appcookies.Record, cookiesLoaded bool) dto.AppSession {
+	hasAuthCookies := appSessionHasAuthenticationCookies(session.SiteKey, cookies)
 	status := session.Status
 	if status == "" {
 		status = appsessions.StatusDisconnected
 	}
-	if len(cookies) == 0 {
-		status = appsessions.StatusDisconnected
-	} else if status == appsessions.StatusDisconnected {
-		status = appsessions.StatusConnected
+	if cookiesLoaded {
+		if len(cookies) == 0 || !hasAuthCookies {
+			status = appsessions.StatusDisconnected
+		} else if status == appsessions.StatusDisconnected {
+			status = appsessions.StatusConnected
+		}
+	}
+	credentialHasAuthCookies := hasAuthCookies
+	if !cookiesLoaded && status == appsessions.StatusConnected {
+		credentialHasAuthCookies = true
 	}
 	policy, _ := sitepolicy.ForSiteKey(session.SiteKey)
 	lastVerified := ""
@@ -80,7 +56,7 @@ func (service *AppSessionsService) mapSessionDTOWithCookies(session appsessions.
 		Label:                        appSessionSiteLabel(session.SiteKey),
 		Desc:                         appSessionSiteDesc(session.SiteKey),
 		Status:                       string(status),
-		CredentialState:              appSessionCredentialState(status, len(cookies)),
+		CredentialState:              appSessionCredentialState(status, credentialHasAuthCookies),
 		CookiesCount:                 len(cookies),
 		Cookies:                      mapCookiesDTO(cookies),
 		Domains:                      append([]string(nil), policy.Domains...),
@@ -88,22 +64,22 @@ func (service *AppSessionsService) mapSessionDTOWithCookies(session appsessions.
 		PolicyKey:                    policy.Key,
 		Capabilities:                 append([]string(nil), policy.Capabilities...),
 		ProviderSupported:            service.provider != nil && service.provider.AppSessionsSupported(),
-		AccountVerificationStatus:    string(appSessionAccountVerificationStatus(session, len(cookies))),
+		AccountVerificationStatus:    string(appSessionAccountVerificationStatus(session, credentialHasAuthCookies)),
 		AccountVerificationError:     session.AccountVerificationError,
 		AccountVerificationStartedAt: verificationStartedAt,
 		LastVerifiedAt:               lastVerified,
 	}
 }
 
-func appSessionCredentialState(status appsessions.Status, cookiesCount int) string {
-	if status == appsessions.StatusConnected && cookiesCount > 0 {
+func appSessionCredentialState(status appsessions.Status, hasAuthCookies bool) string {
+	if status == appsessions.StatusConnected && hasAuthCookies {
 		return "app_session"
 	}
 	return string(appsessions.StatusDisconnected)
 }
 
-func appSessionAccountVerificationStatus(session appsessions.Session, cookiesCount int) appsessions.AccountVerificationStatus {
-	if cookiesCount <= 0 {
+func appSessionAccountVerificationStatus(session appsessions.Session, hasAuthCookies bool) appsessions.AccountVerificationStatus {
+	if !hasAuthCookies {
 		return appsessions.AccountVerificationUnverified
 	}
 	status := session.AccountVerificationStatus
@@ -131,7 +107,14 @@ func accountDTO(session appsessions.Session, cookies []appcookies.Record) *dto.A
 	tierLabel := strings.TrimSpace(session.AccountTierLabel)
 	badges := decodeBadges(session.AccountBadgesJSON)
 	metadata := decodeMetadata(session.AccountMetadataJSON)
-	expiresAt := cookieExpiresAt(session.SiteKey, cookies, time.Now())
+	expiresAt := ""
+	if appSessionHasAuthenticationCookies(session.SiteKey, cookies) {
+		expiresAt = cookieExpiresAt(session.SiteKey, cookies, time.Now())
+	}
+	if expiresAt == "" {
+		expiresAt = accountMetadataExpiresAt(metadata, time.Now())
+	}
+	metadata = accountPublicMetadata(metadata)
 	if displayName == "" && handle == "" && avatarURL == "" && tierKey == "" && tierLabel == "" && len(badges) == 0 && len(metadata) == 0 && expiresAt == "" {
 		return nil
 	}
@@ -169,16 +152,110 @@ func decodeMetadata(raw string) map[string]any {
 	return metadata
 }
 
+func accountMetadataExpiresAt(metadata map[string]any, now time.Time) string {
+	value := metadataString(metadata, appSessionAccountExpiresAtMetadataKey)
+	if value == "" {
+		return ""
+	}
+	expiresAt, err := time.Parse(time.RFC3339, value)
+	if err != nil || !expiresAt.After(now) {
+		return ""
+	}
+	return expiresAt.UTC().Format(time.RFC3339)
+}
+
+func accountPublicMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	if _, ok := metadata[appSessionAccountExpiresAtMetadataKey]; !ok {
+		return metadata
+	}
+	result := make(map[string]any, len(metadata)-1)
+	for key, value := range metadata {
+		if key == appSessionAccountExpiresAtMetadataKey {
+			continue
+		}
+		result[key] = value
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func metadataString(metadata map[string]any, key string) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	value, ok := metadata[key]
+	if !ok {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return ""
+	}
+}
+
 func cookieExpiresAt(siteKey string, cookies []appcookies.Record, now time.Time) string {
 	if names := authCookieExpiryNames(siteKey); len(names) > 0 {
 		if expiresAt, ok := nearestCookieExpiresAt(cookies, now, names); ok {
 			return expiresAt.Format(time.RFC3339)
 		}
 	}
-	if expiresAt, ok := latestCookieExpiresAt(cookies, now); ok {
-		return expiresAt.Format(time.RFC3339)
-	}
 	return ""
+}
+
+func appSessionHasAuthenticationCookies(siteKey string, cookies []appcookies.Record) bool {
+	if len(cookies) == 0 {
+		return false
+	}
+	names := cookieNameSet(cookies)
+	has := func(name string) bool {
+		_, ok := names[strings.ToLower(strings.TrimSpace(name))]
+		return ok
+	}
+	switch strings.TrimSpace(siteKey) {
+	case "youtube":
+		for name := range authCookieExpiryNames("youtube") {
+			if has(name) {
+				return true
+			}
+		}
+		return false
+	case "bilibili":
+		return has("SESSDATA")
+	case "tiktok":
+		return has("sessionid") || has("sessionid_ss") || has("sid_guard") || has("sid_tt")
+	case "instagram":
+		return has("sessionid")
+	case "x":
+		return has("auth_token") && has("ct0")
+	case "facebook":
+		return has("c_user") && has("xs")
+	case "vimeo":
+		return has("vimeo")
+	case "twitch":
+		return has("auth-token")
+	case "niconico":
+		return has("user_session")
+	default:
+		return false
+	}
+}
+
+func cookieNameSet(cookies []appcookies.Record) map[string]struct{} {
+	names := make(map[string]struct{}, len(cookies))
+	for _, record := range cookies {
+		name := strings.ToLower(strings.TrimSpace(record.Name))
+		if name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	return names
 }
 
 func authCookieExpiryNames(siteKey string) map[string]struct{} {
@@ -206,6 +283,42 @@ func authCookieExpiryNames(siteKey string) map[string]struct{} {
 			"SESSDATA":   {},
 			"bili_jct":   {},
 		}
+	case "tiktok":
+		return map[string]struct{}{
+			"sessionid":    {},
+			"sessionid_ss": {},
+			"sid_guard":    {},
+			"sid_tt":       {},
+			"uid_tt":       {},
+			"uid_tt_ss":    {},
+		}
+	case "instagram":
+		return map[string]struct{}{
+			"sessionid": {},
+		}
+	case "x":
+		return map[string]struct{}{
+			"auth_token": {},
+			"ct0":        {},
+		}
+	case "facebook":
+		return map[string]struct{}{
+			"c_user": {},
+			"xs":     {},
+		}
+	case "vimeo":
+		return map[string]struct{}{
+			"vimeo":        {},
+			"is_logged_in": {},
+		}
+	case "twitch":
+		return map[string]struct{}{
+			"auth-token": {},
+		}
+	case "niconico":
+		return map[string]struct{}{
+			"user_session": {},
+		}
 	default:
 		return nil
 	}
@@ -215,7 +328,7 @@ func nearestCookieExpiresAt(cookies []appcookies.Record, now time.Time, names ma
 	var nearest time.Time
 	var found bool
 	for _, record := range cookies {
-		if _, ok := names[record.Name]; !ok {
+		if !cookieNameAllowed(record.Name, names) {
 			continue
 		}
 		if record.Expires <= 0 {
@@ -233,23 +346,17 @@ func nearestCookieExpiresAt(cookies []appcookies.Record, now time.Time, names ma
 	return nearest, found
 }
 
-func latestCookieExpiresAt(cookies []appcookies.Record, now time.Time) (time.Time, bool) {
-	var latest time.Time
-	var found bool
-	for _, record := range cookies {
-		if record.Expires <= 0 {
-			continue
-		}
-		candidate := time.Unix(record.Expires, 0).UTC()
-		if !candidate.After(now) {
-			continue
-		}
-		if !found || candidate.After(latest) {
-			latest = candidate
-			found = true
+func cookieNameAllowed(value string, names map[string]struct{}) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return false
+	}
+	for name := range names {
+		if strings.ToLower(strings.TrimSpace(name)) == normalized {
+			return true
 		}
 	}
-	return latest, found
+	return false
 }
 
 func mapCookiesDTO(cookies []appcookies.Record) []dto.AppSessionCookie {

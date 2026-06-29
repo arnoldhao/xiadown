@@ -115,7 +115,7 @@ tasks:
     deps:
       - task: install:frontend:deps
     cmds:
-      - bun run dev -- --host {{.VITE_HOST}} --port {{.VITE_PORT}} --strictPort
+      - bun run dev -- --port {{.VITE_PORT}} --strictPort
 
   update:build-assets:
     summary: Updates the build assets

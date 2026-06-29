@@ -244,6 +244,7 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 		}
 	}
 	filtered := filterAppSessionCookies(session.SiteKey, records)
+	hasAuthCookies := appSessionHasAuthenticationCookies(session.SiteKey, filtered)
 	current, err := service.repo.Get(ctx, session.AppSessionID)
 	if err != nil {
 		current, err = service.EnsureAppSession(ctx, session.SiteKey)
@@ -254,14 +255,14 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 	}
 	result := dto.FinishAppSessionConnectResult{
 		SessionID:            session.ID,
-		Saved:                len(filtered) > 0,
+		Saved:                hasAuthCookies,
 		RawCookiesCount:      len(records),
 		FilteredCookiesCount: len(filtered),
 		Domains:              cookieDomains(filtered),
 		Reason:               reason,
 		AppSession:           service.mapSessionDTOWithCookies(current, filtered),
 	}
-	if len(filtered) == 0 {
+	if !hasAuthCookies {
 		service.cleanupSession(session)
 		return result, nil
 	}
@@ -313,7 +314,7 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 
 func appSessionRequiresAccountVerification(siteKey string) bool {
 	switch strings.TrimSpace(siteKey) {
-	case "youtube", "bilibili":
+	case "youtube", "bilibili", "tiktok", "instagram", "x", "facebook", "vimeo", "twitch", "niconico":
 		return true
 	default:
 		return false
