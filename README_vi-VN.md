@@ -12,7 +12,8 @@
   <p>
     <a href="https://xiadown.dreamapp.cc/">Trang web</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">Bản phát hành</a> ·
-    <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a>
+    <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a> ·
+    <a href="https://ko-fi.com/arnoldhao">Ủng hộ</a>
   </p>
   <p>
     <a href="./README.md">简体中文</a> ·
