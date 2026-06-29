@@ -1395,7 +1395,11 @@ export function resolveCompletedOperationExplicitCoverURL(
 }
 
 export function formatCodecLabel(codec?: string) {
-  switch ((codec ?? "").trim().toLowerCase()) {
+  const normalized = (codec ?? "").trim().toLowerCase();
+  if (normalized.includes("mp4a")) {
+    return "AAC";
+  }
+  switch (normalized) {
     case "h264":
       return "H.264";
     case "h265":

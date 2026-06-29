@@ -218,6 +218,42 @@ func TestBuildCommandAddsConcurrentFragmentsOnlyWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestBuildCommandAddsFormatSortForBitrateQuality(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: filepath.Join(tempDir, "yt-dlp"),
+		Request: dto.CreateYTDLPJobRequest{
+			URL:     "https://example.com/watch?v=1",
+			Quality: "bitrate",
+		},
+		OutputTemplate: filepath.Join(tempDir, "downloads", "%(title)s.%(ext)s"),
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	defer command.Cancel()
+	if command.Cleanup != nil {
+		defer command.Cleanup()
+	}
+
+	argsJoined := strings.Join(command.Args, "\n")
+	if !strings.Contains(argsJoined, "-S\nres,br") {
+		t.Fatalf("expected bitrate quality to include format sort, got %v", command.Args)
+	}
+	hasFormatArg := false
+	for _, arg := range command.Args {
+		if arg == "-f" {
+			hasFormatArg = true
+			break
+		}
+	}
+	if hasFormatArg {
+		t.Fatalf("expected bitrate quality to keep yt-dlp default format selector, got %v", command.Args)
+	}
+}
+
 func TestYTDLPFileLimitTargetRaisesWithinHardLimit(t *testing.T) {
 	t.Parallel()
 

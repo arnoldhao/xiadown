@@ -704,15 +704,21 @@ type ParseYTDLPDownloadRequest struct {
 }
 
 type YTDLPFormatOption struct {
-	ID       string `json:"id"`
-	Label    string `json:"label"`
-	HasVideo bool   `json:"hasVideo"`
-	HasAudio bool   `json:"hasAudio"`
-	Ext      string `json:"ext,omitempty"`
-	Height   int    `json:"height,omitempty"`
-	VCodec   string `json:"vcodec,omitempty"`
-	ACodec   string `json:"acodec,omitempty"`
-	Filesize int64  `json:"filesize,omitempty"`
+	ID            string  `json:"id"`
+	Label         string  `json:"label"`
+	HasVideo      bool    `json:"hasVideo"`
+	HasAudio      bool    `json:"hasAudio"`
+	Ext           string  `json:"ext,omitempty"`
+	Height        int     `json:"height,omitempty"`
+	VCodec        string  `json:"vcodec,omitempty"`
+	ACodec        string  `json:"acodec,omitempty"`
+	FormatNote    string  `json:"formatNote,omitempty"`
+	Language      string  `json:"language,omitempty"`
+	TBR           float64 `json:"tbr,omitempty"`
+	ABR           float64 `json:"abr,omitempty"`
+	VBR           float64 `json:"vbr,omitempty"`
+	AudioChannels int     `json:"audioChannels,omitempty"`
+	Filesize      int64   `json:"filesize,omitempty"`
 }
 
 type YTDLPSubtitleOption struct {

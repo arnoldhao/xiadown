@@ -660,6 +660,12 @@ export interface YTDLPFormatOption {
   height?: number
   vcodec?: string
   acodec?: string
+  formatNote?: string
+  language?: string
+  tbr?: number
+  abr?: number
+  vbr?: number
+  audioChannels?: number
   filesize?: number
 }
 

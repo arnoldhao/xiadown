@@ -96,6 +96,7 @@ import {
   applyTranscodePresetSelection,
   buildTranscodeCodecKey,
   filterTranscodePresetsForMediaType,
+  formatAudioTrackLabel,
   formatSubtitleLabel,
   inferMediaTypeFromPath,
   pickDefaultFormat,
@@ -176,6 +177,26 @@ function batchDownloadItemCanUseAppSession(item: BatchDownloadItemState) {
 
 function replaceCountToken(template: string, count: number) {
   return template.replace("{count}", String(count));
+}
+
+type DownloadQualityLabels = Pick<
+  ReturnType<typeof getXiaText>["dialogs"],
+  "qualityBest" | "qualityBitrate" | "qualityAudio"
+>;
+
+function formatDownloadQualityLabel(
+  quality: DownloadQuality,
+  labels: DownloadQualityLabels,
+) {
+  switch (quality) {
+    case "audio":
+      return labels.qualityAudio;
+    case "bitrate":
+      return labels.qualityBitrate;
+    case "best":
+    default:
+      return labels.qualityBest;
+  }
 }
 
 export function InlineSwitch(props: {
@@ -470,6 +491,7 @@ export function NewTaskDialog(props: {
     React.useState<ParseYTDLPDownloadResponse | null>(null);
   const [customParsePageUrl, setCustomParsePageUrl] = React.useState("");
   const [customFormatId, setCustomFormatId] = React.useState("");
+  const [customAudioFormatId, setCustomAudioFormatId] = React.useState("");
   const [customSubtitleId, setCustomSubtitleId] = React.useState("");
   const [customPresetId, setCustomPresetId] = React.useState("");
   const [customParseError, setCustomParseError] = React.useState("");
@@ -649,6 +671,11 @@ export function NewTaskDialog(props: {
   const customSubtitles = customParseResult?.subtitles ?? [];
   const customSelectedFormat =
     customFormats.find((format) => format.id === customFormatId) ?? null;
+  const customCanSelectAudioTrack = Boolean(
+    customSelectedFormat?.hasVideo &&
+      !customSelectedFormat.hasAudio &&
+      customAudioFormats.length > 0,
+  );
   const customSelectedSubtitle =
     customSubtitles.find((subtitle) => subtitle.id === customSubtitleId) ??
     null;
@@ -1163,6 +1190,37 @@ export function NewTaskDialog(props: {
       setCustomPresetId("");
     }
   }, [customPresetId, customPresetsQuery.data]);
+
+  React.useEffect(() => {
+    if (!customParseResult) {
+      if (customAudioFormatId) {
+        setCustomAudioFormatId("");
+      }
+      return;
+    }
+    const selectedFormat =
+      customParseResult.formats.find((format) => format.id === customFormatId) ??
+      null;
+    const audioFormats = customParseResult.formats.filter(
+      (format) => format.hasAudio && !format.hasVideo,
+    );
+    if (
+      !selectedFormat?.hasVideo ||
+      selectedFormat.hasAudio ||
+      audioFormats.length === 0
+    ) {
+      if (customAudioFormatId) {
+        setCustomAudioFormatId("");
+      }
+      return;
+    }
+    if (audioFormats.some((format) => format.id === customAudioFormatId)) {
+      return;
+    }
+    setCustomAudioFormatId(
+      selectAudioFormatId(customParseResult.formats) || audioFormats[0]?.id || "",
+    );
+  }, [customAudioFormatId, customFormatId, customParseResult]);
 
   React.useEffect(() => {
     if (
@@ -1778,7 +1836,7 @@ export function NewTaskDialog(props: {
       quality: customSelectedFormat.hasVideo ? "best" : "audio",
       formatId: customSelectedFormat.id,
       audioFormatId: needsAudioJoin
-        ? selectAudioFormatId(customFormats) || "bestaudio"
+        ? customAudioFormatId || selectAudioFormatId(customFormats) || "bestaudio"
         : undefined,
       subtitleLangs: selectedSubtitleLang ? [selectedSubtitleLang] : undefined,
       subtitleAuto: Boolean(customSelectedSubtitle?.isAuto),
@@ -2216,7 +2274,7 @@ export function NewTaskDialog(props: {
                         <colgroup>
                           <col />
                           <col className="w-[6.25rem]" />
-                          <col className="w-[5.75rem]" />
+                          <col className="w-[6.75rem]" />
                         </colgroup>
                         <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur">
                           <tr className="border-b border-border/60 text-[11px] font-medium text-muted-foreground">
@@ -2246,9 +2304,10 @@ export function NewTaskDialog(props: {
                                 (preset) => preset.id === item.transcodePresetId,
                               ) ?? null;
                             const selectedBatchQualityLabel =
-                              item.quality === "audio"
-                                ? text.dialogs.qualityAudio
-                                : text.dialogs.qualityBest;
+                              formatDownloadQualityLabel(
+                                item.quality,
+                                text.dialogs,
+                              );
                             const selectedBatchParamsSummary = [
                               selectedBatchQualityLabel,
                               item.subtitles
@@ -2337,7 +2396,7 @@ export function NewTaskDialog(props: {
                                           type="button"
                                           variant="outline"
                                           size="compact"
-                                          className="h-8 w-[5.75rem] justify-between px-2"
+                                          className="h-8 w-[6.75rem] justify-between px-2"
                                           title={selectedBatchParamsSummary}
                                           aria-label={text.dialogs.quality}
                                         >
@@ -2356,7 +2415,7 @@ export function NewTaskDialog(props: {
                                             <span className="text-muted-foreground">
                                               {text.dialogs.quality}
                                             </span>
-                                            <div className="flex items-center gap-1.5">
+                                            <div className="flex flex-wrap items-center justify-end gap-1.5">
                                               <Button
                                                 type="button"
                                                 variant={
@@ -2373,6 +2432,23 @@ export function NewTaskDialog(props: {
                                                 }
                                               >
                                                 {text.dialogs.qualityBest}
+                                              </Button>
+                                              <Button
+                                                type="button"
+                                                variant={
+                                                  item.quality === "bitrate"
+                                                    ? "default"
+                                                    : "outline"
+                                                }
+                                                size="compact"
+                                                onClick={() =>
+                                                  updateBatchDownloadItem(
+                                                    item.id,
+                                                    { quality: "bitrate" },
+                                                  )
+                                                }
+                                              >
+                                                {text.dialogs.qualityBitrate}
                                               </Button>
                                               <Button
                                                 type="button"
@@ -2484,7 +2560,7 @@ export function NewTaskDialog(props: {
                         <span className="text-muted-foreground">
                           {text.dialogs.quality}
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           <Button
                             type="button"
                             variant={
@@ -2494,6 +2570,16 @@ export function NewTaskDialog(props: {
                             onClick={() => setQuickQuality("best")}
                           >
                             {text.dialogs.qualityBest}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={
+                              quickQuality === "bitrate" ? "default" : "outline"
+                            }
+                            size="compact"
+                            onClick={() => setQuickQuality("bitrate")}
+                          >
+                            {text.dialogs.qualityBitrate}
                           </Button>
                           <Button
                             type="button"
@@ -2680,6 +2766,29 @@ export function NewTaskDialog(props: {
                               ) : null}
                             </Select>
                           </DialogRow>
+                          {customCanSelectAudioTrack ? (
+                            <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
+                              <span className="app-new-task-select-row-label text-muted-foreground">
+                                {text.dialogs.audioTrack}
+                              </span>
+                              <Select
+                                className="app-new-task-select"
+                                value={customAudioFormatId}
+                                onChange={(event) =>
+                                  setCustomAudioFormatId(event.target.value)
+                                }
+                              >
+                                <option value="">
+                                  {text.dialogs.audioTrack}
+                                </option>
+                                {customAudioFormats.map((format) => (
+                                  <option key={format.id} value={format.id}>
+                                    {formatAudioTrackLabel(format)}
+                                  </option>
+                                ))}
+                              </Select>
+                            </DialogRow>
+                          ) : null}
                           {downloadTab !== "sniff" ||
                           customSubtitles.length > 0 ? (
                             <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">

@@ -81,7 +81,7 @@ export type NewTaskDialogTranscodeSource = {
 };
 export type DownloadDialogStep = "input" | "config";
 export type DownloadDialogTab = "quick" | "custom" | "sniff";
-export type DownloadQuality = "best" | "audio";
+export type DownloadQuality = "best" | "bitrate" | "audio";
 export type SourceMediaType = "video" | "audio";
 export type SelectOption = {
   value: string;

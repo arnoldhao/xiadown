@@ -133,21 +133,33 @@ func buildYTDLPFormatOptions(info map[string]any) []dto.YTDLPFormatOption {
 		}
 		height := getInt(formatMap, "height")
 		ext := strings.TrimSpace(getString(formatMap, "ext"))
+		formatNote := strings.TrimSpace(getString(formatMap, "format_note"))
+		language := strings.TrimSpace(getString(formatMap, "language"))
+		tbr, _ := getFloat64(formatMap, "tbr")
+		abr, _ := getFloat64(formatMap, "abr")
+		vbr, _ := getFloat64(formatMap, "vbr")
+		audioChannels := getInt(formatMap, "audio_channels")
 		filesize, _ := getInt64(formatMap, "filesize")
 		if filesize == 0 {
 			filesize, _ = getInt64(formatMap, "filesize_approx")
 		}
 		label := buildYTDLPFormatLabel(formatMap, height, ext, vcodec, acodec, filesize, formatID)
 		result = append(result, dto.YTDLPFormatOption{
-			ID:       formatID,
-			Label:    label,
-			HasVideo: hasVideo,
-			HasAudio: hasAudio,
-			Ext:      ext,
-			Height:   height,
-			VCodec:   vcodec,
-			ACodec:   acodec,
-			Filesize: filesize,
+			ID:            formatID,
+			Label:         label,
+			HasVideo:      hasVideo,
+			HasAudio:      hasAudio,
+			Ext:           ext,
+			Height:        height,
+			VCodec:        vcodec,
+			ACodec:        acodec,
+			FormatNote:    formatNote,
+			Language:      language,
+			TBR:           tbr,
+			ABR:           abr,
+			VBR:           vbr,
+			AudioChannels: audioChannels,
+			Filesize:      filesize,
 		})
 	}
 	return result

@@ -61,7 +61,8 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 	}
 	args = append(args, buildHeaderArgs(headers)...)
 	formatArg := ""
-	if strings.EqualFold(strings.TrimSpace(request.Quality), "audio") {
+	quality := strings.ToLower(strings.TrimSpace(request.Quality))
+	if quality == "audio" {
 		formatArg = "ba/b"
 	}
 	formatID := strings.TrimSpace(request.FormatID)
@@ -74,6 +75,8 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 	}
 	if formatArg != "" {
 		args = append(args, "-f", formatArg)
+	} else if quality == "bitrate" {
+		args = append(args, "-S", "res,br")
 	}
 	args = append(args, request.URL)
 	if strings.TrimSpace(cookiesPath) != "" {
