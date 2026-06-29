@@ -61,7 +61,7 @@ It is a daily tool built for content creators: when you need material, use sniff
 ### 🔐 Safety and Isolation
 
 - **Automatic dependency management**: installs, verifies, and updates YT-DLP, FFmpeg, Bun, and related tools automatically; tool paths are maintained by the app and do not pollute the system environment.
-- **Credential and user isolation**: calls local browser capabilities through CDP and persists independent Profiles and Cookies; data comes from user-initiated sign-in, and connection settings stay separate from everyday browsing.
+- **Credential and user isolation**: app session data comes from user-initiated sign-in and is stored independently with system encryption on macOS and Windows; connection settings stay separate from everyday browsing.
 
 ### 🎨 Freedom
 

@@ -61,7 +61,7 @@ XiaDown dibuat sebagai alat harian untuk kreator konten: saat membutuhkan materi
 ### 🔐 Keamanan dan Isolasi
 
 - **Manajemen dependensi otomatis**: memasang, memverifikasi, dan memperbarui YT-DLP, FFmpeg, Bun, dan alat terkait secara otomatis; path alat dikelola aplikasi dan tidak mengotori lingkungan sistem.
-- **Isolasi kredensial dan pengguna**: memanggil kemampuan browser lokal lewat CDP dan menyimpan Profiles serta Cookies yang independen; data berasal dari login yang dimulai pengguna, dan pengaturan koneksi terpisah dari penggunaan browser sehari-hari.
+- **Isolasi kredensial dan pengguna**: data sesi aplikasi berasal dari login yang dimulai pengguna dan disimpan terpisah dengan enkripsi sistem di macOS dan Windows; pengaturan koneksi tetap terpisah dari penggunaan browser sehari-hari.
 
 ### 🎨 Kebebasan
 
