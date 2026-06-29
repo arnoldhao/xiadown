@@ -41,12 +41,8 @@ tasks:
 
   dev:
     summary: Runs the application in development mode
-    deps:
-      - task: prepare:dev:metadata
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
-    env:
-      APP_VERSION: dev
 
   prepare:dev:metadata:
     summary: Syncs local dev metadata so native About panels show the dev version

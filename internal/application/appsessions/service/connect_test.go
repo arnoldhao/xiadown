@@ -70,8 +70,11 @@ func (repo *appSessionRepoStub) Delete(_ context.Context, id string) error {
 }
 
 type appSessionProviderStub struct {
-	saved   bool
-	cleared bool
+	saved       bool
+	cleared     bool
+	loadCount   int
+	loadRecords []appcookies.Record
+	loadErr     error
 }
 
 func (provider *appSessionProviderStub) AppSessionsSupported() bool {
@@ -83,6 +86,13 @@ func (provider *appSessionProviderStub) StartAppSession(context.Context, AppSess
 }
 
 func (provider *appSessionProviderStub) LoadAppSessionCookies(context.Context, string) ([]appcookies.Record, error) {
+	provider.loadCount++
+	if provider.loadErr != nil {
+		return nil, provider.loadErr
+	}
+	if len(provider.loadRecords) > 0 {
+		return append([]appcookies.Record(nil), provider.loadRecords...), nil
+	}
 	return nil, appsessions.ErrNoCookies
 }
 
@@ -94,6 +104,153 @@ func (provider *appSessionProviderStub) SaveAppSessionCookies(context.Context, s
 func (provider *appSessionProviderStub) ClearAppSession(context.Context, string, []string) error {
 	provider.cleared = true
 	return nil
+}
+
+func TestListAppSessionsDoesNotReadStoredCookies(t *testing.T) {
+	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	verifiedAt := createdAt.Add(time.Hour)
+	current, err := appsessions.NewSession(appsessions.SessionParams{
+		ID:                        "site-app-session-twitch",
+		SiteKey:                   "twitch",
+		Status:                    string(appsessions.StatusConnected),
+		AccountDisplayName:        "Twitch User",
+		AccountHandle:             "twitch_user",
+		AccountVerificationStatus: string(appsessions.AccountVerificationVerified),
+		LastVerifiedAt:            &verifiedAt,
+		CreatedAt:                 &createdAt,
+		UpdatedAt:                 &verifiedAt,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	provider := &appSessionProviderStub{
+		loadRecords: []appcookies.Record{{Name: "auth-token", Value: "token", Domain: ".twitch.tv", Path: "/", Expires: verifiedAt.Add(24 * time.Hour).Unix()}},
+	}
+	service := NewAppSessionsService(newAppSessionRepoStub(current), WithProvider(provider))
+
+	items, err := service.ListAppSessions(context.Background())
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if provider.loadCount != 0 {
+		t.Fatalf("expected list to avoid stored cookie reads, got %d", provider.loadCount)
+	}
+	var twitch dto.AppSession
+	for _, item := range items {
+		if item.SiteKey == "twitch" {
+			twitch = item
+			break
+		}
+	}
+	if twitch.ID == "" {
+		t.Fatal("missing twitch session")
+	}
+	if twitch.Status != string(appsessions.StatusConnected) ||
+		twitch.CredentialState != "app_session" ||
+		twitch.AccountVerificationStatus != string(appsessions.AccountVerificationVerified) {
+		t.Fatalf("unexpected twitch session summary: %#v", twitch)
+	}
+	if twitch.CookiesCount != 0 || len(twitch.Cookies) != 0 {
+		t.Fatalf("list should not expose cookies without reading keychain: %#v", twitch.Cookies)
+	}
+	if twitch.Account == nil || twitch.Account.DisplayName != "Twitch User" || twitch.Account.ExpiresAt != "" {
+		t.Fatalf("unexpected account summary: %#v", twitch.Account)
+	}
+}
+
+func TestListAppSessionsUsesPersistedAccountExpiresAtWithoutReadingCookies(t *testing.T) {
+	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	verifiedAt := createdAt.Add(time.Hour)
+	expiresAt := verifiedAt.Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	current, err := appsessions.NewSession(appsessions.SessionParams{
+		ID:                        "site-app-session-vimeo",
+		SiteKey:                   "vimeo",
+		Status:                    string(appsessions.StatusConnected),
+		AccountDisplayName:        "Vimeo User",
+		AccountMetadataJSON:       encodeMetadata(map[string]any{"userID": "111", appSessionAccountExpiresAtMetadataKey: expiresAt}),
+		AccountVerificationStatus: string(appsessions.AccountVerificationVerified),
+		LastVerifiedAt:            &verifiedAt,
+		CreatedAt:                 &createdAt,
+		UpdatedAt:                 &verifiedAt,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	provider := &appSessionProviderStub{
+		loadRecords: []appcookies.Record{{Name: "vimeo", Value: "token", Domain: ".vimeo.com", Path: "/", Expires: verifiedAt.Add(30 * 24 * time.Hour).Unix()}},
+	}
+	service := NewAppSessionsService(newAppSessionRepoStub(current), WithProvider(provider))
+
+	items, err := service.ListAppSessions(context.Background())
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if provider.loadCount != 0 {
+		t.Fatalf("expected list to avoid stored cookie reads, got %d", provider.loadCount)
+	}
+	var vimeo dto.AppSession
+	for _, item := range items {
+		if item.SiteKey == "vimeo" {
+			vimeo = item
+			break
+		}
+	}
+	if vimeo.Account == nil {
+		t.Fatalf("missing vimeo account: %#v", vimeo)
+	}
+	if vimeo.Account.ExpiresAt != expiresAt {
+		t.Fatalf("expires at = %q, want %q", vimeo.Account.ExpiresAt, expiresAt)
+	}
+	if _, ok := vimeo.Account.Metadata[appSessionAccountExpiresAtMetadataKey]; ok {
+		t.Fatalf("internal expires metadata leaked: %#v", vimeo.Account.Metadata)
+	}
+	if vimeo.Account.Metadata["userID"] != "111" {
+		t.Fatalf("public metadata lost: %#v", vimeo.Account.Metadata)
+	}
+}
+
+func TestFinishVerificationPersistsAccountExpiresAt(t *testing.T) {
+	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	startedAt := createdAt.Add(time.Hour)
+	now := startedAt.Add(time.Minute)
+	expiresAtTime := now.Add(30 * 24 * time.Hour)
+	current, err := appsessions.NewSession(appsessions.SessionParams{
+		ID:                           "site-app-session-niconico",
+		SiteKey:                      "niconico",
+		Status:                       string(appsessions.StatusConnected),
+		AccountVerificationStatus:    string(appsessions.AccountVerificationVerifying),
+		AccountVerificationStartedAt: &startedAt,
+		CreatedAt:                    &createdAt,
+		UpdatedAt:                    &startedAt,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	repo := newAppSessionRepoStub(current)
+	service := NewAppSessionsService(repo)
+	service.now = func() time.Time { return now }
+
+	service.finishAppSessionAccountVerification(
+		current,
+		[]appcookies.Record{{Name: "user_session", Value: "session", Domain: ".nicovideo.jp", Path: "/", Expires: expiresAtTime.Unix()}},
+		startedAt,
+		dto.AppSessionAccount{DisplayName: "Nico User", Metadata: map[string]any{"userID": "80003"}},
+		nil,
+	)
+
+	saved, err := repo.Get(context.Background(), current.ID)
+	if err != nil {
+		t.Fatalf("get saved: %v", err)
+	}
+	metadata := decodeMetadata(saved.AccountMetadataJSON)
+	expiresAt := expiresAtTime.UTC().Format(time.RFC3339)
+	if metadata[appSessionAccountExpiresAtMetadataKey] != expiresAt {
+		t.Fatalf("saved metadata = %#v, want expires %q", metadata, expiresAt)
+	}
+	summary := service.mapSessionDTO(context.Background(), saved)
+	if summary.Account == nil || summary.Account.ExpiresAt != expiresAt {
+		t.Fatalf("summary account = %#v, want expires %q", summary.Account, expiresAt)
+	}
 }
 
 func TestFinalizeSessionPublishesChangeEvent(t *testing.T) {
@@ -171,7 +328,7 @@ func TestFinalizeSessionPublishesChangeEvent(t *testing.T) {
 	})
 }
 
-func TestPerformFinalizeSavesUnverifiedBilibiliSessionAndMarksVerificationFailed(t *testing.T) {
+func TestPerformFinalizeDoesNotSaveBilibiliSessionWithoutAuthCookie(t *testing.T) {
 	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
 	current, err := appsessions.NewSession(appsessions.SessionParams{
 		ID:        "site-app-session-bilibili",
@@ -184,20 +341,12 @@ func TestPerformFinalizeSavesUnverifiedBilibiliSessionAndMarksVerificationFailed
 		t.Fatalf("create session: %v", err)
 	}
 	provider := &appSessionProviderStub{}
-	verifyStarted := make(chan struct{})
-	releaseVerify := make(chan struct{})
-	var verifyStartedOnce sync.Once
 	service := NewAppSessionsService(
 		newAppSessionRepoStub(current),
 		WithProvider(provider),
-		WithAccountFetcher(func(ctx context.Context, _ string, _ []appcookies.Record) (dto.AppSessionAccount, error) {
-			verifyStartedOnce.Do(func() { close(verifyStarted) })
-			select {
-			case <-releaseVerify:
-				return dto.AppSessionAccount{}, appsessions.ErrNoCookies
-			case <-ctx.Done():
-				return dto.AppSessionAccount{}, ctx.Err()
-			}
+		WithAccountFetcher(func(context.Context, string, []appcookies.Record) (dto.AppSessionAccount, error) {
+			t.Fatal("verification should not start without auth cookies")
+			return dto.AppSessionAccount{}, nil
 		}),
 	)
 	service.now = func() time.Time { return createdAt.Add(time.Hour) }
@@ -214,43 +363,78 @@ func TestPerformFinalizeSavesUnverifiedBilibiliSessionAndMarksVerificationFailed
 	if err != nil {
 		t.Fatalf("finalize: %v", err)
 	}
-	if !result.Saved {
-		t.Fatal("expected bilibili cookies to be saved before account verification")
+	if result.Saved {
+		t.Fatalf("expected non-auth bilibili cookies not to be saved, got %#v", result)
 	}
-	if !provider.saved {
-		t.Fatal("expected bilibili cookies to be persisted")
+	if provider.saved {
+		t.Fatal("did not expect non-auth bilibili cookies to be persisted")
 	}
 	if provider.cleared {
-		t.Fatal("did not expect unverified bilibili cookies to be cleared")
+		t.Fatal("did not expect provider clear during finalize")
 	}
 	saved, err := service.repo.Get(context.Background(), current.ID)
 	if err != nil {
 		t.Fatalf("get saved session: %v", err)
 	}
-	if saved.Status != appsessions.StatusConnected {
-		t.Fatalf("expected connected session, got %s", saved.Status)
+	if saved.Status != appsessions.StatusDisconnected {
+		t.Fatalf("expected disconnected session, got %s", saved.Status)
 	}
-	if saved.AccountVerificationStatus != appsessions.AccountVerificationVerifying {
-		t.Fatalf("expected verifying session, got %s", saved.AccountVerificationStatus)
+	if result.AppSession.Status != string(appsessions.StatusDisconnected) ||
+		result.AppSession.AccountVerificationStatus != string(appsessions.AccountVerificationUnverified) {
+		t.Fatalf("expected disconnected unverified result, got %#v", result.AppSession)
 	}
-	if saved.AccountDisplayName != "" || saved.AccountAvatarURL != "" {
-		t.Fatalf("expected account fields to stay empty, got %#v", saved)
-	}
-	if result.AppSession.Status != string(appsessions.StatusConnected) ||
-		result.AppSession.AccountVerificationStatus != string(appsessions.AccountVerificationVerifying) {
-		t.Fatalf("expected connected verifying result, got %#v", result.AppSession)
-	}
-	select {
-	case <-verifyStarted:
-	case <-time.After(time.Second):
-		t.Fatal("verification did not start")
-	}
-	close(releaseVerify)
-	waitForAppSession(t, service, current.ID, func(saved appsessions.Session) bool {
-		return saved.Status == appsessions.StatusConnected &&
-			saved.AccountVerificationStatus == appsessions.AccountVerificationUnverified &&
-			saved.AccountVerificationError != ""
+}
+
+func TestPerformFinalizeDoesNotSaveInstagramSessionWithoutSessionID(t *testing.T) {
+	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
+	current, err := appsessions.NewSession(appsessions.SessionParams{
+		ID:        "site-app-session-instagram",
+		SiteKey:   "instagram",
+		Status:    string(appsessions.StatusDisconnected),
+		CreatedAt: &createdAt,
+		UpdatedAt: &createdAt,
 	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	provider := &appSessionProviderStub{}
+	service := NewAppSessionsService(
+		newAppSessionRepoStub(current),
+		WithProvider(provider),
+		WithAccountFetcher(func(context.Context, string, []appcookies.Record) (dto.AppSessionAccount, error) {
+			t.Fatal("verification should not start without instagram sessionid")
+			return dto.AppSessionAccount{}, nil
+		}),
+	)
+	service.now = func() time.Time { return createdAt.Add(time.Hour) }
+
+	deviceExpiry := createdAt.Add(365 * 24 * time.Hour)
+	result, err := service.performFinalize(context.Background(), &browserSession{
+		ID:           "runtime-session",
+		AppSessionID: current.ID,
+		SiteKey:      current.SiteKey,
+		Purpose:      browserSessionPurposeConnect,
+		LastCookies: []appcookies.Record{
+			{Name: "ig_did", Value: "device", Domain: ".instagram.com", Path: "/", Expires: deviceExpiry.Unix()},
+		},
+	}, "browser_closed")
+	if err != nil {
+		t.Fatalf("finalize: %v", err)
+	}
+	if result.Saved {
+		t.Fatalf("expected non-auth instagram cookies not to be saved, got %#v", result)
+	}
+	if provider.saved {
+		t.Fatal("did not expect non-auth instagram cookies to be persisted")
+	}
+	if result.AppSession.Status != string(appsessions.StatusDisconnected) ||
+		result.AppSession.CredentialState != string(appsessions.StatusDisconnected) ||
+		result.AppSession.AccountVerificationStatus != string(appsessions.AccountVerificationUnverified) {
+		t.Fatalf("expected disconnected unverified result, got %#v", result.AppSession)
+	}
+	if result.AppSession.Account != nil && result.AppSession.Account.ExpiresAt != "" {
+		t.Fatalf("did not expect non-auth cookie expiry to be exposed, got %#v", result.AppSession.Account)
+	}
 }
 
 func TestPerformFinalizeVerificationHardTimeoutPublishesUnverified(t *testing.T) {
@@ -380,7 +564,7 @@ func TestFinishVerificationTimeoutDoesNotRequireExactStartedAtPrecision(t *testi
 	}
 }
 
-func TestPerformFinalizeKeepsCookieOnlySessionForUnsupportedAccountSite(t *testing.T) {
+func TestPerformFinalizeStartsVerificationForCookieAccountSite(t *testing.T) {
 	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
 	current, err := appsessions.NewSession(appsessions.SessionParams{
 		ID:        "site-app-session-tiktok",
@@ -393,13 +577,18 @@ func TestPerformFinalizeKeepsCookieOnlySessionForUnsupportedAccountSite(t *testi
 		t.Fatalf("create session: %v", err)
 	}
 	provider := &appSessionProviderStub{}
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
 	service := NewAppSessionsService(
 		newAppSessionRepoStub(current),
 		WithProvider(provider),
 		WithAccountFetcher(func(context.Context, string, []appcookies.Record) (dto.AppSessionAccount, error) {
+			close(fetchStarted)
+			<-releaseFetch
 			return dto.AppSessionAccount{}, appsessions.ErrUnsupported
 		}),
 	)
+	defer close(releaseFetch)
 	service.now = func() time.Time { return createdAt.Add(time.Hour) }
 
 	result, err := service.performFinalize(context.Background(), &browserSession{
@@ -423,6 +612,9 @@ func TestPerformFinalizeKeepsCookieOnlySessionForUnsupportedAccountSite(t *testi
 	if provider.cleared {
 		t.Fatal("did not expect tiktok cookies to be cleared")
 	}
+	if result.AppSession.AccountVerificationStatus != string(appsessions.AccountVerificationVerifying) {
+		t.Fatalf("expected result verification to start, got %#v", result.AppSession)
+	}
 	saved, err := service.repo.Get(context.Background(), current.ID)
 	if err != nil {
 		t.Fatalf("get saved session: %v", err)
@@ -430,8 +622,13 @@ func TestPerformFinalizeKeepsCookieOnlySessionForUnsupportedAccountSite(t *testi
 	if saved.Status != appsessions.StatusConnected {
 		t.Fatalf("expected connected session, got %s", saved.Status)
 	}
-	if saved.AccountVerificationStatus != appsessions.AccountVerificationUnsupported {
-		t.Fatalf("expected unsupported account verification, got %s", saved.AccountVerificationStatus)
+	if saved.AccountVerificationStatus != appsessions.AccountVerificationVerifying {
+		t.Fatalf("expected verifying account verification, got %s", saved.AccountVerificationStatus)
+	}
+	select {
+	case <-fetchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("verification fetcher was not started")
 	}
 }
 
@@ -458,17 +655,42 @@ func TestCookieExpiresAtPrefersSiteAuthCookies(t *testing.T) {
 	if got != bilibiliAuthExpiry.Format(time.RFC3339) {
 		t.Fatalf("bilibili expires at = %q, want %q", got, bilibiliAuthExpiry.Format(time.RFC3339))
 	}
+
+	for _, test := range []struct {
+		siteKey    string
+		authCookie string
+	}{
+		{siteKey: "tiktok", authCookie: "sessionid"},
+		{siteKey: "instagram", authCookie: "sessionid"},
+		{siteKey: "x", authCookie: "auth_token"},
+		{siteKey: "facebook", authCookie: "xs"},
+		{siteKey: "vimeo", authCookie: "vimeo"},
+		{siteKey: "twitch", authCookie: "auth-token"},
+		{siteKey: "niconico", authCookie: "user_session"},
+	} {
+		test := test
+		t.Run(test.siteKey, func(t *testing.T) {
+			siteAuthExpiry := now.Add(45 * 24 * time.Hour)
+			got := cookieExpiresAt(test.siteKey, []appcookies.Record{
+				{Name: "device", Expires: deviceExpiry.Unix()},
+				{Name: test.authCookie, Expires: siteAuthExpiry.Unix()},
+			}, now)
+			if got != siteAuthExpiry.Format(time.RFC3339) {
+				t.Fatalf("%s expires at = %q, want %q", test.siteKey, got, siteAuthExpiry.Format(time.RFC3339))
+			}
+		})
+	}
 }
 
-func TestCookieExpiresAtFallsBackToLatestFutureCookie(t *testing.T) {
+func TestCookieExpiresAtDoesNotFallbackToNonAuthCookie(t *testing.T) {
 	now := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
 	latest := now.Add(time.Hour)
 	got := cookieExpiresAt("tiktok", []appcookies.Record{
 		{Name: "short", Expires: now.Add(9 * time.Minute).Unix()},
 		{Name: "latest", Expires: latest.Unix()},
 	}, now)
-	if got != latest.Format(time.RFC3339) {
-		t.Fatalf("fallback expires at = %q, want %q", got, latest.Format(time.RFC3339))
+	if got != "" {
+		t.Fatalf("non-auth expires at = %q, want empty", got)
 	}
 }
 
@@ -490,12 +712,12 @@ func TestAppSessionAccountVerifiedRequiresStableIdentitySignal(t *testing.T) {
 }
 
 func TestAppSessionRequiresAccountVerificationOnlyForAccountAPISites(t *testing.T) {
-	for _, siteKey := range []string{"youtube", "bilibili"} {
+	for _, siteKey := range []string{"youtube", "bilibili", "tiktok", "instagram", "x", "facebook", "vimeo", "twitch", "niconico"} {
 		if !appSessionRequiresAccountVerification(siteKey) {
 			t.Fatalf("expected %s to require account verification", siteKey)
 		}
 	}
-	for _, siteKey := range []string{"tiktok", "instagram", "x", "facebook", "vimeo", "twitch", "niconico"} {
+	for _, siteKey := range []string{"china_private", "unknown"} {
 		if appSessionRequiresAccountVerification(siteKey) {
 			t.Fatalf("did not expect %s to require account verification", siteKey)
 		}

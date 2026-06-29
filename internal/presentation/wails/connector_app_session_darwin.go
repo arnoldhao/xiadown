@@ -12,6 +12,103 @@ package wails
 #import <Cocoa/Cocoa.h>
 #import <Security/Security.h>
 #import <WebKit/WebKit.h>
+#import <objc/runtime.h>
+
+static WKWebView* connectorAppSessionFindWKWebView(NSView *view);
+static const void *connectorAppSessionUIDelegateKey = &connectorAppSessionUIDelegateKey;
+
+@interface XiaDownConnectorAppSessionUIDelegate : NSObject <WKUIDelegate, NSWindowDelegate>
+@property(nonatomic, retain) NSMutableArray<NSWindow *> *popupWindows;
+@end
+
+@implementation XiaDownConnectorAppSessionUIDelegate
+@synthesize popupWindows = _popupWindows;
+
+- (instancetype)init {
+	self = [super init];
+	if (self != nil) {
+		_popupWindows = [[NSMutableArray alloc] init];
+	}
+	return self;
+}
+
+- (void)dealloc {
+	NSArray<NSWindow *> *windows = [_popupWindows copy];
+	for (NSWindow *window in windows) {
+		window.delegate = nil;
+		[window close];
+	}
+	[windows release];
+	[_popupWindows release];
+	[super dealloc];
+}
+
+- (WKWebView *)webView:(WKWebView *)webView
+	createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration
+	forNavigationAction:(WKNavigationAction *)navigationAction
+	windowFeatures:(WKWindowFeatures *)windowFeatures {
+	if (navigationAction.targetFrame == nil || !navigationAction.targetFrame.mainFrame) {
+		if (configuration == nil) {
+			return nil;
+		}
+		configuration.preferences.javaScriptCanOpenWindowsAutomatically = YES;
+
+		NSWindow *parentWindow = webView.window;
+		NSRect parentFrame = parentWindow != nil ? parentWindow.frame : NSMakeRect(0, 0, 560, 720);
+		NSRect popupFrame = NSMakeRect(NSMidX(parentFrame) - 280, NSMidY(parentFrame) - 360, 560, 720);
+		NSWindow *popupWindow = [[NSWindow alloc]
+			initWithContentRect:popupFrame
+			styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+			backing:NSBackingStoreBuffered
+			defer:NO];
+		popupWindow.title = parentWindow.title.length > 0 ? parentWindow.title : @"Sign In";
+		popupWindow.releasedWhenClosed = NO;
+		popupWindow.delegate = self;
+
+		WKWebView *popupWebView = [[WKWebView alloc] initWithFrame:popupWindow.contentView.bounds configuration:configuration];
+		popupWebView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+		popupWebView.customUserAgent = webView.customUserAgent;
+		popupWebView.UIDelegate = self;
+		objc_setAssociatedObject(popupWebView, connectorAppSessionUIDelegateKey, self, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+		popupWindow.contentView = popupWebView;
+		[popupWebView release];
+
+		[self.popupWindows addObject:popupWindow];
+		if (parentWindow != nil) {
+			[parentWindow addChildWindow:popupWindow ordered:NSWindowAbove];
+		}
+		[popupWindow makeKeyAndOrderFront:nil];
+		[popupWindow release];
+		return popupWebView;
+	}
+	return nil;
+}
+
+- (void)webViewDidClose:(WKWebView *)webView {
+	NSWindow *window = webView.window;
+	if (window != nil) {
+		[window close];
+	}
+}
+
+- (void)windowWillClose:(NSNotification *)notification {
+	NSWindow *window = notification.object;
+	if (![window isKindOfClass:[NSWindow class]]) {
+		return;
+	}
+	NSWindow *parentWindow = window.parentWindow;
+	if (parentWindow != nil) {
+		[parentWindow removeChildWindow:window];
+	}
+	WKWebView *webView = connectorAppSessionFindWKWebView(window.contentView);
+	if (webView != nil) {
+		webView.UIDelegate = nil;
+		objc_setAssociatedObject(webView, connectorAppSessionUIDelegateKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+	}
+	window.delegate = nil;
+	[self.popupWindows removeObject:window];
+}
+@end
 
 static WKWebView* connectorAppSessionFindWKWebView(NSView *view) {
 	if (view == nil) {
@@ -194,6 +291,11 @@ static void connectorAppSessionConfigureWindow(void *nativeWindow, const char *u
 			}
 		}
 		webView.configuration.applicationNameForUserAgent = @"";
+		webView.configuration.preferences.javaScriptCanOpenWindowsAutomatically = YES;
+		XiaDownConnectorAppSessionUIDelegate *delegate = [[XiaDownConnectorAppSessionUIDelegate alloc] init];
+		webView.UIDelegate = delegate;
+		objc_setAssociatedObject(webView, connectorAppSessionUIDelegateKey, delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+		[delegate release];
 	}
 }
 

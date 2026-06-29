@@ -154,6 +154,18 @@ const SITE_LABEL_KEYS: Record<string, string> = {
   niconico: "settings.appSessions.item.niconico",
 };
 
+const ACCOUNT_VERIFIABLE_SITE_KEYS = new Set([
+  "youtube",
+  "bilibili",
+  "tiktok",
+  "instagram",
+  "x",
+  "facebook",
+  "vimeo",
+  "twitch",
+  "niconico",
+]);
+
 const STATUS_META: Record<
   string,
   {
@@ -258,17 +270,47 @@ function accountVerificationStatusLabel(
   }
 }
 
-function resolveAccountName(account?: AppSessionAccount | null) {
+function resolveAccountName(siteKey: string, account?: AppSessionAccount | null) {
   return (
-    account?.displayName?.trim() ||
-    account?.handle?.trim() ||
+    normalizeDisplayName(siteKey, account?.displayName) ||
+    normalizeHandle(siteKey, account?.handle) ||
     ""
   );
 }
 
-function normalizeHandle(handle?: string) {
+function normalizeDisplayName(siteKey: string, displayName?: string) {
+  const trimmed = displayName?.trim() ?? "";
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = trimmed.toLowerCase().replace(/[.!。！]+$/g, "").trim();
+  if (siteKey === "facebook") {
+    if (
+      normalized === "facebook" ||
+      normalized === "meta" ||
+      normalized === "redirecting" ||
+      normalized.includes("redirecting") ||
+      normalized.includes("log in to facebook") ||
+      normalized.includes("log into facebook")
+    ) {
+      return "";
+    }
+  }
+  return trimmed;
+}
+
+function normalizeHandle(siteKey: string, handle?: string) {
   const trimmed = handle?.trim() ?? "";
   if (!trimmed) {
+    return "";
+  }
+  if ((siteKey === "facebook" || siteKey === "niconico") && /^\d+$/.test(trimmed)) {
+    return "";
+  }
+  if (
+    siteKey === "facebook" &&
+    /^(me|profile\.php|login|login\.php|checkpoint)$/i.test(trimmed)
+  ) {
     return "";
   }
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
@@ -382,15 +424,18 @@ function AppSessionAccountDetail(props: {
   const account = props.session.account;
   const siteKey = props.session.siteKey.trim().toLowerCase();
   const isYouTube = siteKey === "youtube";
-  const canResolveAccountInfo = isYouTube || siteKey === "bilibili";
+  const canResolveAccountInfo = ACCOUNT_VERIFIABLE_SITE_KEYS.has(siteKey);
   const tierLabel = resolveAccountTierLabel(account, siteKey, props.labels);
   const badgeLabels = props.isConnected
     ? (account?.badges ?? [])
         .map((badge) => resolveAccountBadgeLabel(badge, siteKey, props.labels))
         .filter((value): value is string => Boolean(value))
     : [];
+  const accountDisplayName = props.isConnected
+    ? normalizeDisplayName(siteKey, account?.displayName)
+    : "";
   const displayName = props.isConnected
-    ? account?.displayName?.trim() ||
+    ? accountDisplayName ||
       (isYouTube ? props.labels.youtubeAccountFallbackName : props.siteLabel || props.labels.accountFallbackName)
     : isYouTube
       ? props.labels.youtubeDisconnectedName
@@ -399,13 +444,17 @@ function AppSessionAccountDetail(props: {
         : props.siteLabel || props.labels.disconnectedName;
   const avatarURL = props.isConnected ? account?.avatarURL?.trim() ?? "" : "";
   const accountHandle = props.isConnected ? account?.handle?.trim() ?? "" : "";
-  const normalizedHandle = normalizeHandle(accountHandle);
+  const normalizedHandle = normalizeHandle(siteKey, accountHandle);
   const signInLabel = isYouTube ? props.labels.youtubeSignIn : props.labels.signIn;
   const signOutLabel = isYouTube ? props.labels.youtubeSignOut : props.labels.signOut;
   const verifyLoginLabel = isYouTube ? props.labels.youtubeVerifyLogin : props.labels.verifyLogin;
   const verifyLabel = isYouTube ? props.labels.youtubeVerifyStatus : props.labels.verifyStatus;
   const verificationStatus = normalizeAccountVerificationStatus(props.session);
   const verificationStatusText = accountVerificationStatusLabel(props.session, props.labels);
+  const verificationError =
+    props.isConnected && verificationStatus === "unverified"
+      ? props.session.accountVerificationError?.trim() ?? ""
+      : "";
   const lastLoginLabelKey = isYouTube ? props.labels.youtubeLastLoginAt : props.labels.lastLoginAt;
   const expiresAtLabelKey = isYouTube ? props.labels.youtubeExpiresAt : props.labels.expiresAt;
   const lastLoginLabel = formatRelativeTime(
@@ -522,6 +571,11 @@ function AppSessionAccountDetail(props: {
                       </span>
                     }
                   />
+                ) : null}
+                {canResolveAccountInfo && verificationError ? (
+                  <div className="min-w-0 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] leading-4 text-destructive break-words">
+                    {verificationError}
+                  </div>
                 ) : null}
                 <AppSessionInfoRow label={lastLoginLabelKey} value={lastLoginLabel} />
                 <AppSessionInfoRow label={expiresAtLabelKey} value={expiresAtLabel} />
@@ -731,11 +785,13 @@ export function AppSessionsSection() {
     (session: AppSession) => {
       const isSelected = session.id === selectedId;
       const label = resolveLabel(session);
-      const accountName = resolveAccountName(session.account);
-      const canResolveAccountInfo = ["youtube", "bilibili"].includes(session.siteKey.trim().toLowerCase());
+      const siteKey = session.siteKey.trim().toLowerCase();
+      const isConnected = normalizeStatus(session) === "connected";
+      const accountName = isConnected ? resolveAccountName(siteKey, session.account) : "";
+      const canResolveAccountInfo = ACCOUNT_VERIFIABLE_SITE_KEYS.has(siteKey);
       const secondaryLabel = accountName && accountName !== label
         ? accountName
-        : normalizeStatus(session) === "connected" && canResolveAccountInfo
+        : isConnected && canResolveAccountInfo
           ? accountVerificationStatusLabel(session, labels)
           : "";
       return (

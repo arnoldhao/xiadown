@@ -367,6 +367,32 @@ func TestPrepareYTDLPDownloadUsesAppSessionForNormalizedURL(t *testing.T) {
 	}
 }
 
+func TestPrepareYTDLPDownloadUsesConnectedAppSessionWithoutListedCookies(t *testing.T) {
+	t.Parallel()
+
+	service := &LibraryService{
+		appSessions: resourceAppSessionReaderStub{
+			items: []appsessionsdto.AppSession{
+				{
+					ID:              "site-app-session-bilibili",
+					SiteKey:         "bilibili",
+					Status:          "connected",
+					CredentialState: "app_session",
+					CookiesCount:    0,
+				},
+			},
+		},
+	}
+
+	bilibili, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest("https://www.bilibili.com/video/BV1xx411c7mD/"))
+	if err != nil {
+		t.Fatalf("prepare bilibili: %v", err)
+	}
+	if bilibili.AppSessionID != "site-app-session-bilibili" || !bilibili.AppSessionAvailable || bilibili.AppSessionCredentialMode != "app_session" {
+		t.Fatalf("unexpected bilibili app session: %#v", bilibili)
+	}
+}
+
 func TestPrepareYTDLPDownloadReturnsBatchForMultipleURLs(t *testing.T) {
 	t.Parallel()
 

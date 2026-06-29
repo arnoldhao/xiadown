@@ -40,9 +40,20 @@ func newAppSessionAccountFetcher(httpClientProvider youtubemusic.HTTPClientProvi
 			return fetchYouTubeMusicAppSessionAccount(ctx, httpClientProvider, records)
 		case "bilibili":
 			return fetchBilibiliAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
-		case "tiktok", "instagram", "x", "facebook", "vimeo", "twitch", "niconico":
-			// Public account APIs for these sites are token/OAuth based; do not scrape private web pages from cookies here.
-			return appsessionsdto.AppSessionAccount{}, appsessions.ErrUnsupported
+		case "tiktok":
+			return fetchTikTokAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "instagram":
+			return fetchInstagramAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "x":
+			return fetchXAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "facebook":
+			return fetchFacebookAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "vimeo":
+			return fetchVimeoAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "twitch":
+			return fetchTwitchAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "niconico":
+			return fetchNiconicoAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
 		default:
 			return appsessionsdto.AppSessionAccount{}, appsessions.ErrUnsupported
 		}
@@ -210,12 +221,5 @@ func mapBilibiliNavAccount(decoded bilibiliNavResponse) appsessionsdto.AppSessio
 }
 
 func normalizeBilibiliAvatarURL(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if strings.HasPrefix(trimmed, "//") {
-		return "https:" + trimmed
-	}
-	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return "https://" + trimmed[len("http://"):]
-	}
-	return trimmed
+	return normalizeAccountImageURL(value)
 }

@@ -450,13 +450,22 @@ func (service *LibraryService) resolveAppSessionAvailability(ctx context.Context
 			}
 			return appSessionAvailability{
 				ID:              item.ID,
-				Available:       strings.EqualFold(item.Status, "connected") && item.CookiesCount > 0,
+				Available:       strings.EqualFold(item.Status, "connected") && appSessionCredentialStateCanExportCookies(state),
 				CredentialMode:  "app_session",
 				CredentialState: state,
 			}
 		}
 	}
 	return appSessionAvailability{}
+}
+
+func appSessionCredentialStateCanExportCookies(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "app_session", "cookies":
+		return true
+	default:
+		return false
+	}
 }
 
 func appSessionSiteKeyForDomain(domain string) string {

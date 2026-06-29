@@ -84,7 +84,7 @@ func (service *AppSessionsService) finishAppSessionAccountVerification(session a
 		params.AccountTierKey = account.TierKey
 		params.AccountTierLabel = account.TierLabel
 		params.AccountBadgesJSON = encodeBadges(account.Badges)
-		params.AccountMetadataJSON = encodeMetadata(account.Metadata)
+		params.AccountMetadataJSON = encodeMetadata(accountMetadataWithExpiresAt(account.Metadata, session.SiteKey, records, now))
 		params.AccountVerificationStatus = string(appsessions.AccountVerificationVerified)
 		params.LastVerifiedAt = &now
 	}
