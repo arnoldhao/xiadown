@@ -10,7 +10,8 @@
     <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Stack công nghệ" />
   </p>
   <p>
-    <a href="https://xiadown.dreamapp.cc/">Trang web</a> ·
+    <a href="https://xiadown.app/">Trang web</a> ·
+    <a href="https://xiadown.app/vi-vn/docs/">Hướng dẫn sử dụng</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">Bản phát hành</a> ·
     <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a> ·
     <a href="https://ko-fi.com/arnoldhao">Ủng hộ</a>
@@ -191,5 +192,6 @@ XiaDown được xây dựng trên các dự án mã nguồn mở xuất sắc. 
 
 ## Liên Hệ
 
-- Trang web: <https://xiadown.dreamapp.cc/>
+- Trang web: <https://xiadown.app/>
+- Hướng dẫn sử dụng: <https://xiadown.app/vi-vn/docs/>
 - Email: <xunruhao@gmail.com>

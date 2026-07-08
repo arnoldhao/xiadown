@@ -10,7 +10,8 @@
     <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Stack teknologi" />
   </p>
   <p>
-    <a href="https://xiadown.dreamapp.cc/">Situs web</a> ·
+    <a href="https://xiadown.app/">Situs web</a> ·
+    <a href="https://xiadown.app/id-id/docs/">Panduan Penggunaan</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">Rilis</a> ·
     <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a> ·
     <a href="https://ko-fi.com/arnoldhao">Dukung</a>
@@ -191,5 +192,6 @@ XiaDown dibangun di atas proyek open source yang sangat baik. Pengalaman desktop
 
 ## Kontak
 
-- Situs web: <https://xiadown.dreamapp.cc/>
+- Situs web: <https://xiadown.app/>
+- Panduan Penggunaan: <https://xiadown.app/id-id/docs/>
 - Email: <xunruhao@gmail.com>

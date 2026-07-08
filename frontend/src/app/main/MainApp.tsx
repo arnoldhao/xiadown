@@ -2,6 +2,7 @@ import { Events,System } from "@wailsio/runtime";
 import {
 ArrowUpCircle,
 CheckCircle2,
+FileText,
 FolderOpen,
 Link2,
 Plus,
@@ -57,7 +58,7 @@ setWelcomeWindowChromeHidden,
 useShowSettingsWindow
 } from "@/shared/query/settings";
 import { usePets } from "@/shared/query/pets";
-import { useCurrentUserProfile } from "@/shared/query/system";
+import { openExternalURL,useCurrentUserProfile } from "@/shared/query/system";
 import {
 useRestartToApply,
 useUpdateState
@@ -110,9 +111,45 @@ type WelcomeDebugStep,
 
 const NOTIFIABLE_OPERATION_STATUSES = new Set(["succeeded", "failed"]);
 const MAIN_NEW_DOWNLOAD_EVENT = "main:new-download";
+const DOCUMENTATION_ORIGIN = "https://xiadown.app";
+const DOCUMENTATION_PATH_BY_LANGUAGE: Record<string, string> = {
+  "zh-CN": "/docs/",
+  "zh-TW": "/zh-tw/docs/",
+  en: "/en/docs/",
+  "ja-JP": "/ja-jp/docs/",
+  "ko-KR": "/ko-kr/docs/",
+  "es-419": "/es-419/docs/",
+  "pt-BR": "/pt-br/docs/",
+  "id-ID": "/id-id/docs/",
+  "vi-VN": "/vi-vn/docs/",
+};
 
 function normalizeOperationStatus(status?: string) {
   return (status ?? "").trim().toLowerCase();
+}
+
+function resolveDocumentationLanguage(language?: string | null) {
+  const normalized = language?.trim() || "zh-CN";
+  return DOCUMENTATION_PATH_BY_LANGUAGE[normalized] ? normalized : "zh-CN";
+}
+
+function normalizeDocumentationPagePath(path?: string) {
+  const normalized = (path ?? "").trim().replace(/^\/+|\/+$/g, "");
+  if (!normalized || normalized === "docs") {
+    return "";
+  }
+  return normalized
+    .replace(/^(?:zh-tw|en|ja-jp|ko-kr|es-419|pt-br|id-id|vi-vn)\/docs\/?/i, "")
+    .replace(/^docs\/?/i, "")
+    .replace(/\/+$/g, "");
+}
+
+function buildDocumentationURL(language?: string | null, path?: string) {
+  const url = new URL(DOCUMENTATION_ORIGIN);
+  const languageRoot = DOCUMENTATION_PATH_BY_LANGUAGE[resolveDocumentationLanguage(language)];
+  const pagePath = normalizeDocumentationPagePath(path);
+  url.pathname = pagePath ? `${languageRoot}${pagePath}/` : languageRoot;
+  return url.toString();
 }
 
 function resolveEffectiveDownloadDirectory(directory?: string) {
@@ -560,6 +597,13 @@ export function MainApp() {
     });
   }, []);
 
+  const openDocumentation = React.useCallback((path = "") => {
+    const url = buildDocumentationURL(settings?.language, path);
+    void openExternalURL(url).catch((error) => {
+      console.warn("[Main] open documentation unavailable", { url, error });
+    });
+  }, [settings?.language]);
+
   const openSettingsTab = React.useCallback(
     (tab: XiaSettingsTabId) => {
       setPendingSettingsTab(tab);
@@ -798,6 +842,17 @@ export function MainApp() {
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
+                  onSelect={() => openDocumentation()}
+                >
+                  <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <span className="truncate font-medium text-foreground">
+                    {text.sidebar.documentation}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
                   onSelect={() => showSettingsWindow.mutate()}
                 >
                   <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
@@ -903,6 +958,7 @@ export function MainApp() {
               text={text}
               settings={settings}
               navigation={petsGalleryNavigation}
+              onOpenDocumentation={openDocumentation}
             />
           ) : activeView === "sniffDesk" ? (
             <SniffDeskPage

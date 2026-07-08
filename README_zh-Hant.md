@@ -10,7 +10,8 @@
     <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="技術棧" />
   </p>
   <p>
-    <a href="https://xiadown.dreamapp.cc/">官網</a> ·
+    <a href="https://xiadown.app/">官網</a> ·
+    <a href="https://xiadown.app/zh-tw/docs/">使用說明</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">發布頁</a> ·
     <a href="https://github.com/arnoldhao/xiadown/issues">回報問題</a> ·
     <a href="https://ko-fi.com/arnoldhao">贊助</a>
@@ -191,5 +192,6 @@ wails3 dev
 
 ## 聯絡
 
-- 官網：<https://xiadown.dreamapp.cc/>
+- 官網：<https://xiadown.app/>
+- 使用說明：<https://xiadown.app/zh-tw/docs/>
 - 信箱：<xunruhao@gmail.com>
