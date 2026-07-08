@@ -159,9 +159,10 @@ func TestListAppSessionsDoesNotReadStoredCookies(t *testing.T) {
 }
 
 func TestListAppSessionsUsesPersistedAccountExpiresAtWithoutReadingCookies(t *testing.T) {
-	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
-	verifiedAt := createdAt.Add(time.Hour)
-	expiresAt := verifiedAt.Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	verifiedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	createdAt := verifiedAt.Add(-time.Hour)
+	expiresAtTime := verifiedAt.Add(30 * 24 * time.Hour)
+	expiresAt := expiresAtTime.UTC().Format(time.RFC3339)
 	current, err := appsessions.NewSession(appsessions.SessionParams{
 		ID:                        "site-app-session-vimeo",
 		SiteKey:                   "vimeo",
@@ -177,7 +178,7 @@ func TestListAppSessionsUsesPersistedAccountExpiresAtWithoutReadingCookies(t *te
 		t.Fatalf("create session: %v", err)
 	}
 	provider := &appSessionProviderStub{
-		loadRecords: []appcookies.Record{{Name: "vimeo", Value: "token", Domain: ".vimeo.com", Path: "/", Expires: verifiedAt.Add(30 * 24 * time.Hour).Unix()}},
+		loadRecords: []appcookies.Record{{Name: "vimeo", Value: "token", Domain: ".vimeo.com", Path: "/", Expires: expiresAtTime.Unix()}},
 	}
 	service := NewAppSessionsService(newAppSessionRepoStub(current), WithProvider(provider))
 
@@ -210,9 +211,9 @@ func TestListAppSessionsUsesPersistedAccountExpiresAtWithoutReadingCookies(t *te
 }
 
 func TestFinishVerificationPersistsAccountExpiresAt(t *testing.T) {
-	createdAt := time.Date(2026, 6, 2, 10, 0, 0, 0, time.UTC)
-	startedAt := createdAt.Add(time.Hour)
-	now := startedAt.Add(time.Minute)
+	now := time.Now().UTC().Truncate(time.Second)
+	startedAt := now.Add(-time.Minute)
+	createdAt := startedAt.Add(-time.Hour)
 	expiresAtTime := now.Add(30 * 24 * time.Hour)
 	current, err := appsessions.NewSession(appsessions.SessionParams{
 		ID:                           "site-app-session-niconico",

@@ -1831,7 +1831,7 @@ export function SettingsApp() {
                             type="button"
                             variant="outline"
                             size="compactIcon"
-                            onClick={() => openExternalURL("https://xiadown.dreamapp.cc/")}
+                            onClick={() => openExternalURL("https://xiadown.app/")}
                             aria-label={text.about.website}
                           >
                             <Globe className="h-4 w-4" />

@@ -10,7 +10,8 @@
     <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="기술 스택" />
   </p>
   <p>
-    <a href="https://xiadown.dreamapp.cc/">웹사이트</a> ·
+    <a href="https://xiadown.app/">웹사이트</a> ·
+    <a href="https://xiadown.app/ko-kr/docs/">사용 가이드</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">릴리스</a> ·
     <a href="https://github.com/arnoldhao/xiadown/issues">이슈</a> ·
     <a href="https://ko-fi.com/arnoldhao">후원</a>
@@ -191,5 +192,6 @@ XiaDown은 훌륭한 오픈 소스 프로젝트 위에 만들어졌습니다. �
 
 ## 연락처
 
-- 웹사이트: <https://xiadown.dreamapp.cc/>
+- 웹사이트: <https://xiadown.app/>
+- 사용 가이드: <https://xiadown.app/ko-kr/docs/>
 - 이메일: <xunruhao@gmail.com>

@@ -10,7 +10,8 @@
     <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Tech stack" />
   </p>
   <p>
-    <a href="https://xiadown.dreamapp.cc/">Website</a> ·
+    <a href="https://xiadown.app/">Website</a> ·
+    <a href="https://xiadown.app/en/docs/">User Guide</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">Releases</a> ·
     <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a> ·
     <a href="https://ko-fi.com/arnoldhao">Sponsor</a>
@@ -191,5 +192,6 @@ XiaDown is built on top of excellent open-source projects. The desktop experienc
 
 ## Contact
 
-- Website: <https://xiadown.dreamapp.cc/>
+- Website: <https://xiadown.app/>
+- User Guide: <https://xiadown.app/en/docs/>
 - Email: <xunruhao@gmail.com>

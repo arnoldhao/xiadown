@@ -104,6 +104,7 @@ export function PetsGalleryPage(props: {
   text: XiaText;
   settings: Settings | null;
   navigation: PetsGalleryNavigation | null;
+  onOpenDocumentation?: (path?: string) => void;
 }) {
   const { text, settings, navigation } = props;
   const isWindows = System.IsWindows();
@@ -113,7 +114,6 @@ export function PetsGalleryPage(props: {
   const exportPet = useExportPet();
   const deletePet = useDeletePet();
   const [selectedPetId, setSelectedPetId] = React.useState("");
-  const [guideOpen, setGuideOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [contextMenuTarget, setContextMenuTarget] = React.useState<PetContextMenuTarget | null>(null);
   const [deleteConfirmPet, setDeleteConfirmPet] = React.useState<Pet | null>(null);
@@ -144,6 +144,7 @@ export function PetsGalleryPage(props: {
     [contextMenuTarget?.petId, pets],
   );
   const mode = selectedPet ? "detail" : "gallery";
+  const documentationLabel = `${text.petGallery.title} ${text.sidebar.documentation}`;
 
   React.useEffect(() => {
     if (!navigation) {
@@ -426,14 +427,14 @@ export function PetsGalleryPage(props: {
                   <button
                     type="button"
                     className="wails-no-drag inline-flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45"
-                    onClick={() => setGuideOpen(true)}
-                    aria-label={text.petGallery.generationGuide.action}
+                    onClick={() => props.onOpenDocumentation?.("pets")}
+                    aria-label={documentationLabel}
                   >
                     <HelpCircle className="h-4 w-4" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  {text.petGallery.generationGuide.action}
+                  {documentationLabel}
                 </TooltipContent>
               </Tooltip>
             ) : null}
@@ -524,11 +525,6 @@ export function PetsGalleryPage(props: {
         </div>
       )}
 
-      <GenerationGuideDialog
-        text={text}
-        open={guideOpen}
-        onOpenChange={setGuideOpen}
-      />
       <PetImportDialog
         text={text}
         open={importOpen}
@@ -670,55 +666,6 @@ function PetMetric(props: { label: string; value: string }) {
       <div className="app-pets-metric-label shrink-0">{props.label}</div>
       <div className="app-pets-metric-value min-w-0 truncate font-medium">{props.value}</div>
     </div>
-  );
-}
-
-function GenerationGuideDialog(props: {
-  text: XiaText;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const guide = props.text.petGallery.generationGuide;
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader className="text-left">
-          <DialogTitle>{guide.title}</DialogTitle>
-          <DialogDescription className="sr-only">{guide.title}</DialogDescription>
-        </DialogHeader>
-        <DialogScrollArea className="max-h-[62vh] space-y-4">
-          <section className="grid gap-3 sm:grid-cols-2">
-            {guide.steps.map((step, index) => (
-              <div key={step.title} className="app-pets-guide-step p-4">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="app-pets-guide-index flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
-                    {index + 1}
-                  </span>
-                  <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">{step.title}</h3>
-                </div>
-                <p className="text-sm leading-6 text-muted-foreground">{step.description}</p>
-              </div>
-            ))}
-          </section>
-          <section className="app-pets-guide-tips p-4">
-            <h3 className="text-sm font-semibold text-foreground">{guide.greatPetTitle}</h3>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
-              {guide.greatPetTips.map((tip) => (
-                <li key={tip} className="flex gap-2">
-                  <span className="app-pets-guide-bullet mt-2 h-1.5 w-1.5 shrink-0 rounded-full" />
-                  <span>{tip}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </DialogScrollArea>
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button type="button" variant="default">{props.text.actions.close}</Button>
-          </DialogClose>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

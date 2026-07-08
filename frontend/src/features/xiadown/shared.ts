@@ -232,6 +232,7 @@ function buildText(language: SupportedLanguage) {
       newTranscode: t("xiadown.sidebar.newTranscode", language),
       profileHint: t("xiadown.sidebar.profileHint", language),
       openDownloads: t("xiadown.sidebar.openDownloads", language),
+      documentation: t("xiadown.sidebar.documentation", language),
       appUpdate: t("xiadown.sidebar.appUpdate", language),
       dependencyUpdate: t("xiadown.sidebar.dependencyUpdate", language),
     },
