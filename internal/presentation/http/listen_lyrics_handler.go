@@ -19,16 +19,26 @@ type listenYouTubeMusicLyricsClient interface {
 	TrackLyrics(ctx context.Context, info youtubemusic.LyricsSearchInfo) (youtubemusic.LyricsResult, error)
 }
 
+type listenYouTubeMusicLyricsCandidateClient interface {
+	SearchLyricsCandidates(ctx context.Context, info youtubemusic.LyricsSearchInfo) ([]youtubemusic.LyricsCandidate, error)
+	TrackLyricsCandidate(ctx context.Context, providerID string, providerTrackID string, plainOnly bool) (youtubemusic.LyricsResult, error)
+}
+
 type ListenLyricsHandler struct {
 	ytMusic listenYouTubeMusicLyricsClient
 }
 
 type ListenLyricsResponse struct {
-	VideoID string                   `json:"videoId"`
-	Kind    string                   `json:"kind"`
-	Source  string                   `json:"source,omitempty"`
-	Text    string                   `json:"text,omitempty"`
-	Lines   []youtubemusic.LyricLine `json:"lines,omitempty"`
+	VideoID         string                   `json:"videoId"`
+	Kind            string                   `json:"kind"`
+	Source          string                   `json:"source,omitempty"`
+	ProviderID      string                   `json:"providerId,omitempty"`
+	ProviderTrackID string                   `json:"providerTrackId,omitempty"`
+	Attribution     string                   `json:"attribution,omitempty"`
+	TimingQuality   string                   `json:"timingQuality,omitempty"`
+	Confidence      int                      `json:"confidence,omitempty"`
+	Text            string                   `json:"text,omitempty"`
+	Lines           []youtubemusic.LyricLine `json:"lines,omitempty"`
 }
 
 func NewListenLyricsHandler(ytMusic listenYouTubeMusicLyricsClient) *ListenLyricsHandler {
@@ -46,6 +56,15 @@ func (handler *ListenLyricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		return
 	}
 	setCORSHeaders(w, r)
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	if strings.HasSuffix(path, "/candidates") {
+		handler.serveCandidates(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/candidate") {
+		handler.serveCandidate(w, r)
+		return
+	}
 
 	if handler.ytMusic == nil {
 		writeListenLyricsError(
@@ -63,6 +82,7 @@ func (handler *ListenLyricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 	videoID := strings.TrimSpace(r.URL.Query().Get("id"))
 	title := strings.TrimSpace(r.URL.Query().Get("title"))
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	album := strings.TrimSpace(r.URL.Query().Get("album"))
 	if videoID != "" && !youtubeVideoIDPattern.MatchString(videoID) {
 		writeListenLyricsError(
 			w,
@@ -97,6 +117,7 @@ func (handler *ListenLyricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		VideoID:         videoID,
 		Title:           title,
 		Artist:          artist,
+		Album:           album,
 		DurationSeconds: durationSeconds,
 		PlainOnly:       plainOnly,
 	})
@@ -113,13 +134,84 @@ func (handler *ListenLyricsHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	writeListenLyricsJSON(w, r, ListenLyricsResponse{
-		VideoID: listenLyricsResponseID(videoID, r.URL.Query().Get("key"), title, artist),
-		Kind:    strings.TrimSpace(result.Kind),
-		Source:  strings.TrimSpace(result.Source),
-		Text:    result.Text,
-		Lines:   result.Lines,
-	})
+	writeListenLyricsJSON(w, r, listenLyricsResponseFromResult(
+		listenLyricsResponseID(videoID, r.URL.Query().Get("key"), title, artist),
+		result,
+	))
+}
+
+func (handler *ListenLyricsHandler) serveCandidates(w http.ResponseWriter, r *http.Request) {
+	client, ok := handler.ytMusic.(listenYouTubeMusicLyricsCandidateClient)
+	if !ok {
+		writeListenLyricsError(w, r, http.StatusServiceUnavailable, "lyrics_candidate_search_unavailable", "Lyrics candidate search unavailable.", "", true)
+		return
+	}
+	info, ok := listenLyricsSearchInfoFromRequest(r)
+	if !ok {
+		writeListenLyricsError(w, r, http.StatusBadRequest, "invalid_lyrics_query", "Track title is required.", "", false)
+		return
+	}
+	ctx, cancel := context.WithTimeout(listenRequestContextWithLocale(r.Context(), r), listenLyricsTimeout)
+	defer cancel()
+	candidates, err := client.SearchLyricsCandidates(ctx, info)
+	if err != nil {
+		writeListenLyricsError(w, r, listenLyricsErrorHTTPStatus(err), listenLyricsErrorCode(err), listenLyricsErrorMessage(err), strings.TrimSpace(err.Error()), listenLyricsErrorRetryable(err))
+		return
+	}
+	writeListenLyricsJSON(w, r, candidates)
+}
+
+func (handler *ListenLyricsHandler) serveCandidate(w http.ResponseWriter, r *http.Request) {
+	client, ok := handler.ytMusic.(listenYouTubeMusicLyricsCandidateClient)
+	if !ok {
+		writeListenLyricsError(w, r, http.StatusServiceUnavailable, "lyrics_candidate_preview_unavailable", "Lyrics candidate preview unavailable.", "", true)
+		return
+	}
+	providerID := strings.TrimSpace(r.URL.Query().Get("provider"))
+	providerTrackID := strings.TrimSpace(r.URL.Query().Get("providerTrackId"))
+	if providerID == "" || providerTrackID == "" {
+		writeListenLyricsError(w, r, http.StatusBadRequest, "invalid_lyrics_candidate", "Lyrics candidate identity is required.", "", false)
+		return
+	}
+	ctx, cancel := context.WithTimeout(listenRequestContextWithLocale(r.Context(), r), listenLyricsTimeout)
+	defer cancel()
+	result, err := client.TrackLyricsCandidate(ctx, providerID, providerTrackID, listenLyricsPlainOnly(r))
+	if err != nil {
+		writeListenLyricsError(w, r, listenLyricsErrorHTTPStatus(err), listenLyricsErrorCode(err), listenLyricsErrorMessage(err), strings.TrimSpace(err.Error()), listenLyricsErrorRetryable(err))
+		return
+	}
+	writeListenLyricsJSON(w, r, listenLyricsResponseFromResult(
+		listenLyricsResponseID(r.URL.Query().Get("id"), r.URL.Query().Get("key"), r.URL.Query().Get("title"), r.URL.Query().Get("artist")),
+		result,
+	))
+}
+
+func listenLyricsSearchInfoFromRequest(r *http.Request) (youtubemusic.LyricsSearchInfo, bool) {
+	durationSeconds, _ := strconv.ParseFloat(strings.TrimSpace(r.URL.Query().Get("duration")), 64)
+	info := youtubemusic.LyricsSearchInfo{
+		VideoID:         strings.TrimSpace(r.URL.Query().Get("id")),
+		Title:           strings.TrimSpace(r.URL.Query().Get("title")),
+		Artist:          strings.TrimSpace(r.URL.Query().Get("artist")),
+		Album:           strings.TrimSpace(r.URL.Query().Get("album")),
+		DurationSeconds: durationSeconds,
+		PlainOnly:       listenLyricsPlainOnly(r),
+	}
+	return info, info.Title != ""
+}
+
+func listenLyricsResponseFromResult(videoID string, result youtubemusic.LyricsResult) ListenLyricsResponse {
+	return ListenLyricsResponse{
+		VideoID:         strings.TrimSpace(videoID),
+		Kind:            strings.TrimSpace(result.Kind),
+		Source:          strings.TrimSpace(result.Source),
+		ProviderID:      strings.TrimSpace(result.ProviderID),
+		ProviderTrackID: strings.TrimSpace(result.ProviderTrackID),
+		Attribution:     strings.TrimSpace(result.Attribution),
+		TimingQuality:   strings.TrimSpace(result.TimingQuality),
+		Confidence:      result.Confidence,
+		Text:            result.Text,
+		Lines:           result.Lines,
+	}
 }
 
 func listenLyricsPlainOnly(r *http.Request) bool {
@@ -168,6 +260,8 @@ func listenLyricsErrorCode(err error) string {
 		return "youtube_timeout"
 	case isListenLyricsNetworkError(err):
 		return "youtube_network_unavailable"
+	case isListenLyricsTransientStatusError(err):
+		return "lyrics_provider_transient"
 	default:
 		return "lyrics_unavailable"
 	}
@@ -194,6 +288,8 @@ func listenLyricsErrorMessage(err error) string {
 		return "YouTube Music lyrics request timed out."
 	case isListenLyricsNetworkError(err):
 		return "YouTube Music lyrics network unavailable."
+	case isListenLyricsTransientStatusError(err):
+		return "Lyrics provider is temporarily unavailable."
 	default:
 		return "YouTube Music lyrics unavailable."
 	}
@@ -263,11 +359,12 @@ func isListenLyricsTransientStatusError(err error) bool {
 		return false
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
-	return strings.Contains(lower, "youtube music api status 429") ||
-		strings.Contains(lower, "youtube music api status 500") ||
-		strings.Contains(lower, "youtube music api status 502") ||
-		strings.Contains(lower, "youtube music api status 503") ||
-		strings.Contains(lower, "youtube music api status 504")
+	for _, status := range []string{"status 429", "status 500", "status 502", "status 503", "status 504"} {
+		if strings.Contains(lower, status) {
+			return true
+		}
+	}
+	return strings.Contains(lower, "lrclib response invalid")
 }
 
 func writeListenLyricsError(w http.ResponseWriter, r *http.Request, status int, code string, message string, detail string, retryable bool) {

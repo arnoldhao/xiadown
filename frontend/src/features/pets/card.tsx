@@ -2,10 +2,6 @@ import * as React from "react";
 
 import type { Pet } from "@/shared/contracts/pets";
 import { cn } from "@/lib/utils";
-import {
-  PET_GALLERY_CARD_SIZE_CLASS,
-  resolvePetCardLighting,
-} from "@/shared/styles/xiadown";
 import { PetDisplay } from "@/shared/ui/pet-player";
 
 export type LocalPetGalleryCardProps = Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "children"> & {
@@ -25,7 +21,11 @@ export function LocalPetGalleryCard(props: LocalPetGalleryCardProps) {
   } = props;
   const buttonRef = React.useRef<HTMLButtonElement | null>(null);
   const [inView, setInView] = React.useState(false);
-  const lighting = resolvePetCardLighting(pet, isDefault);
+  const lightingVariant = pet.origin === "online"
+    ? "online"
+    : pet.scope === "imported"
+      ? "imported"
+      : "default";
 
   React.useEffect(() => {
     const node = buttonRef.current;
@@ -48,42 +48,18 @@ export function LocalPetGalleryCard(props: LocalPetGalleryCardProps) {
     <button
       ref={buttonRef}
       type={type}
-      className={cn(
-        "app-pets-gallery-card group relative isolate flex flex-col items-center overflow-hidden px-3 pb-3 pt-3 text-center transition duration-200",
-        PET_GALLERY_CARD_SIZE_CLASS,
-        lighting.cardClassName,
-        className,
-      )}
+      className={cn("app-pets-gallery-card", className)}
       data-default={isDefault ? "true" : undefined}
+      data-lighting={lightingVariant}
       {...buttonProps}
     >
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 z-0 rounded-[inherit]",
-          lighting.primaryGlowClassName,
-        )}
-      />
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 z-0 rounded-[inherit]",
-          lighting.directionalWashClassName,
-        )}
-      />
-      <div
-        className={cn(
-          "pointer-events-none absolute inset-0 z-0 rounded-[inherit]",
-          lighting.rimGlowClassName,
-        )}
-      />
-      {lighting.spotlightClassName ? (
-        <div
-          className={cn(
-            "pointer-events-none absolute inset-0 rounded-[inherit]",
-            lighting.spotlightClassName,
-          )}
-        />
+      <div className="app-pets-gallery-card-light app-pets-gallery-card-light--primary" />
+      <div className="app-pets-gallery-card-light app-pets-gallery-card-light--directional" />
+      <div className="app-pets-gallery-card-light app-pets-gallery-card-light--rim" />
+      {isDefault ? (
+        <div className="app-pets-gallery-card-light app-pets-gallery-card-light--spotlight" />
       ) : null}
-      <div className="relative z-20 flex min-h-0 w-full flex-1 items-center justify-center">
+      <div className="app-pets-gallery-card-pet">
         <PetDisplay
           pet={pet}
           imageUrl={imageUrl}
@@ -91,11 +67,10 @@ export function LocalPetGalleryCard(props: LocalPetGalleryCardProps) {
           animation="running"
           animate={inView}
           load={inView}
-          glowClassName={lighting.petGlowClassName}
-          glowStyle={lighting.petGlowStyle}
+          glowVariant={isDefault ? "gallery-default" : undefined}
         />
       </div>
-      <div className="relative z-30 mt-2 w-full truncate px-1 text-sm font-medium leading-5 text-foreground">
+      <div className="app-pets-gallery-card-label">
         {pet.displayName}
       </div>
     </button>

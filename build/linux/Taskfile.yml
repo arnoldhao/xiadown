@@ -12,6 +12,13 @@ vars:
 
   # Docker image for cross-compilation (used when building on non-Linux or no CC available)
   CROSS_IMAGE: wails-cross
+  PACKAGE_VERSION:
+    sh: |
+      if [ -n "${APP_VERSION:-}" ]; then
+        printf '%s' "$APP_VERSION"
+      else
+        awk -F'"' '/^[[:space:]]+version:[[:space:]]*"/ { print $2; exit }' build/config.yml
+      fi
 
 tasks:
   build:
@@ -23,6 +30,7 @@ tasks:
           ARCH: '{{.ARCH}}'
           DEV: '{{.DEV}}'
           OUTPUT: '{{.OUTPUT}}'
+          EXTRA_TAGS: '{{.EXTRA_TAGS}}'
     vars:
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
@@ -48,7 +56,7 @@ tasks:
     vars:
       APP_VERSION:
         sh: 'printf %s "${APP_VERSION:-}"'
-      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s{{if .APP_VERSION}} -X xiadown/internal/app.AppVersion={{.APP_VERSION}}{{end}}"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s{{if .APP_VERSION}} -X xiadown/internal/app.AppVersion={{.APP_VERSION}}{{end}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:
@@ -71,7 +79,7 @@ tasks:
           Docker image '{{.CROSS_IMAGE}}' not found.
           Build it first: wails3 task setup:docker
     cmds:
-      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" "{{.CROSS_IMAGE}}" linux {{.DOCKER_ARCH}}
+      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} "{{.CROSS_IMAGE}}" linux {{.DOCKER_ARCH}}
       - docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
       - mkdir -p {{.BIN_DIR}}
       - mv "bin/{{.APP_NAME}}-linux-{{.DOCKER_ARCH}}" "{{.OUTPUT}}"
@@ -150,16 +158,31 @@ tasks:
 
   generate:deb:
     summary: Creates a deb package
+    env:
+      XIADOWN_PACKAGE_VERSION: '{{.PACKAGE_VERSION}}'
+    preconditions:
+      - sh: '[ -n "{{.PACKAGE_VERSION}}" ]'
+        msg: "A package version is required via APP_VERSION or build/config.yml"
     cmds:
       - wails3 tool package -name "{{.APP_NAME}}" -format deb -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
 
   generate:rpm:
     summary: Creates a rpm package
+    env:
+      XIADOWN_PACKAGE_VERSION: '{{.PACKAGE_VERSION}}'
+    preconditions:
+      - sh: '[ -n "{{.PACKAGE_VERSION}}" ]'
+        msg: "A package version is required via APP_VERSION or build/config.yml"
     cmds:
       - wails3 tool package -name "{{.APP_NAME}}" -format rpm -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
 
   generate:aur:
     summary: Creates a arch linux packager package
+    env:
+      XIADOWN_PACKAGE_VERSION: '{{.PACKAGE_VERSION}}'
+    preconditions:
+      - sh: '[ -n "{{.PACKAGE_VERSION}}" ]'
+        msg: "A package version is required via APP_VERSION or build/config.yml"
     cmds:
       - wails3 tool package -name "{{.APP_NAME}}" -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
 

@@ -94,7 +94,9 @@ func (service *LibraryService) EnsureDefaultTranscodePresets(ctx context.Context
 	if err != nil {
 		return err
 	}
+	existingByID := make(map[string]library.TranscodePreset, len(existing))
 	for _, preset := range existing {
+		existingByID[preset.ID] = preset
 		if !preset.IsBuiltin {
 			continue
 		}
@@ -106,11 +108,36 @@ func (service *LibraryService) EnsureDefaultTranscodePresets(ctx context.Context
 		}
 	}
 	for _, preset := range defaults {
+		if stored, ok := existingByID[preset.ID]; ok && sameTranscodePresetDefinition(stored, preset) {
+			continue
+		}
 		if err := service.presets.Save(ctx, preset); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func sameTranscodePresetDefinition(left library.TranscodePreset, right library.TranscodePreset) bool {
+	return left.ID == right.ID &&
+		left.Name == right.Name &&
+		left.OutputType == right.OutputType &&
+		left.Container == right.Container &&
+		left.VideoCodec == right.VideoCodec &&
+		left.AudioCodec == right.AudioCodec &&
+		left.QualityMode == right.QualityMode &&
+		left.CRF == right.CRF &&
+		left.BitrateKbps == right.BitrateKbps &&
+		left.AudioBitrateKbps == right.AudioBitrateKbps &&
+		left.Scale == right.Scale &&
+		left.Width == right.Width &&
+		left.Height == right.Height &&
+		left.FFmpegPreset == right.FFmpegPreset &&
+		left.AllowUpscale == right.AllowUpscale &&
+		left.RequiresVideo == right.RequiresVideo &&
+		left.RequiresAudio == right.RequiresAudio &&
+		left.IsBuiltin == right.IsBuiltin &&
+		left.Description == right.Description
 }
 
 func (service *LibraryService) ListTranscodePresets(ctx context.Context) ([]dto.TranscodePreset, error) {

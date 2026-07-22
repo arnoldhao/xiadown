@@ -9,6 +9,7 @@ import {
   siTwitch,
   siVimeo,
   siX,
+  siXiaohongshu,
   siYoutube,
 } from "simple-icons";
 
@@ -17,6 +18,8 @@ import { cn } from "@/lib/utils";
 const SITE_BRAND_ICONS = {
   youtube: siYoutube,
   bilibili: siBilibili,
+  douyin: siTiktok,
+  xiaohongshu: siXiaohongshu,
   tiktok: siTiktok,
   instagram: siInstagram,
   x: siX,
@@ -57,14 +60,6 @@ export function siteBrandSurfaceStyle(siteKey?: string): React.CSSProperties | u
   }
   return {
     "--app-session-brand-color-default": color,
-    "--app-session-brand-surface-default": `${color}1A`,
-    "--app-session-brand-ring-default": `${color}33`,
-    backgroundColor:
-      "var(--app-session-brand-surface, var(--app-session-brand-surface-default))",
-    color:
-      "var(--app-session-brand-color, var(--app-session-brand-color-default))",
-    boxShadow:
-      "inset 0 0 0 1px var(--app-session-brand-ring, var(--app-session-brand-ring-default))",
   } as React.CSSProperties;
 }
 
@@ -77,7 +72,7 @@ export function SiteBrandIcon(props: {
   if (normalized === "china_private") {
     return (
       <Panda
-        className={cn("block shrink-0", props.className)}
+        className={cn("app-site-brand-glyph", props.className)}
         aria-hidden="true"
       />
     );
@@ -90,7 +85,12 @@ export function SiteBrandIcon(props: {
     if (props.fallback === "none") {
       return null;
     }
-    return <Globe2 className={props.className} aria-hidden="true" />;
+    return (
+      <Globe2
+        className={cn("app-site-brand-glyph", props.className)}
+        aria-hidden="true"
+      />
+    );
   }
   const color = siteBrandColor(normalized);
   return (
@@ -98,15 +98,15 @@ export function SiteBrandIcon(props: {
       viewBox="0 0 24 24"
       fill="currentColor"
       aria-hidden="true"
-      className={cn("block shrink-0", props.className)}
+      className={cn(
+        "app-site-brand-icon app-site-brand-glyph",
+        props.className,
+      )}
       style={
         color
           ? {
-              color:
-                "var(--app-session-brand-color, var(--app-session-brand-color-default, " +
-                color +
-                "))",
-            }
+              "--app-site-brand-fallback-color": color,
+            } as React.CSSProperties
           : undefined
       }
     >

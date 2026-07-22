@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  resolveVisualizerCanvasForeground,
+  resolveVisualizerCanvasPalette,
+} from "@/app/main/listen/Visualizer";
+import {
   MAX_VISUALIZER_CANVAS_DIMENSION,
   MAX_VISUALIZER_CANVAS_PIXELS,
   artworkPulseAttackSeconds,
@@ -28,6 +32,50 @@ function pulse(overrides: Partial<ArtworkPulseEvent> = {}): ArtworkPulseEvent {
 }
 
 describe("artwork visualizer timing helpers", () => {
+  test("resolves canvas chrome from Dream appearance tokens", async () => {
+    const tokens = new Map([
+      ["--primary", "220 90% 56%"],
+      ["--accent-foreground", "280 80% 62%"],
+      ["--chart-2", "160 62% 48%"],
+      ["--app-media-chrome-foreground", "rgb(255 255 255 / 94%)"],
+      ["--app-media-chrome-foreground-muted", "rgb(255 255 255 / 82%)"],
+    ]);
+    const computed = { color: "CanvasText" } as CSSStyleDeclaration;
+    const rootStyle = {
+      color: "CanvasText",
+      getPropertyValue: (token: string) => tokens.get(token) ?? "",
+    } as unknown as CSSStyleDeclaration;
+
+    expect(resolveVisualizerCanvasPalette(computed, rootStyle)).toEqual({
+      accent: "280 80% 62%",
+      highlight: "rgb(255 255 255 / 94%)",
+      highlightMuted: "rgb(255 255 255 / 82%)",
+      primary: "220 90% 56%",
+      secondary: "160 62% 48%",
+    });
+
+    const source = await Bun.file(new URL("./Visualizer.tsx", import.meta.url)).text();
+    expect(source).toContain('"--app-media-chrome-foreground"');
+    expect(source).toContain('"--app-media-chrome-foreground-muted"');
+    expect(source).not.toMatch(/rgba\(255\s*,\s*255\s*,\s*255/);
+    expect(source).not.toContain('"rgb(59, 130, 246)"');
+    expect(source).not.toContain("--listen-artwork-visualizer-ambient-breath");
+    expect(source).not.toContain("--listen-artwork-visualizer-effect-energy");
+    expect(source).not.toContain("--listen-artwork-visualizer-level");
+    expect(
+      resolveVisualizerCanvasForeground(
+        { color: "" } as CSSStyleDeclaration,
+        { color: "color(display-p3 0.2 0.3 0.4)" } as CSSStyleDeclaration,
+      ),
+    ).toBe("color(display-p3 0.2 0.3 0.4)");
+    expect(
+      resolveVisualizerCanvasForeground(
+        { color: "" } as CSSStyleDeclaration,
+        { color: "" } as CSSStyleDeclaration,
+      ),
+    ).toBe("CanvasText");
+  });
+
   test("estimates audio time with bounded native offset compensation", () => {
     expect(resolveVisualizerAudioTime(12, 1000, 1033, 0.032)).toBeCloseTo(12.065, 6);
     expect(resolveVisualizerAudioTime(12, 1000, 1033, 0.032, 0.021)).toBeCloseTo(12.086, 6);

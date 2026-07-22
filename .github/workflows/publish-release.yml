@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version without v. Leave empty to auto-increment from merged PR labels."
+        description: "Optional stable version without v (x.y.z). Leave blank to calculate it from PR labels."
         required: false
         type: string
 
@@ -13,37 +13,133 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: "1.25.5"
+  GO_VERSION: "1.25.12"
   BUN_VERSION: "1.3.5"
-  WAILS_VERSION: "v3.0.0-alpha.95"
+  WAILS_VERSION: "v3.0.0-alpha2.117"
+  GOVULNCHECK_VERSION: "v1.6.0"
 
 jobs:
   prepare:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-      issues: read
       pull-requests: read
     outputs:
       version: ${{ steps.release.outputs.version }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      release_name: ${{ steps.release.outputs.release_name }}
-      base_tag: ${{ steps.release.outputs.base_tag }}
       head_sha: ${{ steps.release.outputs.head_sha }}
       release_body: ${{ steps.release.outputs.release_body }}
     steps:
+      - name: Validate release source branch
+        shell: bash
+        env:
+          REPOSITORY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          test -n "${REPOSITORY_DEFAULT_BRANCH:-}" || {
+            echo "Repository default branch is unavailable; refusing to release."
+            exit 1
+          }
+          if [[ "${GITHUB_REF_TYPE:-}" != "branch" ]] || \
+             [[ "${GITHUB_REF_NAME:-}" != "$REPOSITORY_DEFAULT_BRANCH" ]] || \
+             [[ "${GITHUB_REF:-}" != "refs/heads/$REPOSITORY_DEFAULT_BRANCH" ]]; then
+            echo "Release dispatch must target the repository default branch '$REPOSITORY_DEFAULT_BRANCH'."
+            echo "Received ref type='${GITHUB_REF_TYPE:-}', name='${GITHUB_REF_NAME:-}', ref='${GITHUB_REF:-}'."
+            exit 1
+          fi
+
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
 
       - name: Prepare release metadata
         id: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ inputs.version }}
-        run: node .github/scripts/prepare-release.mjs
+        run: |
+          node --test .github/scripts/*.test.mjs
+          node .github/scripts/prepare-release.mjs
+
+  release-validation:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout prepared release commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.head_sha }}
+
+      - name: Verify prepared release commit
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          test -n "${EXPECTED_HEAD_SHA:-}" || { echo "Prepared release SHA is empty"; exit 1; }
+          actual_head_sha="$(git rev-parse HEAD)"
+          test "$actual_head_sha" = "$EXPECTED_HEAD_SHA" || {
+            echo "Checked out '$actual_head_sha', expected '$EXPECTED_HEAD_SHA'."
+            exit 1
+          }
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Validate GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install Linux GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Install Wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
+
+      - name: Install frontend deps
+        run: bun install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Generate frontend bindings
+        run: wails3 task common:generate:bindings
+
+      - name: Frontend governance audits
+        run: bun run audit:all
+        working-directory: frontend
+
+      - name: Frontend dependency vulnerability audit
+        run: bun audit
+        working-directory: frontend
+
+      - name: Frontend production build and bundle audit
+        run: bun run build
+        working-directory: frontend
+
+      - name: Frontend unit tests
+        run: bun run test:unit
+        working-directory: frontend
+
+      - name: Go module, vet, and test gates
+        run: |
+          go mod verify
+          go vet ./...
+          go test ./... -count=1
 
   macos:
-    needs: prepare
+    needs:
+      - prepare
+      - release-validation
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -61,7 +157,7 @@ jobs:
       TELEMETRYDECK_APP_ID: ${{ secrets.TELEMETRYDECK_APP_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.prepare.outputs.head_sha }}
 
@@ -83,42 +179,32 @@ jobs:
           test -n "${APPLE_TEAM_ID:-}" || { echo "APPLE_TEAM_ID is required"; exit 1; }
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install Wails3 CLI
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
-      - name: Sync build metadata
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          import pathlib
-          import re
-
-          version = os.environ["VERSION"]
-          path = pathlib.Path("build/config.yml")
-          text = path.read_text(encoding="utf-8")
-          text, count = re.subn(r'(?m)^(\s*version:\s*")[^"]+(".*)$', rf'\g<1>{version}\g<2>', text, count=1)
-          if count != 1:
-              raise SystemExit("build/config.yml info.version not found")
-          path.write_text(text, encoding="utf-8")
-          PY
-          wails3 task common:update:build-assets
-
       - name: Install frontend deps
-        run: bun install --frozen-lockfile
         working-directory: frontend
+        run: |
+          bun install --frozen-lockfile
+          bun scripts/prepare-wails-deps.mjs
 
       - name: Build app
         run: wails3 task darwin:package
+
+      - name: Audit production binary vulnerabilities
+        shell: bash
+        run: |
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          govulncheck -mode=binary bin/xiadown
 
       - name: Inspect build metadata
         shell: bash
@@ -130,7 +216,17 @@ jobs:
           echo "Binary build metadata:"
           otool -l bin/xiadown | grep -A3 -B1 LC_BUILD_VERSION
           echo "Bundle minimum OS version:"
-          plutil -p bin/XiaDown.app/Contents/Info.plist | grep LSMinimumSystemVersion
+          plist_minimum="$(plutil -extract LSMinimumSystemVersion raw -o - bin/XiaDown.app/Contents/Info.plist)"
+          test "$plist_minimum" = "14.0.0" || {
+            echo "Expected bundle minimum macOS 14.0.0, got '$plist_minimum'."
+            exit 1
+          }
+          binary_minimum="$(otool -l bin/xiadown | awk '$1 == "minos" { print $2 }' | sort -u)"
+          test "$binary_minimum" = "14.0" || {
+            echo "Expected Mach-O minimum macOS 14.0, got '$binary_minimum'."
+            exit 1
+          }
+          printf 'LSMinimumSystemVersion=%s\nMach-O minos=%s\n' "$plist_minimum" "$binary_minimum"
 
       - name: Import Developer ID certificate
         shell: bash
@@ -161,9 +257,11 @@ jobs:
           identity_name="$(security find-identity -v -p codesigning "$keychain_path" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
           test -n "$identity_hash" || { echo "Developer ID Application identity not found"; exit 1; }
           echo "Using signing identity: $identity_name"
-          echo "SIGN_IDENTITY=$identity_hash" >> "$GITHUB_ENV"
-          echo "SIGN_KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
-          echo "SIGN_KEYCHAIN_PASSWORD=$keychain_password" >> "$GITHUB_ENV"
+          {
+            echo "SIGN_IDENTITY=$identity_hash"
+            echo "SIGN_KEYCHAIN_PATH=$keychain_path"
+            echo "SIGN_KEYCHAIN_PASSWORD=$keychain_password"
+          } >> "$GITHUB_ENV"
 
       - name: Sign and notarize app
         shell: bash
@@ -245,7 +343,7 @@ jobs:
         run: ls -la dist
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-artifacts-${{ matrix.artifact_suffix }}
           path: |
@@ -264,7 +362,9 @@ jobs:
           fi
 
   windows:
-    needs: prepare
+    needs:
+      - prepare
+      - release-validation
     runs-on: windows-latest
     permissions:
       contents: read
@@ -274,7 +374,7 @@ jobs:
       TELEMETRYDECK_APP_ID: ${{ secrets.TELEMETRYDECK_APP_ID }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.prepare.outputs.head_sha }}
 
@@ -284,42 +384,27 @@ jobs:
           test -n "${TELEMETRYDECK_APP_ID:-}" || { echo "TELEMETRYDECK_APP_ID is required"; exit 1; }
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Install Wails3 CLI
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
-      - name: Sync build metadata
+      - name: Install frontend deps
+        working-directory: frontend
         shell: bash
         run: |
-          python - <<'PY'
-          import os
-          import pathlib
-          import re
-
-          version = os.environ["VERSION"]
-          path = pathlib.Path("build/config.yml")
-          text = path.read_text(encoding="utf-8")
-          text, count = re.subn(r'(?m)^(\s*version:\s*")[^"]+(".*)$', rf'\g<1>{version}\g<2>', text, count=1)
-          if count != 1:
-              raise SystemExit("build/config.yml info.version not found")
-          path.write_text(text, encoding="utf-8")
-          PY
-          wails3 task common:update:build-assets
-
-      - name: Install frontend deps
-        run: bun install --frozen-lockfile
-        working-directory: frontend
+          bun install --frozen-lockfile
+          bun scripts/prepare-wails-deps.mjs
 
       - name: Install NSIS
-        uses: crazy-max/ghaction-chocolatey@v2
+        uses: crazy-max/ghaction-chocolatey@dfdcf5bba9c0a16358a21c13a06ec5c89024b3ac # v4.1.0
         with:
           args: install nsis
 
@@ -334,6 +419,12 @@ jobs:
 
       - name: Build app
         run: wails3 task windows:package
+
+      - name: Audit production binary vulnerabilities
+        shell: bash
+        run: |
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          govulncheck -mode=binary bin/xiadown.exe
 
       - name: Prepare artifacts
         shell: pwsh
@@ -361,7 +452,7 @@ jobs:
         run: Get-ChildItem dist | Format-Table Name,Length,LastWriteTime
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-artifacts
           path: |
@@ -374,6 +465,7 @@ jobs:
   publish:
     needs:
       - prepare
+      - release-validation
       - macos
       - windows
     runs-on: ubuntu-24.04
@@ -383,17 +475,16 @@ jobs:
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
       TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
-      RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
       HEAD_SHA: ${{ needs.prepare.outputs.head_sha }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ env.HEAD_SHA }}
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: release-assets
           merge-multiple: true
@@ -447,7 +538,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release create "$TAG_NAME" release-assets/* \
-            --title "$RELEASE_NAME" \
+            --title "$TAG_NAME" \
             --notes-file release-notes.md \
             --target "$HEAD_SHA" \
             --draft

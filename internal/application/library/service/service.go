@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +43,29 @@ type ToolResolver interface {
 	DependencyReadiness(ctx context.Context, name dependencies.DependencyName) (bool, string, error)
 }
 
-type Telemetry interface {
-	TrackLibraryOperationCompleted(ctx context.Context, operationID string, kind string)
+// CatalogProjectionRunner keeps the Catalog view synchronized with the
+// durable LibraryFile registry. LibraryFile remains the retry source if a
+// projection attempt is interrupted after the physical record is committed.
+type CatalogProjectionRunner interface {
+	Run(ctx context.Context) (CatalogBackfillResult, error)
+}
+
+type scopedCatalogProjectionRunner interface {
+	RunLibrary(ctx context.Context, libraryID string) (CatalogBackfillResult, error)
+}
+
+type databaseIntegrityStatusProvider func() (state, checkedAt, detail string)
+
+// listenLocalCatalogMetadataSynchronizer updates the user-facing Catalog item
+// after embedded audio tags have been committed to a legacy LibraryFile. The
+// catalog projection owns stable file-to-item associations, while this
+// boundary owns the mutable title/artist fields shown throughout Library.
+type listenLocalCatalogMetadataSynchronizer interface {
+	SyncListenLocalTrackMetadata(
+		ctx context.Context,
+		file library.LibraryFile,
+		metadata dto.UpdateListenLocalTrackMetadataRequest,
+	) error
 }
 
 type LibraryService struct {
@@ -51,6 +73,8 @@ type LibraryService struct {
 	moduleConfig             library.ModuleConfigRepository
 	files                    library.FileRepository
 	localTracks              library.ListenLocalTrackRepository
+	localPlaylists           library.ListenLocalPlaylistRepository
+	localMusicMemberships    library.ListenLocalMusicMembershipRepository
 	operations               library.OperationRepository
 	processes                library.ExternalProcessRepository
 	operationChunks          library.OperationChunkRepository
@@ -65,29 +89,60 @@ type LibraryService struct {
 	proxyClient              any
 	appSessions              appSessionReader
 	bus                      events.Bus
-	telemetry                Telemetry
+	databaseIntegrity        databaseIntegrityStatusProvider
+	catalogProjection        CatalogProjectionRunner
+	catalogMetadataSync      listenLocalCatalogMetadataSynchronizer
 	nowFunc                  func() time.Time
 	runMu                    sync.Mutex
 	runCancels               map[string]context.CancelFunc
 	runDone                  map[string]chan struct{}
-	downloadSchedulerMu      sync.Mutex
-	downloadSchedulerActive  map[string]struct{}
-	downloadSchedulerRunning bool
-	downloadSchedulerPending bool
-	resourceSniffLifecycleMu sync.Mutex
-	resourceSniffMu          sync.Mutex
-	resourceSniffs           map[string]*resourceSniffSession
-	resourcePreviewLeases    map[string]resourceSniffPreviewLease
-	resourceMedia            map[string]resourceMedia
+	localPlaylistMutationMu  sync.Mutex
+	musicIOSRepresentationMu sync.Mutex
+	// operationOutputMutationMu serializes operation read/modify/write paths
+	// which carry the complete output snapshot, including output detach/delete
+	// and title rename. Sharing one lock prevents either path from restoring a
+	// stale sibling snapshot or recording the wrong pre-mutation activity.
+	operationOutputMutationMu sync.Mutex
+	// localTrackMutationMu serializes every mutation of a single local-track
+	// record (including its backing path) without turning a full index refresh
+	// into a single-threaded operation. Access it through
+	// lockListenLocalTrackMutation; direct locking would break the stable shard
+	// ordering used by bulk maintenance operations.
+	localTrackMutationMu      [listenLocalTrackMutationShardCount]sync.Mutex
+	localMetadataWriter       func(context.Context, string, dto.UpdateListenLocalTrackMetadataRequest) error
+	downloadSchedulerMu       sync.Mutex
+	downloadSchedulerActive   map[string]struct{}
+	downloadSchedulerRunning  bool
+	downloadSchedulerPending  bool
+	downloadSchedulerDone     chan struct{}
+	shuttingDown              bool
+	resourceSniffLifecycleMu  sync.Mutex
+	resourceSniffMu           sync.Mutex
+	resourceSniffs            map[string]*resourceSniffSession
+	resourcePreviewLeases     map[string]resourceSniffPreviewLease
+	resourceMedia             map[string]resourceMedia
+	resourceMediaMeta         map[string]resourceMediaSnapshotMetadata
+	resourceMediaCleanupTimer *time.Timer
 }
 
 const operationErrorCodeAppInterrupted = "app_interrupted"
+
+// SetDatabaseIntegrityStatusProvider connects the infrastructure-owned
+// background SQLite check to the Library maintenance read model. Keeping this
+// as a narrow callback avoids coupling application services to persistence.
+func (service *LibraryService) SetDatabaseIntegrityStatusProvider(provider func() (state, checkedAt, detail string)) {
+	if service == nil {
+		return
+	}
+	service.databaseIntegrity = provider
+}
 
 func NewLibraryService(
 	libraries library.LibraryRepository,
 	moduleConfig library.ModuleConfigRepository,
 	files library.FileRepository,
 	localTracks library.ListenLocalTrackRepository,
+	localPlaylists library.ListenLocalPlaylistRepository,
 	operations library.OperationRepository,
 	processes library.ExternalProcessRepository,
 	operationChunks library.OperationChunkRepository,
@@ -102,13 +157,13 @@ func NewLibraryService(
 	proxyClient any,
 	appSessions appSessionReader,
 	bus events.Bus,
-	telemetry Telemetry,
 ) *LibraryService {
 	return &LibraryService{
 		libraries:               libraries,
 		moduleConfig:            moduleConfig,
 		files:                   files,
 		localTracks:             localTracks,
+		localPlaylists:          localPlaylists,
 		operations:              operations,
 		processes:               processes,
 		operationChunks:         operationChunks,
@@ -123,13 +178,13 @@ func NewLibraryService(
 		proxyClient:             proxyClient,
 		appSessions:             appSessions,
 		bus:                     bus,
-		telemetry:               telemetry,
 		runCancels:              make(map[string]context.CancelFunc),
 		runDone:                 make(map[string]chan struct{}),
 		downloadSchedulerActive: make(map[string]struct{}),
 		resourceSniffs:          make(map[string]*resourceSniffSession),
 		resourcePreviewLeases:   make(map[string]resourceSniffPreviewLease),
 		resourceMedia:           make(map[string]resourceMedia),
+		resourceMediaMeta:       make(map[string]resourceMediaSnapshotMetadata),
 		nowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
@@ -143,14 +198,156 @@ func (service *LibraryService) now() time.Time {
 	return service.nowFunc().UTC()
 }
 
-func (service *LibraryService) saveAndPublishOperation(ctx context.Context, operation library.LibraryOperation) error {
-	if service == nil || service.operations == nil {
+// HasActiveDataOperations is the cleanup barrier used by Settings data
+// management. It intentionally reports both download/transcode work and an
+// active sniff runtime so executable/profile directories are never moved out
+// from underneath a writer.
+func (service *LibraryService) HasActiveDataOperations() bool {
+	if service == nil {
+		return false
+	}
+	service.runMu.Lock()
+	activeRuns := len(service.runCancels) > 0
+	service.runMu.Unlock()
+	service.downloadSchedulerMu.Lock()
+	activeRuns = activeRuns || service.downloadSchedulerRunning || len(service.downloadSchedulerActive) > 0
+	service.downloadSchedulerMu.Unlock()
+	service.resourceSniffMu.Lock()
+	activeSniffs := len(service.resourceSniffs) > 0
+	service.resourceSniffMu.Unlock()
+	return activeRuns || activeSniffs
+}
+
+func (service *LibraryService) ActiveResourceSniffProfileIDs() []string {
+	if service == nil {
+		return []string{}
+	}
+	service.resourceSniffMu.Lock()
+	defer service.resourceSniffMu.Unlock()
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(service.resourceSniffs))
+	for _, session := range service.resourceSniffs {
+		if session == nil {
+			continue
+		}
+		profileID := strings.TrimSpace(session.ProfileID)
+		if profileID == "" {
+			continue
+		}
+		if _, duplicate := seen[profileID]; duplicate {
+			continue
+		}
+		seen[profileID] = struct{}{}
+		result = append(result, profileID)
+	}
+	sort.Strings(result)
+	return result
+}
+
+func (service *LibraryService) SetCatalogProjectionRunner(runner CatalogProjectionRunner) {
+	if service == nil {
+		return
+	}
+	service.catalogProjection = runner
+}
+
+func (service *LibraryService) SetListenLocalCatalogMetadataSynchronizer(
+	synchronizer listenLocalCatalogMetadataSynchronizer,
+) {
+	if service == nil {
+		return
+	}
+	service.catalogMetadataSync = synchronizer
+}
+
+func (service *LibraryService) SetListenLocalMusicMembershipRepository(
+	repository library.ListenLocalMusicMembershipRepository,
+) {
+	if service == nil {
+		return
+	}
+	service.localMusicMemberships = repository
+}
+
+func (service *LibraryService) syncCatalogProjection(ctx context.Context, libraryIDs ...string) error {
+	if service == nil || service.catalogProjection == nil {
+		return nil
+	}
+	uniqueLibraryIDs := make([]string, 0, len(libraryIDs))
+	seenLibraryIDs := make(map[string]struct{}, len(libraryIDs))
+	for _, libraryID := range libraryIDs {
+		libraryID = strings.TrimSpace(libraryID)
+		if libraryID == "" {
+			continue
+		}
+		if _, duplicate := seenLibraryIDs[libraryID]; duplicate {
+			continue
+		}
+		seenLibraryIDs[libraryID] = struct{}{}
+		uniqueLibraryIDs = append(uniqueLibraryIDs, libraryID)
+	}
+	run := service.catalogProjection.Run
+	if scoped, ok := service.catalogProjection.(scopedCatalogProjectionRunner); ok && len(uniqueLibraryIDs) > 0 {
+		for _, libraryID := range uniqueLibraryIDs {
+			if err := retryCatalogProjection(ctx, func(ctx context.Context) error {
+				_, err := scoped.RunLibrary(ctx, libraryID)
+				return err
+			}); err != nil {
+				return fmt.Errorf("synchronize library catalog projection for %q: %w", libraryID, err)
+			}
+		}
+		return nil
+	}
+	if err := retryCatalogProjection(ctx, func(ctx context.Context) error {
+		_, err := run(ctx)
+		return err
+	}); err != nil {
+		return fmt.Errorf("synchronize library catalog projection: %w", err)
+	}
+	return nil
+}
+
+func retryCatalogProjection(ctx context.Context, run func(context.Context) error) error {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := run(ctx); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return lastErr
+}
+
+func libraryFileLibraryIDs(items []library.LibraryFile) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		result = append(result, item.LibraryID)
+	}
+	return result
+}
+
+func (service *LibraryService) saveAndPublishOperation(ctx context.Context, operation *library.LibraryOperation) error {
+	if service == nil || service.operations == nil || operation == nil {
 		return fmt.Errorf("operation repository not configured")
 	}
-	if err := service.operations.Save(ctx, operation); err != nil {
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
+	return service.saveAndPublishOperationLocked(ctx, operation)
+}
+
+func (service *LibraryService) saveAndPublishOperationLocked(ctx context.Context, operation *library.LibraryOperation) error {
+	service.reconcileBackgroundOperationDisplayNameLocked(ctx, operation, false)
+	if err := service.operations.Save(ctx, *operation); err != nil {
 		return err
 	}
-	service.publishOperationUpdate(toOperationDTO(operation))
+	if committed, err := service.operations.Get(ctx, operation.ID); err == nil {
+		operation.DisplayName = committed.DisplayName
+	}
+	service.publishOperationUpdate(toOperationDTO(*operation))
 	return nil
 }
 
@@ -164,6 +361,9 @@ func (service *LibraryService) registerOperationRun(operationID string, cancel c
 	}
 	service.runMu.Lock()
 	defer service.runMu.Unlock()
+	if service.shuttingDown {
+		return false
+	}
 	if service.runCancels == nil {
 		service.runCancels = make(map[string]context.CancelFunc)
 	}
@@ -176,6 +376,28 @@ func (service *LibraryService) registerOperationRun(operationID string, cancel c
 	service.runCancels[trimmed] = cancel
 	service.runDone[trimmed] = make(chan struct{})
 	return true
+}
+
+// BeginShutdown closes the task-admission gate before transports are drained.
+// Existing operations remain cancellable, while any request which raced with
+// shutdown can at most leave a durable queued operation for next-launch
+// recovery; it can no longer start a child process after the shutdown snapshot.
+func (service *LibraryService) BeginShutdown() {
+	if service == nil {
+		return
+	}
+	service.runMu.Lock()
+	service.shuttingDown = true
+	service.runMu.Unlock()
+}
+
+func (service *LibraryService) isShuttingDown() bool {
+	if service == nil {
+		return true
+	}
+	service.runMu.Lock()
+	defer service.runMu.Unlock()
+	return service.shuttingDown
 }
 
 func (service *LibraryService) unregisterOperationRun(operationID string) {
@@ -221,6 +443,8 @@ func (service *LibraryService) ShutdownActiveRuns(ctx context.Context) int {
 	if service == nil {
 		return 0
 	}
+	service.BeginShutdown()
+	service.waitDownloadScheduler(ctx)
 	service.runMu.Lock()
 	cancels := make([]context.CancelFunc, 0, len(service.runCancels))
 	dones := make([]chan struct{}, 0, len(service.runDone))
@@ -321,47 +545,34 @@ func (service *LibraryService) markInterruptedOperation(ctx context.Context, ope
 		progressTotal(operation.Progress),
 		progressText("library.progressDetail.operationInterrupted"),
 	)
-	if err := service.operations.Save(ctx, operation); err != nil {
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
+	if err := service.saveAndPublishOperationLocked(ctx, &operation); err != nil {
 		return
 	}
-	service.publishOperationUpdate(toOperationDTO(operation))
-
-	history, ok := service.findHistoryByOperationID(ctx, operation.LibraryID, operation.ID)
-	if !ok {
-		return
-	}
-	history.Status = string(operation.Status)
-	history.DisplayName = operation.DisplayName
-	history.Files = operation.OutputFiles
-	history.Metrics = operation.Metrics
-	history.OperationMeta = &library.OperationRecordMeta{
-		Kind:         operation.Kind,
-		ErrorCode:    operation.ErrorCode,
-		ErrorMessage: operation.ErrorMessage,
-	}
-	history.OccurredAt = now
-	history.UpdatedAt = now
-	if err := service.histories.Save(ctx, history); err != nil {
-		return
-	}
-	service.publishHistoryUpdate(toHistoryDTO(history))
+	_ = service.syncPrimaryOperationHistoryLocked(ctx, operation, now)
 }
 
-func (service *LibraryService) findHistoryByOperationID(ctx context.Context, libraryID string, operationID string) (library.HistoryRecord, bool) {
+func (service *LibraryService) findHistoryByOperationID(
+	ctx context.Context,
+	libraryID string,
+	operationID string,
+) (library.HistoryRecord, bool, error) {
 	if service == nil || service.histories == nil {
-		return library.HistoryRecord{}, false
+		return library.HistoryRecord{}, false, nil
 	}
 	histories, err := service.histories.ListByLibraryID(ctx, strings.TrimSpace(libraryID))
 	if err != nil {
-		return library.HistoryRecord{}, false
+		return library.HistoryRecord{}, false, err
 	}
 	trimmedOperationID := strings.TrimSpace(operationID)
 	for _, history := range histories {
-		if history.Refs.OperationID == trimmedOperationID {
-			return history, true
+		if history.Category == operationHistoryCategory &&
+			(history.Refs.OperationID == trimmedOperationID || history.Refs.SubjectOperationID == trimmedOperationID) {
+			return history, true, nil
 		}
 	}
-	return library.HistoryRecord{}, false
+	return library.HistoryRecord{}, false, nil
 }
 
 func (service *LibraryService) findOrRebuildOperationHistory(ctx context.Context, operation library.LibraryOperation, request dto.CreateYTDLPJobRequest) (library.HistoryRecord, error) {
@@ -371,7 +582,8 @@ func (service *LibraryService) findOrRebuildOperationHistory(ctx context.Context
 	histories, err := service.histories.ListByLibraryID(ctx, operation.LibraryID)
 	if err == nil {
 		for _, history := range histories {
-			if history.Refs.OperationID == operation.ID {
+			if history.Category == operationHistoryCategory &&
+				(history.Refs.OperationID == operation.ID || history.Refs.SubjectOperationID == operation.ID) {
 				return history, nil
 			}
 		}
@@ -389,7 +601,10 @@ func (service *LibraryService) findOrRebuildOperationHistory(ctx context.Context
 			Caller: strings.TrimSpace(request.Caller),
 			RunID:  strings.TrimSpace(request.RunID),
 		},
-		Refs:    library.HistoryRecordRefs{OperationID: operation.ID},
+		Refs: library.HistoryRecordRefs{
+			OperationID:        operation.ID,
+			SubjectOperationID: operation.ID,
+		},
 		Files:   operation.OutputFiles,
 		Metrics: operation.Metrics,
 		OperationMeta: &library.OperationRecordMeta{
@@ -571,6 +786,14 @@ func (service *LibraryService) RenameOperation(ctx context.Context, request dto.
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
+	service.operationOutputMutationMu.Lock()
+	unlock := service.operationOutputMutationMu.Unlock
+	lockReleased := false
+	defer func() {
+		if !lockReleased {
+			unlock()
+		}
+	}()
 	item, err := service.operations.Get(ctx, operationID)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
@@ -579,26 +802,68 @@ func (service *LibraryService) RenameOperation(ctx context.Context, request dto.
 		return toOperationDTO(item), nil
 	}
 
+	before := item
 	item.DisplayName = name
-	if err := service.operations.Save(ctx, item); err != nil {
-		return dto.LibraryOperationDTO{}, err
-	}
-
 	now := service.now()
-	if history, ok := service.findHistoryByOperationID(ctx, item.LibraryID, item.ID); ok {
+	var historyBefore *library.HistoryRecord
+	var historyAfter *library.HistoryRecord
+	history, historyFound, historyErr := service.findHistoryByOperationID(ctx, item.LibraryID, item.ID)
+	if historyErr != nil {
+		return dto.LibraryOperationDTO{}, historyErr
+	}
+	if historyFound {
+		beforeSnapshot := history
 		history.DisplayName = name
 		history.UpdatedAt = now
-		if err := service.histories.Save(ctx, history); err != nil {
-			return dto.LibraryOperationDTO{}, err
-		}
-		service.publishHistoryUpdate(toHistoryDTO(history))
+		afterSnapshot := history
+		historyBefore = &beforeSnapshot
+		historyAfter = &afterSnapshot
 	}
-	if err := service.touchLibrary(ctx, item.LibraryID, now); err != nil {
+	var renameEvent library.HistoryRecord
+	if service.histories != nil {
+		var eventErr error
+		renameEvent, eventErr = service.newOperationLifecycleEvent(before, operationEventRenamed, now)
+		if eventErr != nil {
+			return dto.LibraryOperationDTO{}, eventErr
+		}
+	}
+	if err := service.saveOperationRenameWithHistoryEvent(
+		ctx,
+		before,
+		item,
+		historyBefore,
+		historyAfter,
+		renameEvent,
+	); err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
-
-	operationDTO := toOperationDTO(item)
+	_, usedAtomicRename := service.operations.(operationHistoryEventAtomicRepository)
+	if historyAfter != nil {
+		committedHistory := *historyAfter
+		if usedAtomicRename {
+			if current, getErr := service.histories.Get(ctx, historyAfter.ID); getErr == nil {
+				committedHistory = current
+			}
+		}
+		service.publishHistoryUpdate(toHistoryDTO(committedHistory))
+	}
+	if renameEvent.ID != "" {
+		service.publishHistoryUpdate(toHistoryDTO(renameEvent))
+	}
+	committedOperation := item
+	if usedAtomicRename {
+		if current, getErr := service.operations.Get(ctx, operationID); getErr == nil {
+			committedOperation = current
+		}
+	}
+	operationDTO := toOperationDTO(committedOperation)
 	service.publishOperationUpdate(operationDTO)
+	// The rename and its activity record are already committed. Library
+	// freshness is a derived projection and must not turn that success into an
+	// RPC error which invites a misleading duplicate retry.
+	_ = service.touchLibrary(ctx, item.LibraryID, now)
+	unlock()
+	lockReleased = true
 	return operationDTO, nil
 }
 
@@ -611,30 +876,68 @@ func (service *LibraryService) RenameFile(ctx context.Context, request dto.Renam
 	if err != nil {
 		return dto.LibraryFileDTO{}, err
 	}
+	unlock := service.lockListenLocalTrackMutation(fileID)
+	lockReleased := false
+	defer func() {
+		if !lockReleased {
+			unlock()
+		}
+	}()
 	item, err := service.files.Get(ctx, fileID)
 	if err != nil {
 		return dto.LibraryFileDTO{}, err
 	}
 	if item.DisplayName == name {
-		return service.buildFileDTO(ctx, item)
+		fileDTO := service.bestEffortFileDTO(ctx, item)
+		unlock()
+		lockReleased = true
+		return fileDTO, nil
 	}
 
 	now := service.now()
+	before := item
 	item.DisplayName = name
 	item.UpdatedAt = now
-	if err := service.files.Save(ctx, item); err != nil {
+	if _, err := service.saveLibraryFileWithEvent(ctx, before, item, appendLibraryFileEventParams{
+		EventType:   libraryFileEventRenamed,
+		Category:    "file_metadata",
+		OperationID: fileEventOperationID(item),
+		FileID:      item.ID,
+		LibraryID:   item.LibraryID,
+		Before:      fileEventSnapshot(before),
+		After:       fileEventSnapshot(item),
+		Changes:     []dto.FileFieldChangeDTO{{Field: "displayName", Before: before.DisplayName, After: item.DisplayName}},
+		OccurredAt:  now,
+	}); err != nil {
 		return dto.LibraryFileDTO{}, err
 	}
-	if err := service.touchLibrary(ctx, item.LibraryID, now); err != nil {
-		return dto.LibraryFileDTO{}, err
+	committedItem := item
+	if _, usedAtomicRename := service.files.(libraryFileRenameAtomicRepository); usedAtomicRename {
+		if current, getErr := service.files.Get(ctx, fileID); getErr == nil {
+			committedItem = current
+		}
 	}
+	fileDTO := service.bestEffortFileDTO(ctx, committedItem)
+	service.publishFileUpdate(fileDTO)
+	// Library freshness is quick and ordered with same-file renames, but remains
+	// best effort after the durable file/event transaction.
+	_ = service.touchLibrary(ctx, committedItem.LibraryID, now)
+	unlock()
+	lockReleased = true
 
+	// Catalog projection is rebuildable from the committed LibraryFile. Keep it
+	// synchronous as a best effort, but never report the durable display-name
+	// mutation as failed because the projection is temporarily down.
+	_ = service.syncCatalogProjection(ctx, committedItem.LibraryID)
+	return fileDTO, nil
+}
+
+func (service *LibraryService) bestEffortFileDTO(ctx context.Context, item library.LibraryFile) dto.LibraryFileDTO {
 	fileDTO, err := service.buildFileDTO(ctx, item)
 	if err != nil {
-		return dto.LibraryFileDTO{}, err
+		return toLibraryFileDTO(item)
 	}
-	service.publishFileUpdate(fileDTO)
-	return fileDTO, nil
+	return fileDTO
 }
 
 func (service *LibraryService) CancelOperation(ctx context.Context, request dto.CancelOperationRequest) (dto.LibraryOperationDTO, error) {
@@ -642,6 +945,8 @@ func (service *LibraryService) CancelOperation(ctx context.Context, request dto.
 	if operationID == "" {
 		return dto.LibraryOperationDTO{}, fmt.Errorf("operationId is required")
 	}
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
 	item, err := service.operations.Get(ctx, operationID)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
@@ -652,15 +957,35 @@ func (service *LibraryService) CancelOperation(ctx context.Context, request dto.
 	if item.Status != library.OperationStatusQueued && item.Status != library.OperationStatusRunning {
 		return dto.LibraryOperationDTO{}, fmt.Errorf("operation status %q does not support cancel", item.Status)
 	}
-	item, err = service.markOperationCanceled(ctx, item)
+	before := item
+	item, err = service.markOperationCanceledLocked(ctx, item)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
 	service.cancelOperationRun(item.ID)
+	occurredAt := service.now()
+	if item.FinishedAt != nil {
+		occurredAt = *item.FinishedAt
+	}
+	if err := service.syncPrimaryOperationHistoryLocked(ctx, item, occurredAt); err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+	if _, err := service.appendOperationLifecycleEvent(ctx, before, operationEventCanceled, occurredAt); err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
 	return toOperationDTO(item), nil
 }
 
 func (service *LibraryService) markOperationCanceled(ctx context.Context, item library.LibraryOperation) (library.LibraryOperation, error) {
+	if service == nil {
+		return library.LibraryOperation{}, library.ErrOperationNotFound
+	}
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
+	return service.markOperationCanceledLocked(ctx, item)
+}
+
+func (service *LibraryService) markOperationCanceledLocked(ctx context.Context, item library.LibraryOperation) (library.LibraryOperation, error) {
 	now := service.now()
 	if service != nil && service.operations != nil {
 		if latest, err := service.operations.Get(ctx, item.ID); err == nil {
@@ -686,11 +1011,9 @@ func (service *LibraryService) markOperationCanceled(ctx context.Context, item l
 		progressTotal(item.Progress),
 		terminalProgressMessage(item.Kind, library.OperationStatusCanceled),
 	)
-	if err := service.operations.Save(ctx, item); err != nil {
+	if err := service.saveAndPublishOperationLocked(ctx, &item); err != nil {
 		return library.LibraryOperation{}, err
 	}
-	operationDTO := toOperationDTO(item)
-	service.publishOperationUpdate(operationDTO)
 	return item, nil
 }
 
@@ -699,6 +1022,8 @@ func (service *LibraryService) ResumeOperation(ctx context.Context, request dto.
 	if operationID == "" {
 		return dto.LibraryOperationDTO{}, fmt.Errorf("operationId is required")
 	}
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
 	item, err := service.operations.Get(ctx, operationID)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
@@ -717,6 +1042,7 @@ func (service *LibraryService) resumeDownloadOperation(ctx context.Context, item
 	if item.Status != library.OperationStatusFailed && item.Status != library.OperationStatusCanceled {
 		return dto.LibraryOperationDTO{}, fmt.Errorf("operation status %q does not support resume", item.Status)
 	}
+	before := item
 	resumeRequest := dto.CreateYTDLPJobRequest{}
 	if err := json.Unmarshal([]byte(item.InputJSON), &resumeRequest); err != nil {
 		return dto.LibraryOperationDTO{}, err
@@ -759,7 +1085,10 @@ func (service *LibraryService) resumeDownloadOperation(ctx context.Context, item
 	history.Metrics = library.OperationMetrics{}
 	history.OperationMeta = &library.OperationRecordMeta{Kind: item.Kind}
 	history.UpdatedAt = now
-	if err := service.persistOperationAndHistory(ctx, &item, &history); err != nil {
+	if err := service.persistOperationAndHistoryLocked(ctx, &item, &history); err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+	if _, err := service.appendOperationLifecycleEvent(ctx, before, operationEventResumed, now); err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
 	operationDTO := toOperationDTO(item)
@@ -775,6 +1104,7 @@ func (service *LibraryService) resumeTranscodeOperation(ctx context.Context, ite
 	if item.Status != library.OperationStatusFailed && item.Status != library.OperationStatusCanceled {
 		return dto.LibraryOperationDTO{}, fmt.Errorf("operation status %q does not support resume", item.Status)
 	}
+	before := item
 	resumeRequest := dto.CreateTranscodeJobRequest{}
 	if err := json.Unmarshal([]byte(item.InputJSON), &resumeRequest); err != nil {
 		return dto.LibraryOperationDTO{}, err
@@ -795,11 +1125,16 @@ func (service *LibraryService) resumeTranscodeOperation(ctx context.Context, ite
 	item.OutputFiles = nil
 	item.Metrics = library.OperationMetrics{}
 	item.OutputJSON = buildTranscodeOperationOutput(resumeRequest, "queued", "")
-	if err := service.operations.Save(ctx, item); err != nil {
+	if err := service.saveAndPublishOperationLocked(ctx, &item); err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
+	if err := service.syncPrimaryOperationHistoryLocked(ctx, item, now); err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
 	operationDTO := toOperationDTO(item)
-	service.publishOperationUpdate(operationDTO)
+	if _, err := service.appendOperationLifecycleEvent(ctx, before, operationEventResumed, now); err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
 	go service.runTranscodeOperation(context.Background(), item, resumeRequest)
 	return operationDTO, nil
 }
@@ -826,8 +1161,25 @@ func (service *LibraryService) DeleteOperations(ctx context.Context, request dto
 }
 
 func (service *LibraryService) deleteOperation(ctx context.Context, operationID string, cascadeFiles bool) error {
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
+
 	item, err := service.operations.Get(ctx, operationID)
 	if err != nil {
+		return err
+	}
+	caller := "keep_files"
+	if cascadeFiles {
+		caller = "cascade_files"
+	}
+	if _, err := service.appendOperationDeleteLifecycleEvent(
+		ctx,
+		item,
+		operationEventDeleteRequested,
+		caller,
+		service.now(),
+		true,
+	); err != nil {
 		return err
 	}
 	if cascadeFiles {
@@ -848,16 +1200,16 @@ func (service *LibraryService) deleteOperation(ctx context.Context, operationID 
 				}
 				return getErr
 			}
-			if err := service.markLibraryFileDeleted(ctx, fileItem, true); err != nil {
+			if _, _, err := service.markLibraryFileDeletedWithOptions(ctx, libraryFileDeleteOptions{
+				fileID:           fileItem.ID,
+				deleteLocal:      true,
+				eventCategory:    "task_delete",
+				eventOperationID: item.ID,
+			}); err != nil {
 				return err
 			}
 		}
 		if err := service.deleteUntrackedOperationOutputArtifacts(ctx, item); err != nil {
-			return err
-		}
-	}
-	if service.histories != nil {
-		if err := service.histories.DeleteByOperationID(ctx, operationID); err != nil {
 			return err
 		}
 	}
@@ -870,6 +1222,16 @@ func (service *LibraryService) deleteOperation(ctx context.Context, operationID 
 		return err
 	}
 	if err := service.touchLibrary(ctx, item.LibraryID, service.now()); err != nil {
+		return err
+	}
+	if _, err := service.appendOperationDeleteLifecycleEvent(
+		ctx,
+		item,
+		operationEventDeleted,
+		caller,
+		service.now(),
+		false,
+	); err != nil {
 		return err
 	}
 	service.publishOperationDelete(operationID)
@@ -918,11 +1280,7 @@ func (service *LibraryService) DeleteFiles(ctx context.Context, request dto.Dele
 }
 
 func (service *LibraryService) deleteFile(ctx context.Context, fileID string, deleteFiles bool) error {
-	item, err := service.files.Get(ctx, fileID)
-	if err != nil {
-		return err
-	}
-	return service.markLibraryFileDeleted(ctx, item, deleteFiles)
+	return service.markLibraryFileDeleted(ctx, fileID, deleteFiles)
 }
 
 func normalizeFileIDs(fileIDs []string) []string {
@@ -1077,6 +1435,9 @@ func (service *LibraryService) OpenPath(_ context.Context, request dto.OpenPathR
 }
 
 func (service *LibraryService) CreateYTDLPJob(ctx context.Context, request dto.CreateYTDLPJobRequest) (dto.LibraryOperationDTO, error) {
+	if service.isShuttingDown() {
+		return dto.LibraryOperationDTO{}, fmt.Errorf("Library service is shutting down")
+	}
 	resolvedURL, _, err := validateDownloadURL(request.URL)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
@@ -1100,6 +1461,9 @@ func (service *LibraryService) CreateYTDLPJob(ctx context.Context, request dto.C
 }
 
 func (service *LibraryService) CreateYTDLPBatchJobs(ctx context.Context, request dto.CreateYTDLPBatchJobsRequest) (dto.CreateYTDLPBatchJobsResponse, error) {
+	if service.isShuttingDown() {
+		return dto.CreateYTDLPBatchJobsResponse{}, fmt.Errorf("Library service is shutting down")
+	}
 	if len(request.Items) == 0 {
 		return dto.CreateYTDLPBatchJobsResponse{}, apperrors.New(apperrors.CodeDownloadBatchEmpty, "download batch is empty")
 	}
@@ -1188,6 +1552,9 @@ func (service *LibraryService) CreateVideoImport(ctx context.Context, request dt
 }
 
 func (service *LibraryService) CreateTranscodeJob(ctx context.Context, request dto.CreateTranscodeJobRequest) (dto.LibraryOperationDTO, error) {
+	if service.isShuttingDown() {
+		return dto.LibraryOperationDTO{}, fmt.Errorf("Library service is shutting down")
+	}
 	sourceFile, err := service.resolveSourceFileForTranscode(ctx, request)
 	if err != nil {
 		return dto.LibraryOperationDTO{}, err
@@ -1238,8 +1605,13 @@ func (service *LibraryService) CreateTranscodeJob(ctx context.Context, request d
 	if err := service.operations.Save(ctx, operation); err != nil {
 		return dto.LibraryOperationDTO{}, err
 	}
+	history, err := service.createTranscodePrimaryHistory(ctx, operation, request, now)
+	if err != nil {
+		return dto.LibraryOperationDTO{}, err
+	}
 	operationDTO := toOperationDTO(operation)
 	service.publishOperationUpdate(operationDTO)
+	service.publishHistoryUpdate(toHistoryDTO(history))
 	go service.runTranscodeOperation(context.Background(), operation, request)
 	return operationDTO, nil
 }
@@ -1279,7 +1651,7 @@ func (service *LibraryService) ensureLibrary(ctx context.Context, params ensureL
 }
 
 func (service *LibraryService) touchLibrary(ctx context.Context, libraryID string, updatedAt time.Time) error {
-	if strings.TrimSpace(libraryID) == "" {
+	if service == nil || service.libraries == nil || strings.TrimSpace(libraryID) == "" {
 		return nil
 	}
 	item, err := service.libraries.Get(ctx, libraryID)
@@ -1319,31 +1691,54 @@ func (service *LibraryService) renameLibraryFromFirstFileIfNeeded(ctx context.Co
 }
 
 type importFileParams struct {
-	LibraryID      string
-	Path           string
-	Name           string
-	Kind           string
-	Source         string
-	SessionRunID   string
-	KeepSourceFile bool
-	Action         string
+	LibraryID              string
+	Path                   string
+	OriginPath             string
+	Name                   string
+	Kind                   string
+	Source                 string
+	SessionRunID           string
+	KeepSourceFile         bool
+	Action                 string
+	BatchID                string
+	FileID                 string
+	HistoryID              string
+	EventID                string
+	OptionalProbe          bool
+	DeferCatalogProjection bool
 }
 
 func (service *LibraryService) createImportFile(ctx context.Context, params importFileParams) (library.LibraryFile, library.HistoryRecord, library.FileEventRecord, error) {
 	now := service.now()
 	importedAt := now
-	batchID := uuid.NewString()
+	batchID := strings.TrimSpace(params.BatchID)
+	if batchID == "" {
+		batchID = uuid.NewString()
+	}
 	storage := library.FileStorage{Mode: "local_path", LocalPath: params.Path}
-	media, err := service.probeRequiredMedia(ctx, params.Path)
-	if err != nil {
-		return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
+	media := mediaProbe{}
+	var err error
+	if params.OptionalProbe {
+		media = service.probeLocalMedia(ctx, params.Path)
+	} else {
+		media, err = service.probeRequiredMedia(ctx, params.Path)
+		if err != nil {
+			return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
+		}
 	}
 	mediaInfo := media.toMediaInfo()
 	kind := strings.TrimSpace(params.Kind)
 	if kind == "" {
 		kind = inferImportFileKindFromProbe(media)
 	}
-	fileID := uuid.NewString()
+	fileID := strings.TrimSpace(params.FileID)
+	if fileID == "" {
+		fileID = uuid.NewString()
+	}
+	originPath := strings.TrimSpace(params.OriginPath)
+	if originPath == "" {
+		originPath = params.Path
+	}
 	fileItem, err := library.NewLibraryFile(library.LibraryFileParams{
 		ID:          fileID,
 		LibraryID:   params.LibraryID,
@@ -1358,7 +1753,7 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 			Kind: "import",
 			Import: &library.ImportOrigin{
 				BatchID:        batchID,
-				ImportPath:     params.Path,
+				ImportPath:     originPath,
 				ImportedAt:     importedAt,
 				KeepSourceFile: params.KeepSourceFile,
 			},
@@ -1374,8 +1769,12 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 	if err := service.files.Save(ctx, fileItem); err != nil {
 		return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
 	}
+	historyID := strings.TrimSpace(params.HistoryID)
+	if historyID == "" {
+		historyID = uuid.NewString()
+	}
 	history, err := library.NewHistoryRecord(library.HistoryRecordParams{
-		ID:          uuid.NewString(),
+		ID:          historyID,
 		LibraryID:   params.LibraryID,
 		Category:    "import",
 		Action:      params.Action,
@@ -1393,7 +1792,7 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 		}},
 		Metrics: buildOperationMetrics([]library.LibraryFile{fileItem}),
 		ImportMeta: &library.ImportRecordMeta{
-			ImportPath:     params.Path,
+			ImportPath:     originPath,
 			KeepSourceFile: params.KeepSourceFile,
 			ImportedAt:     importedAt.Format(time.RFC3339),
 		},
@@ -1410,10 +1809,14 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 	detailJSON := marshalJSON(dto.FileEventDetailDTO{
 		Cause:  dto.FileEventCauseDTO{Category: "import", ImportBatchID: batchID},
 		After:  &dto.FileEventFileSnapshotDTO{FileID: fileItem.ID, Kind: string(fileItem.Kind), Name: fileItem.DisplayName, LocalPath: fileItem.Storage.LocalPath, DocumentID: fileItem.Storage.DocumentID},
-		Import: &dto.LibraryImportOriginDTO{BatchID: batchID, ImportPath: params.Path, ImportedAt: importedAt.Format(time.RFC3339), KeepSourceFile: params.KeepSourceFile},
+		Import: &dto.LibraryImportOriginDTO{BatchID: batchID, ImportPath: originPath, ImportedAt: importedAt.Format(time.RFC3339), KeepSourceFile: params.KeepSourceFile},
 	})
+	eventID := strings.TrimSpace(params.EventID)
+	if eventID == "" {
+		eventID = uuid.NewString()
+	}
 	eventRecord, err := library.NewFileEventRecord(library.FileEventRecordParams{
-		ID:         uuid.NewString(),
+		ID:         eventID,
 		LibraryID:  params.LibraryID,
 		FileID:     fileItem.ID,
 		EventType:  "file_imported",
@@ -1430,6 +1833,11 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 		return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
 	}
 	service.syncListenLocalTrackFromFile(ctx, fileItem, &media)
+	if !params.DeferCatalogProjection {
+		if err := service.syncCatalogProjection(ctx, params.LibraryID); err != nil {
+			return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
+		}
+	}
 	return fileItem, history, eventRecord, nil
 }
 
@@ -1631,27 +2039,28 @@ func toOperationDTO(item library.LibraryOperation) dto.LibraryOperationDTO {
 		finishedAt = item.FinishedAt.Format(time.RFC3339)
 	}
 	return dto.LibraryOperationDTO{
-		ID:                   item.ID,
-		LibraryID:            item.LibraryID,
-		Kind:                 item.Kind,
-		Status:               string(item.Status),
-		DisplayName:          item.DisplayName,
-		Correlation:          dto.OperationCorrelationDTO{RequestID: item.Correlation.RequestID, RunID: item.Correlation.RunID, ParentOperationID: item.Correlation.ParentOperationID},
-		InputJSON:            item.InputJSON,
-		OutputJSON:           item.OutputJSON,
-		SourceDomain:         item.SourceDomain,
-		SourceIcon:           item.SourceIcon,
-		Meta:                 dto.OperationMetaDTO{Platform: item.Meta.Platform, Uploader: item.Meta.Uploader, PublishTime: item.Meta.PublishTime},
-		Request:              toOperationRequestPreviewDTO(item),
-		Progress:             toProgressDTO(item.Progress, item.Kind, item.Status, item.ErrorMessage),
-		OutputFiles:          toOutputFileDTOs(item.OutputFiles),
-		ThumbnailPreviewPath: extractOperationThumbnailPreviewPath(item.OutputJSON),
-		Metrics:              dto.OperationMetricsDTO{FileCount: item.Metrics.FileCount, TotalSizeBytes: item.Metrics.TotalSizeBytes, DurationMs: item.Metrics.DurationMs},
-		ErrorCode:            item.ErrorCode,
-		ErrorMessage:         item.ErrorMessage,
-		CreatedAt:            item.CreatedAt.Format(time.RFC3339),
-		StartedAt:            startedAt,
-		FinishedAt:           finishedAt,
+		ID:                    item.ID,
+		LibraryID:             item.LibraryID,
+		Kind:                  item.Kind,
+		Status:                string(item.Status),
+		DisplayName:           item.DisplayName,
+		Correlation:           dto.OperationCorrelationDTO{RequestID: item.Correlation.RequestID, RunID: item.Correlation.RunID, ParentOperationID: item.Correlation.ParentOperationID},
+		InputJSON:             item.InputJSON,
+		OutputJSON:            item.OutputJSON,
+		SourceDomain:          item.SourceDomain,
+		SourceIcon:            item.SourceIcon,
+		Meta:                  dto.OperationMetaDTO{Platform: item.Meta.Platform, Uploader: item.Meta.Uploader, PublishTime: item.Meta.PublishTime},
+		Request:               toOperationRequestPreviewDTO(item),
+		Progress:              toProgressDTO(item.Progress, item.Kind, item.Status, item.ErrorMessage),
+		OutputFiles:           toOutputFileDTOs(item.OutputFiles),
+		DetachedOutputFileIDs: detachedOperationOutputFileIDs(item.OutputJSON),
+		ThumbnailPreviewPath:  extractOperationThumbnailPreviewPath(item.OutputJSON),
+		Metrics:               dto.OperationMetricsDTO{FileCount: item.Metrics.FileCount, TotalSizeBytes: item.Metrics.TotalSizeBytes, DurationMs: item.Metrics.DurationMs},
+		ErrorCode:             item.ErrorCode,
+		ErrorMessage:          item.ErrorMessage,
+		CreatedAt:             item.CreatedAt.Format(time.RFC3339),
+		StartedAt:             startedAt,
+		FinishedAt:            finishedAt,
 	}
 }
 
@@ -1665,28 +2074,29 @@ func toOperationListItemDTO(item library.LibraryOperation, libraryName string) d
 		finishedAt = item.FinishedAt.Format(time.RFC3339)
 	}
 	return dto.OperationListItemDTO{
-		OperationID:          item.ID,
-		LibraryID:            item.LibraryID,
-		LibraryName:          strings.TrimSpace(libraryName),
-		Name:                 item.DisplayName,
-		Kind:                 item.Kind,
-		Status:               string(item.Status),
-		Correlation:          dto.OperationCorrelationDTO{RequestID: item.Correlation.RequestID, RunID: item.Correlation.RunID, ParentOperationID: item.Correlation.ParentOperationID},
-		Domain:               item.SourceDomain,
-		SourceIcon:           item.SourceIcon,
-		Platform:             item.Meta.Platform,
-		Uploader:             item.Meta.Uploader,
-		PublishTime:          item.Meta.PublishTime,
-		Request:              toOperationRequestPreviewDTO(item),
-		Progress:             toProgressDTO(item.Progress, item.Kind, item.Status, item.ErrorMessage),
-		OutputFiles:          toOutputFileDTOs(item.OutputFiles),
-		ThumbnailPreviewPath: extractOperationThumbnailPreviewPath(item.OutputJSON),
-		Metrics:              dto.OperationMetricsDTO{FileCount: item.Metrics.FileCount, TotalSizeBytes: item.Metrics.TotalSizeBytes, DurationMs: item.Metrics.DurationMs},
-		ErrorCode:            item.ErrorCode,
-		ErrorMessage:         item.ErrorMessage,
-		StartedAt:            startedAt,
-		FinishedAt:           finishedAt,
-		CreatedAt:            item.CreatedAt.Format(time.RFC3339),
+		OperationID:           item.ID,
+		LibraryID:             item.LibraryID,
+		LibraryName:           strings.TrimSpace(libraryName),
+		Name:                  item.DisplayName,
+		Kind:                  item.Kind,
+		Status:                string(item.Status),
+		Correlation:           dto.OperationCorrelationDTO{RequestID: item.Correlation.RequestID, RunID: item.Correlation.RunID, ParentOperationID: item.Correlation.ParentOperationID},
+		Domain:                item.SourceDomain,
+		SourceIcon:            item.SourceIcon,
+		Platform:              item.Meta.Platform,
+		Uploader:              item.Meta.Uploader,
+		PublishTime:           item.Meta.PublishTime,
+		Request:               toOperationRequestPreviewDTO(item),
+		Progress:              toProgressDTO(item.Progress, item.Kind, item.Status, item.ErrorMessage),
+		OutputFiles:           toOutputFileDTOs(item.OutputFiles),
+		DetachedOutputFileIDs: detachedOperationOutputFileIDs(item.OutputJSON),
+		ThumbnailPreviewPath:  extractOperationThumbnailPreviewPath(item.OutputJSON),
+		Metrics:               dto.OperationMetricsDTO{FileCount: item.Metrics.FileCount, TotalSizeBytes: item.Metrics.TotalSizeBytes, DurationMs: item.Metrics.DurationMs},
+		ErrorCode:             item.ErrorCode,
+		ErrorMessage:          item.ErrorMessage,
+		StartedAt:             startedAt,
+		FinishedAt:            finishedAt,
+		CreatedAt:             item.CreatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -1760,6 +2170,10 @@ func toOperationRequestPreviewDTO(item library.LibraryOperation) *dto.OperationR
 }
 
 func toHistoryDTO(item library.HistoryRecord) dto.LibraryHistoryRecordDTO {
+	operationID := strings.TrimSpace(item.Refs.OperationID)
+	if operationID == "" {
+		operationID = strings.TrimSpace(item.Refs.SubjectOperationID)
+	}
 	result := dto.LibraryHistoryRecordDTO{
 		RecordID:    item.ID,
 		LibraryID:   item.LibraryID,
@@ -1768,7 +2182,7 @@ func toHistoryDTO(item library.HistoryRecord) dto.LibraryHistoryRecordDTO {
 		DisplayName: item.DisplayName,
 		Status:      item.Status,
 		Source:      dto.LibraryHistoryRecordSourceDTO{Kind: item.Source.Kind, Caller: item.Source.Caller, RunID: item.Source.RunID, Actor: item.Source.Actor},
-		Refs:        dto.LibraryHistoryRecordRefsDTO{OperationID: item.Refs.OperationID, ImportBatchID: item.Refs.ImportBatchID, FileIDs: item.Refs.FileIDs, FileEventIDs: item.Refs.FileEventIDs},
+		Refs:        dto.LibraryHistoryRecordRefsDTO{OperationID: operationID, ImportBatchID: item.Refs.ImportBatchID, FileIDs: item.Refs.FileIDs, FileEventIDs: item.Refs.FileEventIDs},
 		Files:       toOutputFileDTOs(item.Files),
 		Metrics:     dto.OperationMetricsDTO{FileCount: item.Metrics.FileCount, TotalSizeBytes: item.Metrics.TotalSizeBytes, DurationMs: item.Metrics.DurationMs},
 		OccurredAt:  item.OccurredAt.Format(time.RFC3339),
@@ -1796,7 +2210,12 @@ func toFileEventDTO(item library.FileEventRecord) dto.FileEventRecordDTO {
 	if strings.TrimSpace(item.DetailJSON) != "" {
 		_ = json.Unmarshal([]byte(item.DetailJSON), &detail)
 	}
-	return dto.FileEventRecordDTO{ID: item.ID, LibraryID: item.LibraryID, FileID: item.FileID, OperationID: item.OperationID, EventType: item.EventType, Detail: detail, CreatedAt: item.CreatedAt.Format(time.RFC3339)}
+	operationID := strings.TrimSpace(item.OperationID)
+	if operationID == "" {
+		operationID = strings.TrimSpace(detail.Cause.OperationID)
+	}
+	timestamp := item.CreatedAt.Format(time.RFC3339)
+	return dto.FileEventRecordDTO{ID: item.ID, LibraryID: item.LibraryID, FileID: item.FileID, OperationID: operationID, EventType: item.EventType, Detail: detail, OccurredAt: timestamp, CreatedAt: timestamp}
 }
 
 func toProgressDTO(

@@ -4,14 +4,14 @@ const runtimeState = {
   bootstrap: {
     enabled: true,
     appId: "app-123",
-    appVersion: "dev",
     installId: "install-1",
     sessionId: "session-1",
     testMode: true,
   },
   calls: [] as Array<{ name: string; args: unknown[] }>,
   eventHandlers: new Map<string, (event: unknown) => void>(),
-  flushSignal: null as unknown,
+  bootstrapFailures: 0,
+  launchFailures: 0,
 };
 
 mock.module("@wailsio/runtime", () => ({
@@ -19,17 +19,18 @@ mock.module("@wailsio/runtime", () => ({
     ByName(name: string, ...args: unknown[]) {
       runtimeState.calls.push({ name, args });
       if (name.endsWith(".Bootstrap")) {
+        if (runtimeState.bootstrapFailures > 0) {
+          runtimeState.bootstrapFailures -= 1;
+          return Promise.reject(new Error("bridge not ready"));
+        }
         return Promise.resolve(runtimeState.bootstrap);
       }
       if (name.endsWith(".TrackAppLaunch")) {
-        return Promise.resolve(0);
-      }
-      if (name.endsWith(".FlushSessionSummary")) {
-        const handler = runtimeState.eventHandlers.get("telemetry:signal");
-        if (handler && runtimeState.flushSignal) {
-          handler({ data: runtimeState.flushSignal });
+        if (runtimeState.launchFailures > 0) {
+          runtimeState.launchFailures -= 1;
+          return Promise.reject(new Error("launch not ready"));
         }
-        return Promise.resolve(undefined);
+        return Promise.resolve(1);
       }
       return Promise.resolve(undefined);
     },
@@ -48,20 +49,10 @@ mock.module("@wailsio/runtime", () => ({
 
 const { TelemetryManager } = await import("./manager");
 
-type Listener = () => void;
-
-const originalFetch = globalThis.fetch;
 const originalWindow = (globalThis as { window?: unknown }).window;
-const windowListeners = new Map<string, Set<Listener>>();
-
-const emitWindowEvent = (eventName: string) => {
-  for (const listener of Array.from(windowListeners.get(eventName) ?? [])) {
-    listener();
-  }
-};
 
 const waitFor = async (predicate: () => boolean) => {
-  for (let attempt = 0; attempt < 50; attempt++) {
+  for (let attempt = 0; attempt < 80; attempt += 1) {
     if (predicate()) {
       return;
     }
@@ -71,42 +62,18 @@ const waitFor = async (predicate: () => boolean) => {
 };
 
 beforeEach(() => {
-  runtimeState.bootstrap = {
-    enabled: true,
-    appId: "app-123",
-    appVersion: "dev",
-    installId: "install-1",
-    sessionId: "session-1",
-    testMode: true,
-  };
   runtimeState.calls = [];
   runtimeState.eventHandlers.clear();
-  runtimeState.flushSignal = null;
-  windowListeners.clear();
+  runtimeState.bootstrapFailures = 0;
+  runtimeState.launchFailures = 0;
   (globalThis as { window?: unknown }).window = {
-    addEventListener(eventName: string, listener: Listener) {
-      const listeners = windowListeners.get(eventName) ?? new Set<Listener>();
-      listeners.add(listener);
-      windowListeners.set(eventName, listeners);
+    setTimeout(callback: () => void) {
+      return setTimeout(callback, 0);
     },
-    removeEventListener(eventName: string, listener: Listener) {
-      const listeners = windowListeners.get(eventName);
-      if (!listeners) {
-        return;
-      }
-      listeners.delete(listener);
-      if (listeners.size === 0) {
-        windowListeners.delete(eventName);
-      }
-    },
-    setTimeout,
   };
-
-  globalThis.fetch = mock(async () => new Response(null, { status: 202 })) as unknown as typeof fetch;
 });
 
 afterEach(() => {
-  globalThis.fetch = originalFetch;
   if (originalWindow === undefined) {
     delete (globalThis as { window?: unknown }).window;
   } else {
@@ -115,64 +82,84 @@ afterEach(() => {
 });
 
 describe("TelemetryManager", () => {
-  it("subscribes only to telemetry signals and real unload events", async () => {
+  it("retries bridge bootstrap and launch before subscribing once", async () => {
+    runtimeState.bootstrapFailures = 2;
+    runtimeState.launchFailures = 1;
     const manager = new TelemetryManager();
 
     await manager.start();
 
+    expect(
+      runtimeState.calls.filter((call) => call.name.endsWith(".Bootstrap")),
+    ).toHaveLength(3);
+    expect(
+      runtimeState.calls.filter((call) =>
+        call.name.endsWith(".TrackAppLaunch"),
+      ),
+    ).toHaveLength(2);
     expect(runtimeState.eventHandlers.has("telemetry:signal")).toBe(true);
-    expect(runtimeState.eventHandlers.has("common:WindowClosing")).toBe(false);
-    expect(windowListeners.has("pagehide")).toBe(true);
-    expect(windowListeners.has("beforeunload")).toBe(true);
 
     manager.stop();
-
-    expect(windowListeners.has("pagehide")).toBe(false);
-    expect(windowListeners.has("beforeunload")).toBe(false);
+    expect(runtimeState.eventHandlers.has("telemetry:signal")).toBe(false);
   });
 
-  it("posts session summaries through the native telemetry handler during unload", async () => {
-    runtimeState.flushSignal = {
-      type: "XiaDown.Session.summaryRecorded",
-      floatValue: 600,
-      payload: {
-        "XiaDown.Session.durationBucket": "5m-15m",
-        "TelemetryDeck.Calendar.hourOfDay": 10,
-        "TelemetryDeck.Calendar.isWeekend": false,
-        platform: "reserved",
-      },
-    };
+  it("sends only allowed signals and anonymous common/station properties", async () => {
     const manager = new TelemetryManager();
-
     await manager.start();
-    emitWindowEvent("pagehide");
-    await waitFor(() => runtimeState.calls.some((call) => call.name.endsWith(".PostSignal")));
+    const emit = runtimeState.eventHandlers.get("telemetry:signal");
+    expect(emit).toBeDefined();
 
-    const flushCalls = runtimeState.calls.filter((call) => call.name.endsWith(".FlushSessionSummary"));
-    expect(flushCalls).toHaveLength(1);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    emit?.({
+      data: {
+        type: "XiaDown.Library.deleted",
+        payload: { "XiaDown.Library.path": "/private/file.mp4" },
+      },
+    });
+    emit?.({
+      data: {
+        type: "XiaDown.Station.opened",
+        payload: {
+          "TelemetryDeck.AppInfo.version": "1.2.3",
+          "TelemetryDeck.Calendar.hourOfDay": 10,
+          "XiaDown.Station.name": "library",
+          "XiaDown.Library.path": "/private/file.mp4",
+        },
+      },
+    });
 
-    const postCall = runtimeState.calls.find((call) => call.name.endsWith(".PostSignal"));
-    const request = postCall?.args[0] as { body?: Array<Record<string, unknown>>; keepalive?: boolean };
-    expect(request.keepalive).toBe(true);
-    const body = request.body?.[0] ?? {};
-    const metadata = body.payload as Record<string, unknown>;
+    await waitFor(() =>
+      runtimeState.calls.some((call) => call.name.endsWith(".PostSignal")),
+    );
+    const posts = runtimeState.calls.filter((call) =>
+      call.name.endsWith(".PostSignal"),
+    );
+    expect(posts).toHaveLength(1);
+    const request = posts[0]?.args[0] as {
+      body: Array<Record<string, unknown>>;
+    };
+    const body = request.body[0] ?? {};
+    const payload = body.payload as Record<string, unknown>;
 
-    expect(body.type).toBe("XiaDown.Session.summaryRecorded");
-    expect(body.clientUser).toBe("dbdacfba94e13158e2a06038e42c25809d989956e96a08bc836e0d164b420eae");
+    expect(body.type).toBe("XiaDown.Station.opened");
+    expect(body.clientUser).toBe(
+      "dbdacfba94e13158e2a06038e42c25809d989956e96a08bc836e0d164b420eae",
+    );
     expect(body.sessionID).toBe("session-1");
     expect(body.isTestMode).toBe(true);
-    expect(body.floatValue).toBe(600);
-    expect(metadata["XiaDown.Session.durationBucket"]).toBe("5m-15m");
-    expect(metadata["TelemetryDeck.Calendar.hourOfDay"]).toBe(10);
-    expect(metadata["TelemetryDeck.Calendar.isWeekend"]).toBe(false);
-    expect(metadata["TelemetryDeck.SDK.name"]).toBe("JavaScriptSDK");
-    expect(metadata.floatValue).toBeUndefined();
-    expect(metadata.platform).toBeUndefined();
-
-    emitWindowEvent("beforeunload");
-    expect(runtimeState.calls.filter((call) => call.name.endsWith(".FlushSessionSummary"))).toHaveLength(1);
+    expect(payload["XiaDown.Station.name"]).toBe("library");
+    expect(payload["TelemetryDeck.AppInfo.version"]).toBe("1.2.3");
+    expect(payload["TelemetryDeck.SDK.name"]).toBe("JavaScriptSDK");
+    expect(payload["TelemetryDeck.Calendar.hourOfDay"]).toBeUndefined();
+    expect(payload["XiaDown.Library.path"]).toBeUndefined();
 
     manager.stop();
+  });
+
+  it("has no unload summary or telemetry console logging path", async () => {
+    const source = await Bun.file(new URL("./manager.ts", import.meta.url)).text();
+    expect(source).not.toContain("FlushSessionSummary");
+    expect(source).not.toContain("pagehide");
+    expect(source).not.toContain("beforeunload");
+    expect(source).not.toContain("console.");
   });
 });

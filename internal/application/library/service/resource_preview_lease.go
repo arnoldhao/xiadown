@@ -25,6 +25,7 @@ import (
 const resourceSniffPreviewLeaseTTL = 15 * time.Minute
 const resourceSniffPreviewProxyURLQueryParam = "url"
 const resourceSniffPreviewManifestQueryParam = "manifest_query"
+const resourceSniffPreviewHLSManifestMaxBytes int64 = 2 * 1024 * 1024
 
 var (
 	resourceSniffHLSDoubleQuotedURIPattern = regexp.MustCompile(`URI="([^"]+)"`)
@@ -156,9 +157,17 @@ func (service *LibraryService) ServeResourceSniffPreview(w http.ResponseWriter, 
 	defer resp.Body.Close()
 
 	if r.Method != http.MethodHead && resourceSniffPreviewShouldRewriteHLS(lease, effectiveURL, resp.Header) {
-		body, err := io.ReadAll(resp.Body)
+		if resp.ContentLength > resourceSniffPreviewHLSManifestMaxBytes {
+			http.Error(w, "preview manifest exceeds size limit", http.StatusBadGateway)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, resourceSniffPreviewHLSManifestMaxBytes+1))
 		if err != nil {
 			http.Error(w, "failed to read preview manifest", http.StatusBadGateway)
+			return
+		}
+		if int64(len(body)) > resourceSniffPreviewHLSManifestMaxBytes {
+			http.Error(w, "preview manifest exceeds size limit", http.StatusBadGateway)
 			return
 		}
 		service.prepareResourceSniffPreviewHLSKeyOverride(r.Context(), lease, effectiveURL, resp.Header.Get("Content-Type"), body)
@@ -328,7 +337,7 @@ func (service *LibraryService) prepareResourceSniffPreviewHLSKeyOverride(ctx con
 		strings.TrimSpace(preflight.KeyURI) == "" {
 		return
 	}
-	keyProbe := service.probeYTDLPHLSKey(ctx, preflight, body, lease.Headers)
+	keyProbe := service.probeYTDLPHLSKey(ctx, preflight, body, lease.Headers, manifestURL)
 	if keyProbe == nil {
 		return
 	}

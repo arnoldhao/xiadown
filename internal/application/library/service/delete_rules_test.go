@@ -223,13 +223,22 @@ func (repo *deleteRuleWorkspaceRepo) Save(_ context.Context, _ library.Workspace
 	return nil
 }
 
-type deleteRuleFileEventRepo struct{}
-
-func (repo *deleteRuleFileEventRepo) ListByLibraryID(_ context.Context, _ string) ([]library.FileEventRecord, error) {
-	return nil, nil
+type deleteRuleFileEventRepo struct {
+	items []library.FileEventRecord
 }
 
-func (repo *deleteRuleFileEventRepo) Save(_ context.Context, _ library.FileEventRecord) error {
+func (repo *deleteRuleFileEventRepo) ListByLibraryID(_ context.Context, libraryID string) ([]library.FileEventRecord, error) {
+	result := make([]library.FileEventRecord, 0, len(repo.items))
+	for _, item := range repo.items {
+		if item.LibraryID == libraryID {
+			result = append(result, item)
+		}
+	}
+	return result, nil
+}
+
+func (repo *deleteRuleFileEventRepo) Save(_ context.Context, item library.FileEventRecord) error {
+	repo.items = append(repo.items, item)
 	return nil
 }
 
@@ -269,11 +278,12 @@ func TestDeleteFileMarksFileDeletedAndKeepsLocalFileByDefault(t *testing.T) {
 
 	files := &deleteRuleFileRepo{items: map[string]library.LibraryFile{fileItem.ID: fileItem}}
 	subtitles := &deleteRuleSubtitleRepo{}
+	fileEvents := &deleteRuleFileEventRepo{}
 	service := &LibraryService{
 		libraries:  &deleteRuleLibraryRepo{items: map[string]library.Library{libraryItem.ID: libraryItem}},
 		files:      files,
 		workspace:  &deleteRuleWorkspaceRepo{},
-		fileEvents: &deleteRuleFileEventRepo{},
+		fileEvents: fileEvents,
 		subtitles:  subtitles,
 		nowFunc:    func() time.Time { return now },
 	}
@@ -303,6 +313,20 @@ func TestDeleteFileMarksFileDeletedAndKeepsLocalFileByDefault(t *testing.T) {
 	}
 	if len(files.deletedIDs) != 0 {
 		t.Fatalf("expected no hard delete, got %#v", files.deletedIDs)
+	}
+	if len(fileEvents.items) != 1 {
+		t.Fatalf("expected one file-deleted event, got %#v", fileEvents.items)
+	}
+	detail := dto.FileEventDetailDTO{}
+	if err := json.Unmarshal([]byte(fileEvents.items[0].DetailJSON), &detail); err != nil {
+		t.Fatalf("decode file-deleted detail: %v", err)
+	}
+	if fileEvents.items[0].EventType != libraryFileEventDeleted ||
+		fileEvents.items[0].OperationID != "op-1" || detail.DeleteFile ||
+		detail.Cause.Category != "file_lifecycle" || detail.Before == nil || detail.After == nil ||
+		len(detail.Changes) != 1 || detail.Changes[0].Field != "fileLifecycle" ||
+		detail.Changes[0].Before != "active" || detail.Changes[0].After != "deleted" {
+		t.Fatalf("unexpected file-deleted event: event=%#v detail=%#v", fileEvents.items[0], detail)
 	}
 }
 
@@ -480,8 +504,32 @@ func TestDeleteOperationCascadeFilesSoftDeletesOutputs(t *testing.T) {
 	if _, err := os.Stat(localPath); !os.IsNotExist(err) {
 		t.Fatalf("expected local file to be deleted, got %v", err)
 	}
-	if len(histories.deletedByOperation) != 1 || histories.deletedByOperation[0] != operationItem.ID {
-		t.Fatalf("expected history cleanup, got %#v", histories.deletedByOperation)
+	if len(histories.deletedByOperation) != 0 {
+		t.Fatalf("operation deletion must preserve history, got cleanup %#v", histories.deletedByOperation)
+	}
+	if len(histories.savedItems) != 2 {
+		t.Fatalf("expected durable deletion request and completion records, got %#v", histories.savedItems)
+	}
+	var requestedHistory, deletedHistory library.HistoryRecord
+	for _, item := range histories.savedItems {
+		switch item.Action {
+		case operationEventDeleteRequested:
+			requestedHistory = item
+		case operationEventDeleted:
+			deletedHistory = item
+		}
+	}
+	if requestedHistory.Refs.OperationID != operationItem.ID ||
+		requestedHistory.Refs.SubjectOperationID != operationItem.ID ||
+		requestedHistory.OperationMeta == nil || requestedHistory.OperationMeta.Kind != operationItem.Kind ||
+		len(requestedHistory.Files) != 1 || requestedHistory.Files[0].FileID != fileItem.ID {
+		t.Fatalf("unexpected operation deletion request: %#v", requestedHistory)
+	}
+	if deletedHistory.Category != operationEventHistoryCategory || deletedHistory.Action != operationEventDeleted ||
+		deletedHistory.Refs.SubjectOperationID != operationItem.ID ||
+		deletedHistory.Source.Actor != libraryFileEventActorDesktop || deletedHistory.Source.Caller != "cascade_files" ||
+		len(deletedHistory.Files) != 1 || deletedHistory.Files[0].FileID != fileItem.ID {
+		t.Fatalf("unexpected operation-deleted activity: %#v", deletedHistory)
 	}
 	if len(chunks.deletedByOperation) != 1 || chunks.deletedByOperation[0] != operationItem.ID {
 		t.Fatalf("expected chunk cleanup, got %#v", chunks.deletedByOperation)
@@ -792,8 +840,30 @@ func TestDeleteOperationsDeletesMultipleOperationsOnceEach(t *testing.T) {
 	if _, err := operations.Get(ctx, operationItemTwo.ID); err != library.ErrOperationNotFound {
 		t.Fatalf("expected operation %q to be deleted, got %v", operationItemTwo.ID, err)
 	}
-	if len(histories.deletedByOperation) != 2 {
-		t.Fatalf("expected history cleanup for both operations, got %#v", histories.deletedByOperation)
+	if len(histories.deletedByOperation) != 0 {
+		t.Fatalf("batch operation deletion must preserve history, got cleanup %#v", histories.deletedByOperation)
+	}
+	if len(histories.savedItems) != 4 {
+		t.Fatalf("expected deletion requests and completions for both operations, got %#v", histories.savedItems)
+	}
+	deletedSubjects := map[string]bool{}
+	requestedSubjects := map[string]bool{}
+	for _, history := range histories.savedItems {
+		if history.Category != operationEventHistoryCategory || history.Source.Caller != "keep_files" {
+			t.Fatalf("unexpected deletion history: %#v", history)
+		}
+		switch history.Action {
+		case operationEventDeleteRequested:
+			requestedSubjects[history.Refs.SubjectOperationID] = true
+		case operationEventDeleted:
+			deletedSubjects[history.Refs.SubjectOperationID] = true
+		default:
+			t.Fatalf("unexpected deletion history action: %#v", history)
+		}
+	}
+	if !requestedSubjects[operationItemOne.ID] || !requestedSubjects[operationItemTwo.ID] ||
+		!deletedSubjects[operationItemOne.ID] || !deletedSubjects[operationItemTwo.ID] {
+		t.Fatalf("missing deletion subjects: requested=%#v deleted=%#v", requestedSubjects, deletedSubjects)
 	}
 	if len(chunks.deletedByOperation) != 2 {
 		t.Fatalf("expected chunk cleanup for both operations, got %#v", chunks.deletedByOperation)

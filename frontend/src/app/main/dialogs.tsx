@@ -1,26 +1,27 @@
-import {
-CheckCircle2,
-} from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import * as React from "react";
 
-import {
-getXiaText
-} from "@/features/xiadown/shared";
-import { DialogMarkdown } from "@/shared/markdown/dialog-markdown";
-import {
-useDismissWhatsNew,
-useWhatsNew
-} from "@/shared/query/update";
+import { getXiaText } from "@/features/xiadown/shared";
+import { useDismissWhatsNew, useWhatsNew } from "@/shared/query/update";
 import { Button } from "@/shared/ui/button";
 import {
-Dialog,
-DialogContent,
-DialogFooter,
-DialogHeader,
-DialogTitle
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/shared/ui/dialog";
 
-export function WhatsNewFeatureDialog(props: { blocked: boolean; language?: string }) {
+const DialogMarkdown = React.lazy(() =>
+  import("@/shared/markdown/dialog-markdown").then(({ DialogMarkdown: Component }) => ({
+    default: Component,
+  })),
+);
+
+export function WhatsNewFeatureDialog(props: {
+  blocked: boolean;
+  language?: string;
+}) {
   const text = getXiaText(props.language);
   const whatsNewQuery = useWhatsNew();
   const dismissMutation = useDismissWhatsNew();
@@ -47,46 +48,50 @@ export function WhatsNewFeatureDialog(props: { blocked: boolean; language?: stri
     <Dialog open={open}>
       <DialogContent
         showCloseButton={false}
-        className="grid max-h-[min(34rem,calc(100vh-2rem))] max-w-[min(92vw,40rem)] grid-rows-[minmax(0,1fr)] overflow-hidden border-0 bg-transparent p-0 shadow-none"
+        className="grid max-h-[min(34rem,calc(100vh-2rem))] max-w-[min(92vw,40rem)] grid-rows-[minmax(0,1fr)] gap-0 overflow-hidden p-0"
         onEscapeKeyDown={(event) => event.preventDefault()}
         onPointerDownOutside={(event) => event.preventDefault()}
       >
-        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-5 overflow-hidden rounded-[26px] border border-white/45 bg-[linear-gradient(155deg,rgba(255,255,255,0.97),rgba(245,247,252,0.94)_50%,rgba(240,244,251,0.96)_100%)] p-6 shadow-[0_36px_100px_-48px_rgba(15,23,42,0.55)] dark:border-white/10 dark:bg-[linear-gradient(155deg,rgba(15,23,42,0.98),rgba(2,6,23,0.96)_50%,rgba(15,23,42,0.98)_100%)] sm:p-7">
-            <DialogHeader className="space-y-2 text-left">
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-white/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                {text.appName}
-              </div>
-              <DialogTitle className="text-2xl text-slate-950 dark:text-white">
-                {text.whatsNew.title}{" "}
-                {whatsNewQuery.data?.version
-                  ? `v${whatsNewQuery.data.version}`
-                  : ""}
-              </DialogTitle>
-            </DialogHeader>
-            <div className="min-h-0 overflow-y-auto pr-1">
-              <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
-                {whatsNewQuery.data?.changelog?.trim() ? (
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-5 overflow-hidden p-6 sm:p-7">
+          <DialogHeader className="app-whats-new-header space-y-2">
+            <div className="app-whats-new-eyebrow inline-flex w-fit items-center gap-2 px-3 py-1">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {text.appName}
+            </div>
+            <DialogTitle className="app-whats-new-title">
+              {text.whatsNew.title}{" "}
+              {whatsNewQuery.data?.version
+                ? `v${whatsNewQuery.data.version}`
+                : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 overflow-y-auto pr-1">
+            <div className="app-whats-new-changelog p-4">
+              {whatsNewQuery.data?.changelog?.trim() ? (
+                <React.Suspense
+                  fallback={<div className="app-whats-new-empty" aria-busy="true" />}
+                >
                   <DialogMarkdown
                     content={whatsNewQuery.data.changelog}
                     className="max-h-none overflow-visible"
                   />
-                ) : (
-                  <div className="text-sm text-muted-foreground">
-                    {text.whatsNew.empty}
-                  </div>
-                )}
-              </div>
+                </React.Suspense>
+              ) : (
+                <div className="app-whats-new-empty">
+                  {text.whatsNew.empty}
+                </div>
+              )}
             </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                onClick={() => void handleClose()}
-                disabled={dismissMutation.isPending}
-              >
-                {text.actions.close}
-              </Button>
-            </DialogFooter>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => void handleClose()}
+              disabled={dismissMutation.isPending}
+            >
+              {text.actions.close}
+            </Button>
+          </DialogFooter>
         </div>
       </DialogContent>
     </Dialog>

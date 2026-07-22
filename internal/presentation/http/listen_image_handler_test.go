@@ -159,3 +159,43 @@ func TestListenImageHandlerPrefetchesThroughGoCache(t *testing.T) {
 		t.Fatalf("unexpected prefetch urls: %#v", cache.prefetchURLs)
 	}
 }
+
+func TestListenImageHandlerRejectsOversizedPrefetchBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		contentLength int64
+		body          string
+	}{
+		{
+			name:          "declared",
+			contentLength: listenImagePrefetchMaxBodyBytes + 1,
+			body:          `{}`,
+		},
+		{
+			name:          "streamed",
+			contentLength: -1,
+			body:          `{}` + strings.Repeat(" ", int(listenImagePrefetchMaxBodyBytes)+1),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			handler := NewListenImageHandler(&fakeListenImageCache{})
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/api/listen/image/prefetch",
+				strings.NewReader(test.body),
+			)
+			request.ContentLength = test.contentLength
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("expected oversized request rejection, got %d", recorder.Code)
+			}
+		})
+	}
+}

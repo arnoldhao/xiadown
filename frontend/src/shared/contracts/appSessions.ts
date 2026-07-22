@@ -37,6 +37,15 @@ export interface AppSessionAccount {
   expiresAt?: string;
 }
 
+export interface AppSessionSource {
+  mode?: "browser_profile" | "xiadown_profile" | string;
+  browserId?: string;
+  browserLabel?: string;
+  profileId?: string;
+  profileLabel?: string;
+  syncedAt?: string;
+}
+
 export interface AppSession {
   id: string;
   siteKey: string;
@@ -56,6 +65,11 @@ export interface AppSession {
   accountVerificationError?: string;
   accountVerificationStartedAt?: string;
   lastVerifiedAt?: string;
+  sourceType?: string;
+  sourceBrowser?: string;
+  sourceProfile?: string;
+  lastSyncedAt?: string;
+  source?: AppSessionSource | null;
 }
 
 export interface ClearAppSessionRequest {
@@ -115,4 +129,48 @@ export interface GetAppSessionConnectSessionRequest {
 export interface OpenAppSessionSiteRequest {
   id: string;
   targetUrl?: string;
+}
+
+export interface VerifyAppSessionRequest {
+  id: string;
+}
+
+export interface BrowserProfileSelection {
+  mode?: string;
+  browserId: string;
+  profileId: string;
+}
+
+export interface BrowserProfileDiscoveryRequest {
+  browserId: string;
+}
+
+export interface AppSessionBrowserScanItem {
+  appSessionId: string;
+  siteKey: string;
+  label: string;
+  accountLabel?: string;
+  status: string;
+  selectable: boolean;
+  reason?: string;
+}
+
+export interface AppSessionBrowserScanResult {
+  browserId: string;
+  profileId: string;
+  snapshotToken: string;
+  items: AppSessionBrowserScanItem[];
+}
+
+export interface AppSessionBrowserImportRequest {
+  mode?: string;
+  browserId: string;
+  profileId: string;
+  snapshotToken: string;
+  appSessionIds: string[];
+}
+
+export interface AppSessionBrowserImportResult {
+  importedIds: string[];
+  skippedIds: string[];
 }

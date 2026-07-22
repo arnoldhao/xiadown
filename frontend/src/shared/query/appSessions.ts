@@ -11,16 +11,8 @@ import type {
   OpenAppSessionSiteRequest,
   StartAppSessionConnectRequest,
   StartAppSessionConnectResult,
+  VerifyAppSessionRequest,
 } from "@/shared/contracts/appSessions";
-import {
-  CancelAppSessionConnect as CancelAppSessionConnectBinding,
-  ClearAppSession as ClearAppSessionBinding,
-  FinishAppSessionConnect as FinishAppSessionConnectBinding,
-  GetAppSessionConnectSession as GetAppSessionConnectSessionBinding,
-  ListAppSessions,
-  OpenAppSessionSite as OpenAppSessionSiteBinding,
-  StartAppSessionConnect as StartAppSessionConnectBinding,
-} from "../../../bindings/xiadown/internal/presentation/wails/appsessionshandler";
 import {
   AppSession as BindingsAppSession,
   AppSessionConnectSession as BindingsAppSessionConnectSession,
@@ -32,7 +24,9 @@ import {
   OpenAppSessionSiteRequest as BindingsOpenAppSessionSiteRequest,
   StartAppSessionConnectRequest as BindingsStartAppSessionConnectRequest,
   StartAppSessionConnectResult as BindingsStartAppSessionConnectResult,
+  VerifyAppSessionRequest as BindingsVerifyAppSessionRequest,
 } from "../../../bindings/xiadown/internal/application/appsessions/dto/models";
+import { loadAppSessionsHandlerBindings } from "./appSessionsBindings";
 
 export const APP_SESSIONS_QUERY_KEY = ["app-sessions"];
 export const APP_SESSION_CONNECT_SESSION_QUERY_KEY = ["app-session-connect-session"];
@@ -42,7 +36,8 @@ export function useAppSessions() {
   return useQuery({
     queryKey: APP_SESSIONS_QUERY_KEY,
     queryFn: async (): Promise<AppSession[]> => {
-      return (await ListAppSessions()).map(toAppSession);
+      const bindings = await loadAppSessionsHandlerBindings();
+      return (await bindings.ListAppSessions()).map(toAppSession);
     },
     staleTime: 5_000,
   });
@@ -52,7 +47,8 @@ export function useClearAppSession() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (request: ClearAppSessionRequest): Promise<void> => {
-      await ClearAppSessionBinding(BindingsClearAppSessionRequest.createFrom(request));
+      const bindings = await loadAppSessionsHandlerBindings();
+      await bindings.ClearAppSession(BindingsClearAppSessionRequest.createFrom(request));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: APP_SESSIONS_QUERY_KEY });
@@ -64,8 +60,9 @@ export function useStartAppSessionConnect() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (request: StartAppSessionConnectRequest): Promise<StartAppSessionConnectResult> => {
+      const bindings = await loadAppSessionsHandlerBindings();
       return toStartAppSessionConnectResult(
-        await StartAppSessionConnectBinding(BindingsStartAppSessionConnectRequest.createFrom(request)),
+        await bindings.StartAppSessionConnect(BindingsStartAppSessionConnectRequest.createFrom(request)),
       );
     },
     onSuccess: () => {
@@ -78,8 +75,9 @@ export function useFinishAppSessionConnect() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (request: FinishAppSessionConnectRequest): Promise<FinishAppSessionConnectResult> => {
+      const bindings = await loadAppSessionsHandlerBindings();
       return toFinishAppSessionConnectResult(
-        await FinishAppSessionConnectBinding(BindingsFinishAppSessionConnectRequest.createFrom(request)),
+        await bindings.FinishAppSessionConnect(BindingsFinishAppSessionConnectRequest.createFrom(request)),
       );
     },
     onSuccess: () => {
@@ -92,7 +90,8 @@ export function useCancelAppSessionConnect() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (request: CancelAppSessionConnectRequest): Promise<void> => {
-      await CancelAppSessionConnectBinding(BindingsCancelAppSessionConnectRequest.createFrom(request));
+      const bindings = await loadAppSessionsHandlerBindings();
+      await bindings.CancelAppSessionConnect(BindingsCancelAppSessionConnectRequest.createFrom(request));
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: APP_SESSIONS_QUERY_KEY });
@@ -104,8 +103,24 @@ export function useOpenAppSessionSite() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (request: OpenAppSessionSiteRequest): Promise<StartAppSessionConnectResult> => {
+      const bindings = await loadAppSessionsHandlerBindings();
       return toStartAppSessionConnectResult(
-        await OpenAppSessionSiteBinding(BindingsOpenAppSessionSiteRequest.createFrom(request)),
+        await bindings.OpenAppSessionSite(BindingsOpenAppSessionSiteRequest.createFrom(request)),
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: APP_SESSIONS_QUERY_KEY });
+    },
+  });
+}
+
+export function useVerifyAppSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: VerifyAppSessionRequest): Promise<AppSession> => {
+      const bindings = await loadAppSessionsHandlerBindings();
+      return toAppSession(
+        await bindings.VerifyAppSession(BindingsVerifyAppSessionRequest.createFrom(request)),
       );
     },
     onSuccess: () => {
@@ -119,8 +134,9 @@ export function useAppSessionConnectSession(request: GetAppSessionConnectSession
     queryKey: [...APP_SESSION_CONNECT_SESSION_QUERY_KEY, request.sessionId],
     enabled: enabled && request.sessionId.trim().length > 0,
     queryFn: async (): Promise<AppSessionConnectSession> => {
+      const bindings = await loadAppSessionsHandlerBindings();
       return toAppSessionConnectSession(
-        await GetAppSessionConnectSessionBinding(BindingsGetAppSessionConnectSessionRequest.createFrom(request)),
+        await bindings.GetAppSessionConnectSession(BindingsGetAppSessionConnectSessionRequest.createFrom(request)),
       );
     },
     refetchInterval: 1000,
@@ -129,8 +145,30 @@ export function useAppSessionConnectSession(request: GetAppSessionConnectSession
 }
 
 function toAppSession(raw: BindingsAppSession): AppSession {
+  const extended = raw as BindingsAppSession & {
+    source?: AppSession["source"];
+    sourceType?: string;
+    sourceBrowser?: string;
+    sourceProfile?: string;
+    lastSyncedAt?: string;
+  };
+  const source = extended.source ?? (
+    extended.sourceType || extended.sourceBrowser || extended.sourceProfile
+      ? {
+          mode: extended.sourceType === "browser_profile" ? "browser_profile" : "xiadown_profile",
+          browserLabel: extended.sourceBrowser,
+          profileLabel: extended.sourceProfile,
+          syncedAt: extended.lastSyncedAt,
+        }
+      : undefined
+  );
   return {
     ...raw,
+    sourceType: extended.sourceType,
+    sourceBrowser: extended.sourceBrowser,
+    sourceProfile: extended.sourceProfile,
+    lastSyncedAt: extended.lastSyncedAt,
+    source: source ? { ...source } : undefined,
     cookies: (raw.cookies ?? []).map((item) => ({ ...item })),
     domains: [...(raw.domains ?? [])],
     capabilities: [...(raw.capabilities ?? [])],

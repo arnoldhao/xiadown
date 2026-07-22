@@ -255,6 +255,36 @@ func TestFFmpegProgressReporterDoesNotResurrectCanceledOperation(t *testing.T) {
 	}
 }
 
+func TestFFmpegProgressReporterPreservesCompanionRename(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 4, 1, 10, 12, 0, 0, time.UTC)
+	operation := library.LibraryOperation{
+		ID: "op-transcode-rename", LibraryID: "lib-1", Kind: "transcode",
+		Status: library.OperationStatusRunning, DisplayName: "Original task", OutputJSON: "{}", CreatedAt: now,
+	}
+	operationRepo := &retryOperationRepo{items: map[string]library.LibraryOperation{operation.ID: operation}}
+	service := &LibraryService{operations: operationRepo, nowFunc: func() time.Time { return now }}
+	staleOperation := operation
+
+	if _, err := service.RenameOperation(context.Background(), dto.RenameOperationRequest{
+		OperationID: operation.ID, Name: "Companion title",
+	}); err != nil {
+		t.Fatalf("rename running operation: %v", err)
+	}
+	reporter := newFFmpegProgressReporter(service, &staleOperation, 1000)
+	reporter.currentMs = 500
+	reporter.persistLocked(false)
+
+	storedOperation, err := operationRepo.Get(context.Background(), operation.ID)
+	if err != nil {
+		t.Fatalf("get stored operation: %v", err)
+	}
+	if storedOperation.DisplayName != "Companion title" {
+		t.Fatalf("progress save overwrote Companion title: %#v", storedOperation)
+	}
+}
+
 func TestBuildFFmpegTranscodeArgsExpandedAudioContainersUseExpectedCodec(t *testing.T) {
 	testCases := []struct {
 		name          string

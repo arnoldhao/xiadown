@@ -135,7 +135,7 @@ export function detectBrowserLanguage(): SupportedLanguage {
 }
 
 export function useI18n() {
-  const language = useSyncExternalStore(subscribe, getLanguage);
+  const language = useSyncExternalStore(subscribe, getLanguage, getLanguage);
 
   const boundT = useCallback<TFunction>((key) => t(key, language), [language]);
   const supportedLanguages = SUPPORTED_LANGUAGE_OPTIONS.map((option) => ({

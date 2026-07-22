@@ -9,7 +9,7 @@ import (
 	"xiadown/internal/infrastructure/persistence"
 )
 
-func TestSQLiteStateRepositoryTracksRetentionState(t *testing.T) {
+func TestSQLiteStateRepositoryTracksAnonymousLaunchRetention(t *testing.T) {
 	ctx := context.Background()
 	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
 		Path: filepath.Join(t.TempDir(), "data.db"),
@@ -34,17 +34,6 @@ func TestSQLiteStateRepositoryTracksRetentionState(t *testing.T) {
 		t.Fatalf("unexpected day counters: total=%d lastMonth=%d", state.DistinctDaysUsed, state.DistinctDaysUsedLastMonth)
 	}
 
-	state, err = repo.RecordSessionSummary(ctx, firstLaunch.Add(10*time.Minute), 600)
-	if err != nil {
-		t.Fatalf("record summary: %v", err)
-	}
-	if state.CompletedSessionCount != 1 || state.TotalSessionSeconds != 600 {
-		t.Fatalf("unexpected session totals: count=%d seconds=%f", state.CompletedSessionCount, state.TotalSessionSeconds)
-	}
-	if state.PreviousSessionSeconds == nil || *state.PreviousSessionSeconds != 600 {
-		t.Fatalf("unexpected previous session seconds: %#v", state.PreviousSessionSeconds)
-	}
-
 	secondLaunch := firstLaunch.AddDate(0, 0, 1)
 	state, err = repo.IncrementLaunchCount(ctx, secondLaunch)
 	if err != nil {
@@ -55,8 +44,5 @@ func TestSQLiteStateRepositoryTracksRetentionState(t *testing.T) {
 	}
 	if state.DistinctDaysUsed != 2 || state.DistinctDaysUsedLastMonth != 2 {
 		t.Fatalf("unexpected second day counters: total=%d lastMonth=%d", state.DistinctDaysUsed, state.DistinctDaysUsedLastMonth)
-	}
-	if state.CompletedSessionCount != 1 || state.TotalSessionSeconds != 600 {
-		t.Fatalf("session totals were not preserved: count=%d seconds=%f", state.CompletedSessionCount, state.TotalSessionSeconds)
 	}
 }

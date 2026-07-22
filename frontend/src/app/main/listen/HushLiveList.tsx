@@ -7,13 +7,14 @@ import type { ListenLiveChannelPreview,ListenLiveUserCatalog,ListenLiveUserChann
 import type { ListenLiveGroup,ListenLiveStatus,ListenLiveStatusValue,ListenOnlineItem } from "@/app/main/listen/types";
 import type { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
+import { ListenCoverArtwork } from "@/shared/assets/listen-cover-artwork";
 import {
 LISTEN_CONTROL_ICON_BUTTON_CLASS,
 LISTEN_PRIMARY_PLAY_BUTTON_CLASS,
 LISTEN_PRIMARY_PLAY_BUTTON_SIZE_CLASS,
 LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS,
 } from "@/shared/styles/listen";
-import { buildListenTrackThumbnailCandidates } from "@/app/main/listen/storage";
+import { buildListenPosterCandidates,buildListenTrackThumbnailCandidates } from "@/app/main/listen/storage";
 import { Button } from "@/shared/ui/button";
 import {
 Dialog,
@@ -28,7 +29,13 @@ DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
+import { getXiaSurfaceAttributes } from "@/shared/ui/surface-contract";
+import { StatusBadge } from "@/shared/ui/status-badge";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/shared/ui/tooltip";
+import {
+  WorkspacePrimaryHeaderAction,
+  WorkspacePrimaryHeaderActionGroup,
+} from "@/shared/ui/workspace-primary-header-action";
 
 type TextBundle = ReturnType<typeof getXiaText>;
 
@@ -94,29 +101,32 @@ export function ListenHushLiveActionGroup(props: {
 
   return (
     <>
-      <div className="app-dream-button-group app-completed-toolbar-actions inline-flex h-9 shrink-0 items-center p-0.5">
-        <HeaderToolbarButton
+      <WorkspacePrimaryHeaderActionGroup
+        className="shrink-0"
+        label={props.text.listen.hush}
+      >
+        <WorkspacePrimaryHeaderAction
           label={props.text.listen.addChannel}
           disabled={props.liveUserCatalogSaving}
           onClick={openAddChannel}
         >
           <Plus className="h-4 w-4" />
-        </HeaderToolbarButton>
-        <HeaderToolbarButton
+        </WorkspacePrimaryHeaderAction>
+        <WorkspacePrimaryHeaderAction
           label={props.text.listen.manageColumns}
           disabled={props.liveUserCatalogSaving}
           onClick={() => setColumnsOpen(true)}
         >
           <Columns3 className="h-4 w-4" />
-        </HeaderToolbarButton>
-        <HeaderToolbarButton
+        </WorkspacePrimaryHeaderAction>
+        <WorkspacePrimaryHeaderAction
           label={props.text.listen.refresh}
           disabled={userCatalogBusy}
           onClick={props.onReloadCatalog}
         >
-          <RefreshCw className={cn("h-4 w-4", userCatalogBusy ? "animate-spin" : "")} />
-        </HeaderToolbarButton>
-      </div>
+          <RefreshCw className={cn("h-4 w-4", userCatalogBusy ? "listen-loading-spinner" : "")} />
+        </WorkspacePrimaryHeaderAction>
+      </WorkspacePrimaryHeaderActionGroup>
 
       <ListenHushChannelDialog
         httpBaseURL={props.httpBaseURL}
@@ -277,7 +287,7 @@ export function ListenHushLiveList(props: {
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="space-y-5">
+      <div className="space-y-7">
         {props.liveCatalogLoading && props.liveGroups.length === 0 ? (
           null
         ) : props.liveCatalogError || props.liveGroups.length === 0 ? (
@@ -382,9 +392,9 @@ function ListenHushLiveCardGroup(props: {
   }
   const headerTitle = props.hideTitle ? "" : props.title.trim();
   return (
-    <section className="listen-hush-live-group min-w-0 space-y-2 overflow-hidden">
+    <section className="listen-hush-live-group min-w-0 space-y-3 overflow-hidden">
       {headerTitle ? (
-        <div className="wails-drag px-2 text-xs font-semibold text-sidebar-foreground/58">
+        <div className="listen-hush-live-group__title wails-drag px-2">
           {headerTitle}
         </div>
       ) : null}
@@ -404,13 +414,13 @@ function ListenHushLiveCardGroup(props: {
           return (
             <div
               key={item.id}
-              className="listen-hush-card group/hush-card relative w-[7.25rem] shrink-0 snap-start rounded-lg"
+              className="listen-hush-card group/hush-card relative w-[10rem] shrink-0 snap-start"
               data-selected={item.id === props.selectedId ? "true" : undefined}
             >
               <div className="relative">
                 <button
                   type="button"
-                  className="block w-full rounded-lg text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/35"
+                  className="listen-hush-card__artwork-button block w-full"
                   onClick={() => props.onSelect(item)}
                 >
                   <HushLiveCardArtwork
@@ -435,14 +445,14 @@ function ListenHushLiveCardGroup(props: {
               </div>
               <button
                 type="button"
-                className="block w-full rounded-md text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/35"
+                className="listen-hush-card__identity-button block w-full"
                 onClick={() => props.onSelect(item)}
               >
-                <div className="min-w-0 px-0.5 pt-1.5">
-                  <div className="truncate text-xs font-semibold leading-4 text-sidebar-foreground/64">
+                <div className="min-w-0 px-0.5 pt-2">
+                  <div className="listen-hush-card__title truncate">
                     {item.title}
                   </div>
-                  <div className="truncate text-[10px] font-medium leading-4 text-sidebar-foreground/42">
+                  <div className="listen-hush-card__channel truncate">
                     {item.channel}
                   </div>
                 </div>
@@ -526,7 +536,7 @@ function HushLiveCardRow(props: {
     <div className="listen-horizontal-card-row relative min-w-0 overflow-hidden">
       <div
         ref={scrollRef}
-        className="flex min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden pb-1 pr-10 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 snap-x snap-mandatory gap-4 overflow-x-auto overflow-y-hidden pb-1 pr-10 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
         {props.children}
       </div>
@@ -557,17 +567,16 @@ function HushLiveScrollButton(props: {
   return (
     <div
       className={cn(
-        "absolute top-0 z-30 h-[7.25rem] w-20",
-        isLeft
-          ? "left-0 bg-gradient-to-r from-[hsl(var(--sidebar-background)/0.94)] via-[hsl(var(--sidebar-background)/0.68)] to-transparent"
-          : "right-0 bg-gradient-to-l from-[hsl(var(--sidebar-background)/0.94)] via-[hsl(var(--sidebar-background)/0.68)] to-transparent",
+        "listen-horizontal-scroll-fade absolute top-0 z-30 h-[10rem] w-20",
+        isLeft ? "left-0" : "right-0",
       )}
+      data-side={props.side}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <button
         type="button"
         className={cn(
-          "listen-horizontal-scroll-button flex h-full w-full items-center text-sidebar-foreground/58 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35",
+          "listen-horizontal-scroll-button flex h-full w-full items-center",
           isLeft ? "justify-start pl-1.5" : "justify-end pr-1.5",
         )}
         aria-label={props.label}
@@ -579,7 +588,7 @@ function HushLiveScrollButton(props: {
         }}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-sidebar-border/45 bg-sidebar-background/78 shadow-[0_14px_30px_-24px_hsl(var(--foreground)/0.86),inset_0_1px_0_hsl(var(--background)/0.22)] backdrop-blur-md transition-[transform,background-color,color,box-shadow] duration-200 ease-out hover:scale-[1.04] hover:bg-sidebar-background/92 hover:text-sidebar-foreground active:scale-95">
+        <span className="app-listen-horizontal-scroll-control flex h-10 w-10 items-center justify-center">
           {isLeft ? (
             <ChevronLeft className="h-4 w-4" />
           ) : (
@@ -598,41 +607,22 @@ function HushLiveCardArtwork(props: {
   children?: React.ReactNode;
 }) {
   const candidates = React.useMemo(
-    () => buildListenTrackThumbnailCandidates(props.httpBaseURL, props.item),
+    () => buildListenPosterCandidates(props.httpBaseURL, props.item),
     [props.httpBaseURL, props.item.thumbnailUrl, props.item.videoId],
   );
-  const [candidateIndex, setCandidateIndex] = React.useState(0);
-  React.useEffect(() => {
-    setCandidateIndex(0);
-  }, [candidates]);
-  const src = candidates[candidateIndex] ?? "";
   return (
-    <div className="listen-hush-card-artwork relative aspect-square w-full overflow-hidden rounded-lg bg-sidebar-background/65 shadow-[0_14px_30px_-24px_hsl(var(--foreground)/0.72)]">
-      {src ? (
-        <>
-          <img
-            src={src}
-            alt=""
-            className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover/hush-card:scale-[1.045] group-focus-within/hush-card:scale-[1.045]"
-            onError={() => setCandidateIndex((current) => current + 1)}
-          />
-          <img
-            src={src}
-            alt=""
-            aria-hidden="true"
-            className={cn(
-              "listen-hover-soften-image pointer-events-none absolute inset-0 h-full w-full scale-[1.08] object-cover blur-[5px]",
-              props.soften
-                ? "opacity-100"
-                : "opacity-0",
-            )}
-          />
-        </>
-      ) : (
-        <span className="flex h-full w-full items-center justify-center text-xl font-semibold text-sidebar-foreground/58 transition-transform duration-300 ease-out group-hover/hush-card:scale-[1.045] group-focus-within/hush-card:scale-[1.045]">
-          {(props.item.channel || props.item.title || "Y").slice(0, 1).toUpperCase()}
-        </span>
-      )}
+    <div className="listen-hush-card-artwork relative aspect-square w-full overflow-hidden">
+      <ListenCoverArtwork
+        alt=""
+        candidates={candidates}
+        className="h-full w-full"
+        imageClassName="listen-hush-card-image"
+        softenClassName={
+          props.soften
+            ? "listen-hush-card-soften--visible"
+            : "listen-hush-card-soften--hidden"
+        }
+      />
       {props.children}
     </div>
   );
@@ -649,10 +639,10 @@ function HushLiveCardActionGroup(props: {
 }) {
   const anchorRef = React.useRef<HTMLDivElement | null>(null);
   return (
-    <div className="pointer-events-none absolute bottom-1.5 left-1/2 z-20 -translate-x-1/2 opacity-0 transition-opacity duration-150 ease-out group-hover/hush-card:pointer-events-auto group-hover/hush-card:opacity-100 group-focus-within/hush-card:pointer-events-auto group-focus-within/hush-card:opacity-100">
+    <div className="app-listen-hush-card-action-reveal pointer-events-none absolute bottom-1.5 left-1/2 z-20 -translate-x-1/2">
       <div
         ref={anchorRef}
-        className="app-dream-button-group inline-flex h-8 items-center p-0.5 shadow-[0_14px_30px_-20px_hsl(var(--foreground)/0.9)] backdrop-blur-md"
+        className="app-dream-button-group app-listen-hush-card-action-group inline-flex h-8 items-center p-0.5"
       >
         {props.canEdit ? (
           <Tooltip>
@@ -661,7 +651,8 @@ function HushLiveCardActionGroup(props: {
                 type="button"
                 variant="ghost"
                 size="compactIcon"
-                className="!h-7 !min-h-7 !w-7 !min-w-7 rounded-[var(--dream-control-radius-inner)]"
+                shape="square"
+                className="listen-hush-card-edit-action !h-7 !min-h-7 !w-7 !min-w-7"
                 aria-label={props.editLabel}
                 onClick={props.onEdit}
               >
@@ -676,10 +667,9 @@ function HushLiveCardActionGroup(props: {
             type="button"
             variant="ghost"
             size="compactIcon"
-            className={cn(
-              "!h-7 !min-h-7 !w-7 !min-w-7 rounded-[var(--dream-control-radius-inner)] hover:!bg-destructive/10 hover:!text-destructive",
-              props.removeConfirming && "!bg-destructive/12 !text-destructive",
-            )}
+            tone="destructive"
+            className="listen-destructive-icon-button !h-7 !min-h-7 !w-7 !min-w-7"
+            data-confirming={props.removeConfirming ? "true" : undefined}
             aria-label={props.removeLabel}
             onClick={props.onRemove}
           >
@@ -692,7 +682,7 @@ function HushLiveCardActionGroup(props: {
         ) : null}
       </div>
       <ListenConfirmPopup open={props.removeConfirming} anchorRef={anchorRef}>
-        <div className="flex items-center gap-2 text-xs font-semibold text-destructive">
+        <div className="listen-status-text listen-hush-confirm-message flex items-center gap-2" data-tone="error">
           <Check className="h-3.5 w-3.5 shrink-0" />
           <span className="whitespace-nowrap">{props.removeLabel}</span>
         </div>
@@ -708,10 +698,8 @@ function HushLiveCoverOverlay(props: {
   return (
     <div
       className={cn(
-        "absolute inset-0 z-10 flex items-center justify-center bg-black/16",
-        props.status
-          ? "opacity-100"
-          : "listen-playback-hover-layer opacity-0",
+        "listen-hush-live-cover-overlay absolute inset-0 z-10 flex items-center justify-center",
+        !props.status && "listen-playback-hover-layer",
       )}
     >
       {props.status ? (
@@ -724,7 +712,7 @@ function HushLiveCoverOverlay(props: {
             "listen-playback-hover-button",
           )}
         >
-          <Play className={cn("ml-0.5 fill-current", LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small)} />
+          <Play className={cn("listen-playback-icon--filled ml-0.5", LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small)} />
         </span>
       )}
     </div>
@@ -742,16 +730,19 @@ function HushLiveStatusPill(props: {
         ? props.text.listen.liveStatusUpcoming
         : props.text.listen.liveStatusUnavailable;
   return (
-    <span
-      className={cn(
-        "inline-flex h-8 max-w-[calc(100%-1rem)] items-center rounded-full px-3 text-[10px] font-semibold shadow-[0_16px_38px_-22px_hsl(var(--foreground)/0.95),inset_0_1px_0_hsl(var(--background)/0.32)]",
-        props.status === "offline" && "bg-sidebar-background/76 text-sidebar-foreground/72",
-        props.status === "upcoming" && "bg-amber-500/20 text-amber-800 dark:text-amber-200",
-        props.status === "unavailable" && "bg-destructive/18 text-destructive",
-      )}
+    <StatusBadge
+      className="listen-hush-live-status-badge max-w-[calc(100%-1rem)]"
+      data-status={props.status}
+      tone={
+        props.status === "upcoming"
+          ? "warning"
+          : props.status === "unavailable"
+            ? "danger"
+            : "muted"
+      }
     >
-      <span className="truncate">{label}</span>
-    </span>
+      {label}
+    </StatusBadge>
   );
 }
 
@@ -809,12 +800,16 @@ function ListenConfirmPopup(props: {
   return createPortal(
     <div
       ref={popupRef}
-      className="app-menu-content pointer-events-none fixed z-[60] w-max min-w-0 max-w-[15rem] px-2.5 py-2"
+      className="app-glass-surface app-menu-content listen-confirm-popup pointer-events-none fixed z-[var(--app-layer-popover)] w-max min-w-0 max-w-[15rem] px-2.5 py-2"
+      data-elevation="floating"
+      data-positioned={position ? "true" : "false"}
+      data-shape="control"
+      data-tint="neutral"
       style={{
         left: position?.left ?? 0,
         top: position?.top ?? 0,
-        visibility: position ? "visible" : "hidden",
       }}
+      {...getXiaSurfaceAttributes("overlay")}
     >
       {props.children}
     </div>,
@@ -831,32 +826,6 @@ function resolveVisibleHushLiveStatus(status: ListenLiveStatus | undefined): Lis
     status.status === "unavailable"
     ? status.status
     : "";
-}
-
-function HeaderToolbarButton(props: {
-  label: string;
-  disabled?: boolean;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="app-completed-toolbar-button h-8 w-8 p-0"
-          aria-label={props.label}
-          disabled={props.disabled}
-          onClick={props.onClick}
-        >
-          {props.children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{props.label}</TooltipContent>
-    </Tooltip>
-  );
 }
 
 function ListenHushChannelDialog(props: {
@@ -893,7 +862,7 @@ function ListenHushChannelDialog(props: {
       >
         {draft?.kind === "edit" ? (
           <DialogHeader>
-            <DialogTitle className="text-left">{title}</DialogTitle>
+            <DialogTitle className="listen-hush-dialog-title">{title}</DialogTitle>
           </DialogHeader>
         ) : null}
         {draft ? (
@@ -958,7 +927,7 @@ function ListenHushChannelDialog(props: {
               </>
             ) : null}
             {draft.error ? (
-              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <div className="listen-status-panel px-3 py-2" data-tone="error">
                 {draft.error}
               </div>
             ) : null}
@@ -974,7 +943,7 @@ function ListenHushChannelDialog(props: {
             size="compact"
             disabled={!draft || busy}
           >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {busy ? <Loader2 className="h-3.5 w-3.5 listen-loading-spinner" /> : null}
             {draft?.kind === "edit" ? props.text.actions.save : props.text.listen.addChannel}
           </Button>
         </DialogFooter>
@@ -988,16 +957,16 @@ function ChannelDialogPreview(props: {
   preview: Pick<ListenLiveChannelPreview, "videoId" | "title" | "channel" | "description" | "durationLabel" | "thumbnailUrl">;
 }) {
   return (
-    <div className="grid justify-items-center gap-2 text-center">
+    <div className="listen-hush-channel-preview grid justify-items-center gap-2">
       <ChannelDialogPreviewArtwork
         httpBaseURL={props.httpBaseURL}
         preview={props.preview}
       />
       <div className="min-w-0 max-w-full">
-        <div className="truncate text-sm font-semibold text-foreground">
+        <div className="listen-hush-channel-preview__title truncate">
           {props.preview.channel || props.preview.title}
         </div>
-        <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+        <div className="listen-hush-channel-preview__description mt-1 line-clamp-2">
           {props.preview.description || props.preview.durationLabel}
         </div>
       </div>
@@ -1022,7 +991,7 @@ function ChannelDialogPreviewArtwork(props: {
   }, [candidates]);
   const src = candidates[candidateIndex] ?? "";
   return (
-    <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border border-[hsl(var(--foreground)/0.10)] bg-sidebar-background/55 shadow-[inset_0_1px_0_hsl(var(--background)/0.22)]">
+    <div className="listen-hush-channel-preview-artwork flex h-20 w-20 items-center justify-center overflow-hidden">
       {src ? (
         <img
           src={src}
@@ -1031,7 +1000,7 @@ function ChannelDialogPreviewArtwork(props: {
           onError={() => setCandidateIndex((current) => current + 1)}
         />
       ) : (
-        <span className="text-lg font-semibold text-sidebar-foreground/58">
+        <span className="listen-hush-channel-preview-artwork__fallback">
           {(props.preview.channel || props.preview.title || "Y").slice(0, 1).toUpperCase()}
         </span>
       )}
@@ -1203,7 +1172,7 @@ function ListenHushColumnsDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="grid max-h-[min(36rem,calc(100vh-2rem))] w-[min(31rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-4 overflow-hidden">
         <DialogHeader>
-          <DialogTitle className="text-left">{props.text.listen.manageColumns}</DialogTitle>
+          <DialogTitle className="listen-hush-dialog-title">{props.text.listen.manageColumns}</DialogTitle>
         </DialogHeader>
         <DialogScrollArea className="min-h-0 space-y-4">
           <div className="grid grid-cols-[minmax(0,1fr)_2rem] gap-2">
@@ -1226,13 +1195,14 @@ function ListenHushColumnsDialog(props: {
               type="button"
               variant="outline"
               size="compactIcon"
-              className={cn("h-8 w-8 rounded-full", LISTEN_CONTROL_ICON_BUTTON_CLASS)}
+              shape="circle"
+              className={cn("h-8 w-8", LISTEN_CONTROL_ICON_BUTTON_CLASS)}
               aria-label={props.text.listen.addColumn}
               disabled={props.saving || busyId === "new"}
               onClick={() => void addColumn()}
             >
               {busyId === "new" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 listen-loading-spinner" />
               ) : (
                 <Plus className="h-3.5 w-3.5" />
               )}
@@ -1246,13 +1216,13 @@ function ListenHushColumnsDialog(props: {
                   key={group.id}
                   className="listen-hush-column-row grid min-h-9 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
                 >
-                  <span className="truncate text-xs font-medium text-sidebar-foreground">
+                  <span className="listen-hush-column-row__title truncate">
                     {resolveHushLiveGroupTitle(group, props.text)}
                   </span>
-                  <em className="not-italic text-[11px] text-sidebar-foreground/50">
+                  <em className="listen-hush-column-row__count">
                     {group.items.length}
                   </em>
-                  <small className="text-[11px] text-sidebar-foreground/42">
+                  <small className="listen-hush-column-row__readonly">
                     {props.text.listen.readonlyColumn}
                   </small>
                 </DialogRow>
@@ -1286,7 +1256,7 @@ function ListenHushColumnsDialog(props: {
                         <Input
                           autoFocus
                           value={value}
-                          className="h-8 border-transparent bg-transparent shadow-none"
+                          className="listen-hush-column-edit-input h-8"
                           onChange={(event) => {
                             setEdits((current) => ({
                               ...current,
@@ -1308,14 +1278,14 @@ function ListenHushColumnsDialog(props: {
                       ) : (
                         <button
                           type="button"
-                          className="-ml-2 flex h-8 min-w-0 items-center rounded-md px-2 text-left text-xs font-medium text-sidebar-foreground/86 outline-none transition hover:bg-sidebar-background/54 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring/35"
+                          className="listen-hush-column-edit-trigger -ml-2 flex h-8 min-w-0 items-center px-2"
                           aria-label={props.text.listen.editColumn}
                           onClick={() => startEditColumn(column)}
                         >
                           <span className="truncate">{column.title}</span>
                         </button>
                       )}
-                      <em className="not-italic text-[11px] text-sidebar-foreground/50">
+                      <em className="listen-hush-column-row__count">
                         {channelCountByColumn.get(column.id) ?? 0}
                       </em>
                     </div>
@@ -1341,7 +1311,7 @@ function ListenHushColumnsDialog(props: {
           </ColumnSection>
 
           {error ? (
-            <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            <div className="listen-status-panel px-3 py-2" data-tone="error">
               {error}
             </div>
           ) : null}
@@ -1359,7 +1329,7 @@ function ListenHushColumnsDialog(props: {
 function Field(props: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-[11px] font-medium text-muted-foreground">{props.label}</span>
+      <span className="listen-hush-field-label">{props.label}</span>
       {props.children}
     </label>
   );
@@ -1393,7 +1363,7 @@ function HushColumnActionGroup(props: {
           onClick={props.onEditOrSave}
         >
           {props.busy && props.editing && props.changed ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
+            <Loader2 className="h-3 w-3 listen-loading-spinner" />
           ) : props.editing ? (
             <Check className="h-3 w-3" />
           ) : (
@@ -1404,10 +1374,9 @@ function HushColumnActionGroup(props: {
           type="button"
           variant="ghost"
           size="icon"
-          className={cn(
-            "app-completed-toolbar-button h-8 w-8 p-0 hover:!bg-destructive/10 hover:!text-destructive",
-            props.confirming && "!bg-destructive/12 !text-destructive",
-          )}
+          tone="destructive"
+          className="app-completed-toolbar-button listen-destructive-icon-button h-8 w-8 p-0"
+          data-confirming={props.confirming ? "true" : undefined}
           aria-label={props.removeLabel}
           disabled={props.saving || props.busy}
           onClick={props.onRemove}
@@ -1420,7 +1389,7 @@ function HushColumnActionGroup(props: {
         </Button>
       </div>
       <ListenConfirmPopup open={props.confirming} anchorRef={anchorRef}>
-        <div className="flex items-center gap-2 text-xs font-semibold text-destructive">
+        <div className="listen-status-text listen-hush-confirm-message flex items-center gap-2" data-tone="error">
           <Check className="h-3.5 w-3.5 shrink-0" />
           <span className="whitespace-nowrap">{props.removeLabel}</span>
         </div>
@@ -1432,10 +1401,10 @@ function HushColumnActionGroup(props: {
 function ColumnSection(props: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2">
-      <h3 className="px-1 text-[11px] font-semibold text-sidebar-foreground/58">
+      <h3 className="listen-hush-column-section__title px-1">
         {props.title}
       </h3>
-      <DialogListCard className="listen-hush-column-card shadow-none">
+      <DialogListCard className="listen-hush-column-card">
         <DialogListCardContent>{props.children}</DialogListCardContent>
       </DialogListCard>
     </section>
@@ -1444,7 +1413,7 @@ function ColumnSection(props: { title: string; children: React.ReactNode }) {
 
 function EmptyColumns(props: { text: TextBundle }) {
   return (
-    <div className="m-3 rounded-md border border-dashed border-[hsl(var(--foreground)/0.12)] px-3 py-3 text-center text-xs text-sidebar-foreground/46">
+    <div className="listen-hush-empty-columns m-3 px-3 py-3">
       {props.text.listen.noColumns}
     </div>
   );

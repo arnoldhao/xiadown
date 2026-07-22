@@ -53,6 +53,9 @@ type Asset struct {
 	ArtifactType    string
 	Binaries        []string
 	ExecutableName  string
+	// Variants contains complete, independently verifiable forms of the same
+	// release asset, such as the Windows "installer" and "portable" packages.
+	Variants map[string]Asset
 }
 
 func (asset Asset) SortedSources() []DownloadSource {
@@ -203,7 +206,7 @@ type Catalog struct {
 	UpdatedAt       time.Time
 	App             *AppRelease
 	Dependencies    map[dependencies.DependencyName]DependencyRelease
-	Listen         ListenConfig
+	Listen          ListenConfig
 }
 
 func (catalog Catalog) Dependency(name dependencies.DependencyName) (DependencyRelease, bool) {

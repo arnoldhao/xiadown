@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"xiadown/internal/application/apperrors"
 	"xiadown/internal/application/library/dto"
+	appytdlp "xiadown/internal/application/ytdlp"
 	"xiadown/internal/domain/dependencies"
 	"xiadown/internal/domain/library"
 )
@@ -35,6 +37,7 @@ const (
 	ytdlpErrorCodeExitCode                    = "exit_code"
 	ytdlpErrorCodeDRMProtected                = "drm_protected"
 	ytdlpErrorCodeUnsupportedStreamEncryption = "unsupported_stream_encryption"
+	ytdlpErrorCodeUnsupportedHeaderAuth       = "unsupported_header_authentication"
 )
 
 func shouldAutoRetryYTDLP(request dto.CreateYTDLPJobRequest, detail string) bool {
@@ -231,7 +234,7 @@ func (service *LibraryService) checkYTDLPVersion(ctx context.Context) (string, s
 	}
 	versionCtx, cancel := context.WithTimeout(ctx, ytdlpVersionCheckTimeout)
 	defer cancel()
-	output, err := execCommandOutput(versionCtx, execPath, "--version")
+	output, err := execYTDLPCommandOutput(versionCtx, execPath, appytdlp.HermeticArgs("--version")...)
 	version := normalizeToolVersion(output)
 	if version != "" {
 		return ytdlpCheckStatusOK, version
@@ -299,8 +302,9 @@ func (service *LibraryService) checkYTDLPConnectivity(ctx context.Context, url s
 	return false, "request failed"
 }
 
-func execCommandOutput(ctx context.Context, execPath string, args ...string) (string, error) {
+func execYTDLPCommandOutput(ctx context.Context, execPath string, args ...string) (string, error) {
 	command := exec.CommandContext(ctx, execPath, args...)
+	command.Env = appytdlp.HermeticEnvironment(os.Environ())
 	configureProcessGroup(command)
 	output, err := command.CombinedOutput()
 	trimmed := strings.TrimSpace(string(output))
@@ -314,6 +318,9 @@ func execCommandOutput(ctx context.Context, execPath string, args ...string) (st
 }
 
 func resolveYTDLPErrorCode(detail string, err error) string {
+	if errors.Is(err, errCapturedHeaderAuthUnsupported) {
+		return ytdlpErrorCodeUnsupportedHeaderAuth
+	}
 	combined := strings.TrimSpace(detail)
 	if err != nil {
 		errText := strings.TrimSpace(err.Error())

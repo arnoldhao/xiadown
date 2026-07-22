@@ -2,6 +2,7 @@ package wails
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -9,12 +10,50 @@ import (
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/listenplayback"
 	"xiadown/internal/application/youtubemusic"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-func TestFilterListenPlaybackCookiesKeepsUsableYouTubeCookies(t *testing.T) {
+func TestListenMusicNativeWindowFullscreenEventConfirmsEnter(t *testing.T) {
+	if !listenEmbeddedVideoUsesNativeWindowFullscreen() {
+		t.Skip("native player-window fullscreen is not used on this platform")
+	}
+	window := &application.WebviewWindow{}
+	waiter := make(chan bool, 1)
+	player := &ListenYouTubeMusicPlayer{
+		window:                         window,
+		embeddedFullscreenTransition:   true,
+		embeddedFullscreenGeneration:   3,
+		embeddedNativeWindowFullscreen: true,
+		embeddedNativeFullscreenWaiter: waiter,
+	}
+	player.handleNativeWindowFullscreenEvent(window, true)
+	if !player.embeddedFullscreenActive || player.embeddedFullscreenTransition {
+		t.Fatal("native enter must transfer presentation ownership to the music player window")
+	}
+	select {
+	case active := <-waiter:
+		if !active {
+			t.Fatal("native enter waiter received an exit state")
+		}
+	default:
+		t.Fatal("native enter did not complete the music fullscreen waiter")
+	}
+
+	player.mu.Lock()
+	cleared := player.clearEmbeddedFullscreenStateLocked()
+	player.mu.Unlock()
+	if cleared != waiter || player.embeddedFullscreenActive ||
+		player.embeddedFullscreenTransition || player.embeddedNativeWindowFullscreen {
+		t.Fatal("fullscreen cleanup must make a second native enter possible")
+	}
+}
+
+func TestFilterListenPlaybackCookiesKeepsOnlyStableYouTubeCookies(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	records := []appcookies.Record{
 		{Name: "SID", Value: "sid", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix(), Secure: true},
+		{Name: "__Secure-1PSIDTS", Value: "rotating", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix(), Secure: true},
 		{Name: "expired", Value: "gone", Domain: ".youtube.com", Path: "/", Expires: now.Add(-time.Hour).Unix()},
 		{Name: "missing-domain", Value: "value", Path: "/"},
 		{Name: "SID", Value: "duplicate", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
@@ -46,7 +85,7 @@ func TestListenBridgePreservesPauseIntent(t *testing.T) {
 	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
 		VideoID: "TESTVID001A",
 	})
-	expected := `if (!video.ended && lastRequestedAction !== "pause") lastRequestedAction = "";`
+	expected := `if (!video.ended && lastRequestedAction !== "pause") {`
 	if !strings.Contains(script, expected) {
 		t.Fatalf("bridge script should keep pause intent until a play request replaces it")
 	}
@@ -94,8 +133,12 @@ func TestListenBridgePreservesPauseIntent(t *testing.T) {
 		`post({ type: "remote-next" })`,
 		`post({ type: "remote-previous" })`,
 		`type: "lyrics-time"`,
+		`playbackRate: finiteNumber(video.playbackRate, 1)`,
 		"startLyricsPoll",
 		"stopLyricsPoll",
+		`sendLyricsTime("seeked")`,
+		`sendLyricsTime("api-seek")`,
+		`sendLyricsTime("ratechange")`,
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("bridge script should override media session action %q", expected)
@@ -188,6 +231,106 @@ func TestListenBridgeAttemptsAutoplayRecoveryOnReadyMedia(t *testing.T) {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("bridge script should include autoplay recovery %q", expected)
 		}
+	}
+}
+
+func TestListenMusicPrepareLoadLeavesNewPlaybackRequestAsFinalIntent(t *testing.T) {
+	script := listenYouTubeMusicPrepareLoadScript(ListenPlayerPlayRequest{VideoID: "TESTVID001A"})
+	pause := strings.Index(script, `api.pause()`)
+	request := strings.Index(script, `api.request(request)`)
+	if pause < 0 || request < 0 || pause > request {
+		t.Fatal("switching music videos must pause the old session before recording the new play intent")
+	}
+}
+
+func TestListenMusicBridgeKeepsLoadPlayIntentAcrossLateHistoryPause(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID001A"})
+	for _, expected := range []string{
+		`let playWhenReady = true`,
+		`if (!playWhenReady || !autoplayRecoveryPending || lastRequestedAction === "pause")`,
+		`playWhenReady = false;`,
+		`if (playWhenReady) {`,
+		`autoplayRecoveryPending = true;`,
+		`scheduleAutoplay();`,
+		`activeVideoId !== requestedVideoId`,
+		`if (recovery === "not-ready")`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("music bridge must preserve play-when-ready intent; missing %q", expected)
+		}
+	}
+}
+
+func TestListenMusicBridgeExpiresLoadRecoveryAndHonorsNativePause(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID001A"})
+	for _, expected := range []string{
+		`const PLAY_WHEN_READY_SETTLE_MS = 2000`,
+		`function schedulePlayWhenReadySettlement(video)`,
+		`expirePlayWhenReady();`,
+		`if (!playWhenReady) {`,
+		`sendState("autoplay-expired", true);`,
+		`navigator.mediaSession.setActionHandler("pause", () => invokePause("media-session-pause"))`,
+		`function installPlaybackIntentPointerGuard()`,
+		`if (video && !video.paused && !video.ended && !adSnapshot().advertising) expirePlayWhenReady()`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("music bridge must bound recovery and honor native pause; missing %q", expected)
+		}
+	}
+}
+
+func TestListenMusicBridgeDoesNotSettleTargetPlayIntentDuringAds(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID001A"})
+	for _, expected := range []string{
+		`if (adSnapshot().advertising || wasAdvertisingRecently())`,
+		`playWhenReadyDeadline = Date.now() + PLAY_WHEN_READY_MAX_MS`,
+		`if (!requestedVideoId || activeVideoId !== requestedVideoId)`,
+		`schedulePlayWhenReadySettlement(video)`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("advertising must not consume the target track play intent; missing %q", expected)
+		}
+	}
+}
+
+func TestListenMusicBridgeManualSeekReleasesRestartGuard(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
+		VideoID:          "TESTVID001A",
+		RestartFromStart: true,
+	})
+	for _, expected := range []string{
+		`if (applyKey) startAppliedForVideo = applyKey`,
+		`restartFromStartGuardKey = ""`,
+		`restartFromStartPlayingAt = 0`,
+		`video.currentTime = finiteNumber(Number(seconds || 0), 0)`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("manual seek must release the load-time restart guard; missing %q", expected)
+		}
+	}
+}
+
+func TestListenMusicBridgeKeepsRestartGuardUntilPlaybackSettles(t *testing.T) {
+	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
+		VideoID:          "TESTVID001A",
+		RestartFromStart: true,
+	})
+	for _, expected := range []string{
+		`RESTART_FROM_START_SETTLE_MS`,
+		`let restartFromStartPlayingAt = 0`,
+		`const allowedProgress = restartFromStartPlayingAt > 0`,
+		`if (current > allowedProgress)`,
+		`video.currentTime = 0`,
+		`now - restartFromStartPlayingAt >= RESTART_FROM_START_SETTLE_MS`,
+		`video.addEventListener("timeupdate", () => applyStartPosition(video))`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("restart-from-start must guard against late YouTube history restoration; missing %q", expected)
+		}
+	}
+	tooEarly := `if (applyKey) startAppliedForVideo = applyKey;\n      } catch (error) {}\n      return;`
+	if strings.Contains(script, tooEarly) {
+		t.Fatal("restart-from-start must not be marked complete on the initial zero-time observation")
 	}
 }
 
@@ -353,6 +496,29 @@ func TestListenMusicWatchURLCarriesLocale(t *testing.T) {
 	}
 }
 
+func TestListenMusicSameVideoLanguageChangeRequiresReload(t *testing.T) {
+	request := normalizeListenPlayerPlayRequest(ListenPlayerPlayRequest{
+		VideoID:  "TESTVID001A",
+		Language: "zh-CN",
+	})
+	if !listenYouTubeMusicCanResumeSameVideo(request, false, request.VideoID, "", "zh-CN") {
+		t.Fatal("same video and language should keep the existing document")
+	}
+	if listenYouTubeMusicCanResumeSameVideo(request, false, request.VideoID, "", "en") {
+		t.Fatal("same video with a different language must reload")
+	}
+}
+
+func TestListenPlaybackAdapterForwardsSessionLanguage(t *testing.T) {
+	request := listenPlayerPlayRequestFromPlaybackRequest(listenplayback.PlayRequest{
+		Track:    listenplayback.Track{VideoID: "TESTVID001A"},
+		Language: "zh-TW",
+	}, listenplayback.VideoLoadStandard)
+	if request.Language != "zh-TW" {
+		t.Fatalf("expected adapter language zh-TW, got %q", request.Language)
+	}
+}
+
 func TestListenMusicBridgeAppliesVolumeBeforeAutoplay(t *testing.T) {
 	script := listenYouTubeMusicBridgeScript(ListenPlayerPlayRequest{
 		VideoID: "TESTVID001A",
@@ -366,7 +532,10 @@ func TestListenMusicBridgeAppliesVolumeBeforeAutoplay(t *testing.T) {
 		"scheduleVolumeBurst();",
 		"const bootMetadata = metadataSnapshot();",
 		`video.addEventListener("volumechange"`,
-		"const volumeBurst = window.setInterval",
+		"if (count >= 4)",
+		"scheduleVolumeApply();",
+		"installFullscreenEscape();",
+		"DOCUMENT_VOLUME_BOOT_KEY",
 		"request: (next) =>",
 		"sendState(\"api-request\", true)",
 		"next.forceReload = next.forceReload === true",
@@ -374,6 +543,9 @@ func TestListenMusicBridgeAppliesVolumeBeforeAutoplay(t *testing.T) {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("music bridge should contain %q", expected)
 		}
+	}
+	if strings.Contains(script, "const volumeBurst = window.setInterval") {
+		t.Fatal("music bridge should not start a second per-element volume burst")
 	}
 }
 
@@ -534,7 +706,7 @@ func TestListenRawMusicSyncReconcilesVideoDriftWithoutTrackChanged(t *testing.T)
 	}
 }
 
-func TestListenRawMusicBufferingSyncKeepsPlaybackPlaying(t *testing.T) {
+func TestListenRawMusicBufferingSyncPreservesBufferingState(t *testing.T) {
 	ctx := context.Background()
 	transport := &listenPlaybackTestTransport{}
 	service := listenplayback.NewPlayerService(
@@ -565,8 +737,85 @@ func TestListenRawMusicBufferingSyncKeepsPlaybackPlaying(t *testing.T) {
 		map[string]any{"currentTime": 14, "duration": 180},
 	)
 
+	if service.State() != listenplayback.PlaybackStateBuffering {
+		t.Fatalf("expected raw buffering sync to preserve buffering state, got %s", service.State())
+	}
+
+	player.syncPlaybackServiceFromNativeEvent(
+		service,
+		"state",
+		"playing",
+		"video-one",
+		"One",
+		"Artist",
+		"",
+		"",
+		false,
+		map[string]any{"currentTime": 15, "duration": 180},
+	)
 	if service.State() != listenplayback.PlaybackStatePlaying {
-		t.Fatalf("expected buffering sync to keep playback playing, got %s", service.State())
+		t.Fatalf("expected following raw playing sync to restore playing state, got %s", service.State())
+	}
+}
+
+func TestObservePlaybackPreservesBufferingState(t *testing.T) {
+	ctx := context.Background()
+	transport := &listenPlaybackTestTransport{}
+	service := listenplayback.NewPlayerService(
+		transport,
+		listenplayback.WithUserInteractionUnlocked(),
+	)
+	if err := service.PlayQueue(ctx, []listenplayback.Track{
+		{ID: "one", VideoID: "video-one", Title: "One", Artist: "Artist"},
+	}, 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := NewListenPlayerHandler(nil, service)
+	snapshot, err := handler.ObservePlayback(ctx, ListenPlaybackObservationRequest{
+		State:    listenplayback.PlaybackStateBuffering,
+		Progress: 14,
+		Duration: 180,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.State != listenplayback.PlaybackStateBuffering {
+		t.Fatalf("expected ObservePlayback to preserve buffering state, got %s", snapshot.State)
+	}
+}
+
+func TestInsertAfterQueueItemHandlerForwardsAnchorAndQueueIdentity(t *testing.T) {
+	ctx := context.Background()
+	transport := &listenPlaybackTestTransport{}
+	service := listenplayback.NewPlayerService(
+		transport,
+		listenplayback.WithUserInteractionUnlocked(),
+	)
+	if err := service.PlayQueueWithIdentity(ctx, []listenplayback.Track{
+		{ID: "current", VideoID: "video-current", Title: "Current"},
+		{ID: "anchor", VideoID: "video-anchor", Title: "Anchor"},
+		{ID: "existing", VideoID: "video-existing", Title: "Existing"},
+	}, 0, "Queue", "client:active"); err != nil {
+		t.Fatal(err)
+	}
+	queue, _ := service.Queue()
+	handler := NewListenPlayerHandler(nil, service)
+	snapshot, err := handler.InsertAfterQueueItem(
+		ctx,
+		ListenPlaybackQueueItemsRequest{
+			Tracks: []listenplayback.Track{
+				{ID: "continuation", VideoID: "video-continuation", Title: "Continuation"},
+			},
+			AnchorTrackID:         queue[1].ID,
+			ExpectedQueueIdentity: "client:active",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Queue) != 4 || snapshot.Queue[2].VideoID != "video-continuation" {
+		t.Fatalf("expected handler to insert continuation after anchor, got %#v", snapshot.Queue)
 	}
 }
 
@@ -625,6 +874,25 @@ func TestListenSameVideoResumeUpdatesStoredPlaybackRequest(t *testing.T) {
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("same-video resume should contain %q", expected)
+		}
+	}
+}
+
+func TestListenSameVideoRestartPersistsGuardRequestBeforePlaying(t *testing.T) {
+	script := listenYouTubeMusicSameVideoResumeScript(ListenPlayerPlayRequest{
+		VideoID:          "TESTVID001A",
+		RestartFromStart: true,
+		Volume:           0.42,
+	})
+	requestIndex := strings.Index(script, `api.request(request)`)
+	seekIndex := strings.Index(script, `request.restartFromStart === true`)
+	playIndex := strings.Index(script, `api.play()`)
+	if requestIndex < 0 || seekIndex < 0 || playIndex < 0 || requestIndex > seekIndex || seekIndex > playIndex {
+		t.Fatalf("same-video restart must persist the guarded request before seeking and playing: %s", script)
+	}
+	for _, expected := range []string{`"restartFromStart":true`, `video.currentTime = 0`} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("same-video restart must contain %q", expected)
 		}
 	}
 }
@@ -708,8 +976,12 @@ func TestListenYouTubeMusicBridgeFallsBackToUnfilteredAds(t *testing.T) {
 	}
 }
 
-func TestListenLivePlayerUsesYouTubeEmbed(t *testing.T) {
-	targetURL := listenYouTubeLiveEmbedURL("TESTVID002B", "zh-CN")
+func TestListenStreamProviderKeepsYouTubeEmbed(t *testing.T) {
+	targetURL := listenYouTubePlaybackURL(
+		listenplayback.PlaybackProviderStream,
+		"TESTVID002B",
+		"zh-CN",
+	)
 	for _, expected := range []string{
 		"https://www.youtube.com/embed/TESTVID002B",
 		"autoplay=1",
@@ -725,11 +997,69 @@ func TestListenLivePlayerUsesYouTubeEmbed(t *testing.T) {
 		t.Fatalf("live embed url should not use YouTube Music: %s", targetURL)
 	}
 	if strings.Contains(targetURL, "/watch") {
-		t.Fatalf("live embed url should not use watch playback: %s", targetURL)
+		t.Fatalf("stream embed url should not use watch playback: %s", targetURL)
 	}
 }
 
-func TestListenLiveBridgeReportsRequestedVideoIdentity(t *testing.T) {
+func TestListenYouTubeProviderUsesWatchPage(t *testing.T) {
+	targetURL := listenYouTubePlaybackURL(
+		listenplayback.PlaybackProviderYouTube,
+		"TESTVID002B",
+		"zh-CN",
+	)
+	for _, expected := range []string{
+		"https://www.youtube.com/watch?",
+		"v=TESTVID002B",
+		"autoplay=1",
+		"hl=zh-CN",
+		"persist_hl=1",
+		"#xiadown-request=TESTVID002B",
+	} {
+		if !strings.Contains(targetURL, expected) {
+			t.Fatalf("youtube watch url should contain %q, got %s", expected, targetURL)
+		}
+	}
+	if strings.Contains(targetURL, "/embed/") || strings.Contains(targetURL, "music.youtube.com") {
+		t.Fatalf("youtube provider should use the regular watch page: %s", targetURL)
+	}
+}
+
+func TestListenYouTubeLiveDocumentReuseRequiresSameLanguage(t *testing.T) {
+	request := ListenPlayerPlayRequest{
+		VideoID:  "TESTVID002B",
+		Language: "zh-Hans-CN",
+	}
+	if !listenYouTubeLiveCanReuseDocument(
+		"TESTVID002B",
+		listenplayback.PlaybackProviderYouTube,
+		"zh-CN",
+		listenplayback.PlaybackProviderYouTube,
+		request,
+	) {
+		t.Fatal("equivalent normalized language should reuse the current document")
+	}
+	if listenYouTubeLiveCanReuseDocument(
+		"TESTVID002B",
+		listenplayback.PlaybackProviderYouTube,
+		"en",
+		listenplayback.PlaybackProviderYouTube,
+		request,
+	) {
+		t.Fatal("language change must reload the current video document")
+	}
+	request.ForceReload = true
+	if listenYouTubeLiveCanReuseDocument(
+		"TESTVID002B",
+		listenplayback.PlaybackProviderYouTube,
+		"zh-CN",
+		listenplayback.PlaybackProviderYouTube,
+		request,
+	) {
+		t.Fatal("force reload must bypass same-video document reuse")
+	}
+}
+
+func TestListenLiveBridgeSeparatesObservedIdentityAndBlocksWatchAutonav(t *testing.T) {
 	script := listenYouTubeLiveBridgeScript(ListenPlayerPlayRequest{
 		VideoID: "TESTVID002B",
 		Title:   "Synthetic live radio",
@@ -739,8 +1069,37 @@ func TestListenLiveBridgeReportsRequestedVideoIdentity(t *testing.T) {
 		"listen-youtube-live-player",
 		"__listenLivePlayer",
 		"movie_player",
-		"observedVideoId: metadata.videoId",
-		"requestedVideoId: metadata.videoId",
+		"function playerVideoData()",
+		"api.getVideoData()",
+		"data.video_id || data.videoId",
+		"observedVideoId: metadata.observedVideoId",
+		"requestedVideoId: metadata.requestedVideoId",
+		"const useRequestedMetadata = Boolean(advertising) || !trackChanged",
+		"String(observedTitle || observedVideoId)",
+		"function disableWatchAutonav()",
+		`api.setOption("autonav", "autoplay", false)`,
+		".ytp-autonav-toggle-button",
+		"function blockUnexpectedWatchPlayback(metadata, advertising)",
+		`let pendingRequestedVideoId = ""`,
+		"pendingRequestedVideoId === metadata.requestedVideoId",
+		"pendingRequestedVideoId = validYouTubeVideoId(request.videoId)",
+		`urlVideoId === pendingRequestedVideoId`,
+		"const urlVideoId = validYouTubeVideoId(videoIdFromURL())",
+		"urlVideoId === metadata.requestedVideoId",
+		"storedVideoId === pendingRequestedVideoId",
+		"navigationRequestedVideoId === urlVideoId",
+		`new URLSearchParams(hash).get("xiadown-request")`,
+		"function requestForNavigationVideo(videoId)",
+		`request.title = ""`,
+		`request.artist = ""`,
+		"request.startSeconds = 0",
+		"!validYouTubeVideoId(storedVideoId)",
+		"requestForNavigationVideo(urlVideoId)",
+		`lastRequestedAction = "pause"`,
+		"api.pauseVideo()",
+		"videoElements().forEach",
+		"if (!video.paused) video.pause()",
+		"autonavBlocked",
 		"advertising",
 		"adSnapshot",
 		"visibleAdElements",
@@ -756,8 +1115,81 @@ func TestListenLiveBridgeReportsRequestedVideoIdentity(t *testing.T) {
 			t.Fatalf("live bridge script should contain %q", expected)
 		}
 	}
+	if strings.Contains(script, "observedVideoId: metadata.videoId") ||
+		strings.Contains(script, "requestedVideoId: metadata.videoId") {
+		t.Fatal("watch bridge must not collapse observed and requested identities")
+	}
+	targetLoadGuard := strings.Index(script, "urlVideoId === metadata.requestedVideoId")
+	if targetLoadGuard < 0 {
+		t.Fatal("the requested watch URL guard is missing")
+	}
+	autonavPause := strings.Index(script[targetLoadGuard:], `lastRequestedAction = "pause"`)
+	if autonavPause < 0 {
+		t.Fatal("the requested watch URL must bypass autonav blocking before it can cancel autoplay")
+	}
 	if strings.Contains(script, "ytmusic-player") {
 		t.Fatalf("live bridge should not depend on YouTube Music DOM")
+	}
+}
+
+func TestListenLivePlayDoesNotReparentAnOwnedFullscreenSurface(t *testing.T) {
+	source, err := os.ReadFile("listen_live_player_handler.go")
+	if err != nil {
+		t.Fatalf("read live player source: %v", err)
+	}
+	playStart := strings.Index(string(source), "func (player *ListenYouTubeLivePlayer) Play(")
+	playEnd := strings.Index(string(source)[playStart:], "func (player *ListenYouTubeLivePlayer) Pause(")
+	if playStart < 0 || playEnd < 0 {
+		t.Fatal("live player Play method not found")
+	}
+	play := string(source)[playStart : playStart+playEnd]
+	guard := strings.Index(play, "applyInlineGeometry := listenEmbeddedVideoCanApplyInlineGeometry")
+	reparent := strings.Index(play, "player.showEmbeddedVideoWindow(window, embeddedRect)")
+	if guard < 0 || reparent < 0 || guard > reparent {
+		t.Fatal("Play must guard inline reparenting with fullscreen presentation ownership")
+	}
+	if !strings.Contains(play, "listenYouTubeLiveVideoModeScript()") {
+		t.Fatal("Play must still apply video-only CSS without inline geometry while fullscreen owns the WebView")
+	}
+}
+
+func TestListenLivePrepareLoadLeavesNewPlaybackRequestAsFinalIntent(t *testing.T) {
+	script := listenYouTubeLivePrepareLoadScript(ListenPlayerPlayRequest{VideoID: "TESTVID002B"})
+	pause := strings.Index(script, `api.pause()`)
+	request := strings.Index(script, `api.request(request)`)
+	if pause < 0 || request < 0 || pause > request {
+		t.Fatal("switching videos must pause the old session before starting the new request")
+	}
+}
+
+func TestListenLiveBridgeRestoresPureVideoAtDocumentStart(t *testing.T) {
+	script := listenYouTubeLiveBridgeScript(ListenPlayerPlayRequest{VideoID: "TESTVID002B"})
+	for _, expected := range []string{
+		`const VIDEO_MODE_STYLE_ID = "listen-live-video-mode-style"`,
+		`window.localStorage.getItem("__listenLiveVideoModeActive") === "true"`,
+		"installLiveVideoModeAtDocumentStart",
+		"videoModeDocumentRootObserver.observe(document, { childList: true, subtree: true })",
+		`video?.closest("#movie_player, .html5-video-player")`,
+		"let current = video",
+		`current.classList.add("listen-live-video-surface")`,
+		"if (current === root) reachedRoot = true",
+		`root.classList.add("listen-live-video-root")`,
+		"restoreLiveVideoMode();",
+		"transform: none !important",
+		"clip-path: none !important",
+		".listen-live-video-root .ytp-caption-window-container *",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("document-start live bridge should contain %q", expected)
+		}
+	}
+	if strings.Contains(script, ".listen-live-video-root *") {
+		t.Fatal("video-only bridge must not reveal every YouTube player descendant")
+	}
+	waitForDOM := strings.LastIndex(script, `if (document.readyState === "loading")`)
+	if waitForDOM < 0 ||
+		strings.LastIndex(script[:waitForDOM], "installLiveVideoModeAtDocumentStart();") < 0 {
+		t.Fatal("persisted video isolation must be installed before DOMContentLoaded")
 	}
 }
 
@@ -767,14 +1199,102 @@ func TestListenLiveVideoModeScriptUsesYouTubePlayer(t *testing.T) {
 		"movie_player",
 		"listen-live-video-root",
 		"listen-live-video-visible",
+		"html body * { visibility: hidden !important; }",
+		".listen-live-video-root .ytp-caption-window-container *",
+		".listen-live-video-root .caption-window *",
 		"requestAnimationFrame(enforce)",
+		"__listenNativeWindowFullscreenActive",
+		"listen-live-native-window-fullscreen",
+		".ytp-chrome-bottom * { visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; }",
+		"html:fullscreen .listen-live-video-root .ytp-chrome-bottom",
+		"html:-webkit-full-screen .listen-live-video-root .ytp-chrome-bottom",
+		"html:fullscreen .listen-live-video-root .ytp-fullscreen-button { display: none !important; }",
+		"html:-webkit-full-screen .listen-live-video-root .ytp-fullscreen-button { display: none !important; }",
+		".listen-live-video-root:fullscreen .ytp-chrome-bottom",
+		".listen-live-video-root:-webkit-full-screen .ytp-chrome-bottom",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("live video mode script should contain %q", expected)
 		}
 	}
+	for _, expected := range []string{
+		`video?.closest("#movie_player, .html5-video-player")`,
+		"let current = video",
+		"if (current === root) reachedRoot = true",
+		"function videoTreeIsIsolated(video, root, expectedWidth, expectedHeight)",
+		`current.classList.contains("listen-live-video-surface")`,
+		`rootStyle.position !== "fixed"`,
+		"ready: viewportMatches && videoMatches && rootMatches && hasVideoFrame && treeIsolated",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("live video reveal readiness should contain %q", expected)
+		}
+	}
+	if strings.Contains(script, ".listen-live-video-root *") {
+		t.Fatal("video-only mode must reveal only the active video's ancestor chain")
+	}
 	if strings.Contains(script, "ytmusic-player") {
 		t.Fatalf("live video mode should not depend on YouTube Music DOM")
+	}
+}
+
+func TestListenYouTubeEmbeddedVideoRevealRequiresIsolatedDOMAck(t *testing.T) {
+	tests := []struct {
+		name        string
+		nativeShown bool
+		resizeReady bool
+		ownerActive bool
+		want        bool
+	}{
+		{name: "isolated player ready", nativeShown: true, resizeReady: true, ownerActive: true, want: true},
+		{name: "watch page not isolated", nativeShown: true, resizeReady: false, ownerActive: true, want: false},
+		{name: "native mount failed", nativeShown: false, resizeReady: true, ownerActive: true, want: false},
+		{name: "owner changed", nativeShown: true, resizeReady: true, ownerActive: false, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := listenYouTubeEmbeddedVideoRevealReady(test.nativeShown, test.resizeReady, test.ownerActive); got != test.want {
+				t.Fatalf("listenYouTubeEmbeddedVideoRevealReady() = %v, want %v", got, test.want)
+			}
+		})
+	}
+	if listenLiveEmbeddedVideoRevealReady(
+		listenplayback.PlaybackProviderYouTube,
+		true,
+		false,
+		true,
+	) {
+		t.Fatal("YouTube watch page must not reveal before its video-only DOM acknowledgement")
+	}
+	if !listenLiveEmbeddedVideoRevealReady(
+		listenplayback.PlaybackProviderStream,
+		true,
+		false,
+		true,
+	) {
+		t.Fatal("the lightweight stream embed should retain the native-mount reveal policy")
+	}
+}
+
+func TestListenLiveNativeWindowFullscreenModeKeepsPlayerControlsReachable(t *testing.T) {
+	enter := listenYouTubeLiveNativeWindowFullscreenModeScript(true)
+	exit := listenYouTubeLiveNativeWindowFullscreenModeScript(false)
+	for _, expected := range []string{
+		`const active = true`,
+		`sessionStorage.setItem("__listenNativeWindowFullscreenActive", "true")`,
+		`classList.toggle("listen-live-native-window-fullscreen", active)`,
+	} {
+		if !strings.Contains(enter, expected) {
+			t.Fatalf("native fullscreen enter script missing %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		`const active = false`,
+		`sessionStorage.removeItem("__listenNativeWindowFullscreenActive")`,
+	} {
+		if !strings.Contains(exit, expected) {
+			t.Fatalf("native fullscreen exit script missing %q", expected)
+		}
 	}
 }
 

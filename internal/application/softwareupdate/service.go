@@ -25,6 +25,7 @@ type Service struct {
 
 	mu              sync.Mutex
 	snapshot        Snapshot
+	snapshotRequest Request
 	refreshInFlight bool
 	refreshWait     chan struct{}
 	cancelSchedule  context.CancelFunc
@@ -47,8 +48,10 @@ func (service *Service) Snapshot() Snapshot {
 func (service *Service) EnsureCatalog(ctx context.Context, maxAge time.Duration, request Request) (Snapshot, error) {
 	service.mu.Lock()
 	snapshot := service.snapshot
+	snapshotRequest := service.snapshotRequest
 	service.mu.Unlock()
-	if maxAge > 0 && snapshot.LastError == "" && !snapshot.CheckedAt.IsZero() && service.now().Sub(snapshot.CheckedAt) < maxAge {
+	if maxAge > 0 && catalogRequestsEqual(snapshotRequest, request) && snapshot.LastError == "" &&
+		!snapshot.CheckedAt.IsZero() && service.now().Sub(snapshot.CheckedAt) < maxAge {
 		return snapshot, nil
 	}
 	return service.RefreshCatalog(ctx, request)
@@ -89,6 +92,7 @@ func (service *Service) RefreshCatalog(ctx context.Context, request Request) (Sn
 
 	service.mu.Lock()
 	service.snapshot = snapshot
+	service.snapshotRequest = normalizeCatalogRequest(request)
 	wait := service.refreshWait
 	service.refreshWait = nil
 	service.refreshInFlight = false
@@ -102,6 +106,17 @@ func (service *Service) RefreshCatalog(ctx context.Context, request Request) (Sn
 		return snapshot, err
 	}
 	return snapshot, nil
+}
+
+func normalizeCatalogRequest(request Request) Request {
+	return Request{
+		Channel:    strings.TrimSpace(request.Channel),
+		AppVersion: normalizeAppReleaseVersion(request.AppVersion),
+	}
+}
+
+func catalogRequestsEqual(left, right Request) bool {
+	return normalizeCatalogRequest(left) == normalizeCatalogRequest(right)
 }
 
 func (service *Service) ResolveAppRelease(ctx context.Context, request AppRequest) (AppRelease, error) {

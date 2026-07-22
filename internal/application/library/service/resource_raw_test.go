@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -349,118 +351,6 @@ func TestResourceSniffListPolicyHidesSegments(t *testing.T) {
 	}
 }
 
-func TestResourceSniffHLSVODManifestIsDownloadableVideo(t *testing.T) {
-	t.Parallel()
-
-	seenAt := time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC)
-	capture := &resourceCaptureState{
-		observed: []resourceObservedResource{
-			{
-				url:          "https://media.example/replay/index.m3u8",
-				pageURL:      "https://page.example/watch",
-				contentType:  "application/vnd.apple.mpegurl",
-				resourceType: string(network.ResourceTypeMedia),
-				status:       200,
-				sizeBytes:    128,
-				seenAt:       seenAt,
-			},
-		},
-		apiResponses: []resourceAPIResponse{
-			{
-				URL:          "https://media.example/replay/index.m3u8",
-				PageURL:      "https://page.example/watch",
-				ContentType:  "application/vnd.apple.mpegurl",
-				Status:       200,
-				ResourceType: network.ResourceTypeMedia,
-				Body: []byte(`#EXTM3U
-#EXT-X-TARGETDURATION:6
-#EXTINF:6,
-00001.ts
-#EXT-X-ENDLIST
-`),
-				SeenAt: seenAt.Add(time.Second),
-			},
-		},
-	}
-	service := &LibraryService{}
-	resources := service.listResourceSniffRawResources(&resourceSniffSession{
-		Tabs: map[string]*resourceSniffTab{
-			"target-1": {TargetID: "target-1", Capture: capture},
-		},
-	})
-	if len(resources) != 1 {
-		t.Fatalf("expected deduped hls vod resource, got %d: %#v", len(resources), resources)
-	}
-	got := resources[0].ResourceSniffRawResource
-	if got.Kind != "video" || !got.Downloadable || got.Source != "network" {
-		t.Fatalf("expected downloadable network video for hls vod, got %#v", got)
-	}
-}
-
-func TestResourceSniffHLSLiveManifestRemainsLiveAndNotDownloadable(t *testing.T) {
-	t.Parallel()
-
-	items := rawResourcesFromAPIResponses("target-1", []resourceAPIResponse{
-		{
-			URL:          "https://media.example/live/index.m3u8",
-			PageURL:      "https://page.example/live",
-			ContentType:  "application/vnd.apple.mpegurl",
-			Status:       200,
-			ResourceType: network.ResourceTypeMedia,
-			Body: []byte(`#EXTM3U
-#EXT-X-TARGETDURATION:6
-#EXTINF:6,
-00042.ts
-`),
-			SeenAt: time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC),
-		},
-	})
-	if len(items) != 1 {
-		t.Fatalf("expected one raw hls resource, got %d", len(items))
-	}
-	got := items[0].ResourceSniffRawResource
-	if got.Kind != "live" || got.Downloadable {
-		t.Fatalf("expected live hls manifest to remain preview-only, got %#v", got)
-	}
-}
-
-func TestResourceSniffHLSManifestCaptureUpgradesEventToReplay(t *testing.T) {
-	t.Parallel()
-
-	state := newResourceCaptureState()
-	state.recordAPIResponse(resourceAPIResponse{
-		URL:         "https://media.example/event/index.m3u8",
-		PageURL:     "https://page.example/live",
-		ContentType: "application/vnd.apple.mpegurl",
-		Body: []byte(`#EXTM3U
-#EXT-X-PLAYLIST-TYPE:EVENT
-#EXTINF:6,
-00001.ts
-`),
-		SeenAt: time.Date(2026, 5, 24, 10, 0, 0, 0, time.UTC),
-	})
-	state.recordAPIResponse(resourceAPIResponse{
-		URL:         "https://media.example/event/index.m3u8",
-		PageURL:     "https://page.example/live",
-		ContentType: "application/vnd.apple.mpegurl",
-		Body: []byte(`#EXTM3U
-#EXT-X-PLAYLIST-TYPE:EVENT
-#EXTINF:6,
-00001.ts
-#EXT-X-ENDLIST
-`),
-		SeenAt: time.Date(2026, 5, 24, 10, 1, 0, 0, time.UTC),
-	})
-	items := rawResourcesFromAPIResponses("target-1", state.apiResponsesSnapshot())
-	if len(items) != 1 {
-		t.Fatalf("expected one captured hls manifest, got %d", len(items))
-	}
-	got := items[0].ResourceSniffRawResource
-	if got.Kind != "video" || !got.Downloadable {
-		t.Fatalf("expected ended event manifest to upgrade to downloadable video, got %#v", got)
-	}
-}
-
 func TestResourceSniffRawDownloadableIsKindCaseInsensitive(t *testing.T) {
 	t.Parallel()
 
@@ -622,6 +512,170 @@ func TestRewriteResourceSniffHLSManifestProxiesReferences(t *testing.T) {
 	}
 	if !strings.Contains(got, resourceSniffPreviewManifestQueryParam+"=auth%3D1") {
 		t.Fatalf("expected manifest query to be carried as a fallback, got:\n%s", got)
+	}
+}
+
+func TestResourceSniffPreviewRejectsHLSManifestWithOversizedContentLength(t *testing.T) {
+	t.Parallel()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.Header().Set("Content-Length", strconv.FormatInt(resourceSniffPreviewHLSManifestMaxBytes+1, 10))
+		_, _ = w.Write([]byte("#EXTM3U\nremote-manifest-content\n"))
+	}))
+	defer origin.Close()
+
+	service := &LibraryService{
+		resourcePreviewLeases: map[string]resourceSniffPreviewLease{
+			"lease-id": {
+				ID:        "lease-id",
+				Kind:      "live",
+				URL:       origin.URL + "/stream.m3u8",
+				FileName:  "stream.m3u8",
+				ExpiresAt: time.Now().Add(time.Hour),
+			},
+		},
+		nowFunc: time.Now,
+	}
+	request := httptest.NewRequest("GET", "/api/sniff/resource-preview/lease-id/stream.m3u8", nil)
+	response := httptest.NewRecorder()
+
+	service.ServeResourceSniffPreview(response, request)
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("expected oversized manifest status 502, got %d: %s", response.Code, response.Body.String())
+	}
+	if got := response.Body.String(); !strings.Contains(got, "exceeds size limit") || strings.Contains(got, "remote-manifest-content") {
+		t.Fatalf("expected a size-limit error without upstream manifest content, got %q", got)
+	}
+}
+
+func TestResourceSniffPreviewRejectsOversizedChunkedHLSManifest(t *testing.T) {
+	t.Parallel()
+
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		_, _ = w.Write([]byte("#EXTM3U\n"))
+		_, _ = io.WriteString(w, strings.Repeat("x", int(resourceSniffPreviewHLSManifestMaxBytes)))
+	}))
+	defer origin.Close()
+
+	service := &LibraryService{
+		resourcePreviewLeases: map[string]resourceSniffPreviewLease{
+			"lease-id": {
+				ID:        "lease-id",
+				Kind:      "live",
+				URL:       origin.URL + "/stream.m3u8",
+				FileName:  "stream.m3u8",
+				ExpiresAt: time.Now().Add(time.Hour),
+			},
+		},
+		nowFunc: time.Now,
+	}
+	request := httptest.NewRequest("GET", "/api/sniff/resource-preview/lease-id/stream.m3u8", nil)
+	response := httptest.NewRecorder()
+
+	service.ServeResourceSniffPreview(response, request)
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("expected oversized chunked manifest status 502, got %d: %s", response.Code, response.Body.String())
+	}
+	if got := response.Body.String(); !strings.Contains(got, "exceeds size limit") || strings.Contains(got, "#EXTM3U") {
+		t.Fatalf("expected a size-limit error without truncated upstream content, got %q", got)
+	}
+}
+
+func TestResourceSniffPreviewRewritesHLSManifestsAtOrBelowSizeLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{
+			name:     "normal manifest",
+			manifest: "#EXTM3U\nsegment.ts\n",
+		},
+		{
+			name: "manifest at limit",
+			manifest: func() string {
+				base := "#EXTM3U\nsegment.ts\n"
+				return base + "#" + strings.Repeat("x", int(resourceSniffPreviewHLSManifestMaxBytes)-len(base)-2) + "\n"
+			}(),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+				w.Header().Set("Content-Length", strconv.Itoa(len(test.manifest)))
+				_, _ = io.WriteString(w, test.manifest)
+			}))
+			defer origin.Close()
+
+			service := &LibraryService{
+				resourcePreviewLeases: map[string]resourceSniffPreviewLease{
+					"lease-id": {
+						ID:        "lease-id",
+						Kind:      "live",
+						URL:       origin.URL + "/stream.m3u8",
+						FileName:  "stream.m3u8",
+						ExpiresAt: time.Now().Add(time.Hour),
+					},
+				},
+				nowFunc: time.Now,
+			}
+			request := httptest.NewRequest("GET", "/api/sniff/resource-preview/lease-id/stream.m3u8", nil)
+			response := httptest.NewRecorder()
+
+			service.ServeResourceSniffPreview(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("expected manifest status 200, got %d: %s", response.Code, response.Body.String())
+			}
+			if got := response.Body.String(); !strings.Contains(got, "proxy?") || strings.Contains(got, "\nsegment.ts") {
+				t.Fatalf("expected complete HLS manifest rewrite, got prefix %q", got[:min(len(got), 256)])
+			}
+		})
+	}
+}
+
+func TestResourceSniffPreviewDoesNotLimitNonHLSMedia(t *testing.T) {
+	t.Parallel()
+
+	payload := strings.Repeat("v", int(resourceSniffPreviewHLSManifestMaxBytes)+1)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = io.WriteString(w, payload)
+	}))
+	defer origin.Close()
+
+	service := &LibraryService{
+		resourcePreviewLeases: map[string]resourceSniffPreviewLease{
+			"lease-id": {
+				ID:        "lease-id",
+				Kind:      "video",
+				URL:       origin.URL + "/video.mp4",
+				FileName:  "video.mp4",
+				ExpiresAt: time.Now().Add(time.Hour),
+			},
+		},
+		nowFunc: time.Now,
+	}
+	request := httptest.NewRequest("GET", "/api/sniff/resource-preview/lease-id/video.mp4", nil)
+	response := httptest.NewRecorder()
+
+	service.ServeResourceSniffPreview(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected non-HLS media status 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if got := response.Body.Len(); got != len(payload) {
+		t.Fatalf("expected all %d non-HLS bytes to stream, got %d", len(payload), got)
 	}
 }
 
@@ -799,17 +853,6 @@ func TestResourceSniffRawResourcesExposeCaptureWithoutExtractor(t *testing.T) {
 				seenAt:       seenAt,
 			},
 		},
-		apiResponses: []resourceAPIResponse{
-			{
-				URL:          "https://www.kuaishou.com/graphql",
-				PageURL:      "https://www.kuaishou.com/short-video/example",
-				ContentType:  "application/json",
-				Status:       200,
-				ResourceType: network.ResourceTypeXHR,
-				SizeBytes:    42,
-				SeenAt:       seenAt.Add(time.Second),
-			},
-		},
 		subtitles: []resourceSubtitle{
 			{
 				URL:         "https://cdn.example/captions.en.vtt",
@@ -817,7 +860,7 @@ func TestResourceSniffRawResourcesExposeCaptureWithoutExtractor(t *testing.T) {
 				Language:    "en",
 				Ext:         "vtt",
 				ContentType: "text/vtt",
-				SeenAt:      seenAt.Add(2 * time.Second),
+				SeenAt:      seenAt.Add(time.Second),
 			},
 		},
 	}
@@ -831,8 +874,8 @@ func TestResourceSniffRawResourcesExposeCaptureWithoutExtractor(t *testing.T) {
 		},
 	})
 
-	if len(resources) != 3 {
-		t.Fatalf("expected candidate, api response, and subtitle raw resources, got %d: %#v", len(resources), resources)
+	if len(resources) != 2 {
+		t.Fatalf("expected candidate and subtitle raw resources, got %d: %#v", len(resources), resources)
 	}
 	bySource := map[string]dto.ResourceSniffRawResource{}
 	for _, resource := range resources {
@@ -844,9 +887,6 @@ func TestResourceSniffRawResourcesExposeCaptureWithoutExtractor(t *testing.T) {
 	}
 	if candidate.Domain != "example" && candidate.Domain != "cdn.example" {
 		t.Fatalf("expected candidate domain to be classified, got %#v", candidate)
-	}
-	if api := bySource["api_response"]; api.Kind != "api" || !api.Downloadable {
-		t.Fatalf("expected downloadable raw api response, got %#v", api)
 	}
 	if subtitle := bySource["subtitle"]; subtitle.Kind != "subtitle" || !subtitle.Downloadable {
 		t.Fatalf("expected downloadable subtitle raw resource, got %#v", subtitle)
@@ -998,11 +1038,6 @@ func TestClearResourceSniffResourcesClearsCaptureState(t *testing.T) {
 			url:    "https://cdn.example/rejected.ts",
 			reason: "weak_candidate",
 		}},
-		apiResponses: []resourceAPIResponse{{
-			URL:    "https://api.example/detail",
-			Body:   []byte(`{"ok":true}`),
-			SeenAt: seenAt,
-		}},
 		subtitles: []resourceSubtitle{{
 			URL:    "https://cdn.example/captions.vtt",
 			Ext:    "vtt",
@@ -1036,57 +1071,5 @@ func TestClearResourceSniffResourcesClearsCaptureState(t *testing.T) {
 	defer capture.mu.Unlock()
 	if len(capture.requests) != 0 {
 		t.Fatalf("expected request cache to be cleared, got %#v", capture.requests)
-	}
-}
-
-func TestResourceSniffSnapshotDeepClonesCaptureBoundary(t *testing.T) {
-	t.Parallel()
-
-	pageMeta := map[string]string{"title": "Before"}
-	candidates := []resourceCandidate{{
-		url:     "https://cdn.example/video.mp4",
-		headers: map[string]string{"Referer": "https://page.example/watch"},
-	}}
-	rejected := []resourceRejectedCandidate{{
-		url:     "https://cdn.example/rejected.ts",
-		headers: map[string]string{"Range": "bytes=0-1"},
-	}}
-	apiResponses := []resourceAPIResponse{{
-		URL:             "https://api.example/detail",
-		RequestHeaders:  map[string]string{"Accept": "application/json"},
-		ResponseHeaders: map[string]string{"Content-Type": "application/json"},
-		Body:            []byte(`{"ok":true}`),
-	}}
-	subtitles := []resourceSubtitle{{
-		URL:            "https://cdn.example/captions.vtt",
-		Ext:            "vtt",
-		RequestHeaders: map[string]string{"Referer": "https://page.example/watch"},
-	}}
-
-	snapshot := newResourceSniffSnapshot("https://page.example/watch", pageMeta, candidates, rejected, apiResponses, subtitles, time.Now())
-	pageMeta["title"] = "After"
-	candidates[0].headers["Referer"] = "mutated"
-	rejected[0].headers["Range"] = "mutated"
-	apiResponses[0].RequestHeaders["Accept"] = "mutated"
-	apiResponses[0].ResponseHeaders["Content-Type"] = "mutated"
-	apiResponses[0].Body[0] = '['
-	subtitles[0].RequestHeaders["Referer"] = "mutated"
-
-	if snapshot.PageMeta["title"] != "Before" {
-		t.Fatalf("expected page meta to be cloned, got %#v", snapshot.PageMeta)
-	}
-	if snapshot.Candidates[0].headers["Referer"] != "https://page.example/watch" {
-		t.Fatalf("expected candidate headers to be cloned, got %#v", snapshot.Candidates[0].headers)
-	}
-	if snapshot.Rejected[0].headers["Range"] != "bytes=0-1" {
-		t.Fatalf("expected rejected headers to be cloned, got %#v", snapshot.Rejected[0].headers)
-	}
-	if snapshot.APIResponses[0].RequestHeaders["Accept"] != "application/json" ||
-		snapshot.APIResponses[0].ResponseHeaders["Content-Type"] != "application/json" ||
-		string(snapshot.APIResponses[0].Body) != `{"ok":true}` {
-		t.Fatalf("expected api response to be cloned, got %#v body=%s", snapshot.APIResponses[0], string(snapshot.APIResponses[0].Body))
-	}
-	if snapshot.CapturedSubtitles[0].RequestHeaders["Referer"] != "https://page.example/watch" {
-		t.Fatalf("expected subtitle headers to be cloned, got %#v", snapshot.CapturedSubtitles[0].RequestHeaders)
 	}
 }

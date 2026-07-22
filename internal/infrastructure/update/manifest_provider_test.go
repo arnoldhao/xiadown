@@ -2,12 +2,31 @@ package update
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"xiadown/internal/application/softwareupdate"
 )
+
+type manifestRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn manifestRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func manifestTestClient(body string, contentLength int64) *http.Client {
+	return &http.Client{Transport: manifestRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Body:          io.NopCloser(strings.NewReader(body)),
+			ContentLength: contentLength,
+			Header:        make(http.Header),
+		}, nil
+	})}
+}
 
 func TestManifestCatalogProviderSelectsCurrentPlatformAssets(t *testing.T) {
 	t.Parallel()
@@ -34,9 +53,23 @@ func TestManifestCatalogProviderSelectsCurrentPlatformAssets(t *testing.T) {
 							},
 							"windows-amd64":{
 								"artifactName":"xiadown-windows-x64-1.3.0-installer.exe",
+								"contentType":"application/vnd.microsoft.portable-executable",
+								"size":200,
+								"sha256":"1111111111111111111111111111111111111111111111111111111111111111",
 								"sources":[{"name":"github","kind":"origin","url":"https://example.com/app.exe","priority":20,"enabled":true}],
 								"installStrategy":"app-installer",
-								"artifactType":"exe"
+								"artifactType":"exe",
+								"variants":{
+									"portable":{
+										"artifactName":"xiadown-windows-x64-1.3.0.zip",
+										"contentType":"application/zip",
+										"size":100,
+										"sha256":"2222222222222222222222222222222222222222222222222222222222222222",
+										"sources":[{"name":"github","kind":"origin","url":"https://example.com/app.zip","priority":20,"enabled":true}],
+										"installStrategy":"archive",
+										"artifactType":"zip"
+									}
+								}
 							}
 						}
 					},
@@ -124,5 +157,75 @@ func TestManifestCatalogProviderSelectsCurrentPlatformAssets(t *testing.T) {
 	}
 	if catalog.Listen.LiveChannel.Fallback != "embedded" {
 		t.Fatalf("unexpected Listen live catalog fallback: %s", catalog.Listen.LiveChannel.Fallback)
+	}
+
+	provider.goos = "windows"
+	provider.goarch = "amd64"
+	windowsCatalog, err := provider.FetchCatalog(context.Background(), softwareupdate.Request{})
+	if err != nil {
+		t.Fatalf("fetch Windows catalog failed: %v", err)
+	}
+	if windowsCatalog.App == nil {
+		t.Fatal("expected Windows app release")
+	}
+	installerAsset := windowsCatalog.App.Asset
+	if installerAsset.ArtifactName != "xiadown-windows-x64-1.3.0-installer.exe" ||
+		installerAsset.SHA256 != "1111111111111111111111111111111111111111111111111111111111111111" {
+		t.Fatalf("unexpected Windows installer asset: %#v", installerAsset)
+	}
+	portableAsset, ok := installerAsset.Variants["portable"]
+	if !ok {
+		t.Fatal("expected Windows portable variant")
+	}
+	if portableAsset.ArtifactName != "xiadown-windows-x64-1.3.0.zip" ||
+		portableAsset.ContentType != "application/zip" || portableAsset.Size != 100 ||
+		portableAsset.SHA256 != "2222222222222222222222222222222222222222222222222222222222222222" ||
+		portableAsset.InstallStrategy != "archive" || portableAsset.ArtifactType != "zip" ||
+		portableAsset.PrimaryDownloadURL() != "https://example.com/app.zip" {
+		t.Fatalf("unexpected Windows portable variant: %#v", portableAsset)
+	}
+}
+
+func TestManifestCatalogProviderRejectsOversizedDeclaredBody(t *testing.T) {
+	t.Parallel()
+
+	provider := NewManifestCatalogProvider(
+		manifestTestClient(`{}`, maxManifestBodyBytes+1),
+		"https://updates.example.test/manifest.json",
+	)
+	_, err := provider.FetchCatalog(context.Background(), softwareupdate.Request{})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected declared manifest size rejection, got %v", err)
+	}
+}
+
+func TestManifestCatalogProviderRejectsOversizedChunkedBody(t *testing.T) {
+	t.Parallel()
+
+	provider := NewManifestCatalogProvider(
+		manifestTestClient(strings.Repeat(" ", int(maxManifestBodyBytes)+1), -1),
+		"https://updates.example.test/manifest.json",
+	)
+	_, err := provider.FetchCatalog(context.Background(), softwareupdate.Request{})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected streamed manifest size rejection, got %v", err)
+	}
+}
+
+func TestManifestCatalogProviderRejectsTrailingJSON(t *testing.T) {
+	t.Parallel()
+
+	body := `{
+		"appId":"cc.dreamapp.xiadown",
+		"defaultChannel":"stable",
+		"channels":{"stable":{}}
+	} {"unexpected":true}`
+	provider := NewManifestCatalogProvider(
+		manifestTestClient(body, int64(len(body))),
+		"https://updates.example.test/manifest.json",
+	)
+	_, err := provider.FetchCatalog(context.Background(), softwareupdate.Request{})
+	if err == nil || !strings.Contains(err.Error(), "trailing JSON") {
+		t.Fatalf("expected trailing manifest document rejection, got %v", err)
 	}
 }

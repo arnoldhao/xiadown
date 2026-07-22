@@ -1,0 +1,4848 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: XiaDown Library API
+  version: 1.0.0
+  description: |
+    Version 1 of the device-facing XiaDown Library API. The API is exposed only
+    by a user-enabled Library transport. Pairing credentials and Bearer tokens
+    are secrets; clients must not put them in URLs, analytics, logs, or crash
+    reports.
+
+    The pairing response grants `library.read` and `tasks.read` by default.
+    `music.read`, `music.state`, `music.manage`, `rss.read`, `rss.state`,
+    `rss.manage`, `rss.fetch`, `tasks.create`, and `tasks.control` can be granted
+    later by the desktop owner. Pairing never grants either RSS management or
+    public-feed fetch access by default.
+    A grant is bound to one Catalog, so a valid token from another Catalog is
+    rejected.
+
+    A stable device ID and public-key hash are client assertions, not authority
+    to inherit an existing grant. Pairing rejects collisions with an active
+    grant. After the Desktop owner revokes a grant, a fresh short-lived pairing
+    session may replace it in place: the grant identity and creation time remain
+    for namespace continuity, but the token and public-key hash rotate and scopes
+    reset to the default minimum. The old token remains invalid and prior managed
+    scopes must be granted again by the Desktop owner.
+
+    Canonical response property names are case-sensitive camelCase. Path and
+    query parameter names are case-sensitive. Unless an input is explicitly
+    marked `x-case-insensitive`, enum values and scope names are case-sensitive
+    and use the lowercase spelling shown in this document.
+servers:
+  - url: "{transportBase}"
+    description: LAN or Tailscale HTTPS base returned by the pairing link; keep any managed path prefix.
+    variables:
+      transportBase:
+        default: https://library.local:43127
+        description: HTTPS origin, optionally followed by the configured Tailscale Serve path.
+tags:
+  - name: System
+  - name: Pairing
+  - name: Sync
+  - name: Library
+  - name: Music
+  - name: RSS
+  - name: Tasks
+security: []
+x-xiadown-bearer-scopes:
+  library.read: Read Library overview, items, assets, collections, tags, and changes.
+  music.read: Read the Music Station Local catalog, playlists, artwork, lyrics, and playback resources.
+  music.state: Update Music favorites, playback progress/events, and lyric selection.
+  music.manage: Manage Music Station Local membership and playlists.
+  rss.read: Read the RSS overview, stable snapshot, subscriptions, entry summaries/details, and synchronization changes.
+  rss.state: Update the paired owner's RSS read, starred, article progress, and video progress state.
+  rss.manage: Manage public RSS subscriptions and their grouping; private Desktop-managed sources remain unavailable.
+  rss.fetch: Read explicitly shared public HTTPS Feed URLs, request fetch leases, and submit bounded observations.
+  tasks.read: Read task lists and task details.
+  tasks.create: Create a download task.
+  tasks.control: Cancel or resume a task.
+x-xiadown-casing:
+  paths-and-query-names: case-sensitive
+  request-property-names: canonical camelCase; clients must send the exact documented spelling
+  response-property-names: case-sensitive canonical camelCase
+  scope-names: case-sensitive lowercase dotted names
+  bearer-scheme: case-insensitive per HTTP authentication rules
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Check API process health
+      responses:
+        "200":
+          description: The versioned API router is available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/v1/version:
+    get:
+      tags: [System]
+      operationId: getVersion
+      summary: Read API and desktop version information
+      responses:
+        "200":
+          description: API and application version information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionResponse"
+
+  /api/v1/pair:
+    post:
+      tags: [Pairing]
+      operationId: pairDevice
+      summary: Exchange a short-lived pairing session for a device Bearer token
+      description: |
+        The pairing session is consumed only after its device grant is stored
+        successfully. An active device-ID collision is rejected. A revoked
+        identity may be replaced in place with a rotated credential and the
+        default minimum scopes; no prior managed scope is inherited.
+      requestBody:
+        required: true
+        x-max-body-bytes: 32768
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PairRequest"
+      responses:
+        "201":
+          description: Device paired. The returned token is shown only in this response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairResponse"
+        "400":
+          description: Malformed JSON, unknown fields, an oversized body, invalid request fields, or a collision with an active device grant (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: The pairing session is invalid, expired, exhausted, or already consumed (`pairing_invalid`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: The pairing exchange could not be completed (`pairing_failed`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /api/v1/device-access:
+    get:
+      tags: [Pairing]
+      operationId: getDeviceAccess
+      summary: Read the current catalog-bound device grant and effective scopes
+      description: This credential-introspection endpoint requires a valid Bearer token but no business-data scope.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The identity and effective scopes bound to the presented credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceAccessResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The credential belongs to a different Catalog (`catalog_access_denied`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /api/v1/sync/events:
+    get:
+      tags: [Sync]
+      operationId: streamSyncEvents
+      summary: Receive scope-filtered synchronization wake hints
+      description: |-
+        Foreground-only Server-Sent Events signal plane, advertised by the
+        top-level `sync-events-v1` capability in `GET /api/v1/device-access`.
+        `station-dirty` carries only a Station name, epoch, and high-water mark;
+        `tasks-dirty` carries only `{ "dirty": true }`. Clients must use the
+        corresponding overview/changes or task-list endpoint after every hint.
+        Event loss, disconnect, suspension, replay gaps, and a missing stream do
+        not affect correctness. `Last-Event-ID` only reduces duplicate wakeups
+        and is never a Station cursor or acknowledgement. Desktop periodically
+        revalidates the presented Bearer grant while the stream is active.
+        Revocation or expiry closes the stream without an SSE error payload;
+        scope changes atomically update filtering and discard any pending hint
+        that is no longer authorized before it can be delivered.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LastEventID"
+      responses:
+        "200":
+          description: |-
+            An SSE stream containing `station-dirty`, `tasks-dirty`, and
+            periodic comment keepalives. Events are filtered by the current
+            grant's `library.read`, `music.read`, `rss.read`, and `tasks.read`
+            scopes. Slow consumers receive the newest coalesced hint per
+            Station rather than an unbounded queue.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                stationDirty:
+                  value: |-
+                    id: 907
+                    event: station-dirty
+                    data: {"station":"music","epoch":"0123456789abcdef0123456789abcdef","highWater":1881}
+        "400":
+          description: Invalid numeric `Last-Event-ID` (`invalid_last_event_id`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The credential belongs to a different Catalog (`catalog_access_denied`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: The HTTP transport cannot stream responses (`streaming_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /api/v1/library:
+    get:
+      tags: [Library]
+      operationId: getLibraryOverview
+      summary: Read the default Catalog overview and synchronization cursor
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      responses:
+        "200":
+          description: Current Catalog counts, health counts, and a high-water synchronization cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryOverview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/snapshot:
+    get:
+      tags: [Library]
+      operationId: getLibrarySnapshot
+      summary: Read one stable keyset page of non-trashed Library items
+      description: >-
+        This route is available when `GET /api/v1/library` advertises
+        `snapshot-keyset-v1`. Every cursor is bound to the requested epoch and
+        high-water mark. The server checks that synchronization state before
+        and after materializing the page; any concurrent Catalog mutation
+        returns `reset_required` and no partial page.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/LibrarySnapshotEpoch"
+        - $ref: "#/components/parameters/LibrarySnapshotHighWater"
+        - $ref: "#/components/parameters/LibrarySnapshotAfter"
+        - $ref: "#/components/parameters/LibrarySnapshotLimit"
+      responses:
+        "200":
+          description: A stable, ID-ordered page of path-free Catalog item summaries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibrarySnapshotPage"
+        "400":
+          description: Invalid epoch/cursor (`invalid_cursor`) or page size (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The requested snapshot boundary is stale or changed while the page was read (`reset_required`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/items:
+    get:
+      tags: [Library]
+      operationId: listLibraryItems
+      summary: List logical Library items
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/ItemCategory"
+        - $ref: "#/components/parameters/ItemStatus"
+        - $ref: "#/components/parameters/ExcludeTrashed"
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/ItemSort"
+        - $ref: "#/components/parameters/ItemLimit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: A bounded item page. `total` is the count before pagination.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryItemList"
+        "400":
+          description: Invalid pagination (`invalid_pagination`) or an unsupported filter/sort/search query (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/items/{id}:
+    get:
+      tags: [Library]
+      operationId: getLibraryItem
+      summary: Read one logical item and its public presentation metadata
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      responses:
+        "200":
+          description: Item detail. Local paths, checksums, provenance, and per-user state are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryItemDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/assets/{id}/content:
+    get:
+      tags: [Library]
+      operationId: getLibraryAssetContent
+      summary: Stream an available asset, including byte ranges
+      description: Only regular, non-symlink local files owned by a non-trashed item in the paired Catalog are served.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Complete asset content.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Disposition:
+              $ref: "#/components/headers/ContentDisposition"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: One or more satisfiable byte ranges.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Disposition:
+              $ref: "#/components/headers/ContentDisposition"
+            Content-Range:
+              $ref: "#/components/headers/ContentRange"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+            multipart/byteranges:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The asset is absent, outside this Catalog, trashed, offline, missing, or otherwise unavailable (`not_found` or `asset_unavailable`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "416":
+          description: The requested byte range is invalid or unsatisfiable. This response is generated by the standard range server and is plain text.
+          headers:
+            Content-Range:
+              $ref: "#/components/headers/ContentRange"
+          content:
+            text/plain:
+              schema:
+                type: string
+        "429":
+          description: The concurrent asset stream limit is reached (`asset_stream_limit_reached`).
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/collections:
+    get:
+      tags: [Library]
+      operationId: listLibraryCollections
+      summary: List sanitized Catalog collections
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/CollectionLimit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: A bounded array of collections. Smart query expressions are never returned.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LibraryCollection"
+        "400":
+          $ref: "#/components/responses/InvalidPagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/collections/{id}/items:
+    get:
+      tags: [Library]
+      operationId: listLibraryCollectionItems
+      summary: List stable item membership for one collection
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+        - $ref: "#/components/parameters/TaxonomyLimit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: A bounded collection membership page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionItemsPage"
+        "400":
+          $ref: "#/components/responses/InvalidPagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/tags:
+    get:
+      tags: [Library]
+      operationId: listLibraryTags
+      summary: List sanitized Catalog tags
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/TaxonomyLimit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: A bounded array of tags.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LibraryTag"
+        "400":
+          $ref: "#/components/responses/InvalidPagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/library/changes:
+    get:
+      tags: [Library]
+      operationId: listLibraryChanges
+      summary: Read the durable Catalog invalidation feed
+      description: Fetch the overview first, then send its `sync.epoch` and last applied cursor. A reset response requires a fresh overview and full local reconciliation.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: library.read
+      parameters:
+        - $ref: "#/components/parameters/ChangeAfter"
+        - $ref: "#/components/parameters/ChangeEpoch"
+        - $ref: "#/components/parameters/ChangeLimit"
+      responses:
+        "200":
+          description: Changes strictly after the requested cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeList"
+        "400":
+          description: Invalid cursor (`invalid_cursor`) or invalid page size (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The epoch is stale/missing or the cursor is ahead of the server (`reset_required`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/overview:
+    get:
+      tags: [Music]
+      operationId: getMusicOverview
+      summary: Read the paired Music namespace and synchronization position
+      description: Returns only the Desktop Music Station Local projection. It does not expose the loopback Listen API or enumerate the general Library.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.read
+      responses:
+        "200":
+          description: Music namespace, current epoch/high-water/retention window, and supported read capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicOverview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/snapshot:
+    get:
+      tags: [Music]
+      operationId: getMusicSnapshot
+      summary: Page a stable keyset snapshot of Music Tracks and Playlists
+      description: Read `MusicOverview` first and keep its exact epoch/high-water pair for every page. A concurrent Desktop mutation returns `reset_required`; discard staging and negotiate a fresh snapshot.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.read
+      parameters:
+        - $ref: "#/components/parameters/MusicEpoch"
+        - $ref: "#/components/parameters/MusicHighWater"
+        - $ref: "#/components/parameters/MusicSnapshotCursor"
+        - $ref: "#/components/parameters/MusicSyncLimit"
+      responses:
+        "200":
+          description: A keyset page bound to the requested epoch and high-water mark.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicSnapshotPage"
+        "400":
+          description: Invalid position/cursor (`invalid_cursor`) or page size (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/MusicResetRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/changes:
+    get:
+      tags: [Music]
+      operationId: listMusicChanges
+      summary: Read canonical Music changes after a durable cursor
+      description: Membership bookkeeping is not exposed. Public upserts contain the current canonical Track, Playlist, or Playlist Item projection; deletes carry no payload.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.read
+      parameters:
+        - $ref: "#/components/parameters/MusicEpoch"
+        - $ref: "#/components/parameters/MusicChangeAfter"
+        - $ref: "#/components/parameters/MusicSyncLimit"
+      responses:
+        "200":
+          description: A bounded, ordered change page and the cursor durably represented by it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicChangePage"
+        "400":
+          description: Invalid epoch/cursor (`invalid_cursor`) or page size (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/MusicResetRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/tracks/{id}:
+    get:
+      tags: [Music]
+      operationId: getMusicTrack
+      summary: Read one current Music Track projection
+      description: Resource descriptors contain opaque version-bound IDs only; Desktop paths, file URLs, hosts, credentials, and provider cookies are never returned.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      responses:
+        "200":
+          description: The current Track metadata and ordered playback/artwork resource descriptors.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicTrack"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/tracks/{id}/compatible-representation:
+    post:
+      tags: [Music]
+      operationId: createMusicIOSCompatibleRepresentation
+      summary: Idempotently request an iOS-compatible playback Representation
+      description: Uses a Desktop-managed fixed AAC/M4A baseline preset. The opaque Track ID is resolved inside Music Station; clients cannot supply a path, codec command, output location, or preset. Replaying the same request UUID returns the same durable lifecycle.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.manage
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      requestBody:
+        required: true
+        x-max-body-bytes: 4096
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MusicCompatibleRepresentationRequest"
+      responses:
+        "200":
+          description: A compatible resource was already ready, or this exact request UUID reached a terminal lifecycle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicCompatibleRepresentationResponse"
+        "202":
+          description: The durable Desktop transcode is queued or running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicCompatibleRepresentationResponse"
+        "400":
+          description: Invalid body or request UUID (`invalid_compatible_representation_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The Track cannot be transcoded, or the request UUID was already bound to another Track.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/playlists:
+    get:
+      tags: [Music]
+      operationId: listMusicPlaylists
+      summary: Page current Music Playlists with stable Playlist Item identities
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.read
+      parameters:
+        - $ref: "#/components/parameters/MusicPlaylistLimit"
+        - $ref: "#/components/parameters/MusicBrowseCursor"
+      responses:
+        "200":
+          description: A keyset browse page. Playlist Items retain display snapshots when their Track is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicPlaylistsPage"
+        "400":
+          description: Invalid cursor (`invalid_cursor`) or page size (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/MusicResetRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/state/mutations:
+    post:
+      tags: [Music]
+      operationId: mutateMusicState
+      summary: Apply an idempotent Music Track-state or lyric-selection mutation
+      description: The route accepts only `setFavorite`, `setProgress`, and `selectProviderLyric`. `expectedRevision` is the affected field or Selection revision. The request hash binds the canonical family, identity, dependency, and payload.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.state
+      requestBody:
+        required: true
+        x-max-body-bytes: 131072
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MusicMutationRequest"
+      responses:
+        "200":
+          description: The mutation was committed, or the durable receipt was replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicMutationResult"
+        "400":
+          $ref: "#/components/responses/InvalidMusicMutation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/MusicEntityNotFound"
+        "409":
+          $ref: "#/components/responses/MusicMutationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/manage/mutations:
+    post:
+      tags: [Music]
+      operationId: mutateMusicManagement
+      summary: Apply an idempotent Playlist or Music-membership mutation
+      description: The route accepts only `createPlaylist`, `renamePlaylist`, `deletePlaylist`, `addPlaylistItem`, `removePlaylistItem`, `reorderPlaylist`, and `setMembership`. Playlist Item IDs are client UUIDs and duplicate Tracks are allowed.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.manage
+      requestBody:
+        required: true
+        x-max-body-bytes: 131072
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MusicMutationRequest"
+      responses:
+        "200":
+          description: The mutation was committed, or the durable receipt was replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicMutationResult"
+        "400":
+          $ref: "#/components/responses/InvalidMusicMutation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/MusicEntityNotFound"
+        "409":
+          $ref: "#/components/responses/MusicMutationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/play-events:
+    post:
+      tags: [Music]
+      operationId: submitMusicPlayEvent
+      summary: Submit an idempotent monotonic playback-session checkpoint
+      description: "`(subjectId, playSessionId, sequence)` is the semantic deduplication boundary. The request hash excludes `eventId`; an older sequence is acknowledged without applying it, and the same sequence with a different hash is rejected."
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.state
+      requestBody:
+        required: true
+        x-max-body-bytes: 32768
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MusicPlayEventRequest"
+      responses:
+        "200":
+          description: The current acknowledged checkpoint and canonical Track state, when changed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MusicPlayEventResult"
+        "400":
+          $ref: "#/components/responses/InvalidMusicMutation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/MusicEntityNotFound"
+        "409":
+          $ref: "#/components/responses/MusicMutationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/music/tracks/{id}/resources/{resourceId}/content:
+    get:
+      tags: [Music]
+      operationId: getMusicTrackResourceContent
+      summary: Stream the current bytes of a version-bound Track resource
+      description: The opaque resource ID must belong to the Track in the URL and match its current resource revision and filesystem fingerprint. Stale, cross-Track, non-Music, missing, and symlinked resources are all reported as `not_found`.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+        - $ref: "#/components/parameters/MusicResourceID"
+        - $ref: "#/components/parameters/MusicSingleRange"
+      responses:
+        "200":
+          description: Complete current resource bytes.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Disposition:
+              $ref: "#/components/headers/ContentDisposition"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: A satisfiable single byte range.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Disposition:
+              $ref: "#/components/headers/ContentDisposition"
+            Content-Range:
+              $ref: "#/components/headers/ContentRange"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "416":
+          description: The range is malformed, multiple, or unsatisfiable.
+          headers:
+            Content-Range:
+              $ref: "#/components/headers/ContentRange"
+        "429":
+          description: The concurrent Music stream limit is reached (`music_stream_limit_reached`).
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    head:
+      tags: [Music]
+      operationId: headMusicTrackResourceContent
+      summary: Inspect the current Track resource and optional byte range without a body
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: music.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+        - $ref: "#/components/parameters/MusicResourceID"
+        - $ref: "#/components/parameters/MusicSingleRange"
+      responses:
+        "200":
+          description: Current resource metadata.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "206":
+          description: Current metadata for a satisfiable single byte range.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Range:
+              $ref: "#/components/headers/ContentRange"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+            ETag:
+              $ref: "#/components/headers/ETag"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "416":
+          description: The range is malformed, multiple, or unsatisfiable.
+        "429":
+          description: The concurrent Music stream limit is reached (`music_stream_limit_reached`).
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/overview:
+    get:
+      tags: [RSS]
+      operationId: getRSSOverview
+      summary: Read the RSS replication identity and current synchronization position
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      responses:
+        "200":
+          description: The Catalog/workspace/owner identity, current epoch/high-water mark, retention floor, and supported protocol capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSOverview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/snapshot:
+    get:
+      tags: [RSS]
+      operationId: getRSSSnapshot
+      summary: Page a stable keyset bootstrap projection of subscriptions and entries
+      description: |
+        First read `RSSOverview` and persist `epoch` and `highWater`. Page this
+        endpoint to completion with those values and the opaque `nextCursor`,
+        then apply `RSSChangePage` starting at `after=highWater`. A snapshot may
+        overlap post-high-water writes, but replaying changes is idempotent and
+        guarantees convergence without missing inserts, updates, or deletes.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      parameters:
+        - $ref: "#/components/parameters/RSSEpoch"
+        - $ref: "#/components/parameters/RSSHighWater"
+        - $ref: "#/components/parameters/RSSSnapshotCursor"
+        - $ref: "#/components/parameters/RSSSnapshotLimit"
+      responses:
+        "200":
+          description: A keyset page whose cursor is bound to the requested epoch and high-water mark.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSSnapshotPage"
+        "400":
+          description: Invalid position/cursor (`invalid_cursor`) or page size (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/RSSResetRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/subscriptions:
+    get:
+      tags: [RSS]
+      operationId: listRSSSubscriptions
+      summary: List RSS subscriptions in the default RSS workspace
+      deprecated: true
+      description: Legacy compatibility list capped at 2,000 lightweight rows. New sync clients should bootstrap through the paged RSS snapshot endpoint.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      responses:
+        "200":
+          description: Up to 2,000 lightweight subscriptions including unread counts. Feed addresses, conditional cache validators, and refresh errors are never selected or returned.
+          headers:
+            Deprecation:
+              description: Always `true`; use the stable snapshot protocol for complete synchronization.
+              schema:
+                type: string
+                enum: ["true"]
+            Link:
+              description: Successor-version link to `/api/v1/rss/snapshot`.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RSSSubscription"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/subscriptions/{id}/mutations:
+    post:
+      tags: [RSS]
+      operationId: mutateRSSSubscription
+      summary: Apply one revisioned and idempotent shared-public subscription mutation
+      description: |
+        The path and mutation IDs are canonical client-generated UUIDs. Add and
+        promote accept that path UUID as the canonical subscription identity.
+        Update uses an explicit field mask; delete creates a journal tombstone.
+        For update and delete, `expectedRevision` must exactly match the current
+        subscription entity revision; stale and future revisions both return
+        `revision_conflict`.
+        Reusing a mutation ID with a different canonical request returns
+        `idempotency_conflict`. Add, promote, and a publicFeedURL update also
+        require the current grant to carry `rss.fetch`. A paired device cannot
+        promote an existing Desktop-private source; that transition requires
+        explicit Desktop UI confirmation.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.manage
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      requestBody:
+        required: true
+        x-max-body-bytes: 65536
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RSSSubscriptionMutationRequest"
+      responses:
+        "200":
+          description: An update/delete receipt, or the original receipt for an identical retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSSubscriptionMutationResult"
+        "201":
+          description: An add/promote receipt, or the original creation receipt for an identical retry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSSubscriptionMutationResult"
+        "400":
+          description: Invalid identity, operation, field mask, limits, or shared-public URL (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Revision conflict (`revision_conflict`) or mutation-ID reuse with different content (`idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/subscriptions/{id}/fetch-lease:
+    post:
+      tags: [RSS]
+      operationId: acquireRSSFetchLease
+      summary: Attempt to acquire a short shared-public feed fetch lease
+      description: |
+        A lease only reduces duplicate network work and is never required for
+        correctness. A concurrent holder is a normal 200 response with
+        `granted=false`; originKey and observation idempotency remain the final
+        dedupe guards. Expired leases are replaced atomically using Desktop time.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.fetch
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      requestBody:
+        required: true
+        x-max-body-bytes: 8192
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RSSFetchLeaseRequest"
+      responses:
+        "200":
+          description: Granted lease or a normal contention response.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSFetchLeaseResult"
+        "400":
+          description: Invalid UUID, TTL, or non-shared subscription (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/subscriptions/{id}/observations:
+    post:
+      tags: [RSS]
+      operationId: submitRSSFeedObservation
+      summary: Submit a bounded public-feed observation for canonical Desktop ingest
+      description: |
+        Desktop revalidates the versioned originKey, sanitizes every URL and
+        HTML/resource descriptor, merges through the ordinary canonical RSS
+        entry repository, journals accepted revisions, and returns the stable
+        originKey-to-entryId mapping. The request never accepts headers, cookies,
+        authorization/session state, or arbitrary temporary download paths.
+        A lease is optional. Identical mutation retries return the original
+        receipt; late observations cannot roll canonical content backward.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.fetch
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      requestBody:
+        required: true
+        x-max-body-bytes: 4194304
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RSSFeedObservationRequest"
+      responses:
+        "200":
+          description: Canonical ingest counts, journal cursor, and stable identity mappings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSFeedObservationResult"
+        "400":
+          description: Invalid identity, originKey, HTTPS URL, timestamp, validator, or payload limit (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Mutation-ID reuse with different content (`idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/subscriptions/{id}/icon:
+    get:
+      tags: [RSS]
+      operationId: getRSSSubscriptionIcon
+      summary: Fetch one subscription icon through the restricted Desktop resource proxy
+      description: |
+        Resolves only the icon already attached to the persisted subscription.
+        Every upstream connection and redirect is restricted to public network
+        addresses; XiaDown device credentials, App Session cookies, Origin, and
+        Referer are never forwarded. Dial, TLS handshake, and response-header
+        waits are bounded, and upstream response headers are capped at 128 KiB;
+        image fetch/read has a 30-second absolute limit.
+        Returned images are sniffed, at most 12 MiB, 32,768 pixels per axis,
+        and 16 megapixels; icons have a stricter 1-megapixel role limit.
+        Icons must be static. Content GIF/APNG animation is capped at 256 frames
+        and 64 aggregate canvas megapixels; animated WebP and AVIF fail closed because
+        no reliable bounded desktop configuration decoder is enabled. The
+        upstream URL never appears in this route. Conditional request validators
+        are neither accepted nor returned; responses use `private, no-store`
+        because a stable slot can resolve to a different upstream source later.
+        Paired clients can occupy at most 12 of the 16 process-wide RSS resource
+        streams, leaving four slots reserved for the tokenized Desktop loopback.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      responses:
+        "200":
+          description: A bounded raster icon.
+          headers:
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The subscription or its icon is unavailable.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "429":
+          description: The 12-stream paired-device RSS resource limit was reached. Four of the 16 process-wide slots remain reserved for Desktop loopback reads.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            text/plain:
+              schema:
+                type: string
+        "502":
+          description: The upstream resource failed the public-network, redirect, timeout, size, decoded-dimension, animation, or raster MIME policy.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/rss/entries:
+    get:
+      tags: [RSS]
+      operationId: listRSSEntries
+      summary: List lightweight RSS entry summaries and owner state
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      parameters:
+        - $ref: "#/components/parameters/RSSSubscriptionID"
+        - $ref: "#/components/parameters/RSSEntryKind"
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/RSSUnreadOnly"
+        - $ref: "#/components/parameters/RSSStarredOnly"
+        - $ref: "#/components/parameters/RSSLimit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: A bounded metadata-only page ordered newest first. Article HTML and large media arrays are detail-only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSEntryPage"
+        "400":
+          description: Invalid filters (`invalid_request`) or pagination (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/entries/{id}:
+    get:
+      tags: [RSS]
+      operationId: getRSSEntry
+      summary: Read one RSS entry detail and owner state
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      responses:
+        "200":
+          description: Current sanitized entry HTML, opaque resource-slot availability, and owner state. Source URLs are never returned; renderers load images/media through the entity resource-slot route below.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSEntryDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/entries/{id}/resources/{slot}:
+    get:
+      tags: [RSS]
+      operationId: getRSSEntryResource
+      summary: Fetch a persisted RSS image or direct-media slot through the restricted Desktop proxy
+      description: |
+        `slot` selects only a resource already present on the persisted entry:
+        `thumbnail`, `image-N`, `media-N`, or `media-N-thumbnail`, where `N` is
+        an integer from 0 through 63. The client
+        cannot submit an arbitrary upstream URL. Each connection and redirect
+        is revalidated against the public-network policy, no device/App Session
+        credentials or referrer headers are forwarded, and every dial, TLS
+        handshake, and response-header wait is bounded, with upstream response
+        headers capped at 128 KiB. Raster images use the
+        same 30-second, 12 MiB, 32,768-pixel-axis, 16-megapixel, and content
+        animation limits; thumbnails and posters have a stricter 4-megapixel
+        role limit and must be static.
+        HLS/DASH manifests are rejected. Direct
+        audio and video support one byte range per request, a 30-second upstream
+        read-idle limit, and a two-hour absolute request limit; Range clients
+        can continue playback with a subsequent request. Conditional request
+        validators are neither accepted nor returned; responses use
+        `private, no-store` because a stable slot can later resolve to a
+        different upstream source. Range itself remains supported. Paired
+        clients can occupy at most 12 of the 16 process-wide RSS resource
+        streams, reserving four for Desktop. For a 200 media response whose
+        upstream length is unknown, clean EOF is affirmed by the
+        `X-XiaDown-RSS-Stream-Complete: 1` trailer. Upstream read failure,
+        timeout, or size overflow resets the HTTP connection/stream instead of
+        emitting a successful truncated chunked response.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+        - name: slot
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^(thumbnail|image-(?:0|[1-9]|[1-5][0-9]|6[0-3])|media-(?:0|[1-9]|[1-5][0-9]|6[0-3])(?:-thumbnail)?)$"
+            maxLength: 64
+        - $ref: "#/components/parameters/RSSSingleRange"
+      responses:
+        "200":
+          description: Complete bounded raster image, audio, or video content.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+            X-XiaDown-RSS-Stream-Complete:
+              description: Emitted as a trailer with value `1` only after a clean EOF for unknown-length 200 media. A missing trailer together with a transport/body-read error indicates an aborted stream.
+              schema:
+                type: string
+                enum: ["1"]
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: One audio/video byte range whose Content-Range exactly matches the requested range; chunked upstream bodies are capped to that declared length.
+          headers:
+            Accept-Ranges:
+              $ref: "#/components/headers/AcceptRanges"
+            Content-Range:
+              $ref: "#/components/headers/ContentRange"
+            Content-Length:
+              $ref: "#/components/headers/ContentLength"
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: The entry or selected resource slot is unavailable.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "416":
+          description: The single byte range is malformed or the upstream representation reports it as unsatisfiable.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "429":
+          description: The 12-stream paired-device RSS resource limit was reached. Four of the 16 process-wide slots remain reserved for Desktop loopback reads.
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            text/plain:
+              schema:
+                type: string
+        "502":
+          description: The upstream resource failed the public-network, redirect, timeout, size, decoded-dimension, animation, or MIME policy.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1/rss/entries/{id}/state:
+    patch:
+      tags: [RSS]
+      operationId: updateRSSEntryState
+      summary: Idempotently update one paired-owner RSS state field
+      description: |
+        The authenticated device identity is used for attribution; clients
+        cannot submit another device or owner identifier. `expectedRevision`
+        is compared with the selected field's revision. On
+        `rss_state_conflict`, pull the returned current state and retry with a
+        new mutation ID and that field revision. A mutation ID is bound to the
+        canonical entry/field/revision/value payload; reusing it for a different
+        payload returns `idempotency_conflict`.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.state
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      requestBody:
+        required: true
+        x-max-body-bytes: 32768
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRSSEntryStateRequest"
+      responses:
+        "200":
+          description: The resulting complete owner state. Reusing the same mutation ID with the same canonical payload returns the original result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSEntryState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/RSSStateConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/rss/changes:
+    get:
+      tags: [RSS]
+      operationId: listRSSChanges
+      summary: Incrementally synchronize RSS subscriptions, entries, and owner read state
+      description: Clients must send the persisted `epoch`. If it changes, the cursor is ahead, or the cursor is below `retainedFrom`, discard the RSS replica and fetch a new snapshot.
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: rss.read
+      parameters:
+        - $ref: "#/components/parameters/RSSEpoch"
+        - $ref: "#/components/parameters/ChangeAfter"
+        - $ref: "#/components/parameters/RSSChangeLimit"
+      responses:
+        "200":
+          description: A stable sequence page bounded by `highWater`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RSSChangePage"
+        "400":
+          description: Invalid cursor (`invalid_cursor`) or pagination (`invalid_pagination`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/RSSResetRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/tasks:
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List safe task projections
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: tasks.read
+      parameters:
+        - $ref: "#/components/parameters/TaskStatuses"
+        - $ref: "#/components/parameters/TaskKinds"
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/TaskLimit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: A bounded task list. Local paths, raw URLs, logs, and process diagnostics are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskList"
+        "400":
+          description: Invalid pagination (`invalid_pagination`) or search query (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: Create a downloader task
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: tasks.create
+      requestBody:
+        required: true
+        x-max-body-bytes: 32768
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "201":
+          description: Task accepted by the Library application service.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          description: Malformed JSON, unknown fields, unsafe/private URL, unsupported mode/quality, or another invalid request (`invalid_request`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/tasks/{id}:
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: Read one safe task projection
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: tasks.read
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      responses:
+        "200":
+          description: Current task state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/tasks/{id}/cancel:
+    post:
+      tags: [Tasks]
+      operationId: cancelTask
+      summary: Ask the Library scheduler to cancel a task
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: tasks.control
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      responses:
+        "200":
+          description: Updated task state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/TaskStateConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/tasks/{id}/resume:
+    post:
+      tags: [Tasks]
+      operationId: resumeTask
+      summary: Ask the Library scheduler to resume a task
+      security:
+        - bearerAuth: []
+      x-xiadown-required-scope: tasks.control
+      parameters:
+        - $ref: "#/components/parameters/OpaqueID"
+      responses:
+        "200":
+          description: Updated task state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/TaskStateConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: xd1 opaque device token
+      description: "Send `Authorization: Bearer <token>`. The token is Catalog-bound and must be stored as a secret."
+
+  headers:
+    AcceptRanges:
+      description: Supported range unit.
+      schema:
+        type: string
+        const: bytes
+    ContentDisposition:
+      description: Safe inline filename selected by the desktop server.
+      schema:
+        type: string
+    ContentLength:
+      description: Response body length in bytes.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    ContentRange:
+      description: Byte range and complete representation length.
+      schema:
+        type: string
+    ETag:
+      description: Strong validator for the immutable version-bound resource bytes.
+      schema:
+        type: string
+    RetryAfter:
+      description: Seconds to wait before opening another asset stream.
+      schema:
+        type: integer
+        minimum: 0
+
+  parameters:
+    LastEventID:
+      name: Last-Event-ID
+      in: header
+      description: |-
+        Optional decimal SSE event ID from the last delivered hint. It is a
+        best-effort replay optimization only and must not be stored or compared
+        as a Library, Music, or RSS synchronization cursor.
+      schema:
+        type: string
+        maxLength: 20
+        pattern: '^[1-9][0-9]*$'
+    OpaqueID:
+      name: id
+      in: path
+      required: true
+      description: Case-sensitive opaque identifier. Do not infer filesystem paths from IDs.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    SearchQuery:
+      name: q
+      in: query
+      description: Case-insensitive substring search. After percent-decoding, the value must be valid UTF-8 and at most 512 Unicode code points. Length is evaluated before endpoint-specific whitespace handling; overlong values are rejected, never truncated.
+      schema:
+        type: string
+        maxLength: 512
+    ItemCategory:
+      name: category
+      in: query
+      description: Canonical singular values and UI plural aliases are accepted case-insensitively.
+      x-case-insensitive: true
+      schema:
+        $ref: "#/components/schemas/ItemCategoryFilter"
+    ItemStatus:
+      name: status
+      in: query
+      description: Item lifecycle filter, accepted case-insensitively.
+      x-case-insensitive: true
+      schema:
+        $ref: "#/components/schemas/ItemStatusFilter"
+    ExcludeTrashed:
+      name: excludeTrashed
+      in: query
+      description: Exclude trashed logical items before sorting, counting, and pagination.
+      schema:
+        type: boolean
+        default: false
+    ItemSort:
+      name: sort
+      in: query
+      description: Stable Catalog sort, accepted case-insensitively. Omit for `updated_desc`.
+      x-case-insensitive: true
+      schema:
+        $ref: "#/components/schemas/ItemSort"
+    ItemLimit:
+      name: limit
+      in: query
+      description: Item page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 100
+    CollectionLimit:
+      name: limit
+      in: query
+      description: Collection page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 100
+        default: 100
+    TaxonomyLimit:
+      name: limit
+      in: query
+      description: Tag or collection-member page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 100
+    TaskLimit:
+      name: limit
+      in: query
+      description: Task page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 200
+        default: 100
+    Offset:
+      name: offset
+      in: query
+      description: Zero-based row offset.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    ChangeAfter:
+      name: after
+      in: query
+      description: Last durably applied sequence. Omitted or zero begins at the start of the current epoch.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        default: 0
+    ChangeEpoch:
+      name: epoch
+      in: query
+      description: Epoch returned by `GET /api/v1/library`. A missing or stale value produces `reset_required`.
+      schema:
+        type: string
+    LibrarySnapshotEpoch:
+      name: epoch
+      in: query
+      required: true
+      description: Exact lowercase epoch returned by `GET /api/v1/library`.
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
+    LibrarySnapshotHighWater:
+      name: highWater
+      in: query
+      required: true
+      description: Stable snapshot boundary returned as the Library overview sync cursor.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    LibrarySnapshotAfter:
+      name: after
+      in: query
+      description: Opaque keyset cursor returned as `next` by the preceding Library snapshot page.
+      schema:
+        type: string
+        maxLength: 1024
+        pattern: '^[A-Za-z0-9_-]*$'
+    LibrarySnapshotLimit:
+      name: limit
+      in: query
+      description: Library snapshot page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 200
+    ChangeLimit:
+      name: limit
+      in: query
+      description: Change page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 200
+    MusicEpoch:
+      name: epoch
+      in: query
+      required: true
+      description: Exact lowercase epoch returned by `GET /api/v1/music/overview`.
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
+    MusicHighWater:
+      name: highWater
+      in: query
+      required: true
+      description: Stable snapshot boundary returned by `GET /api/v1/music/overview`.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    MusicChangeAfter:
+      name: after
+      in: query
+      description: Last Music change cursor atomically applied by the client.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        default: 0
+    MusicSnapshotCursor:
+      name: cursor
+      in: query
+      description: Opaque keyset cursor from the previous Music snapshot page, bound to epoch and high-water.
+      schema:
+        type: string
+        maxLength: 4096
+        pattern: '^[A-Za-z0-9_-]*$'
+    MusicBrowseCursor:
+      name: cursor
+      in: query
+      description: Opaque keyset cursor from the previous Playlist browse page, bound to the current epoch.
+      schema:
+        type: string
+        maxLength: 4096
+        pattern: '^[A-Za-z0-9_-]*$'
+    MusicSyncLimit:
+      name: limit
+      in: query
+      description: Music snapshot/change page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 200
+    MusicPlaylistLimit:
+      name: limit
+      in: query
+      description: Music Playlist browse page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 200
+        default: 100
+    MusicResourceID:
+      name: resourceId
+      in: path
+      required: true
+      description: Opaque version-bound resource identifier returned by this Track's current descriptor.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    MusicSingleRange:
+      name: Range
+      in: header
+      required: false
+      description: One HTTP byte range. Multiple ranges and non-byte range units are rejected.
+      schema:
+        type: string
+        maxLength: 128
+        pattern: "^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$"
+    RSSSubscriptionID:
+      name: subscriptionId
+      in: query
+      description: Exact case-sensitive subscription identifier.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    RSSEntryKind:
+      name: kind
+      in: query
+      description: Entry presentation kind, accepted case-insensitively.
+      x-case-insensitive: true
+      schema:
+        $ref: "#/components/schemas/RSSEntryKind"
+    RSSUnreadOnly:
+      name: unreadOnly
+      in: query
+      description: Whether to return only entries that the owner has not read.
+      schema:
+        type: boolean
+        default: false
+    RSSStarredOnly:
+      name: is_starred
+      in: query
+      description: Set to `1` to return only entries starred by the paired owner. Starred state is independent of entry kind.
+      schema:
+        type: integer
+        enum: [1]
+    RSSLimit:
+      name: limit
+      in: query
+      description: RSS entry page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 100
+    RSSEpoch:
+      name: epoch
+      in: query
+      required: true
+      description: Exact lowercase epoch returned by `GET /api/v1/rss/overview`.
+      schema:
+        type: string
+        pattern: '^[0-9a-f]{32}$'
+    RSSHighWater:
+      name: highWater
+      in: query
+      required: true
+      description: Snapshot high-water sequence returned by `GET /api/v1/rss/overview`.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    RSSSnapshotCursor:
+      name: cursor
+      in: query
+      description: Opaque server cursor from the preceding snapshot page; it is bound to `epoch` and `highWater`.
+      schema:
+        type: string
+        maxLength: 4096
+        pattern: '^[A-Za-z0-9_-]*$'
+    RSSSnapshotLimit:
+      name: limit
+      in: query
+      description: Snapshot record page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 200
+    RSSChangeLimit:
+      name: limit
+      in: query
+      description: RSS change page size. Omitted or zero selects the default.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 500
+        default: 200
+    TaskStatuses:
+      name: status
+      in: query
+      description: Repeat to select multiple statuses. Matching is case-insensitive; unknown values yield no matches.
+      x-case-insensitive: true
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          $ref: "#/components/schemas/TaskStatus"
+    TaskKinds:
+      name: kind
+      in: query
+      description: Repeat to select multiple task kinds. Matching is case-insensitive; unknown values yield no matches.
+      x-case-insensitive: true
+      style: form
+      explode: true
+      schema:
+        type: array
+        items:
+          type: string
+    Range:
+      name: Range
+      in: header
+      required: false
+      description: Standard HTTP byte range, including suffix and multiple ranges.
+      schema:
+        type: string
+        pattern: "^bytes="
+    RSSSingleRange:
+      name: Range
+      in: header
+      required: false
+      description: One HTTP byte range for an RSS direct-media slot. Multiple ranges are rejected.
+      schema:
+        type: string
+        maxLength: 128
+        pattern: "^bytes=(?:[0-9]+-[0-9]*|-[0-9]+)$"
+
+  responses:
+    BadRequest:
+      description: Invalid request (`invalid_request`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    InvalidPagination:
+      description: Invalid page size or offset (`invalid_pagination`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Missing, malformed, expired, revoked, or invalid Bearer token (`unauthorized`).
+      headers:
+        WWW-Authenticate:
+          description: Bearer challenge for the XiaDown Library realm.
+          schema:
+            type: string
+            const: 'Bearer realm="xiadown-library"'
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: The token belongs to another Catalog (`catalog_access_denied`) or lacks the operation scope (`insufficient_scope`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: The requested public resource does not exist (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    TaskStateConflict:
+      description: The requested action is not valid in the current task state (`task_state_conflict`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    RSSStateConflict:
+      description: The selected field revision is stale (`rss_state_conflict`, with current state) or the mutation ID is already bound to another canonical payload (`idempotency_conflict`).
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/RSSStateConflictEnvelope"
+              - $ref: "#/components/schemas/ErrorEnvelope"
+    RSSResetRequired:
+      description: The RSS epoch/cursor is no longer valid; discard the replica and bootstrap from the returned current sync position (`reset_required`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RSSResetRequiredEnvelope"
+    MusicResetRequired:
+      description: The Music epoch, retention cursor, or stable snapshot boundary is no longer valid; discard staging/current replica data as appropriate and bootstrap from the returned sync position (`reset_required`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/MusicResetRequiredEnvelope"
+    InvalidMusicMutation:
+      description: The envelope, canonical request hash, mutation family/type, or strict type-selected payload is invalid (`invalid_music_mutation`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    MusicEntityNotFound:
+      description: The selected Music Track, Playlist, Playlist Item, membership source File, or other mutation target does not exist (`music_entity_not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    MusicMutationConflict:
+      description: A stale revision, reused idempotency identity, unresolved dependency, or replaced Track timeline prevented the mutation.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/MusicRevisionConflictEnvelope"
+              - $ref: "#/components/schemas/MusicRetryableConflictEnvelope"
+              - $ref: "#/components/schemas/ErrorEnvelope"
+    InternalError:
+      description: Opaque server failure (`internal_error`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    ErrorCode:
+      type: string
+      description: Stable machine-readable API error code. Error messages and implementation details are intentionally absent.
+      enum:
+        - asset_stream_limit_reached
+        - asset_unavailable
+        - catalog_access_denied
+        - insufficient_scope
+        - idempotency_conflict
+        - internal_error
+        - invalid_cursor
+        - invalid_music_mutation
+        - invalid_pagination
+        - invalid_request
+        - music_content_changed
+        - music_dependency_pending
+        - music_entity_not_found
+        - music_idempotency_conflict
+        - music_revision_conflict
+        - music_stream_limit_reached
+        - not_found
+        - pairing_failed
+        - pairing_invalid
+        - reset_required
+        - rss_state_conflict
+        - task_state_conflict
+        - unauthorized
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorCode"
+
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, api]
+      properties:
+        status:
+          type: string
+          const: ok
+        api:
+          type: integer
+          const: 1
+    VersionResponse:
+      type: object
+      additionalProperties: false
+      required: [api, version]
+      properties:
+        api:
+          type: integer
+          const: 1
+        version:
+          type: string
+
+    DeviceScope:
+      type: string
+      enum:
+        - library.read
+        - music.read
+        - music.state
+        - music.manage
+        - rss.read
+        - rss.state
+        - rss.manage
+        - rss.fetch
+        - tasks.read
+        - tasks.create
+        - tasks.control
+    PairRequest:
+      type: object
+      additionalProperties: false
+      required: [nonce, code, deviceID, name, publicKeyHash]
+      properties:
+        nonce:
+          type: string
+          minLength: 1
+          description: Opaque nonce from the versioned pairing link.
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+        deviceID:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Stable, case-sensitive client installation identifier.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: User-visible device name.
+        publicKeyHash:
+          type: string
+          pattern: "^(?:sha256:)?[0-9A-Fa-f]{64}$"
+          description: SHA-256 fingerprint of the device public key, optionally prefixed by `sha256:`.
+    PairResponse:
+      type: object
+      additionalProperties: false
+      required: [grantID, token, scopes]
+      properties:
+        grantID:
+          type: string
+          minLength: 1
+          maxLength: 255
+        token:
+          type: string
+          minLength: 1
+          x-sensitive: true
+          description: Opaque one-time-returned Bearer credential. Store it in protected device storage.
+        scopes:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/DeviceScope"
+    DeviceAccessResponse:
+      type: object
+      additionalProperties: false
+      required: [grantId, catalogId, deviceId, scopes]
+      properties:
+        grantId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        catalogId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        deviceId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        scopes:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/DeviceScope"
+        capabilities:
+          type: array
+          uniqueItems: true
+          description: |-
+            Mounted shared protocol capabilities. `sync-events-v1` gates
+            `GET /api/v1/sync/events`; clients must ignore unknown values.
+          items:
+            type: string
+            minLength: 1
+        stations:
+          type: object
+          additionalProperties: false
+          description: Mounted device-facing Station APIs and this grant's authorization for each one.
+          properties:
+            library:
+              $ref: "#/components/schemas/StationAccessSummary"
+            music:
+              $ref: "#/components/schemas/StationAccessSummary"
+            rss:
+              $ref: "#/components/schemas/StationAccessSummary"
+
+    StationAccessSummary:
+      type: object
+      additionalProperties: false
+      required: [supported, authorized, capabilities]
+      properties:
+        supported:
+          type: boolean
+          const: true
+        authorized:
+          type: boolean
+        capabilities:
+          type: array
+          uniqueItems: true
+          description: |-
+            Mounted capability identifiers. The RSS Station currently advertises
+            `rss-sync-v1`, `opaque-resource-slots-v1`,
+            `rss-subscription-mutations-v1`, `rss-shared-public-fetch-v1`,
+            `rss-observations-v1`, and `rss-fetch-lease-v1`. Clients must still
+            require the corresponding top-level scope and ignore unknown values.
+          items:
+            type: string
+            minLength: 1
+
+    SyncStationDirtyEvent:
+      type: object
+      additionalProperties: false
+      required: [station, epoch, highWater]
+      description: The only JSON vocabulary permitted in a `station-dirty` SSE event.
+      properties:
+        station:
+          type: string
+          enum: [library, music, rss]
+        epoch:
+          type: string
+          minLength: 1
+          maxLength: 128
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+
+    SyncTasksDirtyEvent:
+      type: object
+      additionalProperties: false
+      required: [dirty]
+      description: The only JSON vocabulary permitted in a `tasks-dirty` SSE event.
+      properties:
+        dirty:
+          type: boolean
+          const: true
+
+    CatalogStatus:
+      type: string
+      enum: [active, archived]
+    ItemCategory:
+      type: string
+      enum: [video, audio, book, image, other]
+    ItemCategoryFilter:
+      type: string
+      x-case-insensitive: true
+      enum: [all, video, audio, book, books, image, images, other, others]
+    ItemStatus:
+      type: string
+      enum: [active, needs_review, missing, trashed]
+    ItemStatusFilter:
+      type: string
+      x-case-insensitive: true
+      enum: [all, active, needs_review, missing, trashed]
+    ItemSort:
+      type: string
+      x-case-insensitive: true
+      enum: [updated_desc, created_desc, created_asc, title_asc, title_desc, category_asc]
+      default: updated_desc
+    AssetRole:
+      type: string
+      enum: [original, representation, attachment, artwork]
+    RepresentationKind:
+      type: string
+      enum: [original, optimized, thumbnail, transcript, subtitle, artwork, preview, attachment]
+    RepresentationPurpose:
+      type: string
+      enum: [primary, playback, preview, accessibility, artwork, attachment, indexing]
+    RepresentationAvailability:
+      type: string
+      enum: [available, processing, offline, missing, corrupt]
+    MetadataValueType:
+      type: string
+      description: Only scalar public metadata value types are exposed.
+      enum: [string, integer, number, boolean, date, datetime, duration_ms]
+    MetadataSource:
+      type: string
+      enum: [user, embedded, sidecar, remote, derived, migration, system]
+    MetadataNamespace:
+      type: string
+      enum:
+        - audio
+        - book
+        - dc
+        - dc.terms
+        - dcterms
+        - image
+        - media
+        - music
+        - video
+        - xiadown.descriptive
+        - xiadown.media
+    MetadataKey:
+      type: string
+      enum:
+        - album
+        - album_artist
+        - alternative
+        - artist
+        - author
+        - available
+        - chapter_count
+        - composer
+        - contributor
+        - created
+        - creator
+        - date
+        - description
+        - disc_number
+        - duration
+        - duration_ms
+        - episode
+        - extent
+        - format
+        - genre
+        - identifier
+        - isbn
+        - issued
+        - language
+        - license
+        - medium
+        - modified
+        - narrator
+        - orientation
+        - page_count
+        - publisher
+        - rating
+        - release_date
+        - rights
+        - season
+        - series
+        - series_index
+        - sort_title
+        - subject
+        - subtitle
+        - title
+        - track
+        - track_number
+        - type
+        - valid
+        - year
+    CollectionKind:
+      type: string
+      enum: [manual, smart, playlist, album, shelf, series]
+    ChangeEntityType:
+      type: string
+      description: Nested persistence rows are represented by an invalidation for their owning public entity.
+      enum: [catalog, item, collection, tag]
+    ChangeKind:
+      type: string
+      enum: [upsert, delete]
+    TaskStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, canceled]
+    TaskMode:
+      type: string
+      x-case-insensitive: true
+      enum: [quick, custom]
+    TaskQuality:
+      type: string
+      x-case-insensitive: true
+      enum: [best, bitrate, audio]
+    SpeedMetricKind:
+      type: string
+      enum: [bytes_per_second, frames_per_second, factor]
+    RSSEntryKind:
+      type: string
+      x-case-insensitive: true
+      enum: [article, social, image, video]
+    RSSViewType:
+      type: string
+      enum: [auto, article, social, image, video]
+    RSSSourceAccess:
+      type: string
+      enum: [desktopManaged, sharedPublic]
+    RSSSubscriptionMutationOperation:
+      type: string
+      enum: [add, promote, update, delete]
+    RSSChangeEntityType:
+      type: string
+      enum: [subscription, entry, entry_state, download]
+    RSSChangeOperation:
+      type: string
+      enum: [upsert, delete]
+    RSSStateField:
+      type: string
+      enum: [read, starred, articleProgress, videoProgressSeconds]
+    RSSSnapshotEntityType:
+      type: string
+      enum: [subscription, entry]
+
+    Catalog:
+      type: object
+      additionalProperties: false
+      required: [id, name, status, isDefault, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/CatalogStatus"
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CategoryCounts:
+      type: object
+      additionalProperties: false
+      required: [all, video, audio, books, images, others]
+      properties:
+        all:
+          type: integer
+          minimum: 0
+        video:
+          type: integer
+          minimum: 0
+        audio:
+          type: integer
+          minimum: 0
+        books:
+          type: integer
+          minimum: 0
+        images:
+          type: integer
+          minimum: 0
+        others:
+          type: integer
+          minimum: 0
+    StatusCounts:
+      type: object
+      additionalProperties: false
+      required: [active, needsReview, missing, trashed]
+      properties:
+        active:
+          type: integer
+          minimum: 0
+        needsReview:
+          type: integer
+          minimum: 0
+        missing:
+          type: integer
+          minimum: 0
+        trashed:
+          type: integer
+          minimum: 0
+    HealthCounts:
+      type: object
+      additionalProperties: false
+      required:
+        - assetLinks
+        - itemsWithoutAssets
+        - unavailableAssetFiles
+        - legacyFilesWithErrors
+        - offlineStorageRoots
+        - readOnlyStorageRoots
+        - storageRootsWithErrors
+      properties:
+        assetLinks:
+          type: integer
+          minimum: 0
+        itemsWithoutAssets:
+          type: integer
+          minimum: 0
+        unavailableAssetFiles:
+          type: integer
+          minimum: 0
+        legacyFilesWithErrors:
+          type: integer
+          minimum: 0
+        offlineStorageRoots:
+          type: integer
+          minimum: 0
+        readOnlyStorageRoots:
+          type: integer
+          minimum: 0
+        storageRootsWithErrors:
+          type: integer
+          minimum: 0
+    SyncState:
+      type: object
+      additionalProperties: false
+      required: [epoch, cursor]
+      properties:
+        epoch:
+          type: string
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+    LibraryOverview:
+      type: object
+      additionalProperties: false
+      required: [catalog, categories, statuses, health, sync, capabilities]
+      properties:
+        catalog:
+          $ref: "#/components/schemas/Catalog"
+        categories:
+          $ref: "#/components/schemas/CategoryCounts"
+        statuses:
+          $ref: "#/components/schemas/StatusCounts"
+        health:
+          $ref: "#/components/schemas/HealthCounts"
+        sync:
+          $ref: "#/components/schemas/SyncState"
+        capabilities:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [snapshot-keyset-v1]
+
+    LibraryItem:
+      type: object
+      additionalProperties: false
+      required: [id, catalogId, category, status, title, sortTitle, revision, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        catalogId:
+          type: string
+        category:
+          $ref: "#/components/schemas/ItemCategory"
+        kind:
+          type: string
+        format:
+          type: string
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        primaryAssetId:
+          type: string
+        primaryFileId:
+          type: string
+        artworkAssetId:
+          type: string
+        artworkFileId:
+          type: string
+        status:
+          $ref: "#/components/schemas/ItemStatus"
+        title:
+          type: string
+        sortTitle:
+          type: string
+        description:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        trashedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    LibraryItemList:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryItem"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 0
+          maximum: 500
+        offset:
+          type: integer
+          minimum: 0
+
+    LibrarySnapshotPage:
+      type: object
+      additionalProperties: false
+      required: [items, epoch, highWater, hasMore]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LibraryItem"
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+        next:
+          type: string
+          maxLength: 1024
+          pattern: '^[A-Za-z0-9_-]+$'
+          description: Present only when `hasMore` is true; pass it unchanged as the next request's `after` value.
+        hasMore:
+          type: boolean
+
+    LibraryAsset:
+      type: object
+      additionalProperties: false
+      required: [id, fileId, role, position, fileAvailable]
+      properties:
+        id:
+          type: string
+        fileId:
+          type: string
+        role:
+          $ref: "#/components/schemas/AssetRole"
+        label:
+          type: string
+        position:
+          type: integer
+          minimum: 0
+        fileAvailable:
+          type: boolean
+        contentUrl:
+          type: string
+          format: uri-reference
+          description: Relative to the selected pairing transport base so a managed Tailscale path prefix is preserved.
+    LibraryRepresentation:
+      type: object
+      additionalProperties: false
+      required: [id, assetId, kind, purpose, availability]
+      properties:
+        id:
+          type: string
+        assetId:
+          type: string
+        kind:
+          $ref: "#/components/schemas/RepresentationKind"
+        purpose:
+          $ref: "#/components/schemas/RepresentationPurpose"
+        mediaType:
+          type: string
+          description: Lowercase media type without parameters.
+        container:
+          type: string
+          pattern: "^[a-z0-9._+-]+$"
+        codec:
+          type: string
+          pattern: "^[a-z0-9._+-]+$"
+        width:
+          type: integer
+          minimum: 1
+          maximum: 32768
+        height:
+          type: integer
+          minimum: 1
+          maximum: 32768
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 604800000
+        bitrateBps:
+          type: integer
+          format: int64
+          minimum: 1
+        language:
+          type: string
+          maxLength: 63
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        availability:
+          $ref: "#/components/schemas/RepresentationAvailability"
+    PublicMetadataValue:
+      description: Typed JSON scalar selected by `valueType`.
+      anyOf:
+        - type: string
+        - type: integer
+        - type: number
+        - type: boolean
+    LibraryMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, namespace, key, valueType, value, position, source, locked]
+      properties:
+        id:
+          type: string
+        representationId:
+          type: string
+        namespace:
+          $ref: "#/components/schemas/MetadataNamespace"
+        key:
+          $ref: "#/components/schemas/MetadataKey"
+        valueType:
+          $ref: "#/components/schemas/MetadataValueType"
+        value:
+          $ref: "#/components/schemas/PublicMetadataValue"
+        language:
+          type: string
+          maxLength: 63
+        position:
+          type: integer
+          minimum: 0
+        source:
+          $ref: "#/components/schemas/MetadataSource"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        locked:
+          type: boolean
+    LibraryTag:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    LibraryItemDetail:
+      type: object
+      additionalProperties: false
+      required: [item, assets, representations, metadata, tags]
+      properties:
+        item:
+          $ref: "#/components/schemas/LibraryItem"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryAsset"
+        representations:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryRepresentation"
+        metadata:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryMetadata"
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/LibraryTag"
+
+    LibraryCollection:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, revision, itemIds]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        kind:
+          $ref: "#/components/schemas/CollectionKind"
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        itemIds:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+        itemIdsTruncated:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CollectionItem:
+      type: object
+      additionalProperties: false
+      required: [id, itemId, position]
+      properties:
+        id:
+          type: string
+        itemId:
+          type: string
+        position:
+          type: integer
+          minimum: 0
+    CollectionItemsPage:
+      type: object
+      additionalProperties: false
+      required: [collectionId, items, nextOffset, hasMore]
+      properties:
+        collectionId:
+          type: string
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/CollectionItem"
+        nextOffset:
+          type: integer
+          minimum: 0
+        hasMore:
+          type: boolean
+
+    LibraryChange:
+      type: object
+      additionalProperties: false
+      required: [sequence, entityType, entityId, kind, revision, occurredAt]
+      properties:
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        entityType:
+          $ref: "#/components/schemas/ChangeEntityType"
+        entityId:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ChangeKind"
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        occurredAt:
+          type: string
+          format: date-time
+    ChangeList:
+      type: object
+      additionalProperties: false
+      required: [changes, epoch, next, hasMore]
+      properties:
+        changes:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/LibraryChange"
+        epoch:
+          type: string
+        next:
+          type: integer
+          format: int64
+          minimum: 0
+        hasMore:
+          type: boolean
+    ResetRequired:
+      type: object
+      additionalProperties: false
+      required: [error, sync]
+      properties:
+        error:
+          type: string
+          const: reset_required
+        sync:
+          $ref: "#/components/schemas/SyncState"
+
+    MusicEntityType:
+      type: string
+      enum: [track, playlist, playlist_item, track_state, lyric_document, lyric_selection, membership]
+    MusicChangeOperation:
+      type: string
+      enum: [upsert, delete]
+    MusicResourceKind:
+      type: string
+      enum: [original, playbackRepresentation, artwork]
+    MusicTrackAvailability:
+      type: string
+      enum: [available, missing, unsupported]
+    MusicResourceAvailability:
+      type: string
+      enum: [available, processing, offline, missing, corrupt]
+
+    MusicNamespace:
+      type: object
+      additionalProperties: false
+      required: [catalogId, workspaceId, subjectId]
+      properties:
+        catalogId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        workspaceId:
+          type: string
+          const: music-default
+        subjectId:
+          type: string
+          const: music-owner
+    MusicSyncWindow:
+      type: object
+      additionalProperties: false
+      required: [epoch, highWater, minimumCursor]
+      properties:
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+        minimumCursor:
+          type: integer
+          format: int64
+          minimum: 0
+    MusicOverview:
+      type: object
+      additionalProperties: false
+      required: [namespace, sync, capabilities]
+      properties:
+        namespace:
+          $ref: "#/components/schemas/MusicNamespace"
+        sync:
+          $ref: "#/components/schemas/MusicSyncWindow"
+        capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - music-sync-v1
+              - snapshot-keyset-v1
+              - changes-epoch-v1
+              - versioned-resource-id-v1
+              - music-mutations-v1
+              - music-play-events-v1
+              - music-track-state-v1
+              - music-playlists-v1
+              - music-provider-lyric-selection-v1
+              - music-ios-audio-representation-v1
+
+    MusicTrackState:
+      type: object
+      additionalProperties: false
+      required:
+        - subjectId
+        - trackId
+        - revision
+        - favorite
+        - favoriteRevision
+        - positionMs
+        - contentIdentityRevision
+        - progressRevision
+        - cumulativeListenedDurationMs
+        - playCount
+        - skipCount
+        - updatedAt
+      properties:
+        subjectId:
+          type: string
+          const: music-owner
+        trackId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        favorite:
+          type: boolean
+        favoriteRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        positionMs:
+          type: integer
+          format: int64
+          minimum: 0
+        playSessionId:
+          type: string
+          format: uuid
+        contentIdentityRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        progressRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        cumulativeListenedDurationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        playCount:
+          type: integer
+          format: int64
+          minimum: 0
+        skipCount:
+          type: integer
+          format: int64
+          minimum: 0
+        updatedAt:
+          type: string
+          format: date-time
+
+    MusicLyricDocument:
+      type: object
+      additionalProperties: false
+      required: [id, trackId, revision, sourceKind, timingKind, availability, licensePolicy, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        trackId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        sourceKind:
+          type: string
+          enum: [embedded, sidecar, provider]
+        providerId:
+          type: string
+          maxLength: 255
+        providerTrackId:
+          type: string
+          maxLength: 1024
+        timingKind:
+          type: string
+          enum: [plain, synced]
+        language:
+          type: string
+          maxLength: 64
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        availability:
+          type: string
+          enum: [content, refetchRequired, unavailable]
+        licensePolicy:
+          type: string
+          enum: [cacheAllowed, refetchRequired]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MusicLyricSelection:
+      type: object
+      additionalProperties: false
+      required: [subjectId, trackId, documentId, offsetMs, revision, updatedAt]
+      properties:
+        subjectId:
+          type: string
+          const: music-owner
+        trackId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        documentId:
+          type: string
+          format: uuid
+        offsetMs:
+          type: integer
+          format: int64
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        updatedAt:
+          type: string
+          format: date-time
+
+    MusicResourceDescriptor:
+      type: object
+      additionalProperties: false
+      required: [resourceId, resourceRevision, kind, availability]
+      properties:
+        resourceId:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '^mr1_[A-Za-z0-9_-]+$'
+        resourceRevision:
+          type: integer
+          format: int64
+          minimum: 1
+        kind:
+          $ref: "#/components/schemas/MusicResourceKind"
+        mediaType:
+          type: string
+          maxLength: 255
+        container:
+          type: string
+        codec:
+          type: string
+        byteLength:
+          type: integer
+          format: int64
+          minimum: 0
+        etag:
+          type: string
+        checksum:
+          type: string
+          pattern: '^(?:sha256|blake3):[0-9a-f]{64}$'
+        availability:
+          $ref: "#/components/schemas/MusicResourceAvailability"
+
+    MusicCompatibleRepresentationStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [unsupported, generating, failed, ready]
+        errorCode:
+          type: string
+          enum: [generation_failed]
+
+    MusicCompatibleRepresentationRequest:
+      type: object
+      additionalProperties: false
+      required: [requestId]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+
+    MusicCompatibleRepresentationResponse:
+      type: object
+      additionalProperties: false
+      required: [requestId, status]
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [generating, failed, ready]
+        errorCode:
+          type: string
+          enum: [generation_failed]
+
+    MusicTrack:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - revision
+        - contentIdentityRevision
+        - metadataRevision
+        - resourceRevision
+        - title
+        - availability
+        - playbackResources
+        - compatibleRepresentation
+        - createdAt
+        - updatedAt
+        - deletedAt
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 255
+        catalogItemId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        contentIdentityRevision:
+          type: integer
+          format: int64
+          minimum: 1
+        metadataRevision:
+          type: integer
+          format: int64
+          minimum: 1
+        resourceRevision:
+          type: integer
+          format: int64
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+        artistName:
+          type: string
+        albumTitle:
+          type: string
+        albumArtistName:
+          type: string
+        genre:
+          type: string
+        trackNumber:
+          type: integer
+          minimum: 1
+        discNumber:
+          type: integer
+          minimum: 1
+        year:
+          type: integer
+          minimum: 1
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        format:
+          type: string
+        codec:
+          type: string
+        availability:
+          $ref: "#/components/schemas/MusicTrackAvailability"
+        playbackResources:
+          type: array
+          items:
+            $ref: "#/components/schemas/MusicResourceDescriptor"
+        artworkResource:
+          $ref: "#/components/schemas/MusicResourceDescriptor"
+        compatibleRepresentation:
+          $ref: "#/components/schemas/MusicCompatibleRepresentationStatus"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: [string, "null"]
+          format: date-time
+
+    MusicIndexMembership:
+      type: object
+      additionalProperties: false
+      required: [fileId, state, revision, createdAt, updatedAt]
+      properties:
+        fileId:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Opaque Music Track identity; never a Desktop filesystem path.
+        state:
+          type: string
+          enum: [included, excluded]
+        reason:
+          type: string
+          enum: [user, unsupported, policy]
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MusicTrackDisplaySnapshot:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        artistName:
+          type: string
+        albumTitle:
+          type: string
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+    MusicPlaylistItem:
+      type: object
+      additionalProperties: false
+      required: [id, playlistId, trackId, orderKey, addedAt, revision, deletedAt, trackDisplaySnapshot]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 255
+        playlistId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        trackId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        orderKey:
+          type: string
+          pattern: '^[0-9]{20}$'
+        addedAt:
+          type: string
+          format: date-time
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        deletedAt:
+          type: [string, "null"]
+          format: date-time
+        trackDisplaySnapshot:
+          $ref: "#/components/schemas/MusicTrackDisplaySnapshot"
+    MusicPlaylist:
+      type: object
+      additionalProperties: false
+      required: [id, name, revision, createdAt, updatedAt, deletedAt]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 255
+        name:
+          type: string
+          minLength: 1
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MusicPlaylistItem"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: [string, "null"]
+          format: date-time
+
+    MusicMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [mutationId, requestHash, type, entityId, expectedRevision, payload]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+          description: A canonical lowercase UUIDv4 that is never reused for a different logical mutation.
+        requestHash:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: SHA-256 of UTF-8 JSON with recursively lexicographic object keys, no insignificant whitespace, and no slash/HTML escaping. The object contains family, mutationId, type, entityId, expectedRevision, optional dependency, and payload; requestHash is excluded.
+        type:
+          type: string
+          enum:
+            - setFavorite
+            - setProgress
+            - selectProviderLyric
+            - createPlaylist
+            - renamePlaylist
+            - deletePlaylist
+            - addPlaylistItem
+            - removePlaylistItem
+            - reorderPlaylist
+            - setMembership
+        entityId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        dependsOnMutationId:
+          type: string
+          format: uuid
+        payload:
+          description: Strict type-selected payload. The route family and `type` select one exact shape; unknown properties are rejected.
+          oneOf:
+            - $ref: "#/components/schemas/MusicSetFavoritePayload"
+            - $ref: "#/components/schemas/MusicSetProgressPayload"
+            - $ref: "#/components/schemas/MusicSelectProviderLyricPayload"
+            - $ref: "#/components/schemas/MusicPlaylistNamePayload"
+            - $ref: "#/components/schemas/MusicDeletePlaylistPayload"
+            - $ref: "#/components/schemas/MusicAddPlaylistItemPayload"
+            - $ref: "#/components/schemas/MusicRemovePlaylistItemPayload"
+            - $ref: "#/components/schemas/MusicReorderPlaylistPayload"
+            - $ref: "#/components/schemas/MusicSetMembershipPayload"
+
+    MusicSetFavoritePayload:
+      type: object
+      additionalProperties: false
+      required: [favorite]
+      properties:
+        favorite:
+          type: boolean
+
+    MusicSetProgressPayload:
+      type: object
+      additionalProperties: false
+      required: [positionMs, playSessionId, contentIdentityRevision]
+      properties:
+        positionMs:
+          type: integer
+          format: int64
+          minimum: 0
+        playSessionId:
+          type: string
+          format: uuid
+        contentIdentityRevision:
+          type: integer
+          format: int64
+          minimum: 1
+
+    MusicSelectProviderLyricPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - clientDocumentId
+        - providerId
+        - providerTrackId
+        - timingKind
+        - availability
+        - licensePolicy
+        - offsetMs
+      properties:
+        clientDocumentId:
+          type: string
+          format: uuid
+        providerId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        providerTrackId:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        timingKind:
+          type: string
+          enum: [plain, synced]
+        language:
+          type: string
+          maxLength: 64
+        contentHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        availability:
+          type: string
+          enum: [content, refetchRequired, unavailable]
+        licensePolicy:
+          type: string
+          enum: [cacheAllowed, refetchRequired]
+        offsetMs:
+          type: integer
+          format: int64
+
+    MusicPlaylistNamePayload:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+
+    MusicDeletePlaylistPayload:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+
+    MusicAddPlaylistItemPayload:
+      type: object
+      additionalProperties: false
+      required: [clientItemId, trackId]
+      properties:
+        clientItemId:
+          type: string
+          format: uuid
+        trackId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        position:
+          type: integer
+          minimum: 0
+
+    MusicRemovePlaylistItemPayload:
+      type: object
+      additionalProperties: false
+      required: [playlistId]
+      properties:
+        playlistId:
+          type: string
+          format: uuid
+
+    MusicReorderPlaylistPayload:
+      type: object
+      additionalProperties: false
+      required: [itemIds]
+      properties:
+        itemIds:
+          type: array
+          uniqueItems: true
+          maxItems: 100000
+          items:
+            type: string
+            format: uuid
+
+    MusicSetMembershipPayload:
+      type: object
+      additionalProperties: false
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [included, excluded]
+        reason:
+          type: string
+          enum: [user, unsupported, policy]
+
+    MusicMutationResult:
+      type: object
+      additionalProperties: false
+      required: [mutationId, type, entityId, revision, replayed, result]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        entityId:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        replayed:
+          type: boolean
+        result:
+          type: object
+          description: Canonical type-selected result, including Track state, Playlist, membership, or lyric Document/Selection remapping.
+
+    MusicPlayEventRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - requestHash
+        - playSessionId
+        - sequence
+        - trackId
+        - contentIdentityRevision
+        - cumulativeListenedDurationMs
+        - positionMs
+        - terminal
+        - completed
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        requestHash:
+          type: string
+          pattern: '^sha256:[0-9a-f]{64}$'
+          description: Hash using the same canonical JSON rules as MusicMutationRequest over semantic checkpoint fields; excludes eventId and requestHash.
+        playSessionId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        trackId:
+          type: string
+          minLength: 1
+          maxLength: 255
+        contentIdentityRevision:
+          type: integer
+          format: int64
+          minimum: 1
+        cumulativeListenedDurationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        positionMs:
+          type: integer
+          format: int64
+          minimum: 0
+        terminal:
+          type: boolean
+        completed:
+          type: boolean
+          description: May be true only when terminal is true.
+        endReason:
+          type: string
+          maxLength: 120
+        deviceOccurredAt:
+          type: string
+          format: date-time
+
+    MusicPlayEventResult:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - playSessionId
+        - acknowledgedSequence
+        - cumulativeListenedDurationMs
+        - positionMs
+        - terminal
+        - accepted
+        - replayed
+        - trackStateRevision
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        playSessionId:
+          type: string
+          format: uuid
+        acknowledgedSequence:
+          type: integer
+          format: int64
+          minimum: 0
+        cumulativeListenedDurationMs:
+          type: integer
+          format: int64
+          minimum: 0
+        positionMs:
+          type: integer
+          format: int64
+          minimum: 0
+        terminal:
+          type: boolean
+        accepted:
+          type: boolean
+        replayed:
+          type: boolean
+        trackStateRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        trackState:
+          $ref: "#/components/schemas/MusicTrackState"
+
+    MusicRevisionConflictEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, currentRevision, currentPayload]
+      properties:
+        error:
+          type: string
+          const: music_revision_conflict
+        currentRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        currentPayload:
+          type: object
+
+    MusicRetryableConflictEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, retryable]
+      properties:
+        error:
+          type: string
+          enum: [music_dependency_pending, music_content_changed]
+        retryable:
+          type: boolean
+
+    MusicSnapshotRecord:
+      type: object
+      additionalProperties: false
+      required: [entityType, entityId, revision, payload]
+      properties:
+        entityType:
+          $ref: "#/components/schemas/MusicEntityType"
+        entityId:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        payload:
+          type: object
+          description: Canonical Track, Playlist, Playlist Item, Track state, lyric Document, lyric Selection, or Music index membership selected by `entityType`.
+    MusicSnapshotPage:
+      type: object
+      additionalProperties: false
+      required: [records, epoch, highWater, minimumCursor, hasMore]
+      properties:
+        records:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/MusicSnapshotRecord"
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+        minimumCursor:
+          type: integer
+          format: int64
+          minimum: 0
+        nextCursor:
+          type: string
+          maxLength: 4096
+        hasMore:
+          type: boolean
+
+    MusicChange:
+      type: object
+      additionalProperties: false
+      required: [sequence, entityType, entityId, operation, revision, occurredAt]
+      properties:
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        entityType:
+          $ref: "#/components/schemas/MusicEntityType"
+        entityId:
+          type: string
+        operation:
+          $ref: "#/components/schemas/MusicChangeOperation"
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        payload:
+          type: object
+          description: Present for `upsert` only; selected by `entityType`. Delete payloads are omitted.
+        occurredAt:
+          type: string
+          format: date-time
+    MusicChangePage:
+      type: object
+      additionalProperties: false
+      required: [changes, epoch, cursor, highWater, minimumCursor, hasMore]
+      properties:
+        changes:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/MusicChange"
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+        minimumCursor:
+          type: integer
+          format: int64
+          minimum: 0
+        hasMore:
+          type: boolean
+    MusicPlaylistsPage:
+      type: object
+      additionalProperties: false
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/MusicPlaylist"
+        nextCursor:
+          type: string
+          maxLength: 4096
+        hasMore:
+          type: boolean
+
+    MusicResetPosition:
+      type: object
+      additionalProperties: false
+      required: [epoch, cursor, minimumCursor]
+      properties:
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+        minimumCursor:
+          type: integer
+          format: int64
+          minimum: 0
+    MusicResetRequiredEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, sync]
+      properties:
+        error:
+          type: string
+          const: reset_required
+        sync:
+          $ref: "#/components/schemas/MusicResetPosition"
+
+    RSSOverview:
+      type: object
+      additionalProperties: false
+      required: [catalogId, workspaceId, subjectId, epoch, highWater, retainedFrom, capabilities]
+      properties:
+        catalogId:
+          type: string
+        workspaceId:
+          type: string
+        subjectId:
+          type: string
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+        retainedFrom:
+          type: integer
+          format: int64
+          minimum: 0
+        capabilities:
+          type: array
+          description: Clients that consume the availability-only RSS resource contract must require `opaque-resource-slots-v1` before applying snapshots or changes.
+          items:
+            type: string
+          allOf:
+            - contains:
+                const: snapshot-keyset-v1
+            - contains:
+                const: opaque-resource-slots-v1
+
+    RSSSubscription:
+      type: object
+      additionalProperties: false
+      required: [id, workspaceId, title, iconAvailable, viewType, sortOrder, enabled, unreadCount, createdAt, updatedAt, revision, sourceAccess]
+      properties:
+        id:
+          type: string
+        workspaceId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          maxLength: 4096
+        iconAvailable:
+          type: boolean
+          description: True when the persisted subscription has an icon candidate addressable through the subscription icon resource route. The source URL is never serialized.
+        viewType:
+          $ref: "#/components/schemas/RSSViewType"
+        categoryId:
+          type: string
+          maxLength: 255
+        sortOrder:
+          type: integer
+        sourceAccess:
+          $ref: "#/components/schemas/RSSSourceAccess"
+        publicFeedURL:
+          type: string
+          format: uri
+          maxLength: 4096
+          x-sensitive: true
+          description: Present only for sharedPublic and while the current grant has rss.fetch. Omission revokes any previously cached URL and fetch metadata.
+        enabled:
+          type: boolean
+        unreadCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+
+    RSSSubscriptionMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [mutationId, operation]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+        operation:
+          $ref: "#/components/schemas/RSSSubscriptionMutationOperation"
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Required for update/delete and must exactly equal the current subscription entity revision.
+        fieldMask:
+          type: array
+          maxItems: 8
+          uniqueItems: true
+          items:
+            type: string
+            enum: [title, viewType, categoryId, sortOrder, enabled, publicFeedURL]
+        title:
+          type: string
+          maxLength: 512
+        viewType:
+          $ref: "#/components/schemas/RSSViewType"
+        categoryId:
+          type: [string, "null"]
+          maxLength: 255
+        sortOrder:
+          type: integer
+          minimum: -1000000
+          maximum: 1000000
+        enabled:
+          type: boolean
+        sourceAccess:
+          type: string
+          const: sharedPublic
+        publicFeedURL:
+          type: string
+          format: uri
+          maxLength: 4096
+          x-sensitive: true
+
+    RSSSubscriptionMutationResult:
+      type: object
+      additionalProperties: false
+      required: [mutationId, operation, revision, changeCursor]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+        operation:
+          $ref: "#/components/schemas/RSSSubscriptionMutationOperation"
+        subscription:
+          $ref: "#/components/schemas/RSSSubscription"
+        deletedId:
+          type: string
+          format: uuid
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        changeCursor:
+          type: integer
+          format: int64
+          minimum: 0
+
+    RSSFetchLeaseRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ttlSeconds:
+          type: integer
+          minimum: 0
+          maximum: 600
+          default: 120
+
+    RSSFetchLeaseResult:
+      type: object
+      additionalProperties: false
+      required: [granted]
+      properties:
+        granted:
+          type: boolean
+        leaseId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: string
+          format: date-time
+        retryAfterSeconds:
+          type: integer
+          minimum: 1
+
+    RSSObservationEnclosure:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 4096
+        mimeType:
+          type: string
+          maxLength: 256
+        byteLength:
+          type: integer
+          format: int64
+          minimum: 0
+        thumbnailURL:
+          type: string
+          format: uri
+          maxLength: 4096
+        width:
+          type: integer
+          minimum: 0
+          maximum: 32768
+        height:
+          type: integer
+          minimum: 0
+          maximum: 32768
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+
+    RSSObservationEntry:
+      type: object
+      additionalProperties: false
+      required: [originKey, title]
+      properties:
+        originKey:
+          type: string
+          pattern: '^rss-origin-v1:[0-9a-f]{64}$'
+        guid:
+          type: string
+          maxLength: 8192
+        canonicalLink:
+          type: string
+          format: uri
+          maxLength: 4096
+        publishedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        title:
+          type: string
+          maxLength: 4096
+        author:
+          type: string
+          maxLength: 2048
+        summary:
+          type: string
+          maxLength: 8192
+        contentHTML:
+          type: string
+          maxLength: 1048576
+        enclosures:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/RSSObservationEnclosure"
+
+    RSSFeedObservationRequest:
+      type: object
+      additionalProperties: false
+      required: [mutationId, fetchedAt, contentHash, entries]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+        upstreamETag:
+          type: string
+          maxLength: 1024
+        lastModified:
+          type: string
+          maxLength: 1024
+        fetchedAt:
+          type: string
+          format: date-time
+        contentHash:
+          type: string
+          pattern: '^[0-9a-fA-F]{64}$'
+        entries:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/RSSObservationEntry"
+
+    RSSOriginEntryMapping:
+      type: object
+      additionalProperties: false
+      required: [originKey, entryId, contentRevision]
+      properties:
+        originKey:
+          type: string
+          pattern: '^rss-origin-v1:[0-9a-f]{64}$'
+        entryId:
+          type: string
+        contentRevision:
+          type: integer
+          format: int64
+          minimum: 1
+
+    RSSFeedObservationResult:
+      type: object
+      additionalProperties: false
+      required: [mutationId, acceptedAt, created, updated, mappings, changeCursor]
+      properties:
+        mutationId:
+          type: string
+          format: uuid
+        acceptedAt:
+          type: string
+          format: date-time
+        created:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
+        mappings:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/RSSOriginEntryMapping"
+        changeCursor:
+          type: integer
+          format: int64
+          minimum: 0
+
+    RSSMediaSlot:
+      type: object
+      additionalProperties: false
+      required: [available, thumbnailAvailable, kind]
+      properties:
+        available:
+          type: boolean
+          description: Whether media-N is addressable. No upstream URL is serialized.
+        thumbnailAvailable:
+          type: boolean
+          description: Whether media-N-thumbnail is addressable. No upstream URL is serialized.
+        mimeType:
+          type: string
+        kind:
+          type: string
+        width:
+          type: integer
+          minimum: 1
+        height:
+          type: integer
+          minimum: 1
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+
+    RSSEntry:
+      type: object
+      additionalProperties: false
+      required: [id, subscriptionId, title, kind, thumbnailAvailable, read, starred, videoCompleted, fieldRevisions, stateRevision, contentRevision, createdAt, modifiedAt]
+      properties:
+        id:
+          type: string
+        subscriptionId:
+          type: string
+        title:
+          type: string
+        author:
+          type: string
+        summary:
+          type: string
+          maxLength: 8192
+        kind:
+          $ref: "#/components/schemas/RSSEntryKind"
+        thumbnailAvailable:
+          type: boolean
+          description: Whether the persisted thumbnail slot is addressable through the entry resource route. The source URL is never serialized.
+        platform:
+          type: string
+        platformVideoId:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+        sourceUpdatedAt:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+        readAt:
+          type: string
+          format: date-time
+        starred:
+          type: boolean
+        starredAt:
+          type: string
+          format: date-time
+        articleProgress:
+          $ref: "#/components/schemas/RSSArticleProgress"
+        videoProgressSeconds:
+          type: number
+          minimum: 0
+        videoDurationSeconds:
+          type: number
+          minimum: 0
+        videoCompleted:
+          type: boolean
+        fieldRevisions:
+          $ref: "#/components/schemas/RSSStateFieldRevisions"
+        stateRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        contentRevision:
+          type: integer
+          format: int64
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
+        modifiedAt:
+          type: string
+          format: date-time
+
+    RSSEntryDetail:
+      unevaluatedProperties: false
+      allOf:
+        - $ref: "#/components/schemas/RSSEntry"
+        - type: object
+          required: [contentHtml, imageSlots, mediaSlots]
+          properties:
+            contentHtml:
+              type: string
+              maxLength: 1048576
+              x-max-bytes: 1048576
+              description: Server-sanitized inert reading markup. Scripts, forms, frames, styles, event handlers, and every URL-bearing attribute are removed; inline images are retained in document order only as `data-xiadown-slot="image-N"` placeholders paired with `imageSlots`. Paired DTOs never embed upstream URLs.
+            imageSlots:
+              type: array
+              maxItems: 64
+              description: Positions are persisted image-N slot indices. True means the slot has a syntactically proxyable source; false preserves a non-proxyable position. No source URL is serialized.
+              items:
+                type: boolean
+            mediaSlots:
+              type: array
+              maxItems: 64
+              description: Positions are persisted media-N slot indices and are never compacted around unavailable resources.
+              items:
+                $ref: "#/components/schemas/RSSMediaSlot"
+
+    RSSEntryPage:
+      type: object
+      additionalProperties: false
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/RSSEntry"
+        total:
+          type: integer
+          minimum: 0
+        nextOffset:
+          type: integer
+          minimum: 1
+
+    UpdateRSSEntryStateRequest:
+      type: object
+      additionalProperties: false
+      required: [field, value, expectedRevision, mutationId]
+      properties:
+        field:
+          $ref: "#/components/schemas/RSSStateField"
+        value:
+          oneOf:
+            - type: boolean
+            - type: number
+              minimum: 0
+            - $ref: "#/components/schemas/RSSArticleProgress"
+        videoDurationSeconds:
+          type: number
+          minimum: 0
+          description: Optional only with `field=videoProgressSeconds`; it shares that field's clock.
+        expectedRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        mutationId:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Stable per-device idempotency key bound to the canonical entry/field/revision/value/duration payload.
+
+    RSSArticleProgress:
+      type: object
+      additionalProperties: false
+      required: [fraction, contentRevision]
+      properties:
+        fraction:
+          type: number
+          minimum: 0
+          maximum: 1
+        anchor:
+          type: string
+          maxLength: 512
+        contentRevision:
+          type: integer
+          format: int64
+          minimum: 1
+
+    RSSStateFieldRevisions:
+      type: object
+      additionalProperties: false
+      required: [read, starred, articleProgress, videoProgressSeconds]
+      properties:
+        read:
+          type: integer
+          format: int64
+          minimum: 0
+        starred:
+          type: integer
+          format: int64
+          minimum: 0
+        articleProgress:
+          type: integer
+          format: int64
+          minimum: 0
+        videoProgressSeconds:
+          type: integer
+          format: int64
+          minimum: 0
+
+    RSSEntryState:
+      type: object
+      additionalProperties: false
+      required: [entryId, subjectId, read, starred, videoCompleted, fieldRevisions, revision, updatedAt]
+      properties:
+        entryId:
+          type: string
+        subjectId:
+          type: string
+          description: Stable owner subject identifier; clients must treat it as opaque.
+        read:
+          type: boolean
+        readAt:
+          type: string
+          format: date-time
+        starred:
+          type: boolean
+        starredAt:
+          type: string
+          format: date-time
+        articleProgress:
+          $ref: "#/components/schemas/RSSArticleProgress"
+        videoProgressSeconds:
+          type: number
+          minimum: 0
+        videoDurationSeconds:
+          type: number
+          minimum: 0
+        videoCompleted:
+          type: boolean
+        fieldRevisions:
+          $ref: "#/components/schemas/RSSStateFieldRevisions"
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        updatedAt:
+          type: string
+          format: date-time
+        updatedBy:
+          type: string
+          description: Authenticated device identifier that produced the state.
+        mutationId:
+          type: string
+
+    RSSSnapshotRecord:
+      type: object
+      additionalProperties: false
+      required: [entityType, entityId, revision, payload]
+      properties:
+        entityType:
+          $ref: "#/components/schemas/RSSSnapshotEntityType"
+        entityId:
+          type: string
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        payload:
+          oneOf:
+            - $ref: "#/components/schemas/RSSSubscription"
+            - $ref: "#/components/schemas/RSSEntry"
+
+    RSSSnapshotPage:
+      type: object
+      additionalProperties: false
+      required: [records, epoch, highWater, retainedFrom, hasMore]
+      properties:
+        records:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/RSSSnapshotRecord"
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+        retainedFrom:
+          type: integer
+          format: int64
+          minimum: 0
+        nextCursor:
+          type: string
+          maxLength: 4096
+        hasMore:
+          type: boolean
+
+    RSSSyncPosition:
+      type: object
+      additionalProperties: false
+      required: [epoch, cursor, retainedFrom]
+      properties:
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+        retainedFrom:
+          type: integer
+          format: int64
+          minimum: 0
+
+    RSSResetRequiredEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, sync]
+      properties:
+        error:
+          type: string
+          const: reset_required
+        sync:
+          $ref: "#/components/schemas/RSSSyncPosition"
+
+    RSSStateConflictEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error, state]
+      properties:
+        error:
+          type: string
+          const: rss_state_conflict
+        state:
+          $ref: "#/components/schemas/RSSEntryState"
+
+    RSSChange:
+      type: object
+      additionalProperties: false
+      required: [sequence, entityType, entityId, operation, revision, changedAt]
+      properties:
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        entityType:
+          $ref: "#/components/schemas/RSSChangeEntityType"
+        entityId:
+          type: string
+        operation:
+          $ref: "#/components/schemas/RSSChangeOperation"
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+        payload:
+          type: object
+          description: Lightweight entity projection for `upsert`, or only the deleted entity ID for `delete`. Subscription payloads never contain feed addresses; entry payloads never contain HTML or large media arrays.
+        changedAt:
+          type: string
+          format: date-time
+
+    RSSChangePage:
+      type: object
+      additionalProperties: false
+      required: [changes, epoch, cursor, highWater, retainedFrom, hasMore]
+      properties:
+        changes:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/RSSChange"
+        epoch:
+          type: string
+          pattern: '^[0-9a-f]{32}$'
+        cursor:
+          type: integer
+          format: int64
+          minimum: 0
+        highWater:
+          type: integer
+          format: int64
+          minimum: 0
+        retainedFrom:
+          type: integer
+          format: int64
+          minimum: 0
+        hasMore:
+          type: boolean
+
+    TaskSpeedMetric:
+      type: object
+      additionalProperties: false
+      properties:
+        kind:
+          $ref: "#/components/schemas/SpeedMetricKind"
+        label:
+          type: string
+        bytesPerSecond:
+          type: number
+          minimum: 0
+        framesPerSecond:
+          type: number
+          minimum: 0
+        factor:
+          type: number
+          minimum: 0
+    TaskProgress:
+      type: object
+      additionalProperties: false
+      properties:
+        stage:
+          type: string
+        percent:
+          type: integer
+        current:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+        speed:
+          type: string
+        speedMetric:
+          $ref: "#/components/schemas/TaskSpeedMetric"
+        updatedAt:
+          type: string
+          format: date-time
+    TaskMetrics:
+      type: object
+      additionalProperties: false
+      required: [fileCount]
+      properties:
+        fileCount:
+          type: integer
+          minimum: 0
+        totalSizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        durationMs:
+          type: integer
+          format: int64
+          minimum: 0
+    Task:
+      type: object
+      additionalProperties: false
+      required: [id, name, kind, status, metrics, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          maxLength: 160
+          description: Sanitized display name; source URLs, paths, credentials, and token-like values are replaced by a generic name.
+        kind:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        domain:
+          type: string
+        platform:
+          type: string
+        uploader:
+          type: string
+        publishTime:
+          type: string
+        progress:
+          $ref: "#/components/schemas/TaskProgress"
+        metrics:
+          $ref: "#/components/schemas/TaskMetrics"
+        errorCode:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+    TaskList:
+      type: object
+      additionalProperties: false
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/Task"
+    CreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 8192
+          pattern: "^https?://"
+          description: Public HTTP(S) source URL. User information, local/private/special-use destinations, and NUL characters are rejected.
+        title:
+          type: string
+          maxLength: 512
+        mode:
+          $ref: "#/components/schemas/TaskMode"
+        quality:
+          $ref: "#/components/schemas/TaskQuality"
+        formatId:
+          type: string
+          maxLength: 256
+        audioFormatId:
+          type: string
+          maxLength: 256
+        writeThumbnail:
+          type: boolean
+        subtitleLangs:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        subtitleAuto:
+          type: boolean
+        subtitleAll:
+          type: boolean
+        subtitleFormat:
+          type: string
+          maxLength: 128
+        transcodePresetId:
+          type: string
+          maxLength: 256
+        deleteSourceFileAfterTranscode:
+          type: boolean

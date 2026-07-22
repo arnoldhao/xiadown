@@ -103,15 +103,16 @@ func resourceFormatOptionWithID(id string, media resourceMedia) dto.YTDLPFormatO
 	}
 	hasVideo, hasAudio := resourceMediaTrackFlags(media)
 	return dto.YTDLPFormatOption{
-		ID:       id,
-		Label:    resourceFormatLabelForMedia(media, height, ext),
-		HasVideo: hasVideo,
-		HasAudio: hasAudio,
-		Ext:      ext,
-		Height:   height,
-		VCodec:   media.VCodec,
-		ACodec:   media.ACodec,
-		Filesize: media.SizeBytes,
+		ID:         id,
+		Label:      resourceFormatLabelForMedia(media, height, ext),
+		HasVideo:   hasVideo,
+		HasAudio:   hasAudio,
+		Ext:        ext,
+		Height:     height,
+		VCodec:     media.VCodec,
+		ACodec:     media.ACodec,
+		FormatNote: strings.TrimSpace(media.FormatNote),
+		Filesize:   media.SizeBytes,
 	}
 }
 
@@ -764,7 +765,7 @@ func (service *LibraryService) prepareResourceOutputPath(ctx context.Context, me
 			baseDir = filepath.Join(downloadDirectory, "xiadown", "resource")
 		}
 	}
-	domainDir := sanitizeFileName(firstNonEmpty(media.Domain, extractRegistrableDomain(media.PageURL), "douyin.com"))
+	domainDir := sanitizeFileName(firstNonEmpty(media.Domain, extractRegistrableDomain(media.PageURL), "resource"))
 	if domainDir == "" {
 		domainDir = "resource"
 	}
@@ -793,7 +794,7 @@ func resourceOutputBaseName(media resourceMedia, operationID string) string {
 	}
 	base := sanitizeFileName(strings.Join(parts, "-"))
 	if base == "" {
-		base = "douyin"
+		base = "resource"
 	}
 	if runes := []rune(base); len(runes) > 120 {
 		base = strings.TrimSpace(string(runes[:120]))

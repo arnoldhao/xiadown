@@ -104,7 +104,7 @@ func (prefetch *ytdlpThumbnailPrefetch) StartForOutputPath(
 		if err != nil {
 			return "", err
 		}
-		return service.downloadYTDLPThumbnailToTarget(ctx, request.ThumbnailURL, targetPath, true)
+		return service.downloadYTDLPThumbnailToTarget(ctx, request.ThumbnailURL, targetPath, true, request.RestrictedProxyURL)
 	}, onReady)
 }
 
@@ -328,6 +328,15 @@ func (service *LibraryService) runYTDLPOperationWithHeaderPolicy(ctx context.Con
 	}
 
 	reporter := newYTDLPProgressReporter(service, &operation)
+	if isRestrictedPublicRequest(request) {
+		restrictedProxy, proxyErr := startPublicNetworkProxy(ctx, service.proxyClient)
+		if proxyErr != nil {
+			service.failYTDLPOperation(ctx, &operation, &history, proxyErr, resolveYTDLPErrorCode("", proxyErr), "")
+			return
+		}
+		defer restrictedProxy.Close()
+		request.RestrictedProxyURL = restrictedProxy.URL()
+	}
 	execPath, err := service.resolveTool(ctx, dependencies.DependencyYTDLP)
 	if err != nil {
 		service.failYTDLPOperation(ctx, &operation, &history, err, ytdlpErrorCodeDependencyMissing, "")
@@ -359,9 +368,25 @@ func (service *LibraryService) runYTDLPOperationWithHeaderPolicy(ctx context.Con
 	persistLogsOnSuccess := logPolicy == ytdlpLogPolicyAlways
 	thumbnailPrefetch := &ytdlpThumbnailPrefetch{}
 	downloadHeaders := resolveYTDLPDownloadHeaders(useResourceDownloadHeaders, headers, request.URL)
-	streamPreflight := appytdlp.StreamManifestPreflight{}
+	preflightHeaders := downloadHeaders
 	if useResourceDownloadHeaders {
-		streamPreflight = service.preflightYTDLPStream(ctx, request.URL, downloadHeaders, reporter, operation.ID)
+		var capturedCookiesPath string
+		var cleanupCapturedCookies func()
+		downloadHeaders, capturedCookiesPath, cleanupCapturedCookies, err = prepareCapturedCookieJar(request.URL, downloadHeaders, started)
+		if err != nil {
+			service.failYTDLPOperation(ctx, &operation, &history, err, resolveYTDLPErrorCode("", err), "")
+			return
+		}
+		defer cleanupCapturedCookies()
+		if capturedCookiesPath != "" {
+			// The on-wire cookie set is the most precise credential snapshot for
+			// this resource request, so it takes precedence over a broader jar.
+			cookiesPath = capturedCookiesPath
+		}
+	}
+	streamPreflight := appytdlp.StreamManifestPreflight{}
+	if shouldPreflightYTDLPStream(useResourceDownloadHeaders, request.URL) {
+		streamPreflight = service.preflightYTDLPStream(ctx, request.URL, preflightHeaders, reporter, operation.ID)
 		if streamPreflight.IsUnsupported() {
 			metadataPayload := appendYTDLPStreamPreflightMetadata(nil, streamPreflight)
 			errorCode := ytdlpErrorCodeUnsupportedStreamEncryption
@@ -380,7 +405,8 @@ func (service *LibraryService) runYTDLPOperationWithHeaderPolicy(ctx context.Con
 		OutputTemplate:      outputTemplate,
 		Headers:             downloadHeaders,
 		CookiesPath:         cookiesPath,
-		ProxyURL:            service.resolveYTDLPProxy(request.URL),
+		ProxyURL:            service.resolveYTDLPProxyForRequest(request),
+		RestrictedProxy:     strings.TrimSpace(request.RestrictedProxyURL) != "",
 		ConcurrentFragments: service.resolveYTDLPConcurrentFragments(ctx),
 		StreamStrategy:      streamPreflight.Strategy,
 	})
@@ -594,9 +620,26 @@ func (service *LibraryService) persistOperationAndHistory(ctx context.Context, o
 	if operation == nil || history == nil {
 		return nil
 	}
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
+	return service.persistOperationAndHistoryLocked(ctx, operation, history)
+}
+
+func (service *LibraryService) persistOperationAndHistoryLocked(ctx context.Context, operation *library.LibraryOperation, history *library.HistoryRecord) error {
+	// Metadata may supply the initial friendly title, but once the Companion
+	// has recorded a rename event the user-owned title must survive every
+	// progress, failure and success snapshot from this long-lived runner.
+	service.reconcileBackgroundOperationDisplayNameLocked(ctx, operation, true)
 	if err := service.operations.Save(ctx, *operation); err != nil {
 		return err
 	}
+	// Production SQLite additionally protects display_name in the upsert. Read
+	// the committed value back so the primary History projection and emitted DTO
+	// always use the same winning title.
+	if committed, err := service.operations.Get(ctx, operation.ID); err == nil {
+		operation.DisplayName = committed.DisplayName
+	}
+	history.DisplayName = operation.DisplayName
 	if err := service.histories.Save(ctx, *history); err != nil {
 		return err
 	}
@@ -605,7 +648,6 @@ func (service *LibraryService) persistOperationAndHistory(ctx context.Context, o
 	}
 	service.publishOperationUpdate(toOperationDTO(*operation))
 	service.publishHistoryUpdate(toHistoryDTO(*history))
-	service.trackCompletedOperation(ctx, *operation)
 	return nil
 }
 
@@ -858,15 +900,114 @@ func (service *LibraryService) runDownloadEmbeddedTranscode(
 		return snapshot, "", err
 	}
 
-	snapshot.files = replaceYTDLPOutputFile(snapshot.files, result.sourceFile)
-	snapshot.files = append(snapshot.files, result.outputFile)
-	snapshot.outputFiles = append(snapshot.outputFiles, result.output)
-	snapshot.outputPaths = dedupePaths(append(snapshot.outputPaths, result.outputPath))
-	if result.sourceFile.State.Deleted {
-		snapshot.outputFiles, _ = markOperationOutputFileDeleted(snapshot.outputFiles, result.sourceFile.ID)
-	}
+	snapshot = mergeDownloadEmbeddedTranscodeSnapshot(snapshot, result)
 
 	return snapshot, result.outputPath, nil
+}
+
+// mergeDownloadEmbeddedTranscodeSnapshot keeps an operation snapshot focused
+// on its durable outputs. When the source is removed, the transcode is a
+// replacement rather than a second output plus a deleted artifact. When the
+// source is retained, it remains the primary original and the transcode is a
+// non-primary representation.
+func mergeDownloadEmbeddedTranscodeSnapshot(
+	snapshot ytdlpOutputSnapshot,
+	result embeddedTranscodeStageResult,
+) ytdlpOutputSnapshot {
+	output := result.output
+	if result.sourceFile.State.Deleted {
+		output.IsPrimary = true
+		output.Deleted = false
+		snapshot.files = replaceYTDLPOutputFileByID(
+			snapshot.files,
+			result.sourceFile.ID,
+			result.outputFile,
+		)
+		snapshot.outputFiles = replaceOperationOutputFileByID(
+			snapshot.outputFiles,
+			result.sourceFile.ID,
+			output,
+		)
+		snapshot.outputPaths = replaceYTDLPOutputPath(
+			snapshot.outputPaths,
+			result.sourceFile.Storage.LocalPath,
+			result.outputPath,
+		)
+		return snapshot
+	}
+
+	output.IsPrimary = false
+	output.Deleted = false
+	snapshot.files = replaceYTDLPOutputFile(snapshot.files, result.sourceFile)
+	snapshot.files = append(snapshot.files, result.outputFile)
+	snapshot.outputFiles = append(snapshot.outputFiles, output)
+	snapshot.outputPaths = dedupePaths(append(snapshot.outputPaths, result.outputPath))
+	return snapshot
+}
+
+func replaceYTDLPOutputFileByID(
+	items []library.LibraryFile,
+	fileID string,
+	replacement library.LibraryFile,
+) []library.LibraryFile {
+	result := make([]library.LibraryFile, 0, len(items)+1)
+	replaced := false
+	for _, item := range items {
+		if item.ID != fileID {
+			result = append(result, item)
+			continue
+		}
+		if !replaced {
+			result = append(result, replacement)
+			replaced = true
+		}
+	}
+	if !replaced {
+		result = append(result, replacement)
+	}
+	return result
+}
+
+func replaceOperationOutputFileByID(
+	items []library.OperationOutputFile,
+	fileID string,
+	replacement library.OperationOutputFile,
+) []library.OperationOutputFile {
+	result := make([]library.OperationOutputFile, 0, len(items)+1)
+	replaced := false
+	for _, item := range items {
+		if item.FileID != fileID {
+			result = append(result, item)
+			continue
+		}
+		if !replaced {
+			result = append(result, replacement)
+			replaced = true
+		}
+	}
+	if !replaced {
+		result = append(result, replacement)
+	}
+	return result
+}
+
+func replaceYTDLPOutputPath(items []string, sourcePath string, outputPath string) []string {
+	result := make([]string, 0, len(items)+1)
+	replaced := false
+	for _, item := range items {
+		if !sameCleanPath(item, sourcePath) {
+			result = append(result, item)
+			continue
+		}
+		if !replaced {
+			result = append(result, outputPath)
+			replaced = true
+		}
+	}
+	if !replaced {
+		result = append(result, outputPath)
+	}
+	return dedupePaths(result)
 }
 
 func replaceYTDLPOutputFile(items []library.LibraryFile, updated library.LibraryFile) []library.LibraryFile {
@@ -915,10 +1056,16 @@ func (service *LibraryService) createDownloadedPrimaryFile(ctx context.Context, 
 	if err := service.files.Save(ctx, fileItem); err != nil {
 		return library.LibraryFile{}, err
 	}
+	if err := service.appendLibraryFileCreatedEvent(ctx, fileItem, "download", service.now()); err != nil {
+		return library.LibraryFile{}, err
+	}
 	if err := service.renameLibraryFromFirstFileIfNeeded(ctx, operation.LibraryID, fileItem.DisplayName, createdAt); err != nil {
 		return library.LibraryFile{}, err
 	}
 	service.syncListenLocalTrackFromFile(ctx, fileItem, &probe)
+	if err := service.syncCatalogProjection(ctx, operation.LibraryID); err != nil {
+		return library.LibraryFile{}, err
+	}
 	return fileItem, nil
 }
 
@@ -980,6 +1127,12 @@ func (service *LibraryService) createDownloadedSubtitleFile(ctx context.Context,
 		_ = service.files.Delete(ctx, fileItem.ID)
 		return library.LibraryFile{}, err
 	}
+	if err := service.appendLibraryFileCreatedEvent(ctx, fileItem, "download", service.now()); err != nil {
+		return library.LibraryFile{}, err
+	}
+	if err := service.syncCatalogProjection(ctx, operation.LibraryID); err != nil {
+		return library.LibraryFile{}, err
+	}
 	return fileItem, nil
 }
 
@@ -1012,6 +1165,12 @@ func (service *LibraryService) createDownloadedBinaryFile(ctx context.Context, o
 		return library.LibraryFile{}, err
 	}
 	if err := service.files.Save(ctx, fileItem); err != nil {
+		return library.LibraryFile{}, err
+	}
+	if err := service.appendLibraryFileCreatedEvent(ctx, fileItem, "download", service.now()); err != nil {
+		return library.LibraryFile{}, err
+	}
+	if err := service.syncCatalogProjection(ctx, operation.LibraryID); err != nil {
 		return library.LibraryFile{}, err
 	}
 	return fileItem, nil

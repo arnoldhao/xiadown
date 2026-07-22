@@ -151,7 +151,7 @@ func CleanupStaleRuntimes(ctx context.Context) error {
 				"cleaned stale browser runtime process",
 				zap.Int("pid", record.PID),
 				zap.Int("processGroupID", record.ProcessGroupID),
-				zap.String("execPath", record.ExecutablePath),
+				zap.String("executableRef", browserLogReference(record.ExecutablePath)),
 			)
 		}
 		_ = os.Remove(path)
@@ -171,7 +171,9 @@ func registerRuntimeProcess(record runtimeProcessRecord) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	_ = os.Chmod(dir, 0o700)
+	if err := secureRuntimeRegistryPath(dir, true); err != nil {
+		return "", err
+	}
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return "", err
@@ -179,6 +181,10 @@ func registerRuntimeProcess(record runtimeProcessRecord) (string, error) {
 	path := runtimeRecordPath(dir, record.ID)
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+		return "", err
+	}
+	if err := secureRuntimeRegistryPath(tmpPath, false); err != nil {
+		_ = os.Remove(tmpPath)
 		return "", err
 	}
 	if err := os.Rename(tmpPath, path); err != nil {

@@ -149,15 +149,97 @@ func (repo *SQLiteFileRepository) Get(ctx context.Context, id string) (library.L
 }
 
 func (repo *SQLiteFileRepository) Save(ctx context.Context, item library.LibraryFile) error {
-	stateJSON, err := json.Marshal(item.State)
+	row, err := newFileRow(item)
 	if err != nil {
 		return err
+	}
+	return saveFileRow(ctx, repo.db, &row)
+}
+
+// SavePreservingDisplayName persists a background projection update without
+// letting a stale aggregate snapshot overwrite a user rename. Inserts retain
+// the supplied display name; conflict updates deliberately leave it untouched.
+func (repo *SQLiteFileRepository) SavePreservingDisplayName(ctx context.Context, item library.LibraryFile) error {
+	row, err := newFileRow(item)
+	if err != nil {
+		return err
+	}
+	return saveFileRowWithOptions(ctx, repo.db, &row, false)
+}
+
+func (repo *SQLiteFileRepository) SaveWithFileEvent(
+	ctx context.Context,
+	item library.LibraryFile,
+	event library.FileEventRecord,
+) error {
+	row, err := newFileRow(item)
+	if err != nil {
+		return err
+	}
+	eventRow := fileEventRow{
+		ID: event.ID, LibraryID: event.LibraryID, FileID: event.FileID,
+		OperationID: nullString(event.OperationID), EventType: event.EventType,
+		DetailJSON: event.DetailJSON, CreatedAt: event.CreatedAt,
+	}
+	return repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if err := saveFileRow(ctx, tx, &row); err != nil {
+			return err
+		}
+		_, err := tx.NewInsert().Model(&eventRow).On("CONFLICT(id) DO NOTHING").Exec(ctx)
+		return err
+	})
+}
+
+// RenameDisplayNameWithFileEvent is the narrow file-title mutation boundary.
+// It changes only display_name/updated_at and appends the immutable activity
+// event in one transaction, so a stale rename snapshot cannot overwrite a
+// concurrent probe, relink, delete, metadata edit, or transcode update.
+func (repo *SQLiteFileRepository) RenameDisplayNameWithFileEvent(
+	ctx context.Context,
+	item library.LibraryFile,
+	event library.FileEventRecord,
+) error {
+	if event.EventType != "file_renamed" || event.LibraryID != item.LibraryID || event.FileID != item.ID {
+		return library.ErrInvalidFileEvent
+	}
+	eventRow := fileEventRow{
+		ID: event.ID, LibraryID: event.LibraryID, FileID: event.FileID,
+		OperationID: nullString(event.OperationID), EventType: event.EventType,
+		DetailJSON: event.DetailJSON, CreatedAt: event.CreatedAt,
+	}
+	return repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		result, err := tx.NewUpdate().
+			Model((*fileRow)(nil)).
+			Set("display_name = ?", nullString(item.DisplayName)).
+			Set("updated_at = ?", item.UpdatedAt).
+			Where("id = ?", item.ID).
+			Where("library_id = ?", item.LibraryID).
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return library.ErrFileNotFound
+		}
+		_, err = tx.NewInsert().Model(&eventRow).On("CONFLICT(id) DO NOTHING").Exec(ctx)
+		return err
+	})
+}
+
+func newFileRow(item library.LibraryFile) (fileRow, error) {
+	stateJSON, err := json.Marshal(item.State)
+	if err != nil {
+		return fileRow{}, err
 	}
 	metadataJSON := sql.NullString{}
 	if item.Metadata != (library.FileMetadata{}) {
 		payload, err := json.Marshal(item.Metadata)
 		if err != nil {
-			return err
+			return fileRow{}, err
 		}
 		metadataJSON = nullString(string(payload))
 	}
@@ -165,7 +247,7 @@ func (repo *SQLiteFileRepository) Save(ctx context.Context, item library.Library
 	if item.Media != nil {
 		payload, err := json.Marshal(item.Media)
 		if err != nil {
-			return err
+			return fileRow{}, err
 		}
 		mediaJSON = nullString(string(payload))
 	}
@@ -194,12 +276,23 @@ func (repo *SQLiteFileRepository) Save(ctx context.Context, item library.Library
 		row.OriginImportedAt = nullTime(&item.Origin.Import.ImportedAt)
 		row.OriginKeepSourceFile = sql.NullBool{Bool: item.Origin.Import.KeepSourceFile, Valid: true}
 	}
-	_, err = repo.db.NewInsert().Model(&row).
+	return row, nil
+}
+
+func saveFileRow(ctx context.Context, db bun.IDB, row *fileRow) error {
+	return saveFileRowWithOptions(ctx, db, row, true)
+}
+
+func saveFileRowWithOptions(ctx context.Context, db bun.IDB, row *fileRow, updateDisplayName bool) error {
+	query := db.NewInsert().Model(row).
 		On("CONFLICT(id) DO UPDATE").
 		Set("library_id = EXCLUDED.library_id").
 		Set("kind = EXCLUDED.kind").
-		Set("name = EXCLUDED.name").
-		Set("display_name = EXCLUDED.display_name").
+		Set("name = EXCLUDED.name")
+	if updateDisplayName {
+		query = query.Set("display_name = EXCLUDED.display_name")
+	}
+	query = query.
 		Set("metadata_json = EXCLUDED.metadata_json").
 		Set("storage_mode = EXCLUDED.storage_mode").
 		Set("storage_local_path = EXCLUDED.storage_local_path").
@@ -213,9 +306,13 @@ func (repo *SQLiteFileRepository) Save(ctx context.Context, item library.Library
 		Set("lineage_root_file_id = EXCLUDED.lineage_root_file_id").
 		Set("latest_operation_id = EXCLUDED.latest_operation_id").
 		Set("state_json = EXCLUDED.state_json").
-		Set("media_json = EXCLUDED.media_json").
-		Set("updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
+		Set("media_json = EXCLUDED.media_json")
+	if updateDisplayName {
+		query = query.Set("updated_at = EXCLUDED.updated_at")
+	} else {
+		query = query.Set("updated_at = CASE WHEN updated_at > EXCLUDED.updated_at THEN updated_at ELSE EXCLUDED.updated_at END")
+	}
+	_, err := query.Exec(ctx)
 	return err
 }
 

@@ -10,6 +10,7 @@ import {
 function snapshot(overrides: Partial<ListenPlaybackSnapshot>): ListenPlaybackSnapshot {
   return {
     version: 0,
+    queueIdentity: "",
     state: "paused",
     progress: 0,
     duration: 0,
@@ -30,6 +31,38 @@ function snapshot(overrides: Partial<ListenPlaybackSnapshot>): ListenPlaybackSna
 }
 
 describe("listen playback api adapter", () => {
+  test("carries the active browse language into playback session starts", async () => {
+    const source = await Bun.file(
+      new URL("./playback-api.ts", import.meta.url),
+    ).text();
+
+    expect(source).toContain('callListenPlaybackSnapshotByName("SetPlaybackLanguage"');
+    expect(source).toContain("language: options.language.trim()");
+    expect(source).toContain("language: language.trim()");
+  });
+
+  test("sends playlist continuation anchors and queue identities in one atomic call", async () => {
+    const source = await Bun.file(
+      new URL("./playback-api.ts", import.meta.url),
+    ).text();
+    const start = source.indexOf(
+      "export async function callListenPlaybackInsertAfterQueueItem",
+    );
+    const end = source.indexOf(
+      "export async function callListenPlaybackAppendToQueue",
+      start,
+    );
+    const adapter = source.slice(start, end);
+
+    expect(adapter).toContain(
+      'callListenPlaybackSnapshotByName("InsertAfterQueueItem"',
+    );
+    expect(adapter).toContain("anchorTrackId: options.anchorTrackId.trim()");
+    expect(adapter).toContain(
+      "expectedQueueIdentity: options.expectedQueueIdentity.trim()",
+    );
+  });
+
   test("uses the current radio item as the queue seed", () => {
     const queue = listenQueueStateFromPlaybackSnapshot(
       snapshot({
@@ -90,6 +123,17 @@ describe("listen playback api adapter", () => {
 
     expect(normalized?.progress).toBe(12);
     expect(normalized?.currentTimeMs).toBe(12345);
+  });
+
+  test("normalizes the server queue identity used by continuation CAS", () => {
+    expect(
+      normalizeListenPlaybackSnapshot({ queueIdentity: " client:queue-42 " })
+        ?.queueIdentity,
+    ).toBe("client:queue-42");
+    expect(
+      normalizeListenPlaybackSnapshot({ queueIdentity: 42 as never })
+        ?.queueIdentity,
+    ).toBe("");
   });
 
   test("normalizes observed audio quality without exposing auto", () => {

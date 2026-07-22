@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,6 +30,9 @@ func TestFetchBilibiliAppSessionAccountFromURL(t *testing.T) {
 		}
 		if _, err := r.Cookie("SESSDATA"); err != nil {
 			t.Fatalf("missing SESSDATA cookie: %v", err)
+		}
+		if got := r.Header.Get("Cookie"); got != "SESSDATA=session-value" {
+			t.Fatalf("unexpected Bilibili Cookie header %q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
@@ -60,6 +65,9 @@ func TestFetchBilibiliAppSessionAccountFromURL(t *testing.T) {
 		server.Client(),
 		[]appcookies.Record{
 			{Name: "SESSDATA", Value: "session-value", Domain: host, Path: "/"},
+			{Name: "quoted", Value: `unsafe"value`, Domain: host, Path: "/"},
+			{Name: "controlled", Value: "unsafe\nvalue", Domain: host, Path: "/"},
+			{Name: "separated", Value: "unsafe;value", Domain: host, Path: "/"},
 			{Name: "unrelated", Value: "ignored", Domain: "example.com", Path: "/"},
 		},
 		server.URL+"/x/web-interface/nav",
@@ -106,6 +114,41 @@ func TestBilibiliAccountCookiesUsesBilibiliDomainCookies(t *testing.T) {
 	}
 	if matched[0].Name != "SESSDATA" || matched[1].Name != "bili_jct" {
 		t.Fatalf("matched cookies = %#v", matched)
+	}
+}
+
+func TestAppSessionAddCookiesSkipsUnsafeRecordsWithoutLogging(t *testing.T) {
+	var standardLog bytes.Buffer
+	originalLogOutput := log.Writer()
+	log.SetOutput(&standardLog)
+	t.Cleanup(func() {
+		log.SetOutput(originalLogOutput)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/account", nil)
+	appSessionAddCookies(
+		req,
+		[]appcookies.Record{
+			{Name: "sessionid", Value: "valid-value", Domain: ".example.com", Path: "/"},
+			{Name: "quoted", Value: `unsafe"value`, Domain: ".example.com", Path: "/"},
+			{Name: "controlled", Value: "unsafe\nvalue", Domain: ".example.com", Path: "/"},
+			{Name: "separated", Value: "unsafe;value", Domain: ".example.com", Path: "/"},
+			{Name: `quoted"name`, Value: "unsafe", Domain: ".example.com", Path: "/"},
+			{Name: "controlled\rname", Value: "unsafe", Domain: ".example.com", Path: "/"},
+			{Name: "separated;name", Value: "unsafe", Domain: ".example.com", Path: "/"},
+		},
+		[]string{"example.com"},
+		"https://example.com/account",
+	)
+
+	if standardLog.Len() != 0 {
+		t.Fatalf("unsafe cookies wrote %d bytes to the standard log", standardLog.Len())
+	}
+	if got := req.Header.Get("Cookie"); got != "sessionid=valid-value" {
+		t.Fatalf("Cookie header = %q", got)
+	}
+	if cookie, err := req.Cookie("sessionid"); err != nil || cookie.Value != "valid-value" {
+		t.Fatalf("valid cookie was not preserved: cookie=%#v err=%v", cookie, err)
 	}
 }
 
@@ -235,6 +278,241 @@ func TestFetchTikTokAppSessionAccountFromURLReturnsNoCookiesForSessionExpired(t 
 	)
 	if !errors.Is(err, appsessions.ErrNoCookies) {
 		t.Fatalf("expected ErrNoCookies, got %v", err)
+	}
+}
+
+func TestFetchDouyinAppSessionAccountFromURL(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/aweme/v1/web/user/profile/self/" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if r.Header.Get("Referer") != "https://www.douyin.com/" {
+			t.Fatalf("missing douyin referer")
+		}
+		if _, err := r.Cookie("sessionid_ss"); err != nil {
+			t.Fatalf("missing sessionid_ss cookie: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"status_code": 0,
+			"user": {
+				"uid": "71001",
+				"sec_uid": "MS4wLjABAAAAfixture",
+				"unique_id": "douyin_user",
+				"nickname": "Douyin User",
+				"avatar_thumb": {"url_list": ["http://douyin.test/avatar.jpeg"]}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	account, err := fetchDouyinAppSessionAccountFromURL(
+		context.Background(),
+		server.Client(),
+		[]appcookies.Record{{Name: "sessionid_ss", Value: "session-value", Domain: ".douyin.com", Path: "/"}},
+		server.URL+"/aweme/v1/web/user/profile/self/?aid=6383",
+	)
+	if err != nil {
+		t.Fatalf("fetch account: %v", err)
+	}
+	if account.DisplayName != "Douyin User" || account.Handle != "douyin_user" {
+		t.Fatalf("unexpected account = %#v", account)
+	}
+	if account.AvatarURL != "https://douyin.test/avatar.jpeg" {
+		t.Fatalf("avatar url = %q", account.AvatarURL)
+	}
+	if account.Metadata["userID"] != "71001" || account.Metadata["secureUserID"] != "MS4wLjABAAAAfixture" {
+		t.Fatalf("user metadata = %#v", account.Metadata)
+	}
+}
+
+func TestFetchDouyinAppSessionAccountFromURLReturnsNoCookiesWhenLoggedOut(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status_code":8,"status_msg":"用户未登录","user":null}`))
+	}))
+	defer server.Close()
+
+	_, err := fetchDouyinAppSessionAccountFromURL(
+		context.Background(),
+		server.Client(),
+		[]appcookies.Record{{Name: "sessionid", Value: "session-value", Domain: ".douyin.com", Path: "/"}},
+		server.URL+"/aweme/v1/web/user/profile/self/",
+	)
+	if !errors.Is(err, appsessions.ErrNoCookies) {
+		t.Fatalf("expected ErrNoCookies, got %v", err)
+	}
+}
+
+func TestFetchDouyinAppSessionAccountFromURLDoesNotTreatEmptyPayloadAsLoggedOut(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	_, err := fetchDouyinAppSessionAccountFromURL(
+		context.Background(),
+		server.Client(),
+		[]appcookies.Record{{Name: "sessionid", Value: "session-value", Domain: ".douyin.com", Path: "/"}},
+		server.URL+"/aweme/v1/web/user/profile/self/",
+	)
+	if err == nil || errors.Is(err, appsessions.ErrNoCookies) {
+		t.Fatalf("expected malformed account response error, got %v", err)
+	}
+}
+
+func TestFetchXiaohongshuAppSessionAccountFromURL(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/sns/web/v2/user/me" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		if r.Header.Get("Origin") != "https://www.xiaohongshu.com" || r.Header.Get("Referer") != "https://www.xiaohongshu.com/" {
+			t.Fatalf("missing Xiaohongshu origin headers")
+		}
+		if _, err := r.Cookie("web_session"); err != nil {
+			t.Fatalf("missing web_session cookie: %v", err)
+		}
+		if _, err := r.Cookie("short_link_cookie"); err == nil {
+			t.Fatal("short-link cookie crossed into the Xiaohongshu account API")
+		}
+		if _, err := r.Cookie("creator_cookie"); err == nil {
+			t.Fatal("creator-only cookie crossed into the Xiaohongshu account API")
+		}
+		if _, err := r.Cookie("path_cookie"); err == nil {
+			t.Fatal("path-scoped cookie crossed into the Xiaohongshu account API")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"code": 0,
+			"success": true,
+			"data": {
+				"guest": false,
+				"basic_info": {
+					"user_id": "64dccf7d000000000100577e",
+					"red_id": "red-user",
+					"nickname": "XHS User",
+					"imageb": "http://sns-avatar.test/avatar.jpeg"
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	account, err := fetchXiaohongshuAppSessionAccountFromURL(
+		context.Background(),
+		server.Client(),
+		[]appcookies.Record{
+			{Name: "a1", Value: "device-value", Domain: ".xiaohongshu.com", Path: "/"},
+			{Name: "web_session", Value: "session-value", Domain: ".xiaohongshu.com", Path: "/"},
+			{Name: "short_link_cookie", Value: "must-not-send", Domain: ".xhslink.com", Path: "/"},
+			{Name: "creator_cookie", Value: "must-not-send", Domain: ".creator.xiaohongshu.com", Path: "/"},
+			{Name: "path_cookie", Value: "must-not-send", Domain: ".xiaohongshu.com", Path: "/creator"},
+		},
+		server.URL+"/api/sns/web/v2/user/me",
+	)
+	if err != nil {
+		t.Fatalf("fetch account: %v", err)
+	}
+	if account.DisplayName != "XHS User" || account.Handle != "red-user" {
+		t.Fatalf("unexpected account = %#v", account)
+	}
+	if account.AvatarURL != "https://sns-avatar.test/avatar.jpeg" {
+		t.Fatalf("avatar url = %q", account.AvatarURL)
+	}
+	if account.Metadata["userID"] != "64dccf7d000000000100577e" {
+		t.Fatalf("user metadata = %#v", account.Metadata)
+	}
+}
+
+func TestFetchXiaohongshuAppSessionAccountFromURLRejectsLoggedOutAndGuestSessions(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing login", body: `{"code":-101,"success":false,"msg":"无登录信息，或登录信息为空","data":{}}`},
+		{name: "guest", body: `{"code":0,"success":true,"data":{"guest":true,"user_id":"guest","nickname":"Guest"}}`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(testCase.body))
+			}))
+			defer server.Close()
+
+			_, err := fetchXiaohongshuAppSessionAccountFromURL(
+				context.Background(),
+				server.Client(),
+				[]appcookies.Record{{Name: "web_session", Value: "session-value", Domain: ".xiaohongshu.com", Path: "/"}},
+				server.URL+"/api/sns/web/v2/user/me",
+			)
+			if !errors.Is(err, appsessions.ErrNoCookies) {
+				t.Fatalf("expected ErrNoCookies, got %v", err)
+			}
+		})
+	}
+}
+
+func TestFetchXiaohongshuAppSessionAccountFromURLKeepsRiskControlAsVerificationError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":300015,"success":false,"msg":"signature verification failed","data":{}}`))
+	}))
+	defer server.Close()
+
+	_, err := fetchXiaohongshuAppSessionAccountFromURL(
+		context.Background(),
+		server.Client(),
+		[]appcookies.Record{{Name: "web_session", Value: "session-value", Domain: ".xiaohongshu.com", Path: "/"}},
+		server.URL+"/api/sns/web/v2/user/me",
+	)
+	if err == nil || errors.Is(err, appsessions.ErrNoCookies) {
+		t.Fatalf("expected actionable verification error, got %v", err)
+	}
+}
+
+func TestFetchXiaohongshuAppSessionAccountFromURLKeepsTransportChallengesAsVerificationErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name        string
+		status      int
+		contentType string
+		body        string
+	}{
+		{name: "forbidden", status: http.StatusForbidden, contentType: "application/json", body: `{"code":300015,"success":false}`},
+		{name: "html challenge", status: http.StatusOK, contentType: "text/html", body: `<html><title>verification</title></html>`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", testCase.contentType)
+				w.WriteHeader(testCase.status)
+				_, _ = w.Write([]byte(testCase.body))
+			}))
+			defer server.Close()
+
+			_, err := fetchXiaohongshuAppSessionAccountFromURL(
+				context.Background(),
+				server.Client(),
+				[]appcookies.Record{{Name: "web_session", Value: "session-value", Domain: ".xiaohongshu.com", Path: "/"}},
+				server.URL+"/api/sns/web/v2/user/me",
+			)
+			if err == nil || errors.Is(err, appsessions.ErrNoCookies) {
+				t.Fatalf("expected verification error, got %v", err)
+			}
+		})
 	}
 }
 
@@ -581,8 +859,8 @@ func TestFetchXAppSessionAccountFromURLFallsBackToTWIDAndUserByRestIDGraphQL(t *
 			if !strings.Contains(r.URL.Query().Get("variables"), `"userId":"12345"`) {
 				t.Fatalf("unexpected graphql variables %q", r.URL.Query().Get("variables"))
 			}
-			if !strings.Contains(r.Header.Get("Cookie"), `personalization_id="v1_test"`) {
-				t.Fatalf("cookie header did not preserve quoted value: %q", r.Header.Get("Cookie"))
+			if strings.Contains(r.Header.Get("Cookie"), "personalization_id=") {
+				t.Fatalf("cookie header included an unsafe quoted value: %q", r.Header.Get("Cookie"))
 			}
 			_, _ = w.Write([]byte(`{
 				"data": {

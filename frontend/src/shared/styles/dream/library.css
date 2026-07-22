@@ -1,0 +1,2412 @@
+/* Library workspace and companion appearance */
+
+.app-library-page {
+  --app-library-primary-surface:
+    var(--app-workspace-primary-subpane-surface, transparent);
+  color: hsl(var(--foreground));
+  background: var(--app-workspace-primary-subpane-surface, transparent);
+}
+
+/* The shared page shell paints the page once. This nested surface is only the
+ * detail pane in the Others split view and owns that pane's scroll viewport. */
+
+.app-library-primary-surface {
+  background: var(--app-library-primary-surface);
+}
+
+.app-library-page__header,
+.app-library-page__content {
+  border: 0;
+  background: transparent;
+}
+
+.app-library-page__footer {
+  background: transparent;
+}
+
+.app-library-search {
+  border: 1px solid hsl(var(--foreground) / 0.07);
+  border-radius: var(--app-radius-control, 0.65rem);
+  background: var(--dream-surface-soft, hsl(var(--card) / 0.72));
+  box-shadow: var(--dream-control-shadow, 0 6px 20px hsl(var(--foreground) / 0.04));
+}
+
+.app-library-toolbar-button,
+.app-library-sort,
+.app-library-view-action {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-library-selection-summary {
+  border-radius: var(--app-radius-control, 0.65rem);
+  background: var(--app-accent-surface);
+  color: hsl(var(--app-accent-text, var(--primary)));
+  font-size: 0.72rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-search {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-library-search input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 0.84rem;
+}
+
+.app-library-sort-menu__item.app-menu-item {
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+:root:not([data-input-modality="pointer"]) .app-library-search:focus-within {
+  border-color: hsl(var(--ring) / 0.72);
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
+}
+
+.app-library-page .app-library-other-pane.app-main-list-pane {
+  color: hsl(var(--sidebar-foreground));
+}
+
+.app-library-other-groups button {
+  border: 0;
+  border-radius: var(--app-radius-control, 0.65rem);
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.app-library-other-groups__label > svg {
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.app-library-other-groups button > span:last-child {
+  color: hsl(var(--muted-foreground) / 0.65);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-other-groups button:hover {
+  background: var(--dream-surface-hover, hsl(var(--foreground) / 0.055));
+}
+
+.app-library-other-groups button[data-active="true"] {
+  background: var(--app-accent-surface);
+  color: hsl(var(--app-accent-text, var(--primary)));
+  font-weight: 650;
+}
+
+.app-library-other-groups button[data-active="true"]
+  .app-library-other-groups__label > svg {
+  color: inherit;
+}
+
+.app-library-page__footer {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-pagination__size-control {
+  color: inherit;
+  font: inherit;
+  font-weight: 400;
+}
+
+select.app-library-pagination__size.app-dream-select.app-control-compact {
+  color: inherit;
+  font: inherit;
+}
+
+.app-library-pagination__pages .app-dream-button {
+  border-radius: var(--app-radius-control, 0.65rem);
+  font-size: 0.7rem;
+}
+
+.app-library-pagination__pages .app-dream-button[aria-current="page"] {
+  color: hsl(var(--foreground));
+  font-weight: 680;
+}
+
+.app-library-item {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.app-library-item__selection-indicator {
+  border: 1px solid hsl(var(--foreground) / 0.25);
+  border-radius: 999px;
+  background: hsl(var(--card) / 0.9);
+  color: hsl(var(--primary-foreground));
+  box-shadow: 0 5px 14px -9px hsl(var(--foreground) / 0.72);
+}
+
+.app-library-item__selection-indicator[data-selected="true"] {
+  border-color: hsl(var(--app-accent-brand, var(--primary)));
+  background: hsl(var(--app-accent-brand, var(--primary)));
+}
+
+.app-library-item__artwork {
+  border-radius: var(--dream-radius-xl, 0.85rem);
+  background: var(--dream-surface-muted, hsl(var(--muted)));
+  box-shadow:
+    0 18px 35px -28px hsl(var(--foreground) / 0.68),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.06);
+  transition: transform 240ms var(--app-motion-ease-standard, ease), box-shadow 240ms ease;
+}
+
+.app-library-item:hover .app-library-item__artwork {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 38px -26px hsl(var(--foreground) / 0.76);
+}
+
+.app-library-item[data-selected="true"] .app-library-item__artwork,
+.app-library-item[data-batch-selected="true"] .app-library-item__artwork {
+  box-shadow:
+    0 0 0 2px hsl(var(--app-accent-ring, var(--ring))),
+    0 18px 35px -24px hsl(var(--app-accent-brand, var(--primary)) / 0.55);
+}
+
+.app-library-item[data-category="task"] .app-library-item__artwork {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-library-item[data-category="task"]:hover .app-library-item__artwork,
+.app-library-item[data-category="task"][data-selected="true"] .app-library-item__artwork,
+.app-library-item[data-category="task"][data-batch-selected="true"] .app-library-item__artwork {
+  box-shadow: none;
+}
+
+.app-library-items[data-view="grid"]
+  .app-library-item[data-category="task"]:is(
+    [data-selected="true"],
+    [data-batch-selected="true"]
+  )
+  .app-library-task-folder {
+  border-radius: 8.8% 8.2% 8.7% 9.2% / 7.2% 7.1% 7.7% 7.6%;
+  outline: 2px solid hsl(var(--app-accent-ring, var(--ring)));
+  outline-offset: 2px;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-library-items[data-view="grid"]
+  .app-library-item[data-category="task"]:focus-visible {
+  outline: 0;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-library-items[data-view="grid"]
+  .app-library-item[data-category="task"]:focus-visible
+  .app-library-task-folder {
+  border-radius: 8.8% 8.2% 8.7% 9.2% / 7.2% 7.1% 7.7% 7.6%;
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+:where(
+  .app-library-page,
+  .app-library-preview,
+  .app-library-task-folder,
+  .app-library-artwork--placeholder
+) {
+  --app-library-material-highlight:
+    color-mix(
+      in srgb,
+      hsl(var(--app-accent-brand, var(--primary))) 32%,
+      hsl(var(--card)) 68%
+    );
+  --app-library-material-face:
+    color-mix(
+      in srgb,
+      hsl(var(--app-accent-brand, var(--primary))) 44%,
+      hsl(var(--card)) 56%
+    );
+  --app-library-material-edge:
+    color-mix(
+      in srgb,
+      hsl(var(--app-accent-brand, var(--primary))) 56%,
+      hsl(var(--muted)) 44%
+    );
+  --app-library-material-back:
+    color-mix(
+      in srgb,
+      hsl(var(--app-accent-brand, var(--primary))) 50%,
+      hsl(var(--card)) 50%
+    );
+  --app-library-material-paper:
+    color-mix(in srgb, hsl(var(--card)) 94%, hsl(var(--muted-foreground)) 6%);
+}
+
+/* The folder is the Task card's primary silhouette, not artwork placed inside
+ * another tile. The surrounding button still owns Preview Companion opening. */
+
+.app-library-task-folder {
+  --app-library-task-folder-paper: var(--app-library-material-paper);
+  --app-library-task-folder-frost-highlight:
+    color-mix(in srgb, var(--app-library-material-face) 60%, transparent);
+  --app-library-task-folder-frost-face:
+    color-mix(in srgb, var(--app-library-material-face) 42%, transparent);
+  --app-library-task-folder-frost-edge:
+    color-mix(in srgb, var(--app-library-material-edge) 62%, transparent);
+  background: transparent;
+}
+
+.app-library-task-folder__back {
+  border: 1px solid hsl(var(--foreground) / 0.08);
+  border-radius: 8.5% 9.5% 9% 8.5% / 7% 7.5% 7.5% 7%;
+  background:
+    linear-gradient(
+      98deg,
+      var(--app-library-material-back),
+      var(--app-library-material-edge)
+    );
+  box-shadow:
+    5px 10px 18px -14px rgb(0 0 0 / 0.32),
+    inset -7px 0 11px hsl(var(--foreground) / 0.07),
+    inset 1px 1px 0 hsl(var(--card-foreground) / 0.08);
+}
+
+.app-library-task-folder__page {
+  border: 1px solid hsl(var(--foreground) / 0.1);
+  border-radius: 3%;
+  background: var(--app-library-task-folder-paper);
+  box-shadow: 4px 6px 12px -8px rgb(0 0 0 / 0.34);
+}
+
+.app-library-task-folder__page-image,
+.app-library-task-folder__page-fallback {
+  border-radius: 1%;
+}
+
+.app-library-task-folder__page-fallback {
+  background:
+    linear-gradient(
+      152deg,
+      hsl(var(--card) / 0.98),
+      color-mix(in srgb, hsl(var(--muted)) 91%, var(--app-library-material-edge) 9%)
+    );
+  color: hsl(var(--muted-foreground) / 0.78);
+}
+
+.app-library-task-folder__page-fallback > svg {
+  filter: drop-shadow(0 4px 8px hsl(var(--foreground) / 0.08));
+}
+
+.app-library-task-folder__front-cover,
+.app-library-task-folder__front-film {
+  border: 1px solid hsl(var(--foreground) / 0.075);
+  border-radius: 8.8% 8.2% 8.7% 9.2% / 7.2% 7.1% 7.7% 7.6%;
+}
+
+.app-library-task-folder__front-cover {
+  background:
+    radial-gradient(
+      ellipse at 12% 8%,
+      hsl(var(--card-foreground) / 0.08),
+      transparent 32%
+    ),
+    linear-gradient(
+      98deg,
+      var(--app-library-material-highlight),
+      var(--app-library-material-face) 68%,
+      var(--app-library-material-edge)
+    );
+  box-shadow:
+    0 12px 22px -18px rgb(0 0 0 / 0.38),
+    inset 1px 1px 0 hsl(var(--card-foreground) / 0.1),
+    inset -5px 0 9px hsl(var(--foreground) / 0.15),
+    inset 0 -1px 0 hsl(var(--foreground) / 0.12);
+}
+
+.app-library-task-folder__preview-paper {
+  fill: var(--app-library-task-folder-paper);
+}
+
+.app-library-task-folder__preview-border {
+  fill: none;
+  stroke: hsl(var(--foreground) / 0.12);
+  stroke-width: 0.8;
+}
+
+.app-library-task-folder__front-film {
+  background:
+    radial-gradient(circle at 19% 15%, hsl(var(--card-foreground) / 0.06), transparent 27%),
+    linear-gradient(
+      98deg,
+      var(--app-library-task-folder-frost-highlight),
+      var(--app-library-task-folder-frost-face) 58%,
+      var(--app-library-task-folder-frost-edge)
+    ),
+    linear-gradient(
+      90deg,
+      hsl(var(--card-foreground) / 0.035),
+      transparent 24% 91%,
+      hsl(var(--foreground) / 0.055)
+    );
+  box-shadow:
+    inset 1px 1px 0 hsl(var(--card-foreground) / 0.07),
+    inset -5px 0 9px hsl(var(--foreground) / 0.08);
+}
+
+/* Companion keeps the back board in place and swings one rigid front cover
+ * toward the viewer's left. Its material is slightly narrower than the back
+ * board, while the shared right-side hinge keeps the two planes attached.
+ * Output pages reuse the Library postage-paper face and SVG notch mask. */
+.app-library-task-folder[data-presentation="companion-open"] {
+  --app-library-task-folder-open-cover-visual-scale: 0.94;
+}
+
+:root .app-library-task-folder[data-presentation="companion-open"]
+  .app-library-task-folder__front {
+  transform:
+    rotateY(var(--app-library-task-folder-open-cover-angle))
+    scaleX(var(--app-library-task-folder-open-cover-visual-scale));
+}
+
+.app-library-task-folder[data-presentation="companion-open"]
+  .app-library-task-folder__back {
+  border-radius: 2% 10% 10% 2% / 2% 7% 8% 2%;
+}
+
+:where(.app-library-task-folder[data-presentation="companion-open"])
+  .app-library-task-folder__front-cover,
+:where(.app-library-task-folder[data-presentation="companion-open"])
+  .app-library-task-folder__front-film {
+  border-radius: 10% 2% 2% 10% / 7% 2% 2% 7%;
+}
+
+.app-library-task-folder[data-presentation="companion-open"]
+  .app-library-task-folder__back {
+  background:
+    linear-gradient(
+      104deg,
+      color-mix(in srgb, var(--app-library-material-back) 82%, hsl(var(--foreground)) 18%),
+      var(--app-library-material-edge)
+    );
+  box-shadow:
+    4px 7px 12px -11px rgb(0 0 0 / 0.36),
+    inset 9px 0 13px hsl(var(--foreground) / 0.16),
+    inset -1px 0 0 hsl(var(--card-foreground) / 0.08),
+    inset 1px 1px 0 hsl(var(--card-foreground) / 0.1);
+}
+
+.app-library-task-folder[data-presentation="companion-open"]
+  .app-library-task-folder__back::before {
+  position: absolute;
+  z-index: 2;
+  top: -1px;
+  bottom: -1px;
+  left: -2.5px;
+  width: 5px;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--app-library-material-edge) 76%, hsl(var(--foreground)) 24%),
+      var(--app-library-material-highlight) 42%,
+      color-mix(in srgb, var(--app-library-material-edge) 86%, hsl(var(--foreground)) 14%)
+    );
+  box-shadow:
+    3px 0 7px hsl(var(--foreground) / 0.18),
+    inset 1px 0 hsl(var(--card-foreground) / 0.14);
+  content: "";
+  pointer-events: none;
+}
+
+.app-library-task-folder[data-presentation="companion-open"]
+  .app-library-task-folder__page {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-library-task-folder__page-stamp {
+  filter: drop-shadow(5px 9px 7px rgb(0 0 0 / 0.19));
+}
+
+.app-library-task-folder[data-presentation="companion-open"]
+  .app-library-task-folder__page-stamp {
+  filter: drop-shadow(2px 6px 3px rgb(0 0 0 / 0.2));
+}
+
+.app-library-task-folder__stamp-fallback-icon {
+  color: hsl(var(--muted-foreground) / 0.78);
+  filter: drop-shadow(0 4px 7px hsl(var(--foreground) / 0.08));
+}
+
+:where(.app-library-task-folder[data-presentation="companion-open"])
+  .app-library-task-folder__front-cover {
+  background:
+    radial-gradient(
+      ellipse at 12% 8%,
+      hsl(var(--card-foreground) / 0.07),
+      transparent 32%
+    ),
+    linear-gradient(
+      96deg,
+      var(--app-library-task-folder-frost-highlight),
+      var(--app-library-task-folder-frost-face) 58%,
+      var(--app-library-task-folder-frost-edge)
+    );
+  box-shadow:
+    -8px 9px 14px -13px rgb(0 0 0 / 0.38),
+    inset -7px 0 11px hsl(var(--foreground) / 0.14),
+    inset 1px 1px 0 hsl(var(--card-foreground) / 0.13);
+}
+
+:where(.app-library-task-folder[data-presentation="companion-open"])
+  .app-library-task-folder__front-film {
+  background:
+    radial-gradient(
+      circle at 19% 15%,
+      hsl(var(--card-foreground) / 0.055),
+      transparent 27%
+    ),
+    linear-gradient(
+      96deg,
+      var(--app-library-task-folder-frost-highlight),
+      var(--app-library-task-folder-frost-face) 62%,
+      color-mix(in srgb, var(--app-library-task-folder-frost-edge) 84%, transparent)
+    ),
+    linear-gradient(
+      90deg,
+      hsl(var(--card-foreground) / 0.03),
+      transparent 24% 91%,
+      hsl(var(--foreground) / 0.045)
+    );
+  box-shadow:
+    inset -5px 0 8px hsl(var(--foreground) / 0.1),
+    inset 1px 0 0 hsl(var(--card-foreground) / 0.08);
+}
+
+/* Grid and List share the same closed archive geometry; List only limits the
+ * projection to the front-most file edge. */
+
+.app-main-shell[data-surface-style="contrast"] .app-library-task-folder__back,
+.app-main-shell[data-surface-style="contrast"] .app-library-task-folder__front-cover,
+.app-main-shell[data-surface-style="contrast"] .app-library-task-folder__front-film {
+  border-color: hsl(var(--foreground) / 0.2);
+}
+
+.app-main-shell[data-surface-style="contrast"] .app-library-task-folder__back {
+  background: var(--app-library-material-back);
+}
+
+.app-main-shell[data-surface-style="contrast"] .app-library-task-folder__front-cover {
+  background:
+    linear-gradient(
+      155deg,
+      var(--app-library-material-face),
+      var(--app-library-material-edge)
+    );
+  box-shadow:
+    0 20px 28px -24px rgb(0 0 0 / 0.44),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.08);
+}
+
+.app-main-shell[data-surface-style="contrast"]
+  .app-library-task-folder__front-film {
+  background: color-mix(in srgb, var(--app-library-material-face) 82%, transparent);
+}
+
+@media (prefers-contrast: more) {
+  .app-library-task-folder__back,
+  .app-library-task-folder__front-cover,
+  .app-library-task-folder__front-film,
+  .app-library-task-folder__page {
+    border-color: hsl(var(--foreground) / 0.32);
+  }
+
+  .app-library-task-folder__front-cover {
+    background: var(--app-library-material-face);
+  }
+
+  .app-library-task-folder__back {
+    background: var(--app-library-material-back);
+  }
+
+  .app-library-task-folder__front-film {
+    background: color-mix(in srgb, var(--app-library-material-face) 86%, transparent);
+  }
+}
+
+:root[data-reduce-transparency="true"] .app-library-task-folder__back,
+:root[data-reduce-transparency="true"] .app-library-task-folder__front-cover {
+  background: var(--app-library-material-face);
+}
+
+:root[data-reduce-transparency="true"] .app-library-task-folder__front-film {
+  background: var(--app-library-material-face);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-library-task-folder__back,
+  .app-library-task-folder__front-cover {
+    background: var(--app-library-material-face);
+  }
+
+  .app-library-task-folder__front-film {
+    background: var(--app-library-material-face);
+  }
+}
+
+.app-library-artwork--placeholder {
+  background:
+    linear-gradient(
+      145deg,
+      var(--app-library-material-highlight),
+      var(--app-library-material-face) 62%,
+      var(--app-library-material-edge)
+    );
+  color: hsl(var(--muted-foreground) / 0.82);
+}
+
+.app-library-artwork__placeholder-paper {
+  filter: drop-shadow(0 12px 16px rgb(0 0 0 / 0.12));
+}
+
+.app-library-artwork__placeholder-paper-face {
+  fill: var(--app-library-material-paper);
+}
+
+.app-library-artwork__placeholder-paper-border {
+  fill: none;
+  stroke: hsl(var(--foreground) / 0.08);
+  stroke-width: 0.8;
+}
+
+.app-library-artwork__placeholder-icon {
+  filter: drop-shadow(0 6px 12px hsl(var(--foreground) / 0.08));
+}
+
+.app-library-item__title {
+  font-size: 0.84rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+}
+
+.app-library-item__classification,
+.app-library-item__meta {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.71rem;
+}
+
+.app-library-item__type + .app-library-item__time::before {
+  color: hsl(var(--muted-foreground) / 0.55);
+}
+
+.app-library-item__meta {
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-item__datum + .app-library-item__datum::before {
+  color: hsl(var(--muted-foreground) / 0.55);
+}
+
+@media (forced-colors: none) {
+  :root .app-library-items[data-view] .app-library-item__status[data-app-status-badge="true"] {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+.app-library-items[data-view="list"] .app-library-item {
+  border-radius: var(--app-radius-lg, 0.75rem);
+}
+
+.app-library-items[data-view="list"] .app-library-item:hover,
+.app-library-items[data-view="list"] .app-library-item[data-selected="true"],
+.app-library-items[data-view="list"] .app-library-item[data-batch-selected="true"] {
+  background: var(--dream-surface-hover, hsl(var(--foreground) / 0.05));
+}
+
+.app-library-items[data-view="list"] .app-library-item__artwork {
+  border-radius: 0.52rem;
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.06);
+}
+
+.app-library-items[data-view="list"]
+  .app-library-item[data-category="task"] .app-library-item__artwork {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-library-items[data-view="list"]
+  .app-library-item:hover .app-library-item__artwork {
+  transform: none;
+}
+
+.app-library-empty {
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+
+.app-library-load-state {
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+
+.app-library-load-state p {
+  font-size: 0.78rem;
+}
+
+.app-library-load-state--error {
+  color: var(--app-status-tone-error);
+}
+
+.app-library-load-state button {
+  border: 0;
+  border-radius: 0.55rem;
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.app-library-empty > span,
+.app-library-preview--empty > span {
+  border-radius: 1rem;
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+}
+
+.app-library-empty h2,
+.app-library-preview--empty h2 {
+  color: hsl(var(--foreground));
+  font-size: 0.95rem;
+}
+
+.app-library-empty p,
+.app-library-preview--empty p {
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.app-library-preview {
+  color: hsl(var(--foreground));
+  background: transparent;
+}
+
+/* The Library companion owns a full-width four-way navigator. Keep this
+ * domain contract more specific than the reusable segment switch's intrinsic
+ * 9.75rem width, regardless of feature/global stylesheet load order. */
+.app-library-preview__tabs.app-dream-segment-switch {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.app-library-preview--empty {
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+
+.app-library-preview__title-marquee {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.app-library-preview__kind {
+  border: 1px solid hsl(var(--foreground) / 0.055);
+  border-radius: var(--app-radius-capsule, 999px);
+  background: hsl(var(--foreground) / 0.035);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.61rem;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.app-library-preview__kind {
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.app-library-preview__status[data-app-status-badge="true"] {
+  font-size: 0.61rem;
+}
+
+.app-library-preview__identity h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+.app-library-preview__identity p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.73rem;
+  line-height: 1.5;
+}
+
+.app-library-preview__identity small {
+  color: hsl(var(--muted-foreground) / 0.78);
+  font-size: 0.65rem;
+  line-height: 1.35;
+}
+
+.app-library-preview__fact {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.app-library-preview__fact dt {
+  color: var(--dream-text-soft, hsl(var(--muted-foreground)));
+  font-size: 0.67rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.app-library-preview__fact dd {
+  color: var(--dream-text-strong, hsl(var(--foreground)));
+  font-size: 0.73rem;
+  font-weight: 560;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.app-library-preview__fact-kind {
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.app-library-preview__progress-card > header span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.66rem;
+  font-weight: 650;
+}
+
+.app-library-preview__progress-card > header strong {
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-preview__progress-card progress {
+  accent-color: hsl(var(--app-accent-solid, var(--primary)));
+}
+
+.app-library-preview__progress-card p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+/* Deleted is a Library-wide companion surface. It deliberately owns one
+ * bounded vertical scroller and clips the horizontal axis so long paths,
+ * titles, and audit identifiers cannot violate the 390px Companion contract. */
+.app-library-deleted {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0.85rem var(--app-workspace-companion-gutter, 1.25rem) 1.25rem;
+  overflow-x: clip;
+  overflow-y: auto;
+  color: hsl(var(--foreground));
+  scrollbar-gutter: stable;
+}
+
+.app-library-deleted *,
+.app-library-deleted *::before,
+.app-library-deleted *::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.app-library-deleted__intro,
+.app-library-deleted__detail-nav,
+.app-library-deleted__pagination {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.app-library-deleted__intro h2 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 720;
+  letter-spacing: -0.018em;
+}
+
+.app-library-deleted__intro p {
+  max-width: 27rem;
+  margin: 0.25rem 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.app-library-deleted__intro .app-dream-button,
+.app-library-deleted__detail-nav .app-dream-button,
+.app-library-deleted__pagination .app-dream-button {
+  flex: none;
+}
+
+.app-library-deleted__list {
+  display: flex;
+  width: 100%;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.app-library-deleted__item {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 2.55rem minmax(0, 1fr) 0.9rem;
+  align-items: center;
+  gap: 0.72rem;
+  padding: 0.62rem;
+  border: 1px solid hsl(var(--foreground) / 0.055);
+  border-radius: var(--app-radius-card, 0.85rem);
+  background: var(--dream-surface-soft, hsl(var(--foreground) / 0.028));
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition:
+    border-color 160ms var(--app-motion-ease-standard, ease),
+    background-color 160ms var(--app-motion-ease-standard, ease),
+    transform 160ms var(--app-motion-ease-standard, ease);
+}
+
+.app-library-deleted__item:is(:hover, :focus-visible) {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.22);
+  outline: 0;
+  background: var(--dream-surface-hover, hsl(var(--foreground) / 0.055));
+  transform: translateY(-1px);
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-library-deleted__item:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.app-library-deleted__icon {
+  display: inline-flex;
+  width: 2.55rem;
+  height: 2.55rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--foreground) / 0.06);
+  border-radius: 0.78rem;
+  background: hsl(var(--foreground) / 0.045);
+  color: hsl(var(--muted-foreground));
+}
+
+.app-library-deleted__icon[data-kind="task"] {
+  background: hsl(var(--app-accent-brand, var(--primary)) / 0.09);
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.app-library-deleted__icon[data-kind="catalog_item"] {
+  background: hsl(var(--warning, 38 92% 50%) / 0.1);
+  color: hsl(var(--warning-foreground, var(--foreground)));
+}
+
+.app-library-deleted__icon[data-size="large"] {
+  width: 4.4rem;
+  height: 4.4rem;
+  border-radius: 1.25rem;
+}
+
+.app-library-deleted__icon[data-size="small"] > svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.app-library-deleted__icon[data-size="large"] > svg {
+  width: 1.65rem;
+  height: 1.65rem;
+}
+
+.app-library-deleted__item-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.app-library-deleted__item-copy strong {
+  overflow: hidden;
+  font-size: 0.77rem;
+  font-weight: 680;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-library-deleted__item-copy > span {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.62rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-library-deleted__item-chevron {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: hsl(var(--muted-foreground) / 0.62);
+}
+
+.app-library-deleted__pagination {
+  margin-top: auto;
+  padding-top: 0.2rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.63rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-deleted__pagination > div {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.app-library-deleted__state {
+  display: flex;
+  width: 100%;
+  min-height: 16rem;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.65rem;
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+}
+
+.app-library-deleted__state > svg {
+  width: 1.65rem;
+  height: 1.65rem;
+}
+
+.app-library-deleted__state h2,
+.app-library-deleted__state p {
+  max-width: 18rem;
+  margin: 0;
+}
+
+.app-library-deleted__state h2 {
+  color: hsl(var(--foreground));
+  font-size: 0.86rem;
+}
+
+.app-library-deleted__state p {
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.app-library-deleted__detail-nav {
+  justify-content: flex-start;
+}
+
+.app-library-deleted__detail {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.app-library-deleted__hero {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 4.4rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.app-library-deleted__hero > div {
+  overflow: hidden;
+}
+
+.app-library-deleted__hero p,
+.app-library-deleted__hero h2 {
+  margin: 0;
+}
+
+.app-library-deleted__hero p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.app-library-deleted__hero h2 {
+  margin: 0.14rem 0 0.4rem;
+  overflow-wrap: anywhere;
+  font-size: 0.94rem;
+  line-height: 1.25;
+}
+
+.app-library-deleted__detail-section {
+  width: 100%;
+  padding: 0.75rem 0.82rem;
+  border: 1px solid hsl(var(--foreground) / 0.055);
+  border-radius: var(--app-radius-card, 0.85rem);
+  background: var(--dream-surface-soft, hsl(var(--foreground) / 0.028));
+}
+
+.app-library-deleted__facts {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  flex-direction: column;
+}
+
+.app-library-deleted__fact {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(5.4rem, 0.72fr) minmax(0, 1.28fr);
+  align-items: start;
+  gap: 0.75rem;
+  padding: 0.52rem 0;
+  border-bottom: 1px solid hsl(var(--foreground) / 0.05);
+}
+
+.app-library-deleted__fact:last-child {
+  border-bottom: 0;
+}
+
+.app-library-deleted__fact dt,
+.app-library-deleted__fact dd {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.app-library-deleted__fact dt {
+  color: hsl(var(--muted-foreground));
+  font-weight: 620;
+}
+
+.app-library-deleted__fact dd {
+  overflow: hidden;
+  color: hsl(var(--foreground));
+  font-weight: 560;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.app-library-deleted__audit-note,
+.app-library-deleted__restore-note,
+.app-library-deleted__action-error {
+  margin: 0;
+  padding: 0.68rem 0.75rem;
+  border-radius: var(--app-radius-control, 0.65rem);
+  background: hsl(var(--foreground) / 0.04);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.app-library-deleted__action-error {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
+
+.app-library-deleted__detail-actions {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding-top: 0.2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-library-deleted__item {
+    transition: none;
+  }
+
+  .app-library-deleted__item:is(:hover, :focus-visible) {
+    transform: none;
+  }
+}
+
+.app-library-preview__context {
+  border: 1px solid hsl(var(--foreground) / 0.055);
+  border-radius: 0.82rem;
+  background: var(--dream-surface-soft, hsl(var(--foreground) / 0.028));
+}
+
+.app-library-preview__context > .app-library-artwork {
+  border-radius: 0.62rem;
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.055);
+}
+
+.app-library-preview__identity[data-compact="true"]
+  .app-library-preview__kind {
+  border: 0;
+  background: transparent;
+  font-size: 0.55rem;
+}
+
+.app-library-preview__identity[data-compact="true"] h2 {
+  font-size: 0.8rem;
+}
+
+.app-library-preview__identity[data-compact="true"] small {
+  font-size: 0.6rem;
+}
+
+.app-library-preview__panel {
+  border: 1px solid hsl(var(--foreground) / 0.06);
+  border-radius: 0.9rem;
+  background: var(--dream-surface-soft, hsl(var(--foreground) / 0.028));
+  box-shadow: 0 14px 30px -28px hsl(var(--foreground) / 0.45);
+}
+
+.app-library-preview__section-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.app-library-preview__media {
+  border-radius: var(--app-radius-media);
+  background: var(--dream-surface-card, hsl(var(--foreground) / 0.045));
+  box-shadow: var(--dream-card-shadow, 0 30px 50px -32px hsl(var(--foreground) / 0.72));
+}
+
+.app-library-preview__media > .app-library-artwork,
+.app-library-preview__media > video,
+.app-library-preview__media > iframe {
+  border: 0;
+}
+
+.app-library-preview__media > video {
+  background: hsl(0 0% 0%);
+}
+
+.app-library-preview__media .app-library-preview__video {
+  background: transparent;
+}
+
+.app-library-preview__media > iframe {
+  background: hsl(0 0% 100%);
+}
+
+/*
+ * The iPod owns its complete material and its 1.45rem silhouette. The generic
+ * media surface uses a smaller radius; leaving that painted surface behind the
+ * iPod exposes four pale corner wedges and clips the iPod's own material
+ * shadow. Keep the generic recipe for every other preview, but make it a
+ * transparent layout host when the production iPod is present.
+ */
+.app-library-preview__media:has(> .app-library-ipod) {
+  overflow: visible;
+  border-radius: 1.45rem;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-library-preview__audio {
+  background:
+    radial-gradient(circle at 50% 32%, hsl(var(--primary) / 0.12), transparent 62%),
+    var(--dream-surface-card, transparent);
+}
+
+.app-library-preview__audio .app-library-artwork {
+  border-radius: 0.9rem;
+  box-shadow:
+    0 24px 42px -30px hsl(var(--foreground) / 0.72),
+    inset 0 0 0 1px var(--dream-line-muted, hsl(var(--foreground) / 0.06));
+}
+
+.app-library-preview__audio-controls {
+  border: 0;
+}
+
+.app-library-preview__audio-controls > button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dream-primary-surface, hsl(var(--primary)));
+  color: var(--dream-primary-text, hsl(var(--primary-foreground)));
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line, transparent);
+}
+
+.app-library-preview__audio-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.app-library-preview__audio-controls button:not(:disabled):hover {
+  filter: brightness(1.03);
+}
+
+.app-library-preview__audio-progress > div {
+  color: var(--dream-text-soft, hsl(var(--muted-foreground)));
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-preview__audio-volume button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--dream-surface-soft, hsl(var(--foreground) / 0.055));
+  color: var(--dream-text-strong, hsl(var(--foreground)));
+}
+
+.app-library-preview__media-error {
+  color: var(--app-status-tone-error);
+  font-size: 0.66rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.app-library-ipod {
+  border: 1px solid hsl(var(--foreground) / 0.1);
+  border-radius: 1.45rem;
+  background:
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, hsl(var(--muted)) 84%, hsl(var(--card)) 16%),
+      color-mix(in srgb, hsl(var(--muted-foreground)) 32%, hsl(var(--card)) 68%)
+    );
+  box-shadow:
+    0 28px 46px -34px hsl(var(--foreground) / 0.72),
+    inset 1px 1px 0 hsl(var(--card-foreground) / 0.12),
+    inset -1px -1px 0 hsl(var(--foreground) / 0.1);
+}
+
+.app-library-ipod__screen {
+  overflow: hidden;
+  border: 1px solid hsl(0 0% 0% / 0.72);
+  border-radius: 0.78rem;
+  background: hsl(220 14% 5%);
+  color: hsl(0 0% 96%);
+  box-shadow:
+    inset 0 0 0 1px hsl(0 0% 0% / 0.72),
+    0 12px 22px -18px hsl(0 0% 0% / 0.88);
+}
+
+.app-library-ipod__display {
+  overflow: hidden;
+  border-radius: 0.42rem;
+  background: hsl(220 14% 3%);
+  clip-path: inset(0 round 0.42rem);
+}
+
+.app-library-ipod__display > :is(video, .app-library-artwork),
+.app-library-ipod__display--image .app-library-artwork {
+  border-radius: inherit;
+}
+
+.app-library-ipod__range input {
+  height: 0.9rem;
+  appearance: none;
+  outline: 0;
+  background: transparent;
+  accent-color: hsl(var(--app-accent-solid, var(--primary)));
+}
+
+.app-library-ipod__range input::-webkit-slider-runnable-track {
+  height: 0.24rem;
+  border-radius: 999px;
+  background:
+    linear-gradient(
+      90deg,
+      hsl(var(--app-accent-solid, var(--primary)))
+        var(--app-library-ipod-range-value, 0%),
+      hsl(0 0% 100% / 0.24)
+        var(--app-library-ipod-range-value, 0%)
+    );
+}
+
+.app-library-ipod__range input::-webkit-slider-thumb {
+  width: 0.72rem;
+  height: 0.72rem;
+  margin-top: -0.24rem;
+  appearance: none;
+  border: 1px solid hsl(0 0% 0% / 0.28);
+  border-radius: 50%;
+  background: hsl(0 0% 96%);
+  box-shadow: 0 2px 5px hsl(0 0% 0% / 0.45);
+}
+
+.app-library-ipod__range input::-moz-range-track {
+  height: 0.24rem;
+  border-radius: 999px;
+  background: hsl(0 0% 100% / 0.24);
+}
+
+.app-library-ipod__range input::-moz-range-progress {
+  height: 0.24rem;
+  border-radius: 999px;
+  background: hsl(var(--app-accent-solid, var(--primary)));
+}
+
+.app-library-ipod__range input::-moz-range-thumb {
+  width: 0.72rem;
+  height: 0.72rem;
+  border: 1px solid hsl(0 0% 0% / 0.28);
+  border-radius: 50%;
+  background: hsl(0 0% 96%);
+  box-shadow: 0 2px 5px hsl(0 0% 0% / 0.45);
+}
+
+.app-library-ipod__range > div {
+  color: hsl(0 0% 88% / 0.86);
+  font-size: 0.61rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-library-ipod__wheel {
+  border: 1px solid hsl(var(--foreground) / 0.1);
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle at 37% 28%,
+      hsl(var(--card-foreground) / 0.1),
+      transparent 42%
+    ),
+    color-mix(in srgb, hsl(var(--card)) 86%, hsl(var(--muted)) 14%);
+  box-shadow:
+    0 15px 25px -22px hsl(var(--foreground) / 0.72),
+    inset 1px 1px 0 hsl(var(--card-foreground) / 0.12),
+    inset -2px -3px 8px hsl(var(--foreground) / 0.08);
+}
+
+.app-library-ipod__wheel-button {
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  outline: none;
+}
+
+.app-library-ipod__wheel-button:not(:disabled):hover,
+.app-library-ipod__wheel-button[aria-pressed="true"] {
+  background: transparent;
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.app-library-ipod__wheel-button[aria-pressed="true"] > svg {
+  filter: drop-shadow(
+    0 0 0.2rem hsl(var(--app-accent-brand, var(--primary)) / 0.42)
+  );
+}
+
+.app-library-ipod__wheel-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-library-ipod__wheel-button:focus-visible {
+  color: hsl(var(--app-accent-text, var(--primary)));
+  outline: none;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-library-ipod__wheel-button:focus-visible > svg {
+  filter: drop-shadow(
+    0 0 0.2rem hsl(var(--app-accent-brand, var(--primary)) / 0.5)
+  );
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-library-ipod__range input:focus-visible {
+  outline: 2px solid hsl(var(--app-accent-ring, var(--ring)));
+  outline-offset: 2px;
+}
+
+.app-library-ipod__wheel-hub {
+  border: 1px solid hsl(var(--foreground) / 0.12);
+  border-radius: 50%;
+  background: color-mix(in srgb, hsl(var(--muted)) 78%, hsl(var(--foreground)) 22%);
+  box-shadow:
+    inset 0 2px 5px hsl(var(--foreground) / 0.16),
+    0 1px 0 hsl(var(--card-foreground) / 0.1);
+}
+
+.app-library-ipod__error {
+  color: var(--app-status-tone-error);
+  font-size: 0.66rem;
+  text-align: center;
+}
+
+.app-library-ipod-dialog__stage {
+  border-radius: var(--app-radius-media);
+  background: hsl(220 14% 4%);
+}
+
+.app-library-preview__task-files > h3 {
+  color: var(--dream-text-strong, hsl(var(--foreground)));
+  font-size: 0.76rem;
+}
+
+.app-library-preview__task-files > h3 small,
+.app-library-preview__task-file > header small {
+  color: var(--dream-text-soft, hsl(var(--muted-foreground)));
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.app-library-preview__task-file {
+  border: 1px solid hsl(var(--foreground) / 0.06);
+  border-radius: 0.78rem;
+  background: var(--dream-surface-soft, hsl(var(--foreground) / 0.028));
+}
+
+.app-library-preview__task-file > header strong {
+  font-size: 0.73rem;
+}
+
+.app-library-preview__task-file > dl {
+  color: var(--dream-text-soft, hsl(var(--muted-foreground)));
+  font-size: 0.66rem;
+}
+
+.app-library-preview__task-file-actions > button {
+  border-radius: 0.55rem;
+  font: inherit;
+  font-size: 0.67rem;
+  font-weight: 650;
+}
+
+.app-library-preview__task-file-actions > button:not([data-tone="destructive"]),
+.app-library-preview__copy-value,
+.app-library-preview__location-value {
+  border: 0;
+  border-radius: 0.55rem;
+  background: var(--dream-primary-surface, hsl(var(--primary) / 0.12));
+  color: var(--dream-primary-text, hsl(var(--primary)));
+  font: inherit;
+  font-size: 0.67rem;
+  font-weight: 650;
+}
+
+.app-library-preview__task-file-actions > button:disabled,
+.app-library-preview__location-value:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.app-library-preview__copy-value[data-copied="true"] {
+  color: var(--app-status-tone-success);
+}
+
+.app-library-preview__cascade-files {
+  color: var(--dream-text-strong, hsl(var(--foreground)));
+  font-size: 0.74rem;
+}
+
+@media (forced-colors: active) {
+  .app-library-artwork--placeholder {
+    background: Canvas;
+    color: CanvasText;
+    forced-color-adjust: auto;
+  }
+}
+
+.app-library-preview__stage > div:last-child strong {
+  font-size: 0.86rem;
+}
+
+.app-library-preview__stage > div:last-child span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.7rem;
+}
+
+.app-library-preview__task-progress progress {
+  accent-color: hsl(var(--app-accent-solid, var(--primary)));
+}
+
+.app-library-preview__info div {
+  border-bottom: 1px solid var(--app-settings-card-divider-color, hsl(var(--foreground) / 0.055));
+  font-size: 0.73rem;
+}
+
+.app-library-preview__info div:last-child {
+  border-bottom: 0;
+}
+
+.app-library-preview__info dt {
+  color: var(--dream-text-soft, hsl(var(--muted-foreground)));
+  font-weight: 650;
+}
+
+.app-library-preview__info dd {
+  color: var(--dream-text-strong, hsl(var(--foreground)));
+  font-weight: 560;
+  text-align: right;
+}
+
+.app-library-preview__empty {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.app-library-preview__related-list button {
+  border: 0;
+  border-radius: var(--app-radius-lg, 0.75rem);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.app-library-preview__related-list button:hover {
+  background: var(--dream-surface-hover, hsl(var(--foreground) / 0.05));
+}
+
+.app-library-preview__related-list img {
+  border-radius: 0.55rem;
+}
+
+.app-library-preview__related-list strong {
+  font-size: 0.76rem;
+}
+
+.app-library-preview__related-list small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.67rem;
+}
+
+.app-library-preview__timeline > div {
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.app-library-preview__timeline span {
+  border-left: 1px solid hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground));
+}
+
+.app-library-preview__timeline strong {
+  font-size: 0.74rem;
+}
+
+.app-library-preview__timeline small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.67rem;
+}
+
+.app-library-preview__loading,
+.app-library-preview__load-error {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.76rem;
+  text-align: center;
+}
+
+.app-library-preview__load-error {
+  color: var(--app-status-tone-error);
+}
+
+.app-library-preview__load-error button,
+.app-catalog-management__empty button {
+  border: 0;
+  border-radius: 0.55rem;
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.app-library-preview__editor h3,
+.app-library-preview__versions h3 {
+  font-size: 0.76rem;
+}
+
+.app-library-preview__editor > label > span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.67rem;
+}
+
+.app-library-preview__editor input,
+.app-library-preview__editor textarea,
+.app-library-preview__editor select {
+  border: 1px solid hsl(var(--foreground) / 0.09);
+  border-radius: 0.58rem;
+  outline: 0;
+  background: hsl(var(--background) / 0.72);
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 0.74rem;
+}
+
+select.app-library-preview__category-select.app-dream-select.app-control-compact {
+  font-size: 0.78rem;
+}
+
+.app-library-preview__editor textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.app-library-preview__editor input:focus,
+.app-library-preview__editor textarea:focus,
+.app-library-preview__editor select:focus {
+  border-color: hsl(var(--app-accent-ring, var(--ring)) / 0.55);
+  box-shadow: 0 0 0 2px hsl(var(--app-accent-ring, var(--ring)) / 0.12);
+}
+
+.app-library-preview__editor-actions button,
+.app-catalog-roots__head button {
+  border: 0;
+  border-radius: 0.55rem;
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.app-library-preview__editor-actions button:disabled,
+.app-catalog-roots__head button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.app-library-preview__editor-actions .app-library-preview__danger {
+  background: var(--app-status-surface-error);
+  color: var(--app-status-tone-error);
+}
+
+.app-library-preview__error {
+  color: var(--app-status-tone-error);
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+:root:not([data-input-modality="pointer"]) .app-catalog-roots__add input:focus-visible,
+:root:not([data-input-modality="pointer"]) .app-catalog-roots__add select:focus-visible {
+  border-color: hsl(var(--ring) / 0.72);
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
+}
+
+.app-library-preview__record {
+  border: 1px solid hsl(var(--foreground) / 0.065);
+  border-radius: 0.72rem;
+  background: var(--dream-surface-soft, hsl(var(--card) / 0.55));
+}
+
+.app-library-preview__record strong {
+  font-size: 0.74rem;
+}
+
+.app-library-preview__record header span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.62rem;
+}
+
+.app-library-preview__versions > section > h3 {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-library-preview__record dl div {
+  font-size: 0.64rem;
+}
+
+.app-library-preview__record dt {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-library-preview__record dd {
+  text-align: right;
+}
+
+.app-catalog-management__tabs {
+  border-radius: 0.68rem;
+  background: hsl(var(--muted) / 0.55);
+}
+
+.app-catalog-management__tabs button {
+  border: 0;
+  border-radius: 0.52rem;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.app-catalog-management__tabs button[data-active="true"] {
+  background: hsl(var(--background));
+  box-shadow: 0 2px 8px hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground));
+}
+
+.app-catalog-management > .app-dialog-footer {
+  border-top: 1px solid hsl(var(--foreground) / 0.055);
+}
+
+.app-catalog-management__loading,
+.app-catalog-management__empty {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.78rem;
+}
+
+.app-catalog-management__empty {
+  text-align: center;
+}
+
+.app-catalog-management__sections section h3,
+.app-catalog-management__section-title {
+  font-size: 0.75rem;
+}
+
+.app-catalog-management__section-title strong {
+  font-size: 0.92rem;
+}
+
+.app-catalog-management__section-title div span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.7rem;
+}
+
+.app-catalog-management__metrics > div {
+  border: 1px solid hsl(var(--foreground) / 0.06);
+  border-radius: 0.68rem;
+  background: hsl(var(--foreground) / 0.025);
+}
+
+.app-catalog-management__metrics > div[data-warning="true"] {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-orphan) 22%,
+    transparent
+  );
+  background: var(--app-status-surface-orphan);
+}
+
+.app-catalog-management__metrics strong {
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-catalog-management__metrics span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.64rem;
+  line-height: 1.25;
+}
+
+.app-catalog-roots__add input,
+.app-catalog-roots__add select {
+  border: 1px solid hsl(var(--foreground) / 0.09);
+  border-radius: 0.58rem;
+  outline: 0;
+  background: hsl(var(--background) / 0.72);
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 0.7rem;
+}
+
+.app-catalog-roots__add button {
+  border: 0;
+  border-radius: 0.58rem;
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.app-catalog-roots__add button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.app-catalog-roots article {
+  border: 1px solid hsl(var(--foreground) / 0.07);
+  border-radius: 0.75rem;
+  background: hsl(var(--foreground) / 0.022);
+}
+
+.app-catalog-roots__head strong {
+  font-size: 0.76rem;
+}
+
+.app-catalog-roots__head span,
+.app-catalog-roots p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.64rem;
+}
+
+.app-catalog-roots code {
+  border-radius: 0.48rem;
+  background: hsl(var(--foreground) / 0.035);
+  font-size: 0.65rem;
+}
+
+.app-catalog-roots .app-catalog-roots__error {
+  color: var(--app-status-tone-error);
+}
+
+/* Library data management appearance */
+
+.library-data-management {
+  color: hsl(var(--foreground));
+}
+
+.library-data-management--unavailable {
+  border: 1px dashed hsl(var(--border));
+  border-radius: var(--app-radius-card, 1rem);
+  color: hsl(var(--muted-foreground));
+  text-align: left;
+}
+
+.library-data-management--unavailable > svg {
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.library-data-management--unavailable h2 {
+  color: hsl(var(--foreground));
+  font-size: 1rem;
+}
+
+.library-data-management--unavailable p {
+  font-size: 0.8rem;
+}
+
+.library-data-management__header h2 {
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.library-data-management__header p,
+.library-data-management__section-heading p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.library-data-management__section-heading h3 {
+  font-size: 0.95rem;
+  letter-spacing: -0.015em;
+}
+
+.library-data-management__toolbar {
+  border-bottom: 1px solid hsl(var(--foreground) / 0.065);
+}
+
+.library-data-management__tabs button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.library-data-management__tabs button:hover {
+  color: hsl(var(--foreground));
+}
+
+.library-data-management__tabs button[data-active="true"] {
+  color: hsl(var(--foreground));
+}
+
+.library-data-management__tabs button[data-active="true"]::after {
+  border-radius: 999px 999px 0 0;
+  background: hsl(var(--app-accent-solid, var(--primary)));
+}
+
+.library-data-management__notice {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--app-radius-control, 0.7rem);
+  background: hsl(var(--card));
+  font-size: 0.76rem;
+}
+
+.library-data-management__notice[data-tone="success"] {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-success) 30%,
+    transparent
+  );
+  background: var(--app-status-surface-success);
+  color: var(--app-status-tone-success);
+}
+
+.library-data-management__notice[data-tone="error"] {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-error) 30%,
+    transparent
+  );
+  background: var(--app-status-surface-error);
+  color: var(--app-status-tone-error);
+}
+
+.library-data-management__notice button {
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: currentColor;
+}
+
+.library-data-management__loading {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+}
+
+.library-data-management__config-card,
+.library-data-management__batch-detail,
+.library-data-management__history,
+.library-data-management__backup-list,
+.library-data-management__privacy,
+.library-data-management__pending,
+.library-data-management__maintenance-safety,
+.library-data-management__maintenance-state,
+.library-data-management__missing-list {
+  border: 1px solid hsl(var(--foreground) / 0.06);
+  border-radius: 0.9rem;
+  background: var(--dream-surface-soft, hsl(var(--foreground) / 0.028));
+  box-shadow: none;
+}
+
+.library-data-management__config-card fieldset {
+  border: 0;
+}
+
+.library-data-management__config-card legend,
+.library-data-management__policy-grid > label > span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.library-data-management__segmented label {
+  border: 1px solid hsl(var(--foreground) / 0.08);
+  border-radius: var(--app-radius-control, 0.7rem);
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.library-data-management__segmented label:has(input:checked) {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.35);
+  background: var(--app-accent-surface);
+  color: var(--app-text-primary);
+}
+
+.library-data-management__segmented input,
+.library-data-management__choice-grid input {
+  opacity: 0;
+}
+
+.library-data-management__choice-grid > label {
+  border: 1px solid hsl(var(--foreground) / 0.075);
+  border-radius: 0.8rem;
+  background: hsl(var(--background) / 0.55);
+  cursor: pointer;
+}
+
+.library-data-management__choice-grid > label[data-selected="true"] {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.38);
+  background: var(--app-accent-surface);
+}
+
+.library-data-management__choice-indicator {
+  border: 1px solid hsl(var(--foreground) / 0.18);
+  border-radius: 999px;
+  color: transparent;
+}
+
+.library-data-management__choice-grid > label[data-selected="true"]
+  .library-data-management__choice-indicator {
+  border-color: hsl(var(--app-accent-solid, var(--primary)));
+  background: hsl(var(--app-accent-solid, var(--primary)));
+  color: hsl(var(--app-accent-on-solid, var(--primary-foreground)));
+}
+
+.library-data-management__choice-grid strong {
+  font-size: 0.8rem;
+}
+
+.library-data-management__choice-grid small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.library-data-management__policy-select.app-dream-select.app-control-compact {
+  font-size: 0.78rem;
+}
+
+.library-data-management__card-heading > div > span {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.library-data-management code {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.67rem;
+}
+
+.library-data-management__batch-detail > p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.72rem;
+}
+
+.library-data-management__count-card {
+  border-radius: var(--app-radius-control, 0.7rem);
+  background: hsl(var(--muted) / 0.45);
+}
+
+.library-data-management__count-card span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.65rem;
+}
+
+.library-data-management__count-card strong {
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.library-data-management__batch-error {
+  border-radius: var(--app-radius-control, 0.7rem);
+  background: var(--app-status-surface-error);
+  color: var(--app-status-tone-error);
+}
+
+.library-data-management__batch-error strong {
+  font-size: 0.74rem;
+}
+
+.library-data-management__batch-error p {
+  font-size: 0.7rem;
+}
+
+.library-data-management__candidate-heading {
+  border-top: 1px solid hsl(var(--border) / 0.7);
+}
+
+.library-data-management__candidate-heading h4,
+.library-data-management__history h4,
+.library-data-management__backup-list > h4,
+.library-data-management__privacy h4,
+.library-data-management__pending h4 {
+  font-size: 0.78rem;
+}
+
+.library-data-management__candidate-heading p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.68rem;
+}
+
+.library-data-management__candidates > li {
+  border-radius: var(--app-radius-control, 0.7rem);
+  background: hsl(var(--muted) / 0.36);
+}
+
+.library-data-management__candidate-main strong {
+  font-size: 0.74rem;
+}
+
+.library-data-management__candidate-main span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.65rem;
+}
+
+.library-data-management__paths {
+  border-top: 1px solid hsl(var(--border) / 0.65);
+}
+
+.library-data-management__paths div {
+  font-size: 0.65rem;
+}
+
+.library-data-management__paths dt {
+  color: hsl(var(--muted-foreground));
+}
+
+.library-data-management__paths dd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.library-data-management__history li button {
+  border: 1px solid transparent;
+  border-radius: var(--app-radius-control, 0.7rem);
+  background: transparent;
+  color: hsl(var(--foreground));
+  text-align: left;
+}
+
+.library-data-management__history li button:hover,
+.library-data-management__history li button[data-selected="true"] {
+  border-color: hsl(var(--border));
+  background: hsl(var(--muted) / 0.5);
+}
+
+.library-data-management__history li strong {
+  font-size: 0.7rem;
+}
+
+.library-data-management__history > p,
+.library-data-management__empty {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.74rem;
+  text-align: center;
+}
+
+.library-data-management__privacy {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-orphan) 30%,
+    transparent
+  );
+  background: var(--app-status-surface-orphan);
+}
+
+.library-data-management__privacy > svg {
+  color: var(--app-status-tone-orphan);
+}
+
+.library-data-management__privacy p,
+.library-data-management__pending p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.71rem;
+  line-height: 1.45;
+}
+
+.library-data-management__pending {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-busy) 30%,
+    transparent
+  );
+  background: var(--app-status-surface-busy);
+}
+
+.library-data-management__pending > svg {
+  color: var(--app-status-tone-busy);
+}
+
+.library-data-management__backup-list li {
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: var(--app-radius-control, 0.75rem);
+}
+
+.library-data-management__backup-title > svg {
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+.library-data-management__backup-title strong {
+  font-size: 0.75rem;
+}
+
+.library-data-management__backup-summary dt {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.62rem;
+}
+
+.library-data-management__backup-summary dd {
+  font-size: 0.7rem;
+}
+
+.library-data-management__backup-actions > span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.67rem;
+}
+
+.library-data-management__backup-actions > span[data-valid="true"] {
+  color: var(--app-status-tone-success);
+}
+
+.library-data-management__backup-actions > span[data-valid="false"] {
+  color: var(--app-status-tone-error);
+}
+
+.library-data-management__restore-confirmation {
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.35);
+}
+
+.library-data-management__restore-confirmation h5 {
+  font-size: 0.78rem;
+}
+
+.library-data-management__restore-confirmation p,
+.library-data-management__restore-confirmation label > span {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.71rem;
+  line-height: 1.45;
+}
+
+.library-data-management__restore-confirmation label strong {
+  color: hsl(var(--foreground));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.library-data-management__restore-confirmation input {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--app-radius-control, 0.7rem);
+  outline: 0;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.library-data-management__maintenance-safety {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-success) 26%,
+    transparent
+  );
+  background: var(--app-status-surface-success);
+}
+
+.library-data-management__maintenance-safety > svg {
+  color: var(--app-status-tone-success);
+}
+
+.library-data-management__maintenance-safety[data-state="danger"] {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-error) 30%,
+    transparent
+  );
+  background: var(--app-status-surface-error);
+}
+
+.library-data-management__maintenance-safety[data-state="danger"] > svg,
+.library-data-management__maintenance-safety[data-state="danger"] h4 {
+  color: var(--app-status-tone-error);
+}
+
+.library-data-management__maintenance-safety h4,
+.library-data-management__maintenance-state h4,
+.library-data-management__missing-heading h4,
+.library-data-management__cleanup-confirmation h5 {
+  font-size: 0.8rem;
+}
+
+.library-data-management__maintenance-safety p,
+.library-data-management__maintenance-state p,
+.library-data-management__missing-heading p,
+.library-data-management__cleanup-confirmation p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.71rem;
+  line-height: 1.5;
+}
+
+.library-data-management__maintenance-state > svg {
+  color: hsl(var(--muted-foreground));
+}
+
+.library-data-management__maintenance-state[data-state="healthy"] > svg {
+  color: var(--app-status-tone-success);
+}
+
+.library-data-management__missing-list > ul {
+  border-top: 1px solid hsl(var(--border) / 0.72);
+}
+
+.library-data-management__missing-list > ul > li {
+  border-top: 1px solid hsl(var(--border) / 0.58);
+  background: hsl(var(--background) / 0.28);
+}
+
+.library-data-management__missing-list > ul > li:first-child {
+  border-top: 0;
+}
+
+.library-data-management__missing-list > ul > li[data-selected="true"] {
+  background: var(--app-accent-surface);
+}
+
+.library-data-management__missing-list label {
+  cursor: pointer;
+}
+
+.library-data-management__missing-list label > input {
+  opacity: 0;
+}
+
+.library-data-management__missing-check {
+  border: 1px solid hsl(var(--foreground) / 0.2);
+  border-radius: 0.34rem;
+  background: hsl(var(--background));
+  color: transparent;
+}
+
+.library-data-management__missing-list label:has(input:checked) .library-data-management__missing-check {
+  border-color: hsl(var(--app-accent-solid, var(--primary)));
+  background: hsl(var(--app-accent-solid, var(--primary)));
+  color: hsl(var(--app-accent-on-solid, var(--primary-foreground)));
+}
+
+.library-data-management__missing-main strong {
+  font-size: 0.76rem;
+}
+
+.library-data-management__missing-main > span,
+.library-data-management__missing-checked {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.65rem;
+}
+
+.library-data-management__missing-checked {
+  text-align: right;
+}
+
+.library-data-management__missing-actions {
+  border-top: 1px solid hsl(var(--border) / 0.72);
+}
+
+.library-data-management__cleanup-confirmation {
+  border-top: 1px solid
+    color-mix(in srgb, var(--app-status-tone-error) 22%, transparent);
+  background: var(--app-status-surface-error);
+}
+
+.library-data-management__cleanup-confirmation > svg {
+  color: var(--app-status-tone-error);
+}
+
+.library-data-management button:focus-visible,
+.library-data-management select:focus-visible,
+.library-data-management input:focus-visible,
+.library-data-management label:has(input:focus-visible) {
+  outline: 2px solid hsl(var(--app-accent-ring, var(--ring)));
+  outline-offset: 2px;
+}
+
+@container library-data-management (max-width: 40rem) {
+
+  .library-data-management__missing-checked {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-data-management *,
+  .library-data-management *::before,
+  .library-data-management *::after {
+    transition-duration: 0.01ms !important;
+  }
+}

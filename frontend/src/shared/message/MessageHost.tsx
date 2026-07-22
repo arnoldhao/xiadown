@@ -6,6 +6,8 @@ import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 
 import { useI18n } from "@/shared/i18n";
 import { Button } from "@/shared/ui/button";
+import { GlassSurface } from "@/shared/ui/glass-surface";
+import { getXiaSurfaceAttributes } from "@/shared/ui/surface-contract";
 import { cn } from "@/lib/utils";
 import { messageBus, useMessages } from "./store";
 import type {
@@ -104,7 +106,6 @@ function getStackItemStyle(index: number, total: number, layout: StackLayout) {
 
   return {
     transform: `translateY(${translateY}px) scale(${scale})`,
-    transformOrigin: "top center",
     opacity,
     zIndex: 100 + (total - index),
   } as const;
@@ -147,12 +148,15 @@ function MessageSurface({
   const liveMode = message.intent === "danger" || message.intent === "warning" ? "assertive" : "polite";
 
   return (
-    <div
+    <GlassSurface
       role={liveMode === "assertive" ? "alert" : "status"}
       aria-live={liveMode}
       data-intent={message.intent}
+      elevation="floating"
+      shape="panel"
+      surfaceRole="status"
       className={cn(
-        "app-message-surface app-motion-surface flex text-foreground"
+        "app-message-surface app-motion-surface flex"
       )}
     >
       <button type="button" className="app-message-button" onClick={onActivate}>
@@ -161,7 +165,7 @@ function MessageSurface({
           {children}
         </div>
       </button>
-    </div>
+    </GlassSurface>
   );
 }
 
@@ -171,7 +175,7 @@ function MessageText({ title, description }: { title: string; description: strin
       {title ? <span className="app-message-title">{title}</span> : null}
       {title && description ? <span className="app-message-separator">·</span> : null}
       {description ? (
-        <span className={cn("app-message-description", !title && "text-foreground")}>
+        <span className="app-message-description" data-standalone={!title || undefined}>
           {description}
         </span>
       ) : null}
@@ -292,24 +296,22 @@ function DialogHost({ message }: { message: DialogMessage }) {
   return (
     <Dialog.Root open onOpenChange={(open) => (!open ? handleClose() : null)}>
       <Dialog.Portal>
-        <Dialog.Overlay className="app-dialog-overlay fixed inset-0 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <Dialog.Overlay className="app-dialog-overlay app-message-dialog-overlay fixed inset-0 z-[var(--app-layer-modal-overlay)]" />
         <Dialog.Content
-          className={cn(
-            "app-dialog-content app-message-dialog-content app-motion-surface fixed left-1/2 top-1/2 z-50 grid max-h-[min(28rem,calc(100vh-2rem))] w-[min(32rem,calc(100vw-2rem))] max-w-none -translate-x-1/2 -translate-y-1/2 grid-rows-[minmax(0,1fr)_auto] overflow-hidden duration-200",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-            "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-            "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]",
-            "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
-          )}
+          className="app-glass-surface app-dialog-content app-message-dialog-content app-motion-surface fixed left-1/2 top-1/2 z-[var(--app-layer-modal)] grid max-h-[min(28rem,calc(100vh-2rem))] w-[min(32rem,calc(100vw-2rem))] max-w-none -translate-x-1/2 -translate-y-1/2 grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
+          data-elevation="modal"
+          data-shape="panel"
+          data-tint="neutral"
+          {...getXiaSurfaceAttributes("overlay")}
         >
-          <div className="min-h-0 min-w-0 overflow-hidden px-4 pb-3 pt-4 text-center sm:text-left">
+          <div className="app-message-dialog-body min-h-0 min-w-0 overflow-hidden px-4 pb-3 pt-4">
             {title ? (
-              <Dialog.Title className="overflow-hidden break-words pr-6 text-base font-semibold leading-[1.35] tracking-normal [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+              <Dialog.Title className="app-message-dialog-title overflow-hidden break-words pr-6">
                 {title}
               </Dialog.Title>
             ) : null}
             {description ? (
-              <Dialog.Description className="mt-1.5 overflow-hidden break-words text-sm leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
+              <Dialog.Description className="app-message-dialog-description mt-1.5 overflow-hidden break-words">
                 {description}
               </Dialog.Description>
             ) : null}
@@ -366,7 +368,7 @@ export function MessageHost() {
     <>
       <div
         className={cn(
-          "pointer-events-none fixed left-1/2 top-[calc(var(--app-titlebar-height)+0.875rem)] z-[90] w-auto max-w-[calc(100vw-1.5rem)] -translate-x-1/2 max-h-[50vh]",
+          "pointer-events-none fixed left-1/2 top-[calc(var(--app-titlebar-height)+0.875rem)] z-[var(--app-layer-notification)] w-auto max-w-[calc(100vw-1.5rem)] -translate-x-1/2 max-h-[50vh]",
           stackLayout.stacked ? "h-[50vh] overflow-hidden" : "flex flex-col items-center gap-2"
         )}
       >
@@ -375,12 +377,12 @@ export function MessageHost() {
             key={message.id}
             ref={index === 0 ? stackMeasure.ref : undefined}
             className={cn(
-              "pointer-events-auto w-fit max-w-full",
+              "app-message-stack-item pointer-events-auto w-fit max-w-full",
               stackLayout.stacked ? "absolute left-0 right-0 top-0" : null
             )}
             style={getStackItemStyle(index, stackedMessages.length, stackLayout)}
           >
-            <div className="animate-in slide-in-from-top-2 duration-200">
+            <div className="app-message-stack-entry">
               {message.kind === "toast" ? (
                 <ToastItem message={message} />
               ) : (

@@ -13,7 +13,7 @@ const (
 )
 
 func (state PlaybackState) IsPlaying() bool {
-	return state == PlaybackStatePlaying
+	return state == PlaybackStatePlaying || state == PlaybackStateBuffering
 }
 
 type RepeatMode string
@@ -85,6 +85,7 @@ type QueueState struct {
 
 type Snapshot struct {
 	Version              uint64        `json:"version"`
+	QueueIdentity        string        `json:"queueIdentity"`
 	State                PlaybackState `json:"state"`
 	CurrentTrack         *Track        `json:"currentTrack,omitempty"`
 	Progress             float64       `json:"progress"`
@@ -115,11 +116,22 @@ type PlayOptions struct {
 
 type PlayRequest struct {
 	Track            Track
+	Language         string
 	StartSeconds     float64
 	RestartFromStart bool
 	ForceReload      bool
 	Volume           float64
 	Muted            bool
+}
+
+// QueueSelection carries both an index hint and the row identity observed by
+// the caller. The service resolves the identity again while holding its queue
+// lock so a concurrent move, removal, continuation append, or automatic
+// advance cannot turn a click on one row into playback of another row.
+type QueueSelection struct {
+	Index   int
+	TrackID string
+	VideoID string
 }
 
 type ObservedTrack struct {
@@ -136,6 +148,7 @@ type RestoredPlaybackSession struct {
 	Queue            []Track    `json:"queue"`
 	QueueKind        QueueKind  `json:"queueKind,omitempty"`
 	QueueTitle       string     `json:"queueTitle,omitempty"`
+	Language         string     `json:"language,omitempty"`
 	CurrentIndex     int        `json:"currentIndex"`
 	CurrentVideoID   string     `json:"currentVideoId,omitempty"`
 	Progress         float64    `json:"progress"`

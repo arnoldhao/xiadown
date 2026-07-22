@@ -2,10 +2,24 @@ package browsercdp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func writeExecutableIdentityFixture(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("fixture"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestDetectCandidatesCachesScanUntilTTLExpires(t *testing.T) {
 	originalNow := detectCandidatesNow
@@ -113,6 +127,101 @@ func TestChooseCandidateUsesPreferredBrowserWhenAvailable(t *testing.T) {
 	}
 }
 
+func TestChooseCandidateDoesNotFallbackWhenPreferredBrowserIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	if candidate, ok := ChooseCandidate([]Candidate{
+		{ID: BrowserChrome, Label: "Chrome", ExecPath: "/tmp/chrome", Available: true},
+		{ID: BrowserEdge, Label: "Edge", Available: false, Error: "browser executable not found"},
+	}, "edge"); ok || candidate != (Candidate{}) {
+		t.Fatalf("unavailable explicit Edge selection fell back to %#v", candidate)
+	}
+}
+
+func TestChooseCandidateRejectsSafariInsteadOfFallingBackToChromium(t *testing.T) {
+	t.Parallel()
+
+	if candidate, ok := ChooseCandidate([]Candidate{
+		{ID: BrowserChrome, Label: "Chrome", ExecPath: "/tmp/chrome", Available: true},
+	}, "safari"); ok || candidate != (Candidate{}) {
+		t.Fatalf("unsupported explicit Safari selection fell back to %#v", candidate)
+	}
+}
+
+func TestExecutableIdentityKeepsStableAndBetaExecutablesSeparate(t *testing.T) {
+	root := t.TempDir()
+	stablePath := filepath.Join(root, "Google Chrome")
+	betaPath := filepath.Join(root, "Google Chrome Beta")
+	writeExecutableIdentityFixture(t, stablePath)
+	writeExecutableIdentityFixture(t, betaPath)
+	paths := []string{stablePath, betaPath}
+
+	stableIdentity := detectExecutableIdentity(BrowserChrome, "", paths)
+	betaIdentity := detectExecutableIdentity(BrowserChrome, "Beta", paths)
+	coarseCandidates := []Candidate{{
+		ID:        BrowserChrome,
+		Label:     "Chrome",
+		ExecPath:  stablePath,
+		Available: true,
+	}}
+	betaCandidate, err := resolveLaunchCandidate(LaunchOptions{
+		PreferredBrowser:   "chrome",
+		ExecutableIdentity: betaIdentity,
+	}, coarseCandidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if betaCandidate.ExecPath != betaPath {
+		t.Fatalf("Beta identity selected %q instead of %q", betaCandidate.ExecPath, betaPath)
+	}
+	stableCandidate, err := resolveLaunchCandidate(LaunchOptions{
+		PreferredBrowser:   "chrome",
+		ExecutableIdentity: stableIdentity,
+	}, coarseCandidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stableCandidate.ExecPath != stablePath {
+		t.Fatalf("Stable identity selected %q instead of %q", stableCandidate.ExecPath, stablePath)
+	}
+
+	payload, err := json.Marshal(betaIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(payload), betaPath) || string(payload) != "{}" {
+		t.Fatalf("opaque executable identity leaked its path: %s", payload)
+	}
+}
+
+func TestExactExecutableDisappearanceDoesNotFallbackToStable(t *testing.T) {
+	root := t.TempDir()
+	stablePath := filepath.Join(root, "Google Chrome")
+	betaPath := filepath.Join(root, "Google Chrome Beta")
+	writeExecutableIdentityFixture(t, stablePath)
+	writeExecutableIdentityFixture(t, betaPath)
+	betaIdentity := detectExecutableIdentity(
+		BrowserChrome,
+		"Beta",
+		[]string{stablePath, betaPath},
+	)
+	if err := os.Remove(betaPath); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, err := StartLoopbackOnly(context.Background(), LaunchOptions{
+		PreferredBrowser:   "chrome",
+		ExecutableIdentity: betaIdentity,
+	})
+	if runtime != nil {
+		runtime.Stop()
+		t.Fatal("disappeared Beta executable unexpectedly started a runtime")
+	}
+	if !errors.Is(err, ErrExactExecutableUnavailable) {
+		t.Fatalf("expected exact executable failure, got %v", err)
+	}
+}
+
 func TestStartReturnsNoSupportedBrowserErrorWhenNoCandidateAvailable(t *testing.T) {
 	originalScan := detectCandidatesScan
 	detectCandidatesScan = func() []Candidate {
@@ -131,7 +240,30 @@ func TestStartReturnsNoSupportedBrowserErrorWhenNoCandidateAvailable(t *testing.
 		resetDetectCandidatesCache()
 	})
 
-	runtime, err := Start(context.Background(), LaunchOptions{})
+	runtime, err := StartLoopbackOnly(context.Background(), LaunchOptions{})
+	if runtime != nil {
+		t.Fatal("expected no runtime to be started")
+	}
+	if !errors.Is(err, ErrNoSupportedBrowser) {
+		t.Fatalf("expected ErrNoSupportedBrowser, got %v", err)
+	}
+}
+
+func TestStartDoesNotLaunchDefaultBrowserForUnavailableExplicitSelection(t *testing.T) {
+	originalScan := detectCandidatesScan
+	detectCandidatesScan = func() []Candidate {
+		return []Candidate{
+			{ID: BrowserChrome, Label: "Chrome", ExecPath: "/path/that/must/not/be/launched", Available: true},
+			{ID: BrowserEdge, Label: "Edge", Available: false, Error: "browser executable not found"},
+		}
+	}
+	resetDetectCandidatesCache()
+	t.Cleanup(func() {
+		detectCandidatesScan = originalScan
+		resetDetectCandidatesCache()
+	})
+
+	runtime, err := StartLoopbackOnly(context.Background(), LaunchOptions{PreferredBrowser: "edge"})
 	if runtime != nil {
 		t.Fatal("expected no runtime to be started")
 	}
@@ -149,5 +281,13 @@ func TestWaitForCDPHonorsCancelledContext(t *testing.T) {
 	err := WaitForCDP(ctx, "127.0.0.1", 1, time.Second)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context canceled, got %v", err)
+	}
+}
+
+func TestCheckCDPReadyRejectsNonLoopbackHost(t *testing.T) {
+	t.Parallel()
+
+	if err := CheckCDPReady(context.Background(), "example.com", 9222); err == nil || !strings.Contains(err.Error(), "loopback") {
+		t.Fatalf("non-loopback CDP host error = %v", err)
 	}
 }

@@ -1,11 +1,19 @@
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import {
+  collectComparedCommits,
+  compareStableVersions,
+  filterChangelogPulls,
+  incrementStableVersion,
+  normalizeStableVersion,
+} from "./release-notes.mjs";
+
 const token = process.env.GITHUB_TOKEN;
 const repository = process.env.GITHUB_REPOSITORY || "";
 const headSha = (process.env.GITHUB_SHA || "").trim();
 const rawRequestedVersion = (process.env.RELEASE_VERSION || "").trim();
-const requestedVersion = normalizeVersion(rawRequestedVersion);
+const requestedVersion = normalizeStableVersion(rawRequestedVersion);
 
 if (!token) {
   throw new Error("GITHUB_TOKEN is required");
@@ -17,7 +25,7 @@ if (!headSha) {
   throw new Error("GITHUB_SHA is required");
 }
 if (rawRequestedVersion && !requestedVersion) {
-  throw new Error("RELEASE_VERSION must look like 1.2.3");
+  throw new Error("RELEASE_VERSION must be a stable x.y.z version; prerelease and build suffixes are not supported");
 }
 
 const [owner, repo] = repository.split("/");
@@ -73,42 +81,12 @@ async function paginate(path, params = {}) {
   return result;
 }
 
-function normalizeVersion(value) {
-  const normalized = String(value || "").trim().replace(/^[vV]/, "");
-  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(normalized) ? normalized : "";
-}
-
 function parseStableVersion(value) {
-  const normalized = normalizeVersion(value);
-  if (!/^\d+\.\d+\.\d+$/.test(normalized)) {
+  const normalized = normalizeStableVersion(value);
+  if (!normalized) {
     return null;
   }
   return normalized.split(".").map((part) => Number.parseInt(part, 10));
-}
-
-function compareVersion(left, right) {
-  const leftParts = parseStableVersion(left);
-  const rightParts = parseStableVersion(right);
-  if (!leftParts || !rightParts) {
-    return 0;
-  }
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] - rightParts[index];
-    }
-  }
-  return 0;
-}
-
-function incrementVersion(version, level) {
-  const parts = parseStableVersion(version) || [0, 0, 0];
-  if (level === "major") {
-    return `${parts[0] + 1}.0.0`;
-  }
-  if (level === "minor") {
-    return `${parts[0]}.${parts[1] + 1}.0`;
-  }
-  return `${parts[0]}.${parts[1]}.${parts[2] + 1}`;
 }
 
 async function latestSemverReleaseOrTag() {
@@ -116,7 +94,7 @@ async function latestSemverReleaseOrTag() {
   const release = releases
     .filter((item) => !item.draft && parseStableVersion(item.tag_name))
     .sort((left, right) => {
-      const versionCompare = compareVersion(right.tag_name, left.tag_name);
+      const versionCompare = compareStableVersions(right.tag_name, left.tag_name);
       if (versionCompare !== 0) {
         return versionCompare;
       }
@@ -125,63 +103,72 @@ async function latestSemverReleaseOrTag() {
   if (release) {
     return {
       tag: release.tag_name,
-      version: normalizeVersion(release.tag_name),
-      publishedAt: release.published_at || release.created_at || "",
+      version: normalizeStableVersion(release.tag_name),
     };
   }
 
   const tags = await paginate(`/repos/${owner}/${repo}/tags`);
   const tag = tags
     .filter((item) => parseStableVersion(item.name))
-    .sort((left, right) => compareVersion(right.name, left.name))[0];
+    .sort((left, right) => compareStableVersions(right.name, left.name))[0];
   if (!tag) {
-    return { tag: "", version: "0.0.0", publishedAt: "" };
+    return { tag: "", version: "0.0.0" };
   }
-  return { tag: tag.name, version: normalizeVersion(tag.name), publishedAt: "" };
+  return { tag: tag.name, version: normalizeStableVersion(tag.name) };
+}
+
+async function compareCommits(baseTag) {
+  return collectComparedCommits({
+    baseTag,
+    headSha,
+    fetchPage: (page, perPage) =>
+      request(
+        `/repos/${owner}/${repo}/compare/${encodeURIComponent(baseTag)}...${encodeURIComponent(headSha)}` +
+          `?per_page=${perPage}&page=${page}`,
+      ),
+  });
 }
 
 async function collectPullRequestNumbers(base) {
   const numbers = new Set();
+  const unmatchedCommits = [];
   if (base.tag) {
-    const compare = await request(`/repos/${owner}/${repo}/compare/${encodeURIComponent(base.tag)}...${headSha}`);
-    for (const commit of compare?.commits || []) {
+    for (const commit of await compareCommits(base.tag)) {
       const pulls = await request(`/repos/${owner}/${repo}/commits/${commit.sha}/pulls`, {
         headers: { Accept: "application/vnd.github+json" },
       });
-      for (const pull of pulls || []) {
+      const mergedPulls = (pulls || []).filter((pull) => pull.merged_at);
+      if (mergedPulls.length === 0) {
+        unmatchedCommits.push({
+          sha: commit.sha,
+          title: String(commit.commit?.message || "").split("\n", 1)[0],
+        });
+      }
+      for (const pull of mergedPulls) {
         numbers.add(pull.number);
       }
     }
   }
 
-  if (numbers.size === 0 && base.publishedAt) {
-    const since = new Date(base.publishedAt).toISOString().slice(0, 10);
-    const query = `repo:${owner}/${repo} is:pr is:merged base:main merged:>=${since}`;
-    const search = await request(`/search/issues?q=${encodeURIComponent(query)}&per_page=100`);
-    for (const item of search?.items || []) {
-      numbers.add(item.number);
-    }
-  }
-
-  return [...numbers].sort((left, right) => left - right);
+  return {
+    numbers: [...numbers].sort((left, right) => left - right),
+    unmatchedCommits,
+  };
 }
 
 async function collectPullRequests(numbers) {
   const pulls = [];
   for (const number of numbers) {
-    const [issue, pull] = await Promise.all([
-      request(`/repos/${owner}/${repo}/issues/${number}`),
-      request(`/repos/${owner}/${repo}/pulls/${number}`),
-    ]);
-    if (!issue || !pull || !pull.merged_at) {
-      continue;
+    const pull = await request(`/repos/${owner}/${repo}/pulls/${number}`);
+    if (!pull || !pull.merged_at) {
+      throw new Error(`could not load merged pull request #${number}; refusing to generate incomplete release notes`);
     }
     pulls.push({
       number,
-      title: issue.title || pull.title || `Pull request #${number}`,
-      author: issue.user?.login || pull.user?.login || "unknown",
-      labels: (issue.labels || []).map((label) => String(label.name || "").toLowerCase()),
-      body: pull.body || issue.body || "",
+      title: pull.title || `Pull request #${number}`,
+      author: pull.user?.login || "unknown",
+      labels: (pull.labels || []).map((label) => String(label.name || "").toLowerCase()),
+      body: pull.body || "",
     });
   }
   return pulls.sort((left, right) => left.number - right.number);
@@ -200,6 +187,9 @@ function bumpLevelForPulls(pulls) {
 
 function categoryForPull(pull) {
   const labels = new Set(pull.labels);
+  if (labels.has("breaking") || labels.has("type: breaking")) {
+    return "Breaking Changes";
+  }
   if (labels.has("type: feature") || labels.has("feat")) {
     return "Features";
   }
@@ -293,6 +283,8 @@ function releaseBody(version, pulls) {
     `| Windows Portable | [Download](${downloadBase}/xiadown-windows-x64-${version}.zip) | [Mirror](https://gh-proxy.com/${downloadBase}/xiadown-windows-x64-${version}.zip) |`,
     "",
     "## macOS",
+    "Requires macOS 14 (Sonoma) or later.",
+    "",
     "Open the `.dmg`, drag `XiaDown.app` to Applications, and open it.",
     "",
     "---",
@@ -306,7 +298,7 @@ function releaseBody(version, pulls) {
     return sections.join("\n");
   }
 
-  const categories = ["Features", "Fixes", "Refactor/Perf/Optimize", "Chore/Build/CI", "Other"];
+  const categories = ["Breaking Changes", "Features", "Fixes", "Refactor/Perf/Optimize", "Chore/Build/CI", "Other"];
   for (const category of categories) {
     const items = pulls.filter((pull) => categoryForPull(pull) === category);
     if (items.length === 0) {
@@ -345,20 +337,40 @@ function setOutputs(outputs) {
 }
 
 const base = await latestSemverReleaseOrTag();
-const numbers = await collectPullRequestNumbers(base);
-const pulls = await collectPullRequests(numbers);
-const version = requestedVersion || incrementVersion(base.version, bumpLevelForPulls(pulls));
+if (requestedVersion && compareStableVersions(requestedVersion, base.version) <= 0) {
+  throw new Error(`RELEASE_VERSION ${requestedVersion} must be newer than ${base.version}`);
+}
+const collected = await collectPullRequestNumbers(base);
+const collectedPulls = await collectPullRequests(collected.numbers);
+const pulls = filterChangelogPulls(collectedPulls);
+const version = requestedVersion || incrementStableVersion(base.version, bumpLevelForPulls(collectedPulls));
 const tagName = `v${version}`;
+
+if (!base.tag) {
+  throw new Error("automatic release notes require an existing stable release or tag as the comparison base");
+}
+if (collected.unmatchedCommits.length > 0) {
+  const examples = collected.unmatchedCommits
+    .slice(0, 5)
+    .map((commit) => `${commit.sha.slice(0, 7)} ${commit.title}`)
+    .join("; ");
+  throw new Error(
+    `${collected.unmatchedCommits.length} commit(s) since ${base.tag || "the initial history"} have no merged pull request ` +
+      `and would be missing from generated notes (${examples}). Release changes through a pull request.`,
+  );
+}
 
 await assertReleaseDoesNotExist(tagName);
 
 setOutputs({
   version,
   tag_name: tagName,
-  release_name: tagName,
-  base_tag: base.tag,
   head_sha: headSha,
   release_body: releaseBody(version, pulls),
 });
 
-console.log(`Prepared ${tagName} from ${base.tag || "initial history"} with ${pulls.length} pull request(s).`);
+const skippedPullCount = collectedPulls.length - pulls.length;
+console.log(
+  `Prepared ${tagName} from ${base.tag || "initial history"} with changelog source ${pulls.length} pull request(s)` +
+    (skippedPullCount > 0 ? `; skipped ${skippedPullCount} pull request(s) labeled skip-changelog.` : "."),
+);

@@ -227,6 +227,7 @@ func (service *PlayerService) Stop(ctx context.Context) error {
 	service.state = PlaybackStateIdle
 	service.songNearingEnd = false
 	service.appInitiatedPlayback = false
+	service.restartCurrentLoad = false
 	service.suppressAutoplayAfterEnd = false
 	service.hasCurrentTrack = false
 	service.currentTrack = Track{}
@@ -260,6 +261,7 @@ func (service *PlayerService) preparePlayTrackLocked(
 	service.observedPlaybackAudioQuality = ""
 	service.pendingPlayVideoID = track.VideoID
 	service.appInitiatedPlayback = true
+	service.restartCurrentLoad = options.RestartFromStart
 
 	if !service.hasUserInteractedThisSession {
 		service.showMiniPlayer = true
@@ -276,6 +278,7 @@ func (service *PlayerService) preparePlayTrackLocked(
 func (service *PlayerService) playRequestLocked(track Track, options PlayOptions) PlayRequest {
 	return PlayRequest{
 		Track:            track,
+		Language:         service.playbackLanguage,
 		StartSeconds:     clampSeconds(options.StartSeconds),
 		RestartFromStart: options.RestartFromStart,
 		ForceReload:      options.ForceReload,

@@ -44,6 +44,18 @@ func NewLogger(config Config) (*Logger, error) {
 	if filename == "" {
 		filename = "app.log"
 	}
+	logFilePath := filepath.Join(config.Directory, filename)
+	// lumberjack opens its target lazily on the first log record. Probe the
+	// exact file now so a GUI build can report initialization failure through
+	// the startup logger (or try its fallback directories) instead of silently
+	// accepting a sink that cannot persist anything.
+	probe, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open log file: %w", err)
+	}
+	if err := probe.Close(); err != nil {
+		return nil, fmt.Errorf("close log file probe: %w", err)
+	}
 
 	maxSize := config.MaxSizeMB
 	if maxSize <= 0 {
@@ -77,7 +89,7 @@ func NewLogger(config Config) (*Logger, error) {
 	}
 
 	writer := zapcore.AddSync(&lumberjack.Logger{
-		Filename:   filepath.Join(config.Directory, filename),
+		Filename:   logFilePath,
 		MaxSize:    maxSize,
 		MaxBackups: maxBackups,
 		MaxAge:     maxAge,

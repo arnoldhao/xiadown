@@ -11,8 +11,8 @@ func TestBuildAppearanceConfigUsesKnownThemePack(t *testing.T) {
 	if appearance["themePackId"] != "nocturne" {
 		t.Fatalf("expected selected theme pack, got %#v", appearance["themePackId"])
 	}
-	if appearance["sidebarStyle"] != "glass" {
-		t.Fatalf("expected default sidebar style, got %#v", appearance["sidebarStyle"])
+	if appearance["surfaceStyle"] != "glass" {
+		t.Fatalf("expected default surface style, got %#v", appearance["surfaceStyle"])
 	}
 	if appearance["accentMode"] != "theme" {
 		t.Fatalf("expected default accent mode, got %#v", appearance["accentMode"])

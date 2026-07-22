@@ -21,10 +21,7 @@ const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
-    className={cn(
-      "app-dialog-overlay fixed inset-0 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-      className,
-    )}
+    className={cn("app-dialog-overlay app-dialog-overlay-base", className)}
     {...props}
   />
 ));
@@ -33,29 +30,30 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    overlayClassName?: string;
+    portalContainer?: HTMLElement | null;
     showCloseButton?: boolean;
+    unstyled?: boolean;
   }
->(({ className, children, showCloseButton = true, ...props }, ref) => {
+>(({ className, children, overlayClassName, portalContainer, showCloseButton = true, unstyled = false, ...props }, ref) => {
   const { t } = useI18n();
 
   return (
-    <DialogPortal>
-      <DialogOverlay />
+    <DialogPortal container={portalContainer ?? undefined}>
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 p-6 duration-200",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-          "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          !unstyled && "app-dialog-content-base",
           className,
         )}
         {...props}
       >
         {children}
         {showCloseButton ? (
-          <DialogPrimitive.Close className="app-dialog-close absolute right-4 top-4 transition-[background,color,box-shadow] focus:outline-none disabled:pointer-events-none">
-            <X className="h-4 w-4" />
-            <span className="sr-only">{t("common.close")}</span>
+          <DialogPrimitive.Close className="app-dialog-close app-dialog-close-base">
+            <X className="app-dialog-close__icon" />
+            <span className="app-visually-hidden">{t("common.close")}</span>
           </DialogPrimitive.Close>
         ) : null}
       </DialogPrimitive.Content>
@@ -69,10 +67,7 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn(
-      "flex flex-col space-y-1.5 text-center sm:text-left",
-      className,
-    )}
+    className={cn("app-dialog-header-base", className)}
     {...props}
   />
 );
@@ -83,10 +78,7 @@ const DialogFooter = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn(
-      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
-      className,
-    )}
+    className={cn("app-dialog-footer-base", className)}
     {...props}
   />
 );
@@ -98,10 +90,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn(
-      "text-sm font-semibold leading-none tracking-tight",
-      className,
-    )}
+    className={cn("app-dialog-title-base", className)}
     {...props}
   />
 ));
@@ -113,7 +102,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("app-dialog-description-base", className)}
     {...props}
   />
 ));

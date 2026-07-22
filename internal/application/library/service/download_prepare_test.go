@@ -326,6 +326,20 @@ func TestPrepareYTDLPDownloadUsesAppSessionForNormalizedURL(t *testing.T) {
 					CredentialState: "app_session",
 					CookiesCount:    2,
 				},
+				{
+					ID:              "site-app-session-douyin",
+					SiteKey:         "douyin",
+					Status:          "connected",
+					CredentialState: "app_session",
+					CookiesCount:    8,
+				},
+				{
+					ID:              "site-app-session-xiaohongshu",
+					SiteKey:         "xiaohongshu",
+					Status:          "connected",
+					CredentialState: "app_session",
+					CookiesCount:    12,
+				},
 			},
 		},
 	}
@@ -341,21 +355,44 @@ func TestPrepareYTDLPDownloadUsesAppSessionForNormalizedURL(t *testing.T) {
 		t.Fatalf("unexpected youtube app session: %#v", youtube)
 	}
 
-	chinaPrivate, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest("douyin.com/video/123"))
+	douyin, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest("douyin.com/video/123"))
 	if err != nil {
-		t.Fatalf("prepare china private: %v", err)
+		t.Fatalf("prepare douyin: %v", err)
 	}
-	if chinaPrivate.URL != "https://douyin.com/video/123" || chinaPrivate.Domain != "douyin.com" {
-		t.Fatalf("unexpected china private normalization: %#v", chinaPrivate)
+	if douyin.URL != "https://douyin.com/video/123" || douyin.Domain != "douyin.com" {
+		t.Fatalf("unexpected douyin normalization: %#v", douyin)
 	}
-	if chinaPrivate.AppSessionID != "" || chinaPrivate.AppSessionAvailable || chinaPrivate.AppSessionCredentialMode != "" {
-		t.Fatalf("unexpected china private app session availability: %#v", chinaPrivate)
+	if douyin.AppSessionID != "site-app-session-douyin" || !douyin.AppSessionAvailable || douyin.AppSessionCredentialMode != "app_session" {
+		t.Fatalf("unexpected douyin app session availability: %#v", douyin)
 	}
 
 	for _, rawURL := range []string{
 		"https://www.iesdouyin.com/share/video/123/",
-		"https://www.rednote.com/explore/123",
+	} {
+		result, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest(rawURL))
+		if err != nil {
+			t.Fatalf("prepare douyin alias %s: %v", rawURL, err)
+		}
+		if result.AppSessionID != "site-app-session-douyin" || !result.AppSessionAvailable || result.AppSessionCredentialMode != "app_session" {
+			t.Fatalf("unexpected douyin alias app session for %s: %#v", rawURL, result)
+		}
+	}
+
+	for _, rawURL := range []string{
+		"https://www.xiaohongshu.com/explore/123",
 		"https://xhslink.com/a/example",
+	} {
+		result, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest(rawURL))
+		if err != nil {
+			t.Fatalf("prepare xiaohongshu URL %s: %v", rawURL, err)
+		}
+		if result.AppSessionID != "site-app-session-xiaohongshu" || !result.AppSessionAvailable || result.AppSessionCredentialMode != "app_session" {
+			t.Fatalf("unexpected xiaohongshu app session for %s: %#v", rawURL, result)
+		}
+	}
+
+	for _, rawURL := range []string{
+		"https://www.rednote.com/explore/123",
 	} {
 		result, err := service.PrepareYTDLPDownload(context.Background(), dtoPrepareRequest(rawURL))
 		if err != nil {

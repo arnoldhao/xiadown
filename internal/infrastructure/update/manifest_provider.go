@@ -1,9 +1,11 @@
 package update
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
 	"strings"
@@ -13,7 +15,10 @@ import (
 	"xiadown/internal/domain/dependencies"
 )
 
-const defaultManifestURL = "https://updates.dreamapp.cc/xiadown/manifest.json"
+const (
+	defaultManifestURL   = "https://updates.dreamapp.cc/xiadown/manifest.json"
+	maxManifestBodyBytes = int64(1 << 20)
+)
 
 type ManifestCatalogProvider struct {
 	client         *http.Client
@@ -50,14 +55,14 @@ type manifestDocument struct {
 	ManifestVersion string                     `json:"manifestVersion"`
 	DefaultChannel  string                     `json:"defaultChannel"`
 	UpdatedAt       string                     `json:"updatedAt"`
-	Listen         manifestListen            `json:"listen"`
+	Listen          manifestListen             `json:"listen"`
 	Channels        map[string]manifestChannel `json:"channels"`
 }
 
 type manifestChannel struct {
 	App          *manifestApp                     `json:"app"`
 	Dependencies map[string]manifestDependencyRef `json:"tools"`
-	Listen      manifestListen                  `json:"listen"`
+	Listen       manifestListen                   `json:"listen"`
 }
 
 type manifestSourceRef struct {
@@ -75,6 +80,20 @@ type manifestDownloadSource struct {
 }
 
 type manifestPlatformAsset struct {
+	ArtifactName    string                          `json:"artifactName"`
+	ContentType     string                          `json:"contentType"`
+	Size            int64                           `json:"size"`
+	SHA256          string                          `json:"sha256"`
+	Signature       string                          `json:"signature"`
+	Sources         []manifestDownloadSource        `json:"sources"`
+	InstallStrategy string                          `json:"installStrategy"`
+	ArtifactType    string                          `json:"artifactType"`
+	Binaries        []string                        `json:"binaries"`
+	ExecutableName  string                          `json:"executableName"`
+	Variants        map[string]manifestVariantAsset `json:"variants"`
+}
+
+type manifestVariantAsset struct {
 	ArtifactName    string                   `json:"artifactName"`
 	ContentType     string                   `json:"contentType"`
 	Size            int64                    `json:"size"`
@@ -151,10 +170,34 @@ func (provider *ManifestCatalogProvider) FetchCatalog(ctx context.Context, reque
 	if resp.StatusCode != http.StatusOK {
 		return softwareupdate.Catalog{}, fmt.Errorf("manifest request failed: http %d", resp.StatusCode)
 	}
+	if resp.ContentLength > maxManifestBodyBytes {
+		return softwareupdate.Catalog{}, fmt.Errorf(
+			"manifest response exceeds %d byte limit",
+			maxManifestBodyBytes,
+		)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxManifestBodyBytes+1))
+	if err != nil {
+		return softwareupdate.Catalog{}, fmt.Errorf("read manifest response: %w", err)
+	}
+	if int64(len(body)) > maxManifestBodyBytes {
+		return softwareupdate.Catalog{}, fmt.Errorf(
+			"manifest response exceeds %d byte limit",
+			maxManifestBodyBytes,
+		)
+	}
 
 	var document manifestDocument
-	if err := json.NewDecoder(resp.Body).Decode(&document); err != nil {
-		return softwareupdate.Catalog{}, err
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := decoder.Decode(&document); err != nil {
+		return softwareupdate.Catalog{}, fmt.Errorf("decode manifest response: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return softwareupdate.Catalog{}, fmt.Errorf("decode manifest response: unexpected trailing JSON value")
+		}
+		return softwareupdate.Catalog{}, fmt.Errorf("decode manifest response trailing data: %w", err)
 	}
 
 	channelName := strings.TrimSpace(request.Channel)
@@ -264,6 +307,32 @@ func toSourceRef(source manifestSourceRef) softwareupdate.SourceRef {
 }
 
 func toAsset(asset manifestPlatformAsset) softwareupdate.Asset {
+	converted := toVariantAsset(manifestVariantAsset{
+		ArtifactName:    asset.ArtifactName,
+		ContentType:     asset.ContentType,
+		Size:            asset.Size,
+		SHA256:          asset.SHA256,
+		Signature:       asset.Signature,
+		Sources:         asset.Sources,
+		InstallStrategy: asset.InstallStrategy,
+		ArtifactType:    asset.ArtifactType,
+		Binaries:        asset.Binaries,
+		ExecutableName:  asset.ExecutableName,
+	})
+	if len(asset.Variants) > 0 {
+		converted.Variants = make(map[string]softwareupdate.Asset, len(asset.Variants))
+		for name, variant := range asset.Variants {
+			normalizedName := strings.ToLower(strings.TrimSpace(name))
+			if normalizedName == "" {
+				continue
+			}
+			converted.Variants[normalizedName] = toVariantAsset(variant)
+		}
+	}
+	return converted
+}
+
+func toVariantAsset(asset manifestVariantAsset) softwareupdate.Asset {
 	sources := make([]softwareupdate.DownloadSource, 0, len(asset.Sources))
 	for _, source := range asset.Sources {
 		sources = append(sources, softwareupdate.DownloadSource{

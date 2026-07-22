@@ -1,0 +1,35 @@
+/*
+ * Stable modal surface contract.
+ *
+ * Dialogs and sheets sample the backdrop once at their outer glass surface.
+ * Their header, content, and footer remain layout regions inside that one
+ * material, never separate panels divided by rules. This late contract also
+ * protects the shared recipe from older feature-specific footer borders.
+ */
+:root .app-dialog-content.app-glass-surface
+  > :is(.app-dialog-header, .app-dialog-footer),
+:root .app-sheet-content.app-glass-surface
+  > :is(.app-sheet-header, .app-sheet-footer) {
+  border-block: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ListCard remains a structural clip/group inside a modal. The dialog already
+ * owns the material, so the group must not read as a second card laid on top.
+ * Row dividers and semantic status messages remain available for hierarchy. */
+:root .app-dialog-content.app-glass-surface .app-dialog-list-card,
+:root .app-sheet-content.app-glass-surface .app-dialog-list-card {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (forced-colors: active) {
+  :root .app-dialog-content.app-glass-surface .app-dialog-list-card,
+  :root .app-sheet-content.app-glass-surface .app-dialog-list-card {
+    border: 1px solid CanvasText;
+  }
+}

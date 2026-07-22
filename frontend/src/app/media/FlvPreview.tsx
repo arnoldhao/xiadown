@@ -289,14 +289,14 @@ export function FlvPreview(props: FlvPreviewProps) {
     <div
       ref={shellRef}
       className={cn(
-        "relative flex h-full min-h-0 w-full min-w-0 items-center justify-center overflow-hidden bg-black",
-        screenFullscreen && "fixed inset-0 z-[200] rounded-none",
+        "app-flv-preview-shell relative flex h-full min-h-0 w-full min-w-0 items-center justify-center overflow-hidden",
         props.className,
       )}
+      data-screen-fullscreen={screenFullscreen ? "true" : undefined}
     >
       <video
         ref={videoRef}
-        className="h-full w-full bg-black object-contain"
+        className="app-flv-preview-video h-full w-full object-contain"
         controls
         playsInline
         poster={props.posterUrl}
@@ -306,7 +306,7 @@ export function FlvPreview(props: FlvPreviewProps) {
         type="button"
         variant="ghost"
         size="compactIcon"
-        className="absolute right-2 top-1/2 z-20 h-9 w-9 -translate-y-1/2 rounded-full !bg-black/55 !text-white shadow-lg backdrop-blur hover:!bg-black/75 hover:!text-white focus-visible:!bg-black/75 focus-visible:!text-white"
+        className="app-flv-preview-fullscreen-action absolute right-2 top-1/2 z-20 h-9 w-9 -translate-y-1/2"
         aria-label={fullscreenLabel}
         title={fullscreenLabel}
         disabled={fullscreenDisabled}
@@ -319,16 +319,16 @@ export function FlvPreview(props: FlvPreviewProps) {
         )}
       </Button>
       {loadState === "loading" ? (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35 text-xs font-medium text-white">
-          <span className="inline-flex items-center gap-2 rounded-md bg-black/55 px-3 py-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
+        <div className="app-flv-preview-loading-overlay pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="app-flv-preview-state-chip inline-flex items-center gap-2 px-3 py-2">
+            <Loader2 className="h-4 w-4 app-completed-loading-spinner" />
             {props.labels.loading || props.labels.noPreview}
           </span>
         </div>
       ) : null}
       {loadState === "unavailable" ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/70 px-6 text-center text-xs font-medium text-white">
-          <span className="inline-flex max-w-full items-center gap-2 rounded-md bg-black/55 px-3 py-2">
+        <div className="app-flv-preview-unavailable-overlay absolute inset-0 flex items-center justify-center px-6">
+          <span className="app-flv-preview-state-chip inline-flex max-w-full items-center gap-2 px-3 py-2">
             <VideoOff className="h-4 w-4 shrink-0" />
             <span className="min-w-0 truncate">{unavailableText}</span>
           </span>

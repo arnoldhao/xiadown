@@ -25,34 +25,43 @@ const (
 	ytdlpStreamVariantProbeLimit        = 3
 )
 
+func shouldPreflightYTDLPStream(useResourceDownloadHeaders bool, rawURL string) bool {
+	return useResourceDownloadHeaders || appytdlp.LooksLikeStreamManifestURL(rawURL)
+}
+
 func (service *LibraryService) preflightYTDLPStream(ctx context.Context, rawURL string, headers map[string]string, reporter *ytdlpProgressReporter, operationID string) appytdlp.StreamManifestPreflight {
 	if !appytdlp.LooksLikeStreamManifestURL(rawURL) {
 		return appytdlp.StreamManifestPreflight{}
 	}
+	if err := appytdlp.ValidateNetworkURL(rawURL); err != nil {
+		return appytdlp.StreamManifestPreflight{
+			Kind:              appytdlp.StreamManifestKindFromURL(rawURL),
+			URL:               strings.TrimSpace(rawURL),
+			UnsupportedReason: err.Error(),
+		}
+	}
 	preflightCtx, cancel := context.WithTimeout(ctx, ytdlpStreamPreflightTotalTimeout)
 	defer cancel()
 	reporter.updateDetail("Fetching metadata", progressText("library.progressDetail.checkingStreamManifest"))
-	body, contentType, err := service.fetchYTDLPPreflightURL(preflightCtx, rawURL, headers, ytdlpStreamManifestMaxBytes, ytdlpStreamManifestPreflightTimeout, "manifest")
+	body, contentType, err := service.fetchYTDLPPreflightURL(preflightCtx, rawURL, scopeCapturedRequestHeaders(headers, rawURL, rawURL), ytdlpStreamManifestMaxBytes, ytdlpStreamManifestPreflightTimeout, "manifest")
 	if err != nil {
 		preflight := appytdlp.StreamManifestPreflight{
-			Kind:       appytdlp.StreamManifestKindFromURL(rawURL),
-			URL:        strings.TrimSpace(rawURL),
-			FetchError: err.Error(),
-		}
-		if preflight.Kind == appytdlp.StreamManifestKindHLS {
-			preflight.Strategy = appytdlp.HLSNativeStreamStrategy("hls_preflight_failed")
+			Kind:              appytdlp.StreamManifestKindFromURL(rawURL),
+			URL:               strings.TrimSpace(rawURL),
+			FetchError:        err.Error(),
+			UnsupportedReason: "stream manifest could not be validated before helper execution",
 		}
 		return preflight
 	}
 	preflight := appytdlp.AnalyzeStreamManifest(rawURL, body, contentType, nil)
-	if childPreflight, childBody, childContentType, ok := service.preflightYTDLPHLSMediaPlaylist(preflightCtx, preflight, body, headers, reporter, operationID); ok {
+	if childPreflight, childBody, childContentType, ok := service.preflightYTDLPHLSMediaPlaylist(preflightCtx, preflight, body, headers, rawURL, reporter, operationID); ok {
 		preflight = childPreflight
 		body = childBody
 		contentType = childContentType
 	}
 	if preflight.Kind == appytdlp.StreamManifestKindHLS && strings.EqualFold(preflight.EncryptionType, appytdlp.StreamEncryptionAES128) && strings.TrimSpace(preflight.KeyURI) != "" && !preflight.DRM {
 		reporter.updateDetail("Fetching metadata", progressText("library.progressDetail.checkingStreamKey"))
-		if keyProbe := service.probeYTDLPHLSKey(preflightCtx, preflight, body, headers); keyProbe != nil {
+		if keyProbe := service.probeYTDLPHLSKey(preflightCtx, preflight, body, headers, rawURL); keyProbe != nil {
 			variantQuery := preflight.VariantQuery
 			variantQueryPassthrough := preflight.VariantQueryPassthrough
 			preflight = appytdlp.AnalyzeStreamManifest(preflight.URL, body, contentType, keyProbe)
@@ -64,7 +73,7 @@ func (service *LibraryService) preflightYTDLPStream(ctx context.Context, rawURL 
 	return preflight
 }
 
-func (service *LibraryService) preflightYTDLPHLSMediaPlaylist(ctx context.Context, preflight appytdlp.StreamManifestPreflight, body []byte, headers map[string]string, reporter *ytdlpProgressReporter, operationID string) (appytdlp.StreamManifestPreflight, []byte, string, bool) {
+func (service *LibraryService) preflightYTDLPHLSMediaPlaylist(ctx context.Context, preflight appytdlp.StreamManifestPreflight, body []byte, headers map[string]string, credentialScopeURL string, reporter *ytdlpProgressReporter, operationID string) (appytdlp.StreamManifestPreflight, []byte, string, bool) {
 	if preflight.Kind != appytdlp.StreamManifestKindHLS || !preflight.HasVariants || preflight.SegmentCount > 0 || preflight.IsUnsupported() {
 		return appytdlp.StreamManifestPreflight{}, nil, "", false
 	}
@@ -78,10 +87,11 @@ func (service *LibraryService) preflightYTDLPHLSMediaPlaylist(ctx context.Contex
 		}
 		reporter.updateDetail("Fetching metadata", progressText("library.progressDetail.checkingMediaPlaylist"))
 		childURL := ref
-		childBody, childContentType, err := service.fetchYTDLPPreflightURL(ctx, childURL, headers, ytdlpStreamManifestMaxBytes, ytdlpStreamMediaPlaylistTimeout, "media playlist")
+		childHeaders := scopeCapturedRequestHeaders(headers, credentialScopeURL, childURL)
+		childBody, childContentType, err := service.fetchYTDLPPreflightURL(ctx, childURL, childHeaders, ytdlpStreamManifestMaxBytes, ytdlpStreamMediaPlaylistTimeout, "media playlist")
 		if err != nil {
 			if retryURL, ok := manifestQueryRetryURL(ref, preflight.URL); ok {
-				if retryBody, retryContentType, retryErr := service.fetchYTDLPPreflightURL(ctx, retryURL, headers, ytdlpStreamManifestMaxBytes, ytdlpStreamMediaPlaylistTimeout, "media playlist"); retryErr == nil {
+				if retryBody, retryContentType, retryErr := service.fetchYTDLPPreflightURL(ctx, retryURL, scopeCapturedRequestHeaders(headers, credentialScopeURL, retryURL), ytdlpStreamManifestMaxBytes, ytdlpStreamMediaPlaylistTimeout, "media playlist"); retryErr == nil {
 					childURL = retryURL
 					childBody = retryBody
 					childContentType = retryContentType
@@ -106,7 +116,7 @@ func (service *LibraryService) preflightYTDLPHLSMediaPlaylist(ctx context.Contex
 	return appytdlp.StreamManifestPreflight{}, nil, "", false
 }
 
-func (service *LibraryService) probeYTDLPHLSKey(ctx context.Context, preflight appytdlp.StreamManifestPreflight, manifestBody []byte, headers map[string]string) *appytdlp.StreamKeyProbe {
+func (service *LibraryService) probeYTDLPHLSKey(ctx context.Context, preflight appytdlp.StreamManifestPreflight, manifestBody []byte, headers map[string]string, credentialScopeURL string) *appytdlp.StreamKeyProbe {
 	resolvedURI := appytdlp.ResolveManifestReference(preflight.URL, preflight.KeyURI)
 	if strings.TrimSpace(resolvedURI) == "" {
 		return nil
@@ -117,10 +127,10 @@ func (service *LibraryService) probeYTDLPHLSKey(ctx context.Context, preflight a
 		Method:      preflight.EncryptionType,
 		KeyFormat:   preflight.KeyFormat,
 	}
-	body, _, err := service.fetchYTDLPPreflightURL(ctx, resolvedURI, headers, ytdlpStreamKeyProbeMaxBytes, ytdlpStreamKeyProbeTimeout, "key")
+	body, _, err := service.fetchYTDLPPreflightURL(ctx, resolvedURI, scopeCapturedRequestHeaders(headers, credentialScopeURL, resolvedURI), ytdlpStreamKeyProbeMaxBytes, ytdlpStreamKeyProbeTimeout, "key")
 	if err != nil {
 		if retryURL, ok := manifestQueryRetryURL(resolvedURI, preflight.URL); ok {
-			if retryBody, _, retryErr := service.fetchYTDLPPreflightURL(ctx, retryURL, headers, ytdlpStreamKeyProbeMaxBytes, ytdlpStreamKeyProbeTimeout, "key"); retryErr == nil {
+			if retryBody, _, retryErr := service.fetchYTDLPPreflightURL(ctx, retryURL, scopeCapturedRequestHeaders(headers, credentialScopeURL, retryURL), ytdlpStreamKeyProbeMaxBytes, ytdlpStreamKeyProbeTimeout, "key"); retryErr == nil {
 				body = retryBody
 				err = nil
 				probe.KeyQuery = appytdlp.ManifestRawQuery(preflight.URL)
@@ -138,7 +148,7 @@ func (service *LibraryService) probeYTDLPHLSKey(ctx context.Context, preflight a
 	}
 	probe.LengthBytes = len(body)
 	probe.LooksASCIIHex = appytdlp.LooksLikeASCIIHex(body)
-	selection := service.selectYTDLPHLSKeyMaterial(ctx, preflight, manifestBody, headers, body)
+	selection := service.selectYTDLPHLSKeyMaterial(ctx, preflight, manifestBody, headers, credentialScopeURL, body)
 	if selection.material.KeyHex != "" {
 		probe.NormalizedLengthBytes = selection.material.LengthBytes
 		probe.NormalizedKeySource = selection.material.Source
@@ -167,7 +177,7 @@ type hlsKeyMaterialSelection struct {
 	err           string
 }
 
-func (service *LibraryService) selectYTDLPHLSKeyMaterial(ctx context.Context, preflight appytdlp.StreamManifestPreflight, manifestBody []byte, headers map[string]string, keyBody []byte) hlsKeyMaterialSelection {
+func (service *LibraryService) selectYTDLPHLSKeyMaterial(ctx context.Context, preflight appytdlp.StreamManifestPreflight, manifestBody []byte, headers map[string]string, credentialScopeURL string, keyBody []byte) hlsKeyMaterialSelection {
 	candidates := appytdlp.HLSKeyMaterialCandidatesWithContext(appytdlp.HLSKeyMaterialCandidateContext{
 		ManifestURL:  preflight.URL,
 		ManifestBody: manifestBody,
@@ -186,11 +196,11 @@ func (service *LibraryService) selectYTDLPHLSKeyMaterial(ctx context.Context, pr
 			err: "first media segment was not found",
 		}
 	}
-	encrypted, _, err := service.fetchYTDLPPreflightRange(ctx, segment.URL, headers, segmentRangeStart(segment), 512, ytdlpStreamSegmentProbeTimeout, "segment probe")
+	encrypted, _, err := service.fetchYTDLPPreflightRange(ctx, segment.URL, scopeCapturedRequestHeaders(headers, credentialScopeURL, segment.URL), segmentRangeStart(segment), 512, ytdlpStreamSegmentProbeTimeout, "segment probe")
 	fragmentQuery := ""
 	if err != nil {
 		if retryURL, ok := manifestQueryRetryURL(segment.URL, preflight.URL); ok {
-			if retryEncrypted, _, retryErr := service.fetchYTDLPPreflightRange(ctx, retryURL, headers, segmentRangeStart(segment), 512, ytdlpStreamSegmentProbeTimeout, "segment probe"); retryErr == nil {
+			if retryEncrypted, _, retryErr := service.fetchYTDLPPreflightRange(ctx, retryURL, scopeCapturedRequestHeaders(headers, credentialScopeURL, retryURL), segmentRangeStart(segment), 512, ytdlpStreamSegmentProbeTimeout, "segment probe"); retryErr == nil {
 				encrypted = retryEncrypted
 				err = nil
 				fragmentQuery = appytdlp.ManifestRawQuery(preflight.URL)
@@ -236,6 +246,9 @@ func (service *LibraryService) fetchYTDLPPreflightURL(ctx context.Context, rawUR
 	if label == "" {
 		label = "manifest"
 	}
+	if err := appytdlp.ValidateNetworkURL(rawURL); err != nil {
+		return nil, "", err
+	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, strings.TrimSpace(rawURL), nil)
@@ -250,7 +263,7 @@ func (service *LibraryService) fetchYTDLPPreflightURL(ctx context.Context, rawUR
 		}
 		req.Header.Set(trimmedKey, trimmedValue)
 	}
-	client := service.ytdlpAuxiliaryHTTPClient()
+	client := service.ytdlpPreflightHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
@@ -282,6 +295,9 @@ func (service *LibraryService) fetchYTDLPPreflightRange(ctx context.Context, raw
 	if timeout <= 0 {
 		timeout = ytdlpStreamKeyProbeTimeout
 	}
+	if err := appytdlp.ValidateNetworkURL(rawURL); err != nil {
+		return nil, "", err
+	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, strings.TrimSpace(rawURL), nil)
@@ -290,7 +306,7 @@ func (service *LibraryService) fetchYTDLPPreflightRange(ctx context.Context, raw
 	}
 	applyResourceRequestHeaders(req, headers)
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, start+limit-1))
-	client := service.ytdlpAuxiliaryHTTPClient()
+	client := service.ytdlpPreflightHTTPClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
@@ -307,6 +323,28 @@ func (service *LibraryService) fetchYTDLPPreflightRange(ctx context.Context, raw
 		return nil, resp.Header.Get("Content-Type"), err
 	}
 	return data, resp.Header.Get("Content-Type"), nil
+}
+
+func (service *LibraryService) ytdlpPreflightHTTPClient() *http.Client {
+	base := service.ytdlpAuxiliaryHTTPClient()
+	client := *base
+	previousCheckRedirect := client.CheckRedirect
+	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if err := enforceCredentialSafeRedirect(request, via); err != nil {
+			return err
+		}
+		if request == nil || request.URL == nil {
+			return appytdlp.ErrUnsupportedNetworkURL
+		}
+		if err := appytdlp.ValidateNetworkURL(request.URL.String()); err != nil {
+			return err
+		}
+		if previousCheckRedirect != nil {
+			return previousCheckRedirect(request, via)
+		}
+		return nil
+	}
+	return &client
 }
 
 func manifestQueryRetryURL(rawURL string, manifestURL string) (string, bool) {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -62,6 +63,13 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 	if err != nil {
 		return dto.OnlinePetImportSession{}, err
 	}
+	browserArgs, networkRoute, err := service.onlinePetBrowserOptions()
+	if err != nil {
+		return dto.OnlinePetImportSession{}, newPetError(
+			petErrorCodeOnlineNetworkUnavailable,
+			"the managed network gateway is unavailable",
+		)
+	}
 
 	downloadDir, err := os.MkdirTemp("", "xiadown-pet-download-*")
 	if err != nil {
@@ -77,7 +85,8 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 		PreferredBrowser: service.preferredBrowser(ctx),
 		Headless:         false,
 		UserDataDir:      userDataDir,
-		ExtraArgs:        []string{"--disable-popup-blocking"},
+		ExtraArgs:        browserArgs,
+		NetworkRoute:     networkRoute,
 	})
 	if err != nil {
 		_ = os.RemoveAll(downloadDir)
@@ -120,19 +129,41 @@ func (service *Service) StartOnlinePetImport(ctx context.Context, request dto.St
 	service.listenOnlinePetDownloads(session.ID, runtime, downloadDir)
 	service.watchOnlinePetImportTarget(session.ID, runtime, session.TargetID)
 	service.startOnlinePetImportMonitor(session.ID)
-	go service.navigateOnlinePetImportSession(session.ID, tabCtx, siteURL)
+	go service.navigateOnlinePetImportSession(session.ID, runtime, tabCtx, siteURL)
 	return service.snapshotOnlinePetImportSession(session.ID), nil
 }
 
+func (service *Service) onlinePetBrowserOptions() ([]string, *browsercdp.ManagedNetworkRoute, error) {
+	arguments := []string{"--disable-popup-blocking"}
+	if service == nil || service.networkGateway == nil {
+		return nil, nil, fmt.Errorf("network gateway provider is unavailable")
+	}
+	gateway := strings.TrimSpace(service.networkGateway.ConsumerProxyURL())
+	parsed, err := url.Parse(gateway)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "http") || parsed.User != nil || parsed.Port() == "" {
+		return nil, nil, fmt.Errorf("network gateway URL is invalid")
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return nil, nil, fmt.Errorf("network gateway is not loopback")
+	}
+	attestationURL, attestationToken := service.networkGateway.ConsumerProxyAttestation()
+	if strings.TrimSpace(attestationURL) == "" || strings.TrimSpace(attestationToken) == "" {
+		return nil, nil, fmt.Errorf("network gateway attestation is unavailable")
+	}
+	return arguments, &browsercdp.ManagedNetworkRoute{
+		ProxyURL:         gateway,
+		AttestationURL:   strings.TrimSpace(attestationURL),
+		AttestationToken: strings.TrimSpace(attestationToken),
+	}, nil
+}
+
 func (service *Service) preferredBrowser(ctx context.Context) string {
-	if service == nil || service.settingsReader == nil {
-		return ""
-	}
-	current, err := service.settingsReader.GetSettings(ctx)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(current.SniffBrowser)
+	// Browser selection is operation-scoped. Online pet import currently has no
+	// browser picker, so let browsercdp auto-detect instead of reviving the
+	// retired persisted SniffBrowser preference.
+	return ""
 }
 
 func (service *Service) GetOnlinePetImportSession(_ context.Context, request dto.GetOnlinePetImportSessionRequest) (dto.OnlinePetImportSession, error) {
@@ -293,8 +324,12 @@ func cancelOnlinePetImportContextAsync(_ string, cancel context.CancelFunc) {
 	}()
 }
 
-func (service *Service) navigateOnlinePetImportSession(sessionID string, tabCtx context.Context, siteURL string) {
-	if tabCtx == nil {
+func (service *Service) navigateOnlinePetImportSession(sessionID string, runtime *browsercdp.Runtime, tabCtx context.Context, siteURL string) {
+	if tabCtx == nil || runtime == nil {
+		return
+	}
+	if err := runtime.VerifyNetworkRoute(tabCtx); err != nil {
+		service.failOnlinePetImportSession(sessionID, err)
 		return
 	}
 	if err := chromedp.Run(tabCtx, chromedp.Navigate(siteURL)); err != nil {

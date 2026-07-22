@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -131,7 +132,7 @@ func TestBuildCommandUsesExplicitToolArgsWithoutMutatingPATH(t *testing.T) {
 	}
 }
 
-func TestBuildCommandAddsSafeCapturedHeaders(t *testing.T) {
+func TestBuildCommandKeepsSensitiveCapturedHeadersOffProcessArgs(t *testing.T) {
 	t.Parallel()
 
 	tempDir := t.TempDir()
@@ -142,13 +143,19 @@ func TestBuildCommandAddsSafeCapturedHeaders(t *testing.T) {
 		},
 		OutputTemplate: filepath.Join(tempDir, "downloads", "%(title)s.%(ext)s"),
 		Headers: map[string]string{
-			"Referer":        "https://page.example/watch",
-			"User-Agent":     "TestAgent",
-			"Cookie":         "sid=1",
-			"Range":          "bytes=0-1",
-			"Content-Length": "2",
-			"Sec-Fetch-Site": "same-origin",
-			"Sec-CH-UA":      `"Chromium";v="129"`,
+			"Referer":         "https://Page.Example:443/watch?token=REFERER-CANARY",
+			"Origin":          "https://Page.Example:443/private/path",
+			"User-Agent":      "TestAgent",
+			"Accept":          "video/*",
+			"Cookie":          "sid=COOKIE-ARGV-CANARY",
+			"Authorization":   "Bearer AUTH-ARGV-CANARY",
+			"X-CSRF-Token":    "CSRF-ARGV-CANARY",
+			"X-Session-Token": "SESSION-ARGV-CANARY",
+			"Priority":        "UNKNOWN-ARGV-CANARY",
+			"Range":           "bytes=0-1",
+			"Content-Length":  "2",
+			"Sec-Fetch-Site":  "same-origin",
+			"Sec-CH-UA":       `"Chromium";v="129"`,
 		},
 	})
 	if err != nil {
@@ -161,17 +168,26 @@ func TestBuildCommandAddsSafeCapturedHeaders(t *testing.T) {
 
 	argsJoined := strings.Join(command.Args, "\n")
 	for _, expected := range []string{
-		"--add-header\nReferer: https://page.example/watch",
+		"--add-header\nReferer: https://page.example/",
+		"--add-header\nOrigin: https://page.example",
 		"--add-header\nUser-Agent: TestAgent",
-		"--add-header\nCookie: sid=1",
+		"--add-header\nAccept: video/*",
 	} {
 		if !strings.Contains(argsJoined, expected) {
 			t.Fatalf("expected captured header args to contain %q, got %v", expected, command.Args)
 		}
 	}
-	for _, forbidden := range []string{"Range:", "Content-Length:", "Sec-Fetch-Site:", "Sec-CH-UA:"} {
+	for _, forbidden := range []string{
+		"Cookie:", "Authorization:", "X-CSRF-Token:", "X-Session-Token:", "Priority:",
+		"COOKIE-ARGV-CANARY", "AUTH-ARGV-CANARY", "CSRF-ARGV-CANARY", "SESSION-ARGV-CANARY",
+		"UNKNOWN-ARGV-CANARY", "REFERER-CANARY",
+		"Range:", "Content-Length:", "Sec-Fetch-Site:", "Sec-CH-UA:",
+	} {
 		if strings.Contains(argsJoined, forbidden) {
 			t.Fatalf("expected unsafe header %q to be omitted, got %v", forbidden, command.Args)
+		}
+		if strings.Contains(strings.Join(command.SanitizedArgs, "\n"), forbidden) {
+			t.Fatalf("expected sanitized args to omit %q, got %v", forbidden, command.SanitizedArgs)
 		}
 	}
 }
@@ -242,16 +258,160 @@ func TestBuildCommandAddsFormatSortForBitrateQuality(t *testing.T) {
 	if !strings.Contains(argsJoined, "-S\nres,br") {
 		t.Fatalf("expected bitrate quality to include format sort, got %v", command.Args)
 	}
-	hasFormatArg := false
-	for _, arg := range command.Args {
-		if arg == "-f" {
-			hasFormatArg = true
-			break
+	if !strings.Contains(argsJoined, "-f\n"+ytdlpDefaultNetworkFormatSelector()) {
+		t.Fatalf("expected bitrate quality to use the network-safe default selector, got %v", command.Args)
+	}
+}
+
+func TestBuildCommandRestrictsEverySelectedFormatProtocol(t *testing.T) {
+	t.Parallel()
+
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: os.Args[0],
+		Request: dto.CreateYTDLPJobRequest{
+			URL: "https://example.com/watch?v=1",
+		},
+		OutputTemplate: filepath.Join(t.TempDir(), "%(title)s.%(ext)s"),
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	defer command.Cancel()
+	defer command.Cleanup()
+
+	want := "bv*" + ytdlpAllowedFormatProtocolFilter +
+		"+ba" + ytdlpAllowedFormatProtocolFilter +
+		"/b" + ytdlpAllowedFormatProtocolFilter
+	if got := argumentValue(command.Args, "-f"); got != want {
+		t.Fatalf("format selector = %q, want %q", got, want)
+	}
+}
+
+func TestAllNetworkBuildersStartWithHermeticPolicy(t *testing.T) {
+	t.Parallel()
+
+	request := dto.CreateYTDLPJobRequest{URL: "https://example.com/watch?v=1"}
+	tests := map[string][]string{
+		"download": BuildArgs(request, "output.%(ext)s", "", "/tmp/cookies.txt", nil, "http://127.0.0.1:7890", nil, 1, StreamDownloadStrategy{}),
+		"subtitle": BuildSubtitleArgs(request, "output.%(ext)s", "subtitle.%(ext)s", "/tmp/cookies.txt", nil, "http://127.0.0.1:7890", nil),
+		"info": BuildInfoArgs(InfoOptions{
+			URL:         request.URL,
+			CookiesPath: "/tmp/cookies.txt",
+			ProxyURL:    "http://127.0.0.1:7890",
+		}, nil),
+	}
+	want := hermeticYTDLPArgs()
+	for name, args := range tests {
+		name, args := name, args
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if len(args) < len(want) {
+				t.Fatalf("args too short: %v", args)
+			}
+			for index := range want {
+				if args[index] != want[index] {
+					t.Fatalf("hermetic prefix = %v, want %v; full args: %v", args[:len(want)], want, args)
+				}
+			}
+		})
+	}
+}
+
+func TestYTDLPFormatProtocolPolicyAllowsOnlyManagedNetworkFormats(t *testing.T) {
+	t.Parallel()
+
+	policy := regexp.MustCompile(ytdlpAllowedFormatProtocolPattern)
+	for _, protocol := range []string{"http", "https", "m3u8", "m3u8_native", "http_dash_segments"} {
+		if !policy.MatchString(protocol) {
+			t.Errorf("expected protocol %q to be allowed", protocol)
 		}
 	}
-	if hasFormatArg {
-		t.Fatalf("expected bitrate quality to keep yt-dlp default format selector, got %v", command.Args)
+	for _, protocol := range []string{"", "rtmp", "rtmps", "rtsp", "rtsps", "srt", "udp", "tcp", "file", "ftp", "mms", "data"} {
+		if policy.MatchString(protocol) {
+			t.Errorf("expected protocol %q to be rejected", protocol)
+		}
 	}
+}
+
+func TestBuildCommandRestrictsExplicitFormatIDsWithoutSelectorInjection(t *testing.T) {
+	t.Parallel()
+
+	videoID := `video]+all[protocol=rtmp]`
+	audioID := `audio'with\\quote`
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath: os.Args[0],
+		Request: dto.CreateYTDLPJobRequest{
+			URL:           "https://example.com/watch?v=1",
+			FormatID:      videoID,
+			AudioFormatID: audioID,
+		},
+		OutputTemplate: filepath.Join(t.TempDir(), "%(title)s.%(ext)s"),
+	})
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	defer command.Cancel()
+	defer command.Cleanup()
+
+	want := ytdlpExactNetworkFormatSelector(videoID) + "+" + ytdlpExactNetworkFormatSelector(audioID)
+	if got := argumentValue(command.Args, "-f"); got != want {
+		t.Fatalf("format selector = %q, want %q", got, want)
+	}
+}
+
+func TestBuildCommandsRejectNonHTTPOrCredentialedInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"",
+		"example.com/video",
+		"file:///tmp/video.mp4",
+		"ftp://example.com/video",
+		"rtmp://example.com/live",
+		"rtsp://example.com/live",
+		"srt://example.com:9000",
+		"udp://example.com:9000",
+		"tcp://example.com:9000",
+		"https://user:secret@example.com/video",
+	}
+	for _, rawURL := range tests {
+		rawURL := rawURL
+		t.Run(rawURL, func(t *testing.T) {
+			t.Parallel()
+			options := CommandOptions{
+				ExecPath:       os.Args[0],
+				Request:        dto.CreateYTDLPJobRequest{URL: rawURL},
+				OutputTemplate: filepath.Join(t.TempDir(), "%(title)s.%(ext)s"),
+			}
+			if _, err := BuildCommand(context.Background(), options); err == nil || !strings.Contains(err.Error(), "HTTP(S)") {
+				t.Fatalf("BuildCommand(%q) error = %v", rawURL, err)
+			}
+			if _, err := BuildSubtitleCommand(context.Background(), options); err == nil || !strings.Contains(err.Error(), "HTTP(S)") {
+				t.Fatalf("BuildSubtitleCommand(%q) error = %v", rawURL, err)
+			}
+		})
+	}
+}
+
+func TestFetchInfoRejectsNonHTTPInputBeforeStartingHelper(t *testing.T) {
+	t.Parallel()
+
+	_, err := FetchInfo(context.Background(), InfoOptions{
+		ExecPath: "/path/that/must/not/be/started",
+		URL:      "file:///tmp/info.json",
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP(S)") {
+		t.Fatalf("FetchInfo error = %v", err)
+	}
+}
+
+func argumentValue(args []string, name string) string {
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == name {
+			return args[index+1]
+		}
+	}
+	return ""
 }
 
 func TestBuildCommandLimitsQuickPlaylistToFirstItem(t *testing.T) {
@@ -484,5 +644,83 @@ func TestBuildInfoArgsUsesFlatPlaylistDumpSingleJSON(t *testing.T) {
 	}
 	if strings.Contains(argsJoined, "--no-playlist") || strings.Contains(argsJoined, "--dump-json") {
 		t.Fatalf("expected flat playlist info args to avoid single-video flags, got %v", args)
+	}
+}
+
+func TestExplicitManagedProxyReplacesInheritedProxyBypasses(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:2")
+	t.Setenv("ALL_PROXY", "socks5://127.0.0.1:3")
+	t.Setenv("NO_PROXY", "localhost,127.0.0.1,.internal")
+	proxyURL := "http://127.0.0.1:43199"
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath:       os.Args[0],
+		Request:        dto.CreateYTDLPJobRequest{URL: "https://example.com/video"},
+		OutputTemplate: filepath.Join(t.TempDir(), "%(title)s.%(ext)s"),
+		ProxyURL:       proxyURL,
+		// The normal App gateway must be authoritative too; this is deliberately
+		// not a public-API RestrictedProxy job.
+		RestrictedProxy: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer command.Cancel()
+	defer command.Cleanup()
+	environment := make(map[string]string)
+	for _, item := range command.Cmd.Env {
+		key, value, found := strings.Cut(item, "=")
+		if found {
+			environment[key] = value
+		}
+	}
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		if environment[key] != proxyURL {
+			t.Fatalf("%s = %q, want restricted proxy %q", key, environment[key], proxyURL)
+		}
+	}
+	if environment["NO_PROXY"] != "" || environment["no_proxy"] != "" {
+		t.Fatalf("no-proxy bypass survived: upper=%q lower=%q", environment["NO_PROXY"], environment["no_proxy"])
+	}
+	if !strings.Contains(strings.Join(command.Args, "\n"), "--proxy\n"+proxyURL) {
+		t.Fatalf("explicit restricted proxy missing from args: %v", command.Args)
+	}
+}
+
+func TestBuildCommandSanitizesYTDLPPluginAndPythonEnvironment(t *testing.T) {
+	t.Setenv("PYTHONHOME", "/tmp/attacker-python")
+	t.Setenv("PYTHONPATH", "/tmp/attacker-modules")
+	t.Setenv("PYTHONSTARTUP", "/tmp/startup.py")
+	t.Setenv("PYTHONINSPECT", "1")
+	t.Setenv("PYTHONUSERBASE", "/tmp/user-site")
+	t.Setenv("YTDLP_NO_PLUGINS", "0")
+
+	command, err := BuildCommand(context.Background(), CommandOptions{
+		ExecPath:       os.Args[0],
+		Request:        dto.CreateYTDLPJobRequest{URL: "https://example.com/video"},
+		OutputTemplate: filepath.Join(t.TempDir(), "%(title)s.%(ext)s"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer command.Cancel()
+	defer command.Cleanup()
+
+	environment := make(map[string]string)
+	for _, item := range command.Cmd.Env {
+		key, value, found := strings.Cut(item, "=")
+		if found {
+			environment[strings.ToUpper(key)] = value
+		}
+	}
+	for _, key := range []string{"PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE"} {
+		if _, found := environment[key]; found {
+			t.Fatalf("ambient %s survived hermetic environment", key)
+		}
+	}
+	for _, key := range []string{"PYTHONNOUSERSITE", "PYTHONSAFEPATH", "YTDLP_NO_PLUGINS"} {
+		if environment[key] != "1" {
+			t.Fatalf("%s = %q, want 1", key, environment[key])
+		}
 	}
 }

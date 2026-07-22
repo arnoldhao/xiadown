@@ -6,35 +6,57 @@ import {
   DropdownMenuContent as BaseDropdownMenuContent,
   DropdownMenuItem as BaseDropdownMenuItem,
   DropdownMenuCheckboxItem as BaseDropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup as BaseDropdownMenuRadioGroup,
+  DropdownMenuRadioItem as BaseDropdownMenuRadioItem,
   DropdownMenuLabel as BaseDropdownMenuLabel,
   DropdownMenuSeparator as BaseDropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { getXiaSurfaceAttributes } from "@/shared/ui/surface-contract";
 
 const DropdownMenu = BaseDropdownMenu;
 const DropdownMenuTrigger = BaseDropdownMenuTrigger;
+
+export const APP_DROPDOWN_MENU_ITEM_TONES = [
+  "neutral",
+  "destructive",
+] as const;
+export type AppDropdownMenuItemTone =
+  (typeof APP_DROPDOWN_MENU_ITEM_TONES)[number];
 
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof BaseDropdownMenuContent>,
   React.ComponentPropsWithoutRef<typeof BaseDropdownMenuContent>
 >(({ className, sideOffset = 6, ...props }, ref) => (
   <BaseDropdownMenuContent
+    {...props}
     ref={ref}
     sideOffset={sideOffset}
-    className={cn("app-menu-content app-motion-surface text-[13px]", className)}
-    {...props}
+    className={cn(
+      "app-glass-surface app-menu-content app-motion-surface",
+      className,
+    )}
+    data-menu-part="content"
+    data-elevation="floating"
+    data-shape="control"
+    data-tint="neutral"
+    {...getXiaSurfaceAttributes("overlay")}
   />
 ));
 DropdownMenuContent.displayName = "DropdownMenuContent";
 
 const DropdownMenuItem = React.forwardRef<
   React.ElementRef<typeof BaseDropdownMenuItem>,
-  React.ComponentPropsWithoutRef<typeof BaseDropdownMenuItem>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof BaseDropdownMenuItem> & {
+    tone?: AppDropdownMenuItemTone;
+  }
+>(({ className, tone = "neutral", ...props }, ref) => (
   <BaseDropdownMenuItem
-    ref={ref}
-    className={cn("app-menu-item app-motion-color text-[13px] leading-[1.35]", className)}
     {...props}
+    ref={ref}
+    className={cn("app-menu-item app-motion-color", className)}
+    data-menu-part="item"
+    data-tone={tone}
   />
 ));
 DropdownMenuItem.displayName = "DropdownMenuItem";
@@ -44,21 +66,38 @@ const DropdownMenuCheckboxItem = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof BaseDropdownMenuCheckboxItem>
 >(({ className, ...props }, ref) => (
   <BaseDropdownMenuCheckboxItem
-    ref={ref}
-    className={cn("app-menu-item app-motion-color text-[13px] leading-[1.35]", className)}
     {...props}
+    ref={ref}
+    className={cn("app-menu-item app-motion-color", className)}
+    data-menu-part="checkbox-item"
   />
 ));
 DropdownMenuCheckboxItem.displayName = "DropdownMenuCheckboxItem";
+
+const DropdownMenuRadioGroup = BaseDropdownMenuRadioGroup;
+
+const DropdownMenuRadioItem = React.forwardRef<
+  React.ElementRef<typeof BaseDropdownMenuRadioItem>,
+  React.ComponentPropsWithoutRef<typeof BaseDropdownMenuRadioItem>
+>(({ className, ...props }, ref) => (
+  <BaseDropdownMenuRadioItem
+    {...props}
+    ref={ref}
+    className={cn("app-menu-item app-menu-item--radio app-motion-color", className)}
+    data-menu-part="radio-item"
+  />
+));
+DropdownMenuRadioItem.displayName = "DropdownMenuRadioItem";
 
 const DropdownMenuLabel = React.forwardRef<
   React.ElementRef<typeof BaseDropdownMenuLabel>,
   React.ComponentPropsWithoutRef<typeof BaseDropdownMenuLabel>
 >(({ className, ...props }, ref) => (
   <BaseDropdownMenuLabel
-    ref={ref}
-    className={cn("app-menu-label text-[11px] font-semibold uppercase tracking-[0.08em]", className)}
     {...props}
+    ref={ref}
+    className={cn("app-menu-label", className)}
+    data-menu-part="label"
   />
 ));
 DropdownMenuLabel.displayName = "DropdownMenuLabel";
@@ -79,7 +118,13 @@ function DropdownMenuShortcut({
   className,
   ...props
 }: React.HTMLAttributes<HTMLSpanElement>) {
-  return <span className={cn("app-menu-shortcut text-[11px] tracking-[0.08em]", className)} {...props} />;
+  return (
+    <span
+      {...props}
+      className={cn("app-menu-shortcut", className)}
+      data-menu-part="shortcut"
+    />
+  );
 }
 
 export {
@@ -88,6 +133,8 @@ export {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuShortcut,

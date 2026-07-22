@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
@@ -33,6 +34,75 @@ func AttachOrCreatePageTarget(runtime *Runtime, waitTimeout time.Duration) (cont
 		attachTimeout = 5 * time.Second
 	}
 	return attachPageTarget(runtime, targetID, attachTimeout)
+}
+
+// AttachBorrowedPageTarget attaches to an existing user-owned Chrome tab and
+// returns a detach-only cancel function. chromedp normally closes every target
+// attached with WithTargetID when its context is canceled, which is correct for
+// targets an automation runtime owns but must never happen to a user's tab.
+func AttachBorrowedPageTarget(runtime *Runtime, targetID string, attachTimeout time.Duration) (context.Context, context.CancelFunc, string, error) {
+	if runtime == nil || !runtime.IsBorrowed() {
+		return nil, nil, "", errors.New("borrowed browser runtime unavailable")
+	}
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return nil, nil, "", errors.New("borrowed page target unavailable")
+	}
+	infoCtx, infoCancel, err := RuntimeBrowserExecutorContext(runtime, attachTimeout)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	targetInfo, infoErr := targetpkg.GetTargetInfo().WithTargetID(targetpkg.ID(targetID)).Do(infoCtx)
+	infoCancel()
+	if infoErr != nil {
+		return nil, nil, "", wrapRuntimeHangError(infoErr)
+	}
+	if !runtime.BorrowedPageTargetInScope(targetInfo) {
+		return nil, nil, "", errors.New("borrowed page target is outside the selected profile")
+	}
+	parent := runtime.BrowserContext()
+	if parent == nil {
+		return nil, nil, "", errors.New("borrowed browser context unavailable")
+	}
+	// Page contexts must outlive request-scoped callers long enough for their
+	// detach-only cleanup to run. Runtime.Stop owns the websocket lifetime.
+	tabCtx, rawCancel := chromedp.NewContext(context.WithoutCancel(parent), chromedp.WithTargetID(targetpkg.ID(targetID)))
+	detachOnlyCancel := borrowedTargetDetachOnlyCancel(tabCtx, rawCancel)
+	if err := runPageTargetAttach(tabCtx, detachOnlyCancel, attachTimeout); err != nil {
+		detachOnlyCancel()
+		return nil, nil, "", wrapRuntimeHangError(err)
+	}
+	var stopID uint64
+	var stopOnce sync.Once
+	registeredCancel := func() {
+		stopOnce.Do(func() {
+			runtime.unregisterBorrowedTargetStop(stopID)
+			detachOnlyCancel()
+		})
+	}
+	var registered bool
+	stopID, registered = runtime.registerBorrowedTargetStop(registeredCancel)
+	if !registered {
+		detachOnlyCancel()
+		return nil, nil, "", errors.New("borrowed browser runtime stopped while attaching target")
+	}
+	return tabCtx, registeredCancel, targetID, nil
+}
+
+func borrowedTargetDetachOnlyCancel(tabCtx context.Context, rawCancel context.CancelFunc) context.CancelFunc {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			// NewContext's cleanup first detaches SessionID, then closes TargetID.
+			// Clear only TargetID so it still detaches but skips CloseTarget.
+			if chromeCtx := chromedp.FromContext(tabCtx); chromeCtx != nil && chromeCtx.Target != nil {
+				chromeCtx.Target.TargetID = ""
+			}
+			if rawCancel != nil {
+				rawCancel()
+			}
+		})
+	}
 }
 
 func attachPageTarget(runtime *Runtime, targetID string, attachTimeout time.Duration) (context.Context, context.CancelFunc, string, error) {

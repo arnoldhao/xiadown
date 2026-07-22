@@ -46,17 +46,24 @@ export interface SystemProxyInfo {
 }
 
 export interface SniffProfileInfo {
+  profileId: string;
+  displayName: string;
   browser: string;
+  isDefault?: boolean;
+  redundant?: boolean;
   exists: boolean;
   sizeBytes: number;
   fileCount: number;
   directoryCount: number;
+  lastUsedAt?: string;
   truncated?: boolean;
   error?: string;
 }
 
 export interface SniffProfileRequest {
+  profileId?: string;
   browser?: string;
+  displayName?: string;
 }
 
 export interface Settings {

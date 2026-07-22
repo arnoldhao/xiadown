@@ -12,12 +12,14 @@ vars:
   BIN_DIR: "bin"
   VITE_HOST: '{{.WAILS_VITE_HOST | default "127.0.0.1"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # The Wails CLI passes GOOS/ARCH into this root task for cross builds.
+  GOOS: '{{.GOOS | default OS}}'
 
 tasks:
   build:
     summary: Builds the application
     cmds:
-      - task: "{{OS}}:build"
+      - task: "{{.GOOS}}:build"
 
   test:
     summary: Runs Go tests
@@ -32,12 +34,12 @@ tasks:
   package:
     summary: Packages a production build of the application
     cmds:
-      - task: "{{OS}}:package"
+      - task: "{{.GOOS}}:package"
 
   run:
     summary: Runs the application
     cmds:
-      - task: "{{OS}}:run"
+      - task: "{{.GOOS}}:run"
 
   dev:
     summary: Runs the application in development mode

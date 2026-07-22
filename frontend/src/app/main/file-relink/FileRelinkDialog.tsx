@@ -2,7 +2,7 @@ import { Check, CheckCircle2, FolderOpen, Loader2, Trash2 } from "lucide-react";
 import * as React from "react";
 
 import { getXiaText } from "@/features/xiadown/shared";
-import { cn } from "@/lib/utils";
+import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import {
   Dialog,
@@ -16,6 +16,7 @@ import {
 import { formatBytes } from "@/shared/utils/formatBytes";
 import { getPathBaseName } from "@/shared/utils/resourceHelpers";
 import type { LibraryRelinkMatchDTO, MissingLibraryFileDTO } from "@/shared/contracts/library";
+import { StatusBadge } from "@/shared/ui/status-badge";
 
 export function FileRelinkDialog(props: {
   open: boolean;
@@ -53,25 +54,25 @@ export function FileRelinkDialog(props: {
       <DialogContent
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
-        className="grid max-h-[min(38rem,calc(100vh-2rem))] w-[min(42rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
+        className="app-file-relink-dialog grid max-w-none overflow-hidden"
       >
         <DialogHeader>
-          <DialogTitle className="text-left">{props.text.completed.relinkDialogTitle}</DialogTitle>
+          <DialogTitle className="app-file-relink-dialog-title">{props.text.completed.relinkDialogTitle}</DialogTitle>
         </DialogHeader>
         <div className="min-h-0">
           {props.loading ? (
-            <div className="flex min-h-48 items-center justify-center text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
+            <div className="app-file-relink-feedback flex min-h-48 items-center justify-center">
+              <Loader2 className="h-5 w-5 app-motion-spin" />
             </div>
           ) : props.missing.length === 0 ? (
-            <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-muted-foreground">
+            <div className="app-file-relink-feedback flex min-h-48 flex-col items-center justify-center gap-3">
               <CheckCircle2 className="h-8 w-8" />
-              <div className="text-sm">{props.text.completed.relinkNoMissing}</div>
+              <div>{props.text.completed.relinkNoMissing}</div>
             </div>
           ) : (
             <>
-              <DialogListCard className="max-h-[min(24rem,calc(100vh-13rem))] overflow-hidden shadow-none">
-                <div className="app-file-relink-scroll-area max-h-[min(24rem,calc(100vh-13rem))]">
+              <DialogListCard className="app-file-relink-list overflow-hidden">
+                <div className="app-file-relink-scroll-area">
                   <DialogListCardContent>
                     {props.missing.map((file, index) => (
                       <FileRelinkRow
@@ -95,7 +96,7 @@ export function FileRelinkDialog(props: {
                   onClick={props.onScanFolder}
                 >
                   {props.scanning ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 app-motion-spin" />
                   ) : (
                     <FolderOpen className="h-4 w-4" />
                   )}
@@ -108,7 +109,7 @@ export function FileRelinkDialog(props: {
                   disabled={!applyEnabled}
                   onClick={props.onApplyMatches}
                 >
-                  {props.relinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  {props.relinking ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <Check className="h-4 w-4" />}
                   {props.text.completed.relinkApply}
                 </Button>
                 <Button
@@ -118,7 +119,7 @@ export function FileRelinkDialog(props: {
                   disabled={busy}
                   onClick={props.onClearMissing}
                 >
-                  {props.clearing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  {props.clearing ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <Trash2 className="h-4 w-4" />}
                   {props.clearConfirming ? props.confirmClearLabel : props.clearLabel}
                 </Button>
               </div>
@@ -147,40 +148,35 @@ function FileRelinkRow(props: {
   const title = hasNewPath
     ? props.selectedPath
     : props.file.name || getPathBaseName(props.file.oldPath);
-  const statusClassName = props.scanning
-    ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+  const statusTone = props.scanning
+    ? "busy"
     : hasNewPath
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-      : "bg-destructive/10 text-destructive";
+      ? "success"
+      : "danger";
   const sizeLabel =
     props.match?.sizeBytes || props.file.sizeBytes
       ? formatBytes(props.match?.sizeBytes ?? props.file.sizeBytes)
       : "";
 
   return (
-    <DialogRow
-      className={cn("block p-0", props.divider ? "border-t border-border/60" : "")}
-    >
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5">
+    <DialogRow className="app-file-relink-row block p-0" data-divider={props.divider || undefined}>
+      <div className="app-file-relink-grid grid min-w-0 items-center gap-3 px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span
-            className={cn(
-              "shrink-0 rounded-md px-1.5 py-0.5 text-2xs font-medium",
-              statusClassName,
-            )}
+          <StatusBadge
+            tone={statusTone}
+            icon={props.scanning ? <Loader2 className="app-motion-spin" /> : undefined}
           >
-            {props.scanning ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> : null}
             {statusLabel}
-          </span>
-          <span className="min-w-0 truncate text-sm font-medium" title={title}>
+          </StatusBadge>
+          <span className="app-file-relink-title min-w-0 truncate" title={title}>
             {title}
           </span>
         </div>
-        <div className="flex shrink-0 items-center justify-end gap-2 text-xs text-muted-foreground">
+        <div className="app-file-relink-meta flex shrink-0 items-center justify-end gap-2">
           {props.file.format ? (
-            <span className="rounded-md bg-muted px-1.5 py-0.5 uppercase">
+            <Badge variant="subtle" className="app-file-relink-format">
               {props.file.format}
-            </span>
+            </Badge>
           ) : null}
           {sizeLabel ? <span>{sizeLabel}</span> : null}
         </div>

@@ -9,21 +9,16 @@ import (
 )
 
 type UpdateHandler struct {
-	service   *appupdate.Service
-	telemetry updateTelemetry
-	quitter   appQuitter
-}
-
-type updateTelemetry interface {
-	TrackUpdateReadyToRestart(ctx context.Context, latestVersion string)
+	service *appupdate.Service
+	quitter appQuitter
 }
 
 type appQuitter interface {
 	Quit()
 }
 
-func NewUpdateHandler(service *appupdate.Service, telemetry updateTelemetry, quitter appQuitter) *UpdateHandler {
-	return &UpdateHandler{service: service, telemetry: telemetry, quitter: quitter}
+func NewUpdateHandler(service *appupdate.Service, quitter appQuitter) *UpdateHandler {
+	return &UpdateHandler{service: service, quitter: quitter}
 }
 
 func (handler *UpdateHandler) ServiceName() string {
@@ -43,15 +38,7 @@ func (handler *UpdateHandler) CheckForUpdate(ctx context.Context, currentVersion
 }
 
 func (handler *UpdateHandler) DownloadUpdate(ctx context.Context) (update.Info, error) {
-	info, err := handler.service.DownloadUpdate(ctx)
-	if err == nil && handler.telemetry != nil && info.Status == update.StatusReadyToRestart {
-		latestVersion := info.PreparedVersion
-		if latestVersion == "" {
-			latestVersion = info.LatestVersion
-		}
-		handler.telemetry.TrackUpdateReadyToRestart(ctx, latestVersion)
-	}
-	return info, err
+	return handler.service.DownloadUpdate(ctx)
 }
 
 func (handler *UpdateHandler) RestartToApply(ctx context.Context) (update.Info, error) {

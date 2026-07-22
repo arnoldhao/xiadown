@@ -3,6 +3,7 @@ package browsercdp
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,10 +25,15 @@ func TestWaitOnTabTimeRespectsParentCancel(t *testing.T) {
 	}
 }
 
-func TestSanitizeLogURLRemovesSensitiveParts(t *testing.T) {
+func TestSanitizeLogURLRemovesEverySourceComponent(t *testing.T) {
 	rawURL := "https://user:secret@example.com/path?q=token#frag"
 	sanitized := sanitizeLogURL(rawURL)
-	if sanitized != "https://example.com/path" {
+	if !strings.HasPrefix(sanitized, "<url-ref:") {
 		t.Fatalf("unexpected sanitized url %q", sanitized)
+	}
+	for _, forbidden := range []string{"https://", "user", "secret", "example.com", "/path", "token", "frag"} {
+		if strings.Contains(sanitized, forbidden) {
+			t.Fatalf("sanitized URL leaked %q: %q", forbidden, sanitized)
+		}
 	}
 }

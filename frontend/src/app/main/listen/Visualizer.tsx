@@ -283,9 +283,7 @@ export function ListenArtworkVisualizer(props: {
   const breathEnergy = useArtworkAmbientBreathEnergy(hasAmbientHalo && active, props.frame, effectEnergy);
   const style = resolveArtworkAmbientHaloStyle(hasAmbientHalo, {
     breathEnergy,
-    effectEnergy,
     glowEnergy,
-    level,
   });
   if (!isEqualizerArtworkVisualizerMode(props.mode) || !props.visible) {
     return null;
@@ -293,7 +291,7 @@ export function ListenArtworkVisualizer(props: {
   return (
     <div
       className={cn(
-        "listen-artwork-visualizer pointer-events-none absolute z-[2] overflow-visible rounded-[2.85rem] text-[hsl(var(--primary))] transition-[transform] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)]",
+        "listen-artwork-visualizer pointer-events-none absolute z-[2] overflow-visible",
         hasAmbientHalo ? "-inset-16" : "inset-0",
       )}
       data-active={active ? "true" : "false"}
@@ -304,13 +302,13 @@ export function ListenArtworkVisualizer(props: {
       <span className="listen-artwork-visualizer-ambient absolute inset-0 overflow-visible">
         <span
           className={cn(
-            "listen-artwork-visualizer-halo absolute rounded-[2rem]",
+            "listen-artwork-visualizer-halo absolute",
             hasAmbientHalo ? "inset-24" : "inset-8",
           )}
         />
         <span
           className={cn(
-            "listen-artwork-visualizer-rim absolute rounded-[2rem]",
+            "listen-artwork-visualizer-rim absolute",
             hasAmbientHalo ? "inset-24" : "inset-8",
           )}
         />
@@ -330,7 +328,7 @@ export function ListenArtworkVisualizer(props: {
           frame={props.frame}
           active={props.active}
           variant="artwork"
-          className="absolute inset-0 h-full w-full opacity-90"
+          className="listen-artwork-visualizer-ring-canvas absolute inset-0 h-full w-full"
         />
       ) : null}
     </div>
@@ -341,16 +339,12 @@ function resolveArtworkAmbientHaloStyle(
   hasAmbientHalo: boolean,
   energy: {
     breathEnergy: number;
-    effectEnergy: number;
     glowEnergy: number;
-    level: number;
   },
 ) {
   const halo = AMBIENT_HALO_CONFIG.style.halo;
   const rim = AMBIENT_HALO_CONFIG.style.rim;
   return {
-    "--listen-artwork-visualizer-ambient-breath": energy.breathEnergy.toFixed(3),
-    "--listen-artwork-visualizer-effect-energy": energy.effectEnergy.toFixed(3),
     "--listen-artwork-visualizer-halo-accent-alpha": resolveAmbientAlpha(
       halo.accentAlpha,
       hasAmbientHalo,
@@ -405,7 +399,6 @@ function resolveArtworkAmbientHaloStyle(
       hasAmbientHalo,
       energy.breathEnergy,
     ),
-    "--listen-artwork-visualizer-level": energy.level.toFixed(3),
     "--listen-artwork-visualizer-rim-opacity": resolveAmbientAlpha(
       rim.opacity,
       hasAmbientHalo,
@@ -947,7 +940,7 @@ function ListenArtworkPulseCanvas(props: {
         const rootStyle = window.getComputedStyle(document.documentElement);
         const visualizerTimeSeconds = resolveVisualizerTimeSecondsRef.current();
         const nowMs = performance.now();
-        const palette = resolveCanvasPalette(computed, rootStyle);
+        const palette = resolveVisualizerCanvasPalette(computed, rootStyle);
         const frame = resolveArtworkFrameCanvasMetrics(canvas, rect, width, height);
         if (modeRef.current === "neonPulse") {
           drawNeonPulseEvents(context, frame, events, visualizerTimeSeconds, nowMs, palette);
@@ -971,17 +964,31 @@ function ListenArtworkPulseCanvas(props: {
 
 type CanvasPalette = {
   accent: string;
+  highlight: string;
+  highlightMuted: string;
   primary: string;
   secondary: string;
 };
 
-function resolveCanvasPalette(computed: CSSStyleDeclaration, rootStyle: CSSStyleDeclaration): CanvasPalette {
-  const fallback = computed.color || "rgb(59, 130, 246)";
+export function resolveVisualizerCanvasPalette(
+  computed: CSSStyleDeclaration,
+  rootStyle: CSSStyleDeclaration,
+): CanvasPalette {
+  const fallback = computed.color || rootStyle.color || "CanvasText";
   return {
     primary: resolveCanvasHslTone(rootStyle, "--primary", fallback),
     accent: resolveCanvasHslTone(rootStyle, "--accent-foreground", fallback),
     secondary: resolveCanvasHslTone(rootStyle, "--chart-2", fallback),
+    highlight: resolveCanvasHslTone(rootStyle, "--app-media-chrome-foreground", fallback),
+    highlightMuted: resolveCanvasHslTone(rootStyle, "--app-media-chrome-foreground-muted", fallback),
   };
+}
+
+export function resolveVisualizerCanvasForeground(
+  computed: CSSStyleDeclaration,
+  rootStyle: CSSStyleDeclaration,
+) {
+  return computed.color || rootStyle.color || "CanvasText";
 }
 
 function resolveCanvasHslTone(style: CSSStyleDeclaration, token: string, fallback: string) {
@@ -1130,8 +1137,8 @@ function drawNeonPulseEvents(
     context.stroke();
 
     context.globalAlpha = Math.min(0.48, alpha * (0.08 + neon.tube * 0.22 + neon.aura * 0.10) * (0.72 + fade * 0.28));
-    context.strokeStyle = "rgba(255, 255, 255, 0.92)";
-    context.shadowColor = "rgba(255, 255, 255, 0.82)";
+    context.strokeStyle = palette.highlight;
+    context.shadowColor = palette.highlightMuted;
     context.lineWidth = Math.max(1, base * (0.0008 + neon.tube * 0.0018));
     context.shadowBlur = Math.min(base * (0.001 + neon.tube * 0.004 + neon.aura * 0.006), base * 0.020);
     roundRect(context, x, y, size, size, radius);
@@ -1412,7 +1419,7 @@ export function ListenInlineVisualizer(props: {
       frame={props.frame}
       active={props.active}
       variant="inline"
-      className={cn("h-full w-full text-[hsl(var(--primary))]", props.className)}
+      className={cn("listen-visualizer-canvas h-full w-full", props.className)}
     />
   );
 }
@@ -1474,7 +1481,8 @@ function ListenVisualizerCanvas(props: {
         return;
       }
       const computed = window.getComputedStyle(canvas);
-      const color = computed.color || "rgb(59, 130, 246)";
+      const rootStyle = window.getComputedStyle(document.documentElement);
+      const color = resolveVisualizerCanvasForeground(computed, rootStyle);
       context.clearRect(0, 0, width, height);
       const frame = frameRef.current;
       const active = activeRef.current;

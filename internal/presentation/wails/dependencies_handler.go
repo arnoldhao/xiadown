@@ -13,24 +13,18 @@ import (
 )
 
 type DependenciesHandler struct {
-	service   *service.DependenciesService
-	events    dependenciesEvents
-	telemetry dependenciesTelemetry
+	service *service.DependenciesService
+	events  dependenciesEvents
 }
 
 type dependenciesEvents interface {
 	EmitDependenciesUpdated()
 }
 
-type dependenciesTelemetry interface {
-	TrackDependencyInstalled(ctx context.Context, dependencyName string)
-}
-
-func NewDependenciesHandler(service *service.DependenciesService, events dependenciesEvents, telemetry dependenciesTelemetry) *DependenciesHandler {
+func NewDependenciesHandler(service *service.DependenciesService, events dependenciesEvents) *DependenciesHandler {
 	return &DependenciesHandler{
-		service:   service,
-		events:    events,
-		telemetry: telemetry,
+		service: service,
+		events:  events,
 	}
 }
 
@@ -89,9 +83,6 @@ func (handler *DependenciesHandler) InstallDependency(ctx context.Context, reque
 			return
 		}
 		zap.L().Info("dependencies: install task succeeded", zap.String("name", result.Name), zap.String("version", result.Version), zap.String("execPath", result.ExecPath))
-		if handler.telemetry != nil {
-			handler.telemetry.TrackDependencyInstalled(context.Background(), result.Name)
-		}
 	}(request)
 	return dto.Dependency{Name: name}, nil
 }

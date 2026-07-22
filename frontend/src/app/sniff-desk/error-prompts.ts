@@ -1,5 +1,4 @@
 import type { getXiaText } from "@/features/xiadown/shared";
-import type { ResourceSniffFailure } from "@/shared/contracts/library";
 import {
   getAppErrorCode,
   parseAppErrorMessage,
@@ -8,20 +7,8 @@ import {
 
 type XiaText = ReturnType<typeof getXiaText>;
 
-function formatTemplate(template: string, params: Record<string, string>) {
-  return Object.entries(params).reduce(
-    (output, [key, value]) => output.split(`{${key}}`).join(value),
-    template,
-  );
-}
-
 function normalized(value?: string) {
   return (value ?? "").trim().toLowerCase();
-}
-
-function extractUnsupportedSniffDomain(message: string) {
-  const match = message.match(/resource sniff does not support\s+([^\s,]+)/i);
-  return (match?.[1]?.trim() ?? "").replace(/[.;:]+$/, "");
 }
 
 function resolveResourceSniffResolveError(text: XiaText, message: string) {
@@ -45,21 +32,6 @@ function resolveResourceSniffResolveError(text: XiaText, message: string) {
   return matches.find(([needle]) => value.includes(needle))?.[1] ?? "";
 }
 
-export function resolveStartSniffFailureDescription(
-  text: XiaText,
-  failure: ResourceSniffFailure,
-) {
-  const descriptions: Partial<Record<ResourceSniffFailure["code"], string>> = {
-    profile_connection_required: text.dialogs.profileConnectionRequired,
-    verification_required: text.dialogs.resourceVerificationRequired,
-    no_media_detected: text.dialogs.resourceNoMediaDetected,
-    unsupported_douyin_lvdetail: text.dialogs.resourceDouyinLVDetail,
-    douyin_recommend_login_required:
-      text.dialogs.resourceDouyinRecommendLoginRequired,
-  };
-  return descriptions[failure.code] || failure.detail || text.common.unknown;
-}
-
 export function resolveSniffDeskErrorDescription(text: XiaText, error: unknown) {
   const code = getAppErrorCode(error);
   const rawMessage = resolveUnknownErrorMessage(error, text.common.unknown);
@@ -74,24 +46,6 @@ export function resolveSniffDeskErrorDescription(text: XiaText, error: unknown) 
   ) {
     return text.sniffDesk.errors.operationCanceled;
   }
-  if (normalizedMessage.includes("url is required")) {
-    return text.sniffDesk.urlRequired;
-  }
-  if (
-    normalizedMessage.includes("invalid url") ||
-    normalizedMessage.includes("unsupported video path")
-  ) {
-    return text.sniffDesk.urlInvalid;
-  }
-  if (
-    resolvedCode === "resource_unsupported_domain" ||
-    normalizedMessage.includes("resource sniff does not support")
-  ) {
-    const domain = extractUnsupportedSniffDomain(message);
-    return domain
-      ? formatTemplate(text.sniffDesk.urlUnsupportedDomain, { domain })
-      : text.sniffDesk.urlUnsupported;
-  }
   if (resolvedCode === "resource_verification_required") {
     return text.dialogs.resourceVerificationRequired;
   }
@@ -104,6 +58,21 @@ export function resolveSniffDeskErrorDescription(text: XiaText, error: unknown) 
     normalizedMessage.includes("resource sniff browser unavailable")
   ) {
     return text.sniffDesk.errors.browserUnavailable;
+  }
+  if (resolvedCode === "resource_current_browser_not_running") {
+    return text.sniffDesk.errors.currentBrowserNotRunning;
+  }
+  if (resolvedCode === "resource_current_browser_remote_debugging_required") {
+    return text.sniffDesk.errors.currentBrowserRemoteDebugging;
+  }
+  if (resolvedCode === "resource_current_browser_permission_required") {
+    return text.sniffDesk.errors.currentBrowserPermission;
+  }
+  if (resolvedCode === "resource_current_browser_unsupported") {
+    return text.sniffDesk.errors.currentBrowserUnsupported;
+  }
+  if (resolvedCode === "resource_current_browser_endpoint_unavailable") {
+    return text.sniffDesk.errors.currentBrowserEndpoint;
   }
   if (resolvedCode === "resource_browser_launch_failed") {
     if (normalizedMessage.includes("resource sniff browser is closed")) {

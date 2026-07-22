@@ -13,19 +13,18 @@ import {
   FileText,
   FilterX,
   Film,
-  Globe2,
   ImageIcon,
   Info,
   Loader2,
   Music,
   Radar,
   Radio,
+  RefreshCcw,
   Search,
   Video,
   X,
 } from "lucide-react";
 
-import { WindowControls } from "@/components/layout/WindowControls";
 import { MediaPreviewDialog, type MediaPreviewKind } from "@/app/media";
 import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import { getXiaText } from "@/features/xiadown/shared";
@@ -34,7 +33,6 @@ import type {
   ResourceSniffRawResource,
   ResourceSniffSession,
 } from "@/shared/contracts/library";
-import type { Pet } from "@/shared/contracts/pets";
 import { messageBus } from "@/shared/message";
 import {
   useCancelResourceSniff,
@@ -44,7 +42,6 @@ import {
   usePrepareResourceSniffRawPreview,
   useResourceSniffResources,
   useResourceSniffSessions,
-  useStartResourceSniff,
 } from "@/shared/query/library";
 import { openExternalURL } from "@/shared/query/system";
 import { useSettingsStore } from "@/shared/store/settings";
@@ -62,17 +59,74 @@ import {
   type FunButtonEffect,
 } from "@/shared/ui/fun-button-effect";
 import { Input } from "@/shared/ui/input";
-import { PetDisplay } from "@/shared/ui/pet-player";
 import { Select } from "@/shared/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-import type { PetAnimation } from "@/shared/pets/animation";
-import { formatBytes } from "@/shared/utils/formatBytes";
 import {
-  resolveSniffDeskErrorDescription,
-  resolveStartSniffFailureDescription,
-} from "./error-prompts";
+  StatusBadge,
+  type DreamStatusTone,
+} from "@/shared/ui/status-badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import {
+  WorkspacePage,
+  WorkspacePageContent,
+  WorkspacePageTopBar,
+  defineWorkspacePageContract,
+  type WorkspacePageContract,
+} from "@/shared/ui/workspace-page";
+import {
+  WorkspacePrimaryHeaderAction,
+  WorkspacePrimaryHeaderActionGroup,
+} from "@/shared/ui/workspace-primary-header-action";
+import { formatBytes } from "@/shared/utils/formatBytes";
+import { resolveSniffDeskErrorDescription } from "./error-prompts";
+import { SniffFormatConstellation } from "./SniffFormatConstellation";
+import {
+  SNIFF_WORKSPACE_START_TIMEOUT_MS,
+  clearSniffWorkspaceStart,
+  useSniffWorkspaceFilterStore,
+  useSniffWorkspaceStartStore,
+} from "./workspace-filters";
 
 type XiaText = ReturnType<typeof getXiaText>;
+
+function SniffDeskPageShell(props: {
+  contract: WorkspacePageContract | null;
+  children: React.ReactNode;
+}) {
+  const className = cn(
+    "app-main-page app-sniff-desk-page relative min-h-0 min-w-0 flex-1 overflow-hidden",
+    !props.contract && "flex flex-col",
+  );
+
+  if (!props.contract) {
+    return <div className={className}>{props.children}</div>;
+  }
+
+  return (
+    <WorkspacePage className={className} contract={props.contract}>
+      {props.children}
+    </WorkspacePage>
+  );
+}
+
+function SniffDeskPageContent(props: {
+  workspaceLayout: boolean;
+  children: React.ReactNode;
+}) {
+  const className = cn(
+    "app-sniff-desk-content flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-5",
+    !props.workspaceLayout && "pt-2",
+  );
+
+  if (!props.workspaceLayout) {
+    return <div className={className}>{props.children}</div>;
+  }
+
+  return (
+    <WorkspacePageContent className={className}>
+      {props.children}
+    </WorkspacePageContent>
+  );
+}
 
 type SniffKindFilter =
   | "all"
@@ -256,9 +310,7 @@ async function copyTextToClipboard(value: string) {
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  textarea.style.top = "0";
+  textarea.className = "app-clipboard-fallback-textarea";
   document.body.appendChild(textarea);
   textarea.select();
   try {
@@ -531,6 +583,33 @@ function resolveSessionStatusLabel(text: XiaText, session?: ResourceSniffSession
   return session?.state || "-";
 }
 
+function resolveSessionStatusTone(
+  session?: ResourceSniffSession | null,
+): DreamStatusTone {
+  const browserStatus = normalized(session?.browserStatus);
+  if (browserStatus === "open") {
+    return "success";
+  }
+  if (browserStatus === "closing") {
+    return "busy";
+  }
+  if (browserStatus === "tab_closed") {
+    return "warning";
+  }
+  if (isClosedBrowserStatus(browserStatus)) {
+    return "muted";
+  }
+
+  const sessionState = normalized(session?.state);
+  if (sessionState === "failed" || sessionState === "error") {
+    return "danger";
+  }
+  if (sessionState === "starting" || sessionState === "running") {
+    return "busy";
+  }
+  return "neutral";
+}
+
 function resolvePrimarySession(
   sessions: ResourceSniffSession[],
   preferredSessionId: string,
@@ -661,10 +740,10 @@ function canPreviewSniffResource(resource: ResourceSniffRawResource) {
 function SniffStat(props: { label: string; value: React.ReactNode }) {
   return (
     <div className="app-sniff-desk-stat min-w-0 px-3 py-2">
-      <div className="truncate text-[10px] font-semibold uppercase text-muted-foreground">
+      <div className="app-sniff-desk-stat-label truncate">
         {props.label}
       </div>
-      <div className="mt-0.5 truncate text-xs font-semibold text-foreground">
+      <div className="app-sniff-desk-stat-value mt-0.5 truncate">
         {props.value}
       </div>
     </div>
@@ -714,17 +793,17 @@ const SniffResourceRow = React.memo(function SniffResourceRow(props: {
         </div>
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="app-sniff-desk-kind-badge shrink-0 px-2 py-1 text-[11px] font-semibold">
+            <span className="app-sniff-desk-kind-badge shrink-0 px-2 py-1">
               {resolveKindLabel(text, resource.kind)}
             </span>
-            <span className="truncate text-xs font-semibold text-foreground">
+            <span className="app-sniff-desk-resource-title truncate">
               {displaySniffResourceTitle(resource)}
             </span>
           </div>
-          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+          <div className="app-sniff-desk-resource-url mt-1 truncate">
             {displaySniffResourceURL(resource.url)}
           </div>
-          <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-x-3 overflow-hidden text-[11px] text-muted-foreground">
+          <div className="app-sniff-desk-resource-meta mt-1 flex min-w-0 flex-nowrap items-center gap-x-3 overflow-hidden">
             <span className="truncate">
               {sourceLabel}
             </span>
@@ -806,7 +885,7 @@ const SniffResourceRow = React.memo(function SniffResourceRow(props: {
                 onClick={() => onDownload(resource)}
               >
                 {downloading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 app-motion-spin" />
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
@@ -978,12 +1057,12 @@ function SniffResourceVirtualList(props: {
   );
 }
 
-function SniffDeskPetPrompt(props: {
-  pet: Pet | null;
-  petImageURL: string;
+function SniffDeskStatusPrompt(props: {
   label?: string;
-  animation?: PetAnimation;
+  loading?: boolean;
+  intent?: "default" | "danger";
   variant?: "page" | "card";
+  children?: React.ReactNode;
 }) {
   const pagePrompt = props.variant === "page";
 
@@ -991,44 +1070,30 @@ function SniffDeskPetPrompt(props: {
     <div
       className={cn(
         pagePrompt
-          ? "app-sniff-desk-page-prompt flex min-h-0 flex-1 items-center justify-center px-4 pb-16"
+          ? "app-sniff-desk-page-prompt flex min-h-0 flex-1 items-center justify-center px-4 py-6"
           : "flex h-full min-h-0 items-center justify-center px-4 py-8",
       )}
     >
       <div
         className={cn(
-          "inline-flex max-w-[20rem] flex-col items-center",
-          pagePrompt ? "gap-3" : "gap-2",
+          "inline-flex flex-col items-center",
+          pagePrompt ? "w-full max-w-[34rem] gap-3" : "max-w-[20rem] gap-3",
         )}
       >
-        <div
-          className={cn(
-            "max-w-full items-center",
-            pagePrompt
-              ? "flex flex-col gap-2"
-              : "grid grid-cols-[3rem_minmax(0,1fr)] gap-2",
-          )}
-        >
-          <PetDisplay
-            pet={props.pet}
-            imageUrl={props.petImageURL}
-            animation={props.animation ?? "review"}
-            alt=""
-            size={pagePrompt ? 96 : 48}
-            className={cn("shrink-0", pagePrompt ? "h-24 w-24" : "h-12 w-12")}
-            glowClassName="opacity-0"
-          />
-          {props.label ? (
-            <span
-              className={cn(
-                "min-w-0 text-xs font-medium text-muted-foreground",
-                pagePrompt ? "text-center leading-5" : "leading-4",
-              )}
-            >
-              {props.label}
-            </span>
-          ) : null}
-        </div>
+        {props.loading ? (
+          <Loader2 className="app-sniff-desk-prompt-spinner h-5 w-5 app-motion-spin" />
+        ) : null}
+        {props.label ? (
+          <span
+            className={cn(
+              "app-sniff-desk-prompt-label min-w-0",
+            )}
+            data-intent={props.intent === "danger" ? "danger" : "default"}
+          >
+            {props.label}
+          </span>
+        ) : null}
+        {props.children}
       </div>
     </div>
   );
@@ -1037,36 +1102,98 @@ function SniffDeskPetPrompt(props: {
 export function SniffDeskPage(props: {
   text: XiaText;
   active: boolean;
-  pet: Pet | null;
-  petImageURL: string;
   httpBaseURL: string;
+  workspaceLayout?: boolean;
+  workspaceRouteId?: string;
+  reserveWindowControls?: boolean;
+  onStartSniff: () => void;
 }) {
   const { text, active } = props;
   const isWindows = System.IsWindows();
+  const workspacePageContract = props.workspaceLayout
+    ? defineWorkspacePageContract({
+        presentation: "primary",
+        recipe: "custom",
+        routeLabel: text.sniffDesk.title,
+        topBar: "drag",
+        heading: "assistive",
+        contentLayout: "custom",
+        footer: "none",
+        scroll: "panes",
+        density: "compact",
+        immersion: "standard",
+        customContractId: "sniff-desk-primary",
+      })
+    : null;
   const resourceSniffScope = useSettingsStore(
     (state) => state.settings?.resourceSniffScope ?? "default",
   );
   const sessionsQuery = useResourceSniffSessions(active);
-  const startSniff = useStartResourceSniff();
   const cancelSniff = useCancelResourceSniff();
   const clearResources = useClearResourceSniffResources();
   const prepareRawPreview = usePrepareResourceSniffRawPreview();
   const prepareRawDownload = usePrepareResourceSniffRawDownload();
   const createYTDLP = useCreateYTDLPJob();
-  const urlInputRef = React.useRef<HTMLInputElement | null>(null);
   const bottomControlRef = React.useRef<HTMLDivElement | null>(null);
-  const [url, setURL] = React.useState("");
-  const [controlMode, setControlMode] = React.useState<"idle" | "input">("idle");
   const [startEffect] = React.useState<FunButtonEffect>(() =>
     pickFunButtonEffect(),
   );
+  const [startBurstKey, setStartBurstKey] = React.useState(0);
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = React.useState(false);
   const [preferredSessionId, setPreferredSessionId] = React.useState("");
-  const [query, setQuery] = React.useState("");
-  const [kindFilter, setKindFilter] = React.useState<SniffKindFilter>("all");
-  const [sourceFilter, setSourceFilter] = React.useState<SniffSourceFilter>("all");
-  const [downloadFilter, setDownloadFilter] = React.useState<SniffDownloadFilter>("all");
+  const [localQuery, setLocalQuery] = React.useState("");
+  const [localKindFilter, setLocalKindFilter] =
+    React.useState<SniffKindFilter>("all");
+  const [localSourceFilter, setLocalSourceFilter] =
+    React.useState<SniffSourceFilter>("all");
+  const [localDownloadFilter, setLocalDownloadFilter] =
+    React.useState<SniffDownloadFilter>("all");
+  const workspaceQuery = useSniffWorkspaceFilterStore((state) => state.query);
+  const workspaceKindFilter = useSniffWorkspaceFilterStore(
+    (state) => state.kind,
+  );
+  const workspaceSourceFilter = useSniffWorkspaceFilterStore(
+    (state) => state.source,
+  );
+  const workspaceDownloadFilter = useSniffWorkspaceFilterStore(
+    (state) => state.download,
+  );
+  const setWorkspaceQuery = useSniffWorkspaceFilterStore(
+    (state) => state.setQuery,
+  );
+  const setWorkspaceKindFilter = useSniffWorkspaceFilterStore(
+    (state) => state.setKind,
+  );
+  const setWorkspaceSourceFilter = useSniffWorkspaceFilterStore(
+    (state) => state.setSource,
+  );
+  const setWorkspaceDownloadFilter = useSniffWorkspaceFilterStore(
+    (state) => state.setDownload,
+  );
+  const pendingWorkspaceStart = useSniffWorkspaceStartStore(
+    (state) => state.pending,
+  );
+  const query = props.workspaceLayout ? workspaceQuery : localQuery;
+  const kindFilter = (props.workspaceLayout
+    ? workspaceKindFilter
+    : localKindFilter) as SniffKindFilter;
+  const sourceFilter = (props.workspaceLayout
+    ? workspaceSourceFilter
+    : localSourceFilter) as SniffSourceFilter;
+  const downloadFilter = (props.workspaceLayout
+    ? workspaceDownloadFilter
+    : localDownloadFilter) as SniffDownloadFilter;
+  const setQuery = props.workspaceLayout ? setWorkspaceQuery : setLocalQuery;
+  const setKindFilter = props.workspaceLayout
+    ? setWorkspaceKindFilter
+    : setLocalKindFilter;
+  const setSourceFilter = props.workspaceLayout
+    ? setWorkspaceSourceFilter
+    : setLocalSourceFilter;
+  const setDownloadFilter = props.workspaceLayout
+    ? setWorkspaceDownloadFilter
+    : setLocalDownloadFilter;
   const [downloadingResourceId, setDownloadingResourceId] = React.useState("");
   const [previewDialogResource, setPreviewDialogResource] =
     React.useState<ResourceSniffRawResource | null>(null);
@@ -1085,18 +1212,87 @@ export function SniffDeskPage(props: {
     () => sniffKindFiltersForScope(resourceSniffScope),
     [resourceSniffScope],
   );
+  const handleStartSniff = React.useCallback(() => {
+    setStartBurstKey((current) => current + 1);
+    props.onStartSniff();
+  }, [props.onStartSniff]);
 
   const sessions = sessionsQuery.data ?? [];
+  const workspaceStartPending = Boolean(
+    active && props.workspaceLayout && pendingWorkspaceStart,
+  );
   const currentSession = React.useMemo(
     () => resolvePrimarySession(sessions, preferredSessionId),
     [preferredSessionId, sessions],
   );
-  const currentSessionId = currentSession?.sessionId || preferredSessionId;
+  const currentSessionId = currentSession?.sessionId || "";
   const resourcesQuery = useResourceSniffResources(
     currentSessionId ? { sessionId: currentSessionId } : null,
     active && Boolean(currentSessionId),
   );
   const resources = resourcesQuery.data?.resources ?? [];
+
+  React.useEffect(() => {
+    if (!pendingWorkspaceStart?.sessionId) {
+      return;
+    }
+    const handedOffSession = sessions.find(
+      (session) => session.sessionId === pendingWorkspaceStart.sessionId,
+    );
+    if (!handedOffSession) {
+      return;
+    }
+    setPreferredSessionId(handedOffSession.sessionId);
+    clearSniffWorkspaceStart(pendingWorkspaceStart.requestId);
+  }, [pendingWorkspaceStart, sessions]);
+
+  React.useEffect(() => {
+    if (!workspaceStartPending || !pendingWorkspaceStart) {
+      return;
+    }
+    const requestId = pendingWorkspaceStart.requestId;
+    const remaining = Math.max(
+      0,
+      pendingWorkspaceStart.startedAt + SNIFF_WORKSPACE_START_TIMEOUT_MS -
+        Date.now(),
+    );
+    const timer = window.setTimeout(() => {
+      if (
+        useSniffWorkspaceStartStore.getState().pending?.requestId !== requestId
+      ) {
+        return;
+      }
+      clearSniffWorkspaceStart(requestId);
+      messageBus.publishToast({
+        intent: "danger",
+        title: text.sniffDesk.startFailed,
+        description: text.sniffDesk.errors.sessionNotFound,
+      });
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [pendingWorkspaceStart, text, workspaceStartPending]);
+
+  React.useEffect(() => {
+    if (
+      !workspaceStartPending ||
+      !pendingWorkspaceStart ||
+      !sessionsQuery.isError
+    ) {
+      return;
+    }
+    clearSniffWorkspaceStart(pendingWorkspaceStart.requestId);
+    messageBus.publishToast({
+      intent: "danger",
+      title: text.sniffDesk.startFailed,
+      description: resolveSniffDeskErrorDescription(text, sessionsQuery.error),
+    });
+  }, [
+    pendingWorkspaceStart,
+    sessionsQuery.error,
+    sessionsQuery.isError,
+    text,
+    workspaceStartPending,
+  ]);
 
   React.useEffect(() => {
     if (!kindFilters.includes(kindFilter)) {
@@ -1117,37 +1313,6 @@ export function SniffDeskPage(props: {
       setPreferredSessionId(next.sessionId);
     }
   }, [active, preferredSessionId, sessions]);
-
-  React.useEffect(() => {
-    if (controlMode !== "input" || currentSession) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      urlInputRef.current?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [controlMode, currentSession]);
-
-  React.useEffect(() => {
-    if (controlMode !== "input" || currentSession || startSniff.isPending) {
-      return undefined;
-    }
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (bottomControlRef.current?.contains(target)) {
-        return;
-      }
-      setControlMode("idle");
-      setURL("");
-    };
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-    };
-  }, [controlMode, currentSession, startSniff.isPending]);
 
   React.useEffect(() => {
     streamPreviewURLsRef.current = streamPreviewURLs;
@@ -1196,19 +1361,19 @@ export function SniffDeskPage(props: {
   }, [deferredQuery, downloadFilter, kindFilter, resources, resourceSniffScope, sourceFilter]);
   const { downloadableCount, filteredResources } = resourceView;
   const currentPage = currentSession?.currentUrl || currentSession?.url || "";
-  const sessionDomain =
-    currentSession?.unoptimizedDomain ||
-    displayDomain(currentPage) ||
-    displayURL(currentPage);
+  const sessionDomain = displayDomain(currentPage) || displayURL(currentPage);
   const sessionTitle =
     currentSession?.title ||
-    currentSession?.unoptimizedDomain ||
     currentPage ||
-    text.sniffDesk.emptySessions;
+    text.sniffDesk.waitingSniff;
   const sessionStatus = resolveSessionStatusLabel(text, currentSession);
   const sessionClosing =
     normalized(currentSession?.state) === "closing" ||
     normalized(currentSession?.browserStatus) === "closing";
+  // The user's action is always to stop sniffing. Managed-profile teardown may
+  // also close an App-owned browser, but that lifecycle detail should not
+  // change the action's product language.
+  const cancelSessionLabel = text.sniffDesk.stopSniff;
   const hasActiveFilters =
     query.trim() !== "" ||
     kindFilter !== "all" ||
@@ -1223,56 +1388,28 @@ export function SniffDeskPage(props: {
   ].join("\u0000");
   const pagePrompt: {
     label: string;
-    animation?: PetAnimation;
+    loading?: boolean;
+    error?: boolean;
+    retry?: boolean;
   } | null = (() => {
+    if (resourcesQuery.isError && resources.length === 0) {
+      return {
+        label: resolveSniffDeskErrorDescription(text, resourcesQuery.error),
+        error: true,
+        retry: true,
+      };
+    }
     if (resourcesQuery.isFetching && resources.length === 0) {
-      return { label: text.sniffDesk.loading, animation: "running" };
+      return { label: text.sniffDesk.loading, loading: true };
     }
     if (filteredResources.length === 0) {
       if (resources.length > 0 && hasActiveFilters) {
-        return { label: text.sniffDesk.emptyFilteredResources, animation: "review" };
+        return { label: text.sniffDesk.emptyFilteredResources };
       }
-      return { label: text.sniffDesk.emptyResources, animation: "review" };
+      return { label: text.sniffDesk.emptyResources };
     }
     return null;
   })();
-
-  const handleStartSniff = React.useCallback(async () => {
-    const trimmed = url.trim();
-    if (!trimmed) {
-      messageBus.publishToast({
-        intent: "danger",
-        title: text.sniffDesk.startFailed,
-        description: text.sniffDesk.urlRequired,
-      });
-      return;
-    }
-    if (startSniff.isPending) {
-      return;
-    }
-    try {
-      const result = await startSniff.mutateAsync({ url: trimmed });
-      if (result.session?.sessionId) {
-        setPreferredSessionId(result.session.sessionId);
-        setControlMode("idle");
-        setDetailsOpen(false);
-        setURL("");
-      }
-      if (result.failure) {
-        messageBus.publishToast({
-          intent: "danger",
-          title: text.sniffDesk.startFailed,
-          description: resolveStartSniffFailureDescription(text, result.failure),
-        });
-      }
-    } catch (error) {
-      messageBus.publishToast({
-        intent: "danger",
-        title: text.sniffDesk.startFailed,
-        description: resolveSniffDeskErrorDescription(text, error),
-      });
-    }
-  }, [startSniff, text, url]);
 
   const handleCancelSession = React.useCallback(async () => {
     if (!currentSession) {
@@ -1282,15 +1419,14 @@ export function SniffDeskPage(props: {
       await cancelSniff.mutateAsync({ sessionId: currentSession.sessionId });
       setPreferredSessionId("");
       setDetailsOpen(false);
-      setControlMode("idle");
     } catch (error) {
       messageBus.publishToast({
         intent: "danger",
-        title: text.actions.closeBrowser,
+        title: cancelSessionLabel,
         description: resolveSniffDeskErrorDescription(text, error),
       });
     }
-  }, [cancelSniff, currentSession, text]);
+  }, [cancelSessionLabel, cancelSniff, currentSession, text]);
 
   const resetFilters = React.useCallback(() => {
     setQuery("");
@@ -1521,11 +1657,51 @@ export function SniffDeskPage(props: {
       : previewDialogIsVideo
         ? "video"
         : previewDialogIsImage
-          ? "image"
+        ? "image"
           : "unsupported";
+  const sessionTitleActions = currentSession ? (
+    <WorkspacePrimaryHeaderActionGroup label={text.sniffDesk.title}>
+      <WorkspacePrimaryHeaderAction
+        disabled={
+          resources.length === 0 ||
+          clearResources.isPending ||
+          cancelSniff.isPending ||
+          sessionClosing
+        }
+        label={text.sniffDesk.clearResources}
+        onClick={() => setClearConfirmOpen(true)}
+      >
+        {clearResources.isPending ? (
+          <Loader2 className="h-4 w-4 app-motion-spin" />
+        ) : (
+          <BrushCleaning className="h-4 w-4" />
+        )}
+      </WorkspacePrimaryHeaderAction>
+      <WorkspacePrimaryHeaderAction
+        disabled={cancelSniff.isPending || sessionClosing}
+        label={cancelSessionLabel}
+        onClick={() => void handleCancelSession()}
+        tone="destructive"
+      >
+        {cancelSniff.isPending || sessionClosing ? (
+          <Loader2 className="h-4 w-4 app-motion-spin" />
+        ) : (
+          <X className="h-4 w-4" />
+        )}
+      </WorkspacePrimaryHeaderAction>
+    </WorkspacePrimaryHeaderActionGroup>
+  ) : null;
 
   return (
-    <div className="app-main-page app-sniff-desk-page relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+    <SniffDeskPageShell contract={workspacePageContract}>
+      {props.workspaceLayout ? (
+        <WorkspacePageTopBar
+          actionsLabel={text.sniffDesk.title}
+          reserveWindowControls={props.reserveWindowControls}
+        >
+          {sessionTitleActions}
+        </WorkspacePageTopBar>
+      ) : (
       <header
         className={cn(
           "app-sniff-desk-page-toolbar wails-drag flex min-h-[var(--app-page-top-drag-height)] shrink-0 items-center justify-between gap-4 px-5",
@@ -1534,9 +1710,12 @@ export function SniffDeskPage(props: {
             : "pb-3 pt-4",
         )}
       >
-        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-          <Radar className="h-4 w-4 shrink-0 text-primary" />
-          <span className="truncate">{text.sniffDesk.title}</span>
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="app-sniff-desk-page-title flex min-w-0 items-center gap-2">
+            <Radar className="app-sniff-desk-page-title-icon h-4 w-4 shrink-0" />
+            <span className="truncate">{text.sniffDesk.title}</span>
+          </div>
+          {sessionTitleActions}
         </div>
 
         <div
@@ -1544,23 +1723,22 @@ export function SniffDeskPage(props: {
             "flex min-w-0 items-center justify-end gap-2",
             isWindows && "min-w-[var(--app-windows-caption-control-width)]",
           )}
-        >
-          {isWindows ? <WindowControls platform="windows" /> : null}
-        </div>
+        />
       </header>
+      )}
 
-      <div className="app-sniff-desk-content flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-5 pt-2">
-        {currentSession ? (
+      <SniffDeskPageContent workspaceLayout={props.workspaceLayout === true}>
+        {currentSession && !props.workspaceLayout ? (
           <section className="app-sniff-desk-toolbar mb-3 flex flex-nowrap items-center justify-between gap-2 overflow-hidden">
             <div className="app-sniff-desk-filter-strip flex min-w-0 flex-1 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden">
               <div className="app-dream-search-control app-dream-control-shell h-9 w-[12.5rem] shrink-0 px-3">
-                <Search className="h-4 w-4 text-muted-foreground" />
+                <Search className="h-4 w-4" />
                 <Input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder={text.sniffDesk.searchPlaceholder}
                   size="compact"
-                  className="app-control-input-compact h-auto rounded-none border-0 bg-transparent px-0 shadow-none"
+                  className="app-control-input-compact"
                 />
               </div>
               <Select
@@ -1606,8 +1784,8 @@ export function SniffDeskPage(props: {
                 ))}
               </Select>
             </div>
-            <div className="app-sniff-desk-toolbar-actions ml-auto flex shrink-0 items-center gap-1">
-              {hasActiveFilters ? (
+            {hasActiveFilters ? (
+              <div className="app-sniff-desk-toolbar-actions ml-auto flex shrink-0 items-center gap-1">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1623,49 +1801,70 @@ export function SniffDeskPage(props: {
                   </TooltipTrigger>
                   <TooltipContent>{text.sniffDesk.resetFilters}</TooltipContent>
                 </Tooltip>
-              ) : null}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="compactIcon"
-                    variant="ghost"
-                    className="h-9 w-9 text-muted-foreground hover:text-foreground"
-                    aria-label={text.sniffDesk.clearResources}
-                    disabled={resources.length === 0 || clearResources.isPending}
-                    onClick={() => setClearConfirmOpen(true)}
-                  >
-                    {clearResources.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <BrushCleaning className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{text.sniffDesk.clearResources}</TooltipContent>
-              </Tooltip>
-            </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
-        {!currentSession ? (
-          <SniffDeskPetPrompt
-            pet={props.pet}
-            petImageURL={props.petImageURL}
-            label={text.sniffDesk.emptySessions}
-            animation="idle"
+        {workspaceStartPending ? (
+          <SniffDeskStatusPrompt
+            label={text.sniffDesk.loading}
+            loading
             variant="page"
           />
+        ) : sessionsQuery.isError && !currentSession ? (
+          <SniffDeskStatusPrompt
+            label={resolveSniffDeskErrorDescription(text, sessionsQuery.error)}
+            intent="danger"
+            variant="page"
+          >
+            <Button
+              type="button"
+              size="compact"
+              variant="outline"
+              onClick={() => void sessionsQuery.refetch()}
+            >
+              <RefreshCcw className="h-3.5 w-3.5" />
+              {text.dialogs.parseAgain}
+            </Button>
+          </SniffDeskStatusPrompt>
+        ) : !currentSession ? (
+          <div className="app-sniff-desk-start-entry flex min-h-0 flex-1 items-center justify-center px-4 py-6">
+            <div className="app-sniff-desk-start-stage">
+              <SniffFormatConstellation burstKey={startBurstKey} />
+              <Button
+                type="button"
+                variant="default"
+                className="app-sniff-desk-start-button app-running-new-download-button"
+                data-effect={startEffect}
+                onClick={handleStartSniff}
+              >
+                <Radar className="h-4 w-4" />
+                {text.sniffDesk.startSniff}
+              </Button>
+            </div>
+          </div>
         ) : (
           <section className="app-sniff-desk-table-shell min-h-0 flex-1 overflow-hidden">
             {pagePrompt ? (
-              <SniffDeskPetPrompt
-                pet={props.pet}
-                petImageURL={props.petImageURL}
+              <SniffDeskStatusPrompt
                 label={pagePrompt.label}
-                animation={pagePrompt.animation}
+                loading={pagePrompt.loading}
+                intent={pagePrompt.error ? "danger" : "default"}
                 variant="card"
-              />
+              >
+                {pagePrompt.retry ? (
+                  <Button
+                    type="button"
+                    size="compact"
+                    variant="outline"
+                    onClick={() => void resourcesQuery.refetch()}
+                  >
+                    <RefreshCcw className="h-3.5 w-3.5" />
+                    {text.dialogs.parseAgain}
+                  </Button>
+                ) : null}
+              </SniffDeskStatusPrompt>
             ) : (
               <SniffResourceVirtualList
                 resources={filteredResources}
@@ -1679,7 +1878,7 @@ export function SniffDeskPage(props: {
             )}
           </section>
         )}
-      </div>
+      </SniffDeskPageContent>
 
       <MediaPreviewDialog
         open={Boolean(previewDialogResource)}
@@ -1792,7 +1991,7 @@ export function SniffDeskPage(props: {
                 }}
               >
                 {previewDialogDownloading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 app-motion-spin" />
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
@@ -1840,7 +2039,7 @@ export function SniffDeskPage(props: {
               disabled={!currentSessionId || clearResources.isPending}
               onClick={() => void handleClearResources()}
             >
-              {clearResources.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {clearResources.isPending ? <Loader2 className="h-4 w-4 app-motion-spin" /> : null}
               {!clearResources.isPending ? <BrushCleaning className="h-4 w-4" /> : null}
               {text.sniffDesk.clearResources}
             </Button>
@@ -1848,11 +2047,12 @@ export function SniffDeskPage(props: {
         </DialogContent>
       </Dialog>
 
+      {!props.workspaceLayout && currentSession ? (
       <div className="app-sniff-desk-floating-layer pointer-events-none absolute inset-x-0 bottom-5 z-40 flex justify-center px-5">
         <div
           ref={bottomControlRef}
           className="app-sniff-desk-bottom-control pointer-events-auto flex min-w-0 flex-col items-center"
-          data-state={currentSession ? "session" : controlMode}
+          data-state="session"
         >
           {currentSession && detailsOpen ? (
             <div className="app-sniff-desk-detail-popover mb-2 w-full px-4 py-3">
@@ -1864,10 +2064,10 @@ export function SniffDeskPage(props: {
                   <Activity className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-foreground">
+                  <div className="app-sniff-desk-session-title truncate">
                     {sessionTitle}
                   </div>
-                  <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                  <div className="app-sniff-desk-session-url mt-0.5 truncate">
                     {currentPage ? displayURL(currentPage) : "-"}
                   </div>
                 </div>
@@ -1894,16 +2094,18 @@ export function SniffDeskPage(props: {
             </div>
           ) : null}
 
-          {currentSession ? (
-            <div className="app-sniff-desk-session-control grid h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3.5">
+          <div className="app-sniff-desk-session-control grid h-11 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3.5">
               <div className="flex min-w-0 items-center gap-2.5">
-                <Activity className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate text-xs font-semibold text-foreground">
+                <Activity className="app-sniff-desk-session-state-icon h-3.5 w-3.5 shrink-0" />
+                <span className="app-sniff-desk-session-domain truncate">
                   {sessionDomain || sessionTitle}
                 </span>
-                <span className="app-sniff-desk-status-badge shrink-0 px-2 py-0.5 text-[10px] font-semibold">
+                <StatusBadge
+                  className="shrink-0"
+                  tone={resolveSessionStatusTone(currentSession)}
+                >
                   {sessionStatus}
-                </span>
+                </StatusBadge>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <Tooltip>
@@ -1921,78 +2123,11 @@ export function SniffDeskPage(props: {
                   </TooltipTrigger>
                   <TooltipContent>{text.sniffDesk.details}</TooltipContent>
                 </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      size="compactIcon"
-                      variant="ghost"
-                      className="app-sniff-desk-control-action app-sniff-desk-control-action-danger h-8 w-8"
-                      aria-label={text.actions.closeBrowser}
-                      disabled={cancelSniff.isPending || sessionClosing}
-                      onClick={() => void handleCancelSession()}
-                    >
-                      {cancelSniff.isPending || sessionClosing ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <X className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{text.actions.closeBrowser}</TooltipContent>
-                </Tooltip>
               </div>
             </div>
-          ) : controlMode === "input" ? (
-            <form
-              className="app-sniff-desk-session-control grid h-11 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 px-3.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void handleStartSniff();
-              }}
-            >
-              <Globe2 className="h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                ref={urlInputRef}
-                value={url}
-                onChange={(event) => setURL(event.target.value)}
-                placeholder={text.sniffDesk.startPlaceholder}
-                size="compact"
-                className="app-control-input-compact h-auto rounded-none border-0 bg-transparent px-0 shadow-none"
-              />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="submit"
-                    size="compactIcon"
-                    className="app-sniff-desk-control-action app-sniff-desk-control-action-primary h-8 w-8"
-                    aria-label={text.sniffDesk.startSniff}
-                    disabled={!url.trim() || startSniff.isPending}
-                  >
-                    {startSniff.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Radar className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{text.sniffDesk.startSniff}</TooltipContent>
-              </Tooltip>
-            </form>
-          ) : (
-            <Button
-              type="button"
-              variant="default"
-              className="app-sniff-desk-start-button app-running-new-download-button h-10 px-4 text-sm font-semibold"
-              data-effect={startEffect}
-              onClick={() => setControlMode("input")}
-            >
-              <Radar className="h-4 w-4" />
-              {text.sniffDesk.startSniff}
-            </Button>
-          )}
         </div>
       </div>
-    </div>
+      ) : null}
+    </SniffDeskPageShell>
   );
 }

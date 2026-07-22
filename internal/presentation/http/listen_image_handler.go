@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,7 +15,10 @@ import (
 	"xiadown/internal/application/imagecache"
 )
 
-const listenImageCacheControl = "public, max-age=31536000, immutable"
+const (
+	listenImageCacheControl         = "public, max-age=31536000, immutable"
+	listenImagePrefetchMaxBodyBytes = int64(64 << 10)
+)
 
 type listenImageCache interface {
 	Image(context.Context, string) (imagecache.ImageResult, error)
@@ -92,9 +96,20 @@ func (handler *ListenImageHandler) servePrefetch(w http.ResponseWriter, r *http.
 		http.Error(w, "image cache unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	if r.ContentLength > listenImagePrefetchMaxBodyBytes {
+		http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, listenImagePrefetchMaxBodyBytes)
 	var request listenImagePrefetchRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&request); err != nil {
+		writeListenImagePrefetchDecodeError(w, err)
+		return
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		writeListenImagePrefetchDecodeError(w, err)
 		return
 	}
 	urls := normalizeListenImagePrefetchURLs(request.URLs)
@@ -104,6 +119,15 @@ func (handler *ListenImageHandler) servePrefetch(w http.ResponseWriter, r *http.
 	}
 	go prefetchCache.Prefetch(context.WithoutCancel(r.Context()), urls, request.Size, request.MaxConcurrent)
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func writeListenImagePrefetchDecodeError(w http.ResponseWriter, err error) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		http.Error(w, "request too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	http.Error(w, "invalid request", http.StatusBadRequest)
 }
 
 func (handler *ListenImageHandler) imageResult(ctx context.Context, r *http.Request, rawURL string) (imagecache.ImageResult, error) {

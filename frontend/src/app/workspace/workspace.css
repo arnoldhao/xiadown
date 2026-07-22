@@ -1,0 +1,682 @@
+.app-workspace-shell {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* The shell owns one low-frequency color field behind every pane. Glass mode
+ * reveals this field through three densities; Contrast masks it with one
+ * shared opaque canvas. An optional artwork image enriches the field without
+ * coupling image URLs to CSS. */
+.app-workspace-ambient-canvas {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-workspace-ambient-canvas__artwork {
+  position: absolute;
+  width: 120%;
+  height: 120%;
+  inset: -10%;
+  object-fit: cover;
+}
+
+/* One continuous substrate sits below every Glass pane. Page roots that still
+ * consume the legacy ABA variable inherit transparency so the high-density
+ * Primary veil is painted exactly once by its host. */
+
+/* Native mode keeps Xia Prism's restrained theme/artwork wash, but removes
+ * the opaque CSS substrate so Liquid Glass/Acrylic is the real material. */
+
+/* Persistent native chrome retains its neutral fill, tint, and rim while
+ * delegating backdrop sampling to Liquid Glass/Acrylic. Structural shadows stay
+ * disabled so the shared divider remains the only pane boundary. The overlay
+ * companion is intentionally excluded: it still samples primary content with
+ * the shared CSS panel material. */
+
+/* Contrast is deliberately opaque even when the host window supports a native
+ * material. Every persistent pane consumes the same canvas role; hierarchy
+ * comes from neutral separators, spacing and local surfaces, not colour bands. */
+
+.app-main-shell[data-surface-style="contrast"]
+  .app-workspace-ambient-canvas {
+  display: none;
+}
+
+.app-workspace-sidebar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* A semantic chrome material is a childless backdrop sampler, not the pane
+ * itself. That keeps the sidebar's existing pseudo overlay independent and
+ * lets menus escape without being clipped by GlassSurface's overflow rule. */
+
+.app-main-shell[data-surface-style="glass"]
+  .app-workspace-sidebar[data-glass-host="true"]::before {
+  z-index: 1;
+}
+
+.app-main-shell[data-surface-style="glass"]
+  .app-workspace-sidebar[data-glass-host="true"]
+  > :not(.app-workspace-chrome-material) {
+  position: relative;
+  z-index: 2;
+}
+
+.app-workspace-sidebar__header,
+.app-workspace-sidebar__bottom,
+.app-workspace-sidebar__footer {
+  flex: 0 0 auto;
+}
+
+.app-workspace-sidebar__navigation {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.app-workspace-sidebar {
+  flex: 0 0 var(--app-workspace-navigation-width, 224px);
+  width: var(--app-workspace-navigation-width, 224px);
+  min-width: var(--app-workspace-navigation-width, 224px);
+  padding: 16px 12px 12px;
+}
+
+.app-workspace-sidebar__navigation {
+  flex: 1 1 auto;
+  padding-block: 8px;
+}
+
+.app-workspace-sidebar__bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.app-workspace-sidebar__footer {
+  padding-top: 10px;
+}
+
+.app-workspace-stage {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-workspace-stage.app-workspace-stage--player-fullscreen {
+  position: fixed;
+  z-index: calc(var(--app-layer-fullscreen) - 1);
+  inset: 0;
+  min-width: 0 !important;
+}
+
+/* Full-screen playback is a true AppShell overlay. The player remains mounted
+ * in CompanionPanel, while the underlying navigation and primary page stop
+ * painting so a native video underlay cannot reveal browse UI through its
+ * transparent surface. */
+.app-workspace-shell[data-player-fullscreen="true"] >
+  .app-workspace-sidebar,
+.app-workspace-shell[data-player-fullscreen="true"]
+  .app-workspace-stage--player-fullscreen >
+  .app-workspace-primary-pane {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.app-workspace-primary-pane {
+  container: workspace-primary / inline-size;
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Primary is a dense readability veil, not another backdrop sampler. Keeping
+ * blur off both native and CSS modes avoids a viewport-sized GPU pass while
+ * still letting the shared substrate softly connect all three panes. */
+
+/* Legacy structural roots used to repaint the opaque ABA surface. In Glass,
+ * the Primary host owns that paint once. Cards, dialogs, transient glass and
+ * the fullscreen Companion are intentionally outside this selector. */
+
+/* Contrast uses the same one-paint invariant as Glass. Page roots reveal the
+ * Primary host's canvas instead of restarting a route-specific gradient. */
+
+/* Primary headers and legacy list-pane pseudos are structural children, not
+ * extra material layers. They inherit the same canvas as every subpane and
+ * may contribute only the shared divider token. */
+
+.app-main-shell
+  .app-workspace-primary-pane
+  .app-main-sidebar.app-workspace-primary-subpane::before {
+  display: none;
+}
+
+.app-workspace-companion {
+  --app-workspace-companion-gutter: 1.25rem;
+  --app-workspace-companion-reading-gutter: 1.75rem;
+  --app-workspace-companion-header-inset: 48px;
+  --app-workspace-companion-footer-inset: 60px;
+
+  position: relative;
+  display: flex;
+  flex: 0 0 var(--app-workspace-companion-width, 390px);
+  flex-direction: column;
+  width: var(--app-workspace-companion-width, 390px);
+  min-width: var(--app-workspace-companion-width, 390px);
+  max-width: var(--app-workspace-companion-width, 390px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Be defensive during settings hydration: persistent Contrast never exposes a
+ * regular material, while an overlaid Companion keeps its panel glass. */
+.app-main-shell[data-surface-style="contrast"]
+  .app-workspace-companion[data-presentation="docked"]
+  > .app-workspace-chrome-material[data-material="regular"] {
+  display: none;
+}
+
+.app-workspace-chrome-material[data-glass-role] {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+}
+
+.app-workspace-companion
+  > :not(.app-workspace-chrome-material) {
+  position: relative;
+  z-index: 1;
+}
+
+.app-workspace-companion[hidden] {
+  display: none;
+}
+
+.app-workspace-companion[data-presentation="overlay"] {
+  position: absolute;
+  z-index: var(--app-layer-floating-controls);
+  inset: 0 0 0 auto;
+}
+
+/*
+ * The player keeps one stable portal host for docked, hidden and full-screen
+ * presentations. Moving a React portal to another DOM node remounts its
+ * playback subtree, which would pause the native player. Promoting the
+ * already-mounted Companion panel preserves playback and all transient UI.
+ */
+.app-workspace-companion.app-workspace-companion--player-fullscreen {
+  position: fixed;
+  z-index: var(--app-layer-fullscreen);
+  inset: 0;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.app-workspace-companion--player-fullscreen
+  > .app-workspace-chrome-material,
+.app-workspace-companion--player-fullscreen
+  .app-workspace-companion__header-material {
+  display: none;
+}
+
+.app-workspace-companion--player-fullscreen >
+  .app-workspace-companion__header {
+  position: absolute;
+  z-index: var(--app-layer-window-controls);
+  inset: 0 0 auto;
+  display: block;
+}
+
+.app-workspace-companion--player-fullscreen
+  .app-workspace-companion__titlebar--controls-only {
+  width: 100%;
+  height: var(--app-titlebar-height);
+  min-height: var(--app-titlebar-height);
+  padding: 0 0 0 calc(var(--app-macos-traffic-lights-gap) + 6px);
+}
+
+.app-workspace-companion--player-fullscreen[data-platform="windows"]
+  .app-workspace-companion__titlebar--controls-only {
+  height: var(--app-player-fullscreen-titlebar-height, 48px);
+  min-height: var(--app-player-fullscreen-titlebar-height, 48px);
+  padding-right: 0;
+  padding-left: 12px;
+}
+
+/* Video app-fullscreen already fills the full viewport beneath this absolute
+ * titlebar. Keep the structural rail transparent so video also occupies the
+ * title area, while explicit light controls remain legible over letterboxing. */
+
+/* The panel owns one continuous surface. Its structural regions stay
+ * transparent so the titlebar never renders as a separate color band. */
+
+.app-workspace-companion__header {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.app-workspace-companion__header-material {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+}
+
+.app-workspace-companion__header
+  > :not(.app-workspace-companion__header-material) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Match the Primary page contract: one full-height scroll viewport runs below
+ * two overlay rails. The scroll owner contributes transparent start/end
+ * spacers so its first and last content remain reachable without splitting
+ * the Companion into three independently painted bands. */
+.app-workspace-companion[data-scroll-chrome="active"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  > .app-workspace-companion__header {
+  position: absolute;
+  z-index: 2;
+  inset: 0 0 auto;
+  min-height: var(--app-workspace-companion-header-inset);
+}
+
+.app-workspace-companion[data-scroll-chrome="active"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  > .app-workspace-companion__content {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.app-workspace-companion[data-scroll-chrome="active"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  > .app-workspace-companion__footer {
+  position: absolute;
+  z-index: 2;
+  inset: auto 0 0;
+  min-height: var(--app-workspace-companion-footer-inset);
+}
+
+.app-workspace-companion[data-scroll-chrome="active"][data-has-header="true"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  .app-workspace-companion__content
+  [data-companion-scroll-owner] {
+  scroll-padding-block-start: var(--app-workspace-companion-header-inset);
+}
+
+.app-workspace-companion[data-scroll-chrome="active"][data-has-footer="true"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  .app-workspace-companion__content
+  [data-companion-scroll-owner] {
+  scroll-padding-block-end: var(--app-workspace-companion-footer-inset);
+}
+
+.app-workspace-companion[data-scroll-chrome="active"][data-has-header="true"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  .app-workspace-companion__content
+  [data-companion-scroll-owner]::before,
+.app-workspace-companion[data-scroll-chrome="active"][data-has-footer="true"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  .app-workspace-companion__content
+  [data-companion-scroll-owner]::after {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  grid-column: 1 / -1;
+  content: "";
+  pointer-events: none;
+}
+
+.app-workspace-companion[data-scroll-chrome="active"][data-has-header="true"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  .app-workspace-companion__content
+  [data-companion-scroll-owner]::before {
+  height: var(--app-workspace-companion-header-inset);
+}
+
+.app-workspace-companion[data-scroll-chrome="active"][data-has-footer="true"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  .app-workspace-companion__content
+  [data-companion-scroll-owner]::after {
+  height: var(--app-workspace-companion-footer-inset);
+}
+
+.app-workspace-companion__titlebar {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.app-workspace-companion__titlebar--controls-only {
+  justify-content: flex-start;
+}
+
+.app-workspace-companion__titlebar-spacer {
+  min-width: 0;
+  flex: 1 1 auto;
+  align-self: stretch;
+}
+
+.app-workspace-companion[data-platform="windows"]:not(
+    .app-workspace-companion--player-fullscreen
+  )
+  .app-workspace-companion__titlebar {
+  min-height: 48px;
+  padding: 0 0 0 12px;
+}
+
+.app-workspace-companion[data-platform="windows"]
+  .app-workspace-companion__titlebar > button {
+  align-self: center;
+}
+
+.app-workspace-companion__title {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.app-workspace-companion__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-workspace-companion__content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.app-workspace-companion__footer {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+.app-workspace-activity-dock,
+.app-workspace-account-dock {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.app-workspace-account-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-workspace-account-profile {
+  display: grid;
+  width: 100%;
+  height: 44px;
+  min-width: 0;
+  flex: 1 1 auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 4px 1px 1px;
+}
+
+.app-workspace-account-profile__avatar {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.app-workspace-account-profile__avatar-media {
+  position: absolute;
+  display: grid;
+  inset: 2px;
+  place-items: center;
+  pointer-events: none;
+}
+
+.app-workspace-account-profile__avatar-media {
+  overflow: hidden;
+}
+
+.app-workspace-account-profile__avatar-media > * {
+  width: 100%;
+  height: 100%;
+}
+
+.app-workspace-account-profile__identity {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  pointer-events: none;
+}
+
+.app-workspace-account-profile__name {
+  width: 100%;
+  overflow: hidden;
+}
+
+.app-workspace-account-profile__username {
+  width: 100%;
+  overflow: hidden;
+}
+
+.app-workspace-account-profile__disclosure {
+  position: relative;
+  display: flex;
+  width: auto;
+  min-width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.app-workspace-account-profile__disclosure > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.app-workspace-account-profile__update-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+}
+
+.app-workspace-account-profile__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.app-workspace-account-menu.app-menu-content {
+  width: var(--radix-dropdown-menu-trigger-width);
+  min-width: var(--radix-dropdown-menu-trigger-width);
+  max-width: var(--radix-dropdown-menu-trigger-width);
+}
+
+.app-workspace-account-menu__identity-panel {
+  min-width: 0;
+  padding: 4px;
+}
+
+.app-workspace-account-menu__identity {
+  display: flex;
+  min-height: 44px;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-workspace-account-menu__identity > :first-child {
+  flex: 0 0 auto;
+}
+
+.app-workspace-account-menu__identity-avatar {
+  margin: 2px;
+}
+
+.app-workspace-account-menu__identity-details {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.app-workspace-account-menu__identity-name {
+  width: 100%;
+  overflow: hidden;
+}
+
+.app-workspace-account-menu__identity-id {
+  width: 100%;
+  overflow: hidden;
+}
+
+.app-workspace-account-menu__mobile-action.app-menu-item {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  flex: 0 0 28px;
+  gap: 0;
+  padding: 0;
+  place-items: center;
+}
+
+.app-workspace-account-menu__mobile-action > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.app-workspace-account-menu__access-row.app-menu-item {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  height: var(--app-menu-action-height);
+  min-height: var(--app-menu-action-height);
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  padding: 0 0.625rem;
+}
+
+.app-workspace-account-menu__access-row.app-menu-item > span:first-child {
+  display: none;
+}
+
+.app-workspace-account-menu__access-name {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-workspace-account-menu__access-switch.app-dream-inline-switch {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+
+.app-workspace-account-menu__quick-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-workspace-account-menu__quick-action.app-menu-item {
+  position: relative;
+  display: grid;
+  width: auto;
+  height: var(--app-menu-action-height);
+  min-width: 0;
+  min-height: var(--app-menu-action-height);
+  flex: 1 1 0;
+  padding: 0;
+  place-items: center;
+}
+
+.app-workspace-account-menu__quick-action > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.app-workspace-account-menu__quick-action--update::after {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
+  content: "";
+}
+
+.app-workspace-wide-sidebar
+  :is(.app-workspace-activity-dock, .app-workspace-account-dock) {
+  padding-top: 0;
+}
+
+:root[data-window-material="solid"]
+  .app-main-shell[data-surface-style="glass"]
+  .app-workspace-ambient-canvas,
+.app-main-shell[data-surface-style="glass"][data-window-material="solid"]
+  .app-workspace-ambient-canvas {
+  display: none;
+}
+
+:root[data-reduce-transparency="true"]
+  .app-workspace-ambient-canvas__artwork {
+  display: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-workspace-ambient-canvas__artwork {
+    display: none;
+  }
+}

@@ -13,7 +13,13 @@ export {
 
 export const SETUP_STORAGE_KEY = "xiadown-setup-v1";
 export const CORE_DEPENDENCIES = ["yt-dlp", "ffmpeg", "bun"] as const;
-export const TASK_DIALOG_DEPENDENCIES = CORE_DEPENDENCIES;
+export const TASK_DIALOG_DEPENDENCIES_BY_MODE = {
+  download: ["yt-dlp", "ffmpeg"],
+  transcode: ["ffmpeg"],
+  // Resource sniffing is implemented by the app's CDP browser and Go
+  // extractors. A later download can surface its own tool requirement.
+  sniff: [],
+} as const;
 export const COMPLETED_TASK_PAGE_SIZE_OPTIONS = [30, 60, 90, 120] as const;
 export const COMPLETED_FILE_PAGE_SIZE_OPTIONS = [30, 60, 90, 120] as const;
 export const COMPLETED_PREVIEW_SUPPORT_CACHE = new Map<string, boolean>();

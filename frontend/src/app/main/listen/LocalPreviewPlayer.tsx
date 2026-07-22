@@ -1,20 +1,25 @@
-import {
-MediaPlayer,
-MediaProvider,
-MediaRemoteControl,
-getTimeRangesEnd
-} from "@vidstack/react";
+import { Maximize2, Minimize2 } from "lucide-react";
 import * as React from "react";
 
-import {
-getXiaText
-} from "@/features/xiadown/shared";
+import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
-import { LISTEN_HIDDEN_ENGINE_STYLE } from "@/shared/styles/listen";
+import {
+  playbackSessionByID,
+  usePlaybackCoordinator,
+  type PlaybackMediaKind,
+} from "@/shared/playback";
+import { Button } from "@/shared/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
-import { clampVolume,resolveAudioSource } from "@/app/main/listen/local-library";
-import type { ListenLocalPreviewTrack,ListenPlaybackProgressState } from "@/app/main/listen/types";
-import { ListenProgressBar,ListenTransportActions } from "@/app/main/listen/ui";
+import { clampVolume } from "@/app/main/listen/local-library";
+import type {
+  ListenLocalPreviewTrack,
+  ListenPlaybackProgressState,
+} from "@/app/main/listen/types";
+import {
+  ListenProgressBar,
+  ListenTransportActions,
+} from "@/app/main/listen/ui";
 
 type LocalPreviewProgressState = {
   position: number;
@@ -25,7 +30,7 @@ type LocalPreviewProgressState = {
 };
 
 const LOCAL_PREVIEW_PROGRESS_STORAGE_PREFIX =
-  "xiadown:local-preview-progress:v1:";
+  "xiadown:local-preview-progress:v2:";
 const LOCAL_PREVIEW_PROGRESS_SAVE_INTERVAL_MS = 2000;
 const LOCAL_PREVIEW_PROGRESS_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
 const LOCAL_PREVIEW_RESUME_MIN_POSITION = 1;
@@ -58,7 +63,7 @@ function readLocalPreviewProgress(key: string): LocalPreviewProgressState | null
       position: Math.max(0, Number(parsed.position ?? 0)),
       duration: Math.max(0, Number(parsed.duration ?? 0)),
       volume: clampVolume(Number(parsed.volume ?? 1)),
-      muted: Boolean(parsed.muted),
+      muted: parsed.muted === true,
       updatedAt,
     };
   } catch {
@@ -66,12 +71,18 @@ function readLocalPreviewProgress(key: string): LocalPreviewProgressState | null
   }
 }
 
-function writeLocalPreviewProgress(key: string, state: LocalPreviewProgressState) {
+function writeLocalPreviewProgress(
+  key: string,
+  state: Omit<LocalPreviewProgressState, "updatedAt">,
+) {
   if (!key || typeof window === "undefined") {
     return;
   }
   try {
-    window.localStorage.setItem(key, JSON.stringify(state));
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({ ...state, updatedAt: Date.now() }),
+    );
   } catch {
     // Storage can be unavailable in restricted WebViews.
   }
@@ -82,383 +93,413 @@ export function ListenLocalPreviewPlayer(props: {
   text: ReturnType<typeof getXiaText>;
   className?: string;
   persistKey?: string;
+  kind?: PlaybackMediaKind;
+  posterURL?: string;
+  durationMs?: number;
+  onPresentationModeChange?: (active: boolean) => void;
 }) {
-  const playerRef = React.useRef<React.ElementRef<typeof MediaPlayer> | null>(
-    null,
-  );
-  const localRemote = React.useMemo(() => new MediaRemoteControl(), []);
-  const restoredProgressKeyRef = React.useRef("");
-  const lastProgressSaveAtRef = React.useRef(0);
-  const [playing, setPlaying] = React.useState(false);
-  const [muted, setMuted] = React.useState(false);
-  const [volume, setVolume] = React.useState(1);
-  const lastNonZeroVolumeRef = React.useRef(1);
-  const [progress, setProgress] = React.useState<ListenPlaybackProgressState>({
-    currentTime: 0,
-    duration: 0,
-    bufferedTime: 0,
-  });
+  const kind = props.kind ?? "audio";
   const track = props.track;
   const author = track.author?.trim() || props.text.listen.linger;
   const progressStorageKey = React.useMemo(
     () => resolveLocalPreviewProgressKey(props.persistKey),
     [props.persistKey],
   );
+  const sessionID = React.useMemo(
+    () => `completed-preview:${track.id || props.persistKey || track.previewURL}`,
+    [props.persistKey, track.id, track.previewURL],
+  );
+  const playback = usePlaybackCoordinator();
+  const session = playbackSessionByID(playback.snapshot, sessionID);
+  const sessionIsActive = playback.snapshot.active?.id === sessionID;
+  const playing =
+    sessionIsActive &&
+    (session?.state === "playing" || session?.state === "buffering");
+  const loading = sessionIsActive && session?.state === "loading";
+  const startedSessionIDsRef = React.useRef(new Set<string>());
+  const lastProgressSaveAtRef = React.useRef(0);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const lastNonZeroVolumeRef = React.useRef(1);
+  const [storedState, setStoredState] = React.useState<LocalPreviewProgressState | null>(
+    () => readLocalPreviewProgress(progressStorageKey),
+  );
+  const [draftPosition, setDraftPosition] = React.useState(
+    () => storedState?.position ?? 0,
+  );
+  const [draftDuration, setDraftDuration] = React.useState(
+    () => storedState?.duration ?? Math.max(0, (props.durationMs ?? 0) / 1000),
+  );
+  const [volume, setVolume] = React.useState(() => storedState?.volume ?? 1);
+  const [muted, setMuted] = React.useState(() => storedState?.muted ?? false);
+  const [presentationActive, setPresentationActive] = React.useState(false);
 
-  const getLocalMediaElement = React.useCallback(() => {
-    const provider = playerRef.current?.provider as
-      | {
-          media?: HTMLMediaElement;
-          audio?: HTMLAudioElement;
-        }
-      | null
-      | undefined;
-    if (provider?.media instanceof HTMLMediaElement) {
-      return provider.media;
-    }
-    if (provider?.audio instanceof HTMLAudioElement) {
-      return provider.audio;
-    }
-    const root = playerRef.current as unknown as
-      | {
-          querySelector?: (selector: string) => Element | null;
-        }
-      | null
-      | undefined;
-    const element =
-      typeof root?.querySelector === "function"
-        ? root.querySelector("audio,video")
-        : null;
-    return element instanceof HTMLMediaElement ? element : null;
-  }, []);
+  const position = session?.position ?? draftPosition;
+  const duration = Math.max(
+    session?.duration ?? 0,
+    session?.item.duration ?? 0,
+    draftDuration,
+  );
+  const progress = React.useMemo<ListenPlaybackProgressState>(
+    () => ({
+      currentTime: position,
+      duration,
+      bufferedTime: position,
+    }),
+    [duration, position],
+  );
+  const effectiveVolume = session?.volume ?? volume;
+  const effectiveMuted = session?.muted ?? muted;
 
-  const persistLocalPreviewState = React.useCallback(
-    (
-      force = false,
-      overrides?: {
-        muted?: boolean;
-        volume?: number;
-      },
-    ) => {
-      if (!progressStorageKey) {
+  React.useEffect(() => {
+    const restored = readLocalPreviewProgress(progressStorageKey);
+    setStoredState(restored);
+    setDraftPosition(restored?.position ?? 0);
+    setDraftDuration(
+      restored?.duration ?? Math.max(0, (props.durationMs ?? 0) / 1000),
+    );
+    setVolume(restored?.volume ?? 1);
+    setMuted(restored?.muted ?? false);
+    lastProgressSaveAtRef.current = 0;
+    if ((restored?.volume ?? 1) > 0) {
+      lastNonZeroVolumeRef.current = restored?.volume ?? 1;
+    }
+  }, [progressStorageKey, props.durationMs]);
+
+  React.useEffect(() => {
+    if (!session) {
+      return;
+    }
+    setDraftPosition(session.position);
+    setDraftDuration(Math.max(session.duration, session.item.duration ?? 0));
+    setVolume(session.volume);
+    setMuted(session.muted);
+    if (session.volume > 0) {
+      lastNonZeroVolumeRef.current = session.volume;
+    }
+    const now = Date.now();
+    if (
+      session.state === "playing" &&
+      now - lastProgressSaveAtRef.current <
+        LOCAL_PREVIEW_PROGRESS_SAVE_INTERVAL_MS
+    ) {
+      return;
+    }
+    lastProgressSaveAtRef.current = now;
+    const nearEnd =
+      session.duration > 0 &&
+      session.position >=
+        Math.max(0, session.duration - LOCAL_PREVIEW_RESUME_END_GAP);
+    writeLocalPreviewProgress(progressStorageKey, {
+      position: nearEnd ? 0 : session.position,
+      duration: session.duration,
+      volume: session.volume,
+      muted: session.muted,
+    });
+  }, [progressStorageKey, session]);
+
+  React.useEffect(() => {
+    return () => {
+      if (startedSessionIDsRef.current.delete(sessionID)) {
+        void playback.commands.closeSession(sessionID).catch(() => {});
+      }
+    };
+  }, [playback.commands, sessionID]);
+
+  React.useEffect(() => {
+    const handleFullscreenChange = () => {
+      const active = document.fullscreenElement === containerRef.current;
+      setPresentationActive(active);
+      props.onPresentationModeChange?.(active);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      props.onPresentationModeChange?.(false);
+    };
+  }, [props.onPresentationModeChange]);
+
+  React.useEffect(() => {
+    if (kind !== "video") {
+      return;
+    }
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    // The coordinator owns the only audible media element. This frontend
+    // element is a deliberately muted presentation plane for video frames.
+    video.muted = true;
+    video.defaultMuted = true;
+    video.volume = 0;
+    if (sessionIsActive && Math.abs(video.currentTime - position) > 0.6) {
+      try {
+        video.currentTime = position;
+      } catch {
+        // Seeking can be rejected until metadata is available.
+      }
+    }
+    if (playing) {
+      void video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [kind, playing, position, sessionIsActive]);
+
+  const startPreview = React.useCallback(
+    async (forceReload = false) => {
+      const uri = track.path.trim() || track.previewURL.trim();
+      if (!uri) {
         return;
       }
-      const media = getLocalMediaElement();
-      if (!media) {
-        return;
-      }
-      const now = Date.now();
-      if (
-        !force &&
-        now - lastProgressSaveAtRef.current <
-          LOCAL_PREVIEW_PROGRESS_SAVE_INTERVAL_MS
-      ) {
-        return;
-      }
-      lastProgressSaveAtRef.current = now;
-      const duration = Math.max(
-        0,
-        Number.isFinite(media.duration) ? media.duration : progress.duration,
-      );
-      const rawPosition = Math.max(0, media.currentTime);
-      const nearEnd =
-        duration > 0 &&
-        rawPosition >= Math.max(0, duration - LOCAL_PREVIEW_RESUME_END_GAP);
-      writeLocalPreviewProgress(progressStorageKey, {
-        position: nearEnd ? 0 : rawPosition,
-        duration,
-        volume: clampVolume(overrides?.volume ?? media.volume ?? volume),
-        muted: Boolean(overrides?.muted ?? media.muted ?? muted),
-        updatedAt: now,
+      const resumePosition =
+        draftPosition >= LOCAL_PREVIEW_RESUME_MIN_POSITION &&
+        (duration <= 0 ||
+          draftPosition < duration - LOCAL_PREVIEW_RESUME_END_GAP)
+          ? draftPosition
+          : 0;
+      startedSessionIDsRef.current.add(sessionID);
+      await playback.commands.startTransientPreview({
+        sessionId: sessionID,
+        item: {
+          id: track.id || sessionID,
+          kind,
+          source: { provider: "local", uri },
+          title: track.title,
+          artist: track.author,
+          artworkUrl: props.posterURL || track.coverURL,
+          duration: Math.max(0, (props.durationMs ?? 0) / 1000),
+          metadata: {
+            presentation:
+              kind === "video" ? "frontend-muted-video-plane" : "audio",
+          },
+        },
+        startSeconds: forceReload ? 0 : resumePosition,
+        volume: clampVolume(volume),
+        muted: muted || volume <= 0,
+        forceReload,
+        previewResumePolicy: "resume_if_previously_playing",
       });
     },
     [
-      getLocalMediaElement,
+      draftPosition,
+      duration,
+      kind,
       muted,
-      progress.duration,
-      progressStorageKey,
+      playback.commands,
+      props.durationMs,
+      props.posterURL,
+      sessionID,
+      track.author,
+      track.coverURL,
+      track.id,
+      track.path,
+      track.previewURL,
+      track.title,
       volume,
     ],
   );
 
-  const restoreLocalPreviewState = React.useCallback(() => {
-    if (!progressStorageKey) {
+  const handleTogglePlayback = React.useCallback<
+    React.MouseEventHandler<HTMLButtonElement>
+  >(() => {
+    if (playing) {
+      void playback.commands.pause().catch(() => {});
       return;
     }
-    if (restoredProgressKeyRef.current === progressStorageKey) {
+    if (sessionIsActive && session?.capabilities.playPause) {
+      void playback.commands.play().catch(() => {});
       return;
     }
-    const media = getLocalMediaElement();
-    if (!media) {
-      return;
-    }
-    restoredProgressKeyRef.current = progressStorageKey;
-    const stored = readLocalPreviewProgress(progressStorageKey);
-    if (!stored) {
-      return;
-    }
-    media.volume = stored.volume;
-    media.muted = stored.muted;
-    setVolume(stored.volume);
-    setMuted(stored.muted);
-    if (stored.volume > 0) {
-      lastNonZeroVolumeRef.current = stored.volume;
-    }
-    const duration = Math.max(
-      stored.duration,
-      Number.isFinite(media.duration) ? media.duration : 0,
-    );
-    const shouldResume =
-      stored.position >= LOCAL_PREVIEW_RESUME_MIN_POSITION &&
-      (duration <= 0 ||
-        stored.position < duration - LOCAL_PREVIEW_RESUME_END_GAP);
-    if (!shouldResume) {
-      return;
-    }
-    try {
-      media.currentTime = duration
-        ? Math.max(0, Math.min(stored.position, duration))
-        : stored.position;
-      setProgress((current) => ({
-        ...current,
-        currentTime: media.currentTime,
-        duration: duration || current.duration,
-      }));
-    } catch {
-      // Some media elements reject seeking until more data is buffered.
-    }
-  }, [getLocalMediaElement, progressStorageKey]);
-
-  const readLocalProgress = React.useCallback(() => {
-    const player = playerRef.current;
-    const media = getLocalMediaElement();
-    const source = media ?? player;
-    const currentTime =
-      source && Number.isFinite(source.currentTime)
-        ? Math.max(0, source.currentTime)
-        : 0;
-    const duration =
-      source && Number.isFinite(source.duration)
-        ? Math.max(0, source.duration)
-        : 0;
-    const buffered = (source as { buffered?: TimeRanges } | null)?.buffered;
-    const bufferedTime = buffered
-      ? Math.max(0, getTimeRangesEnd(buffered) ?? 0)
-      : 0;
-
-    setProgress((current) => {
-      if (
-        Math.abs(current.currentTime - currentTime) < 0.05 &&
-        Math.abs(current.duration - duration) < 0.05 &&
-        Math.abs(current.bufferedTime - bufferedTime) < 0.25
-      ) {
-        return current;
-      }
-      return { currentTime, duration, bufferedTime };
-    });
-    if (media) {
-      persistLocalPreviewState();
-    }
-  }, [getLocalMediaElement, persistLocalPreviewState]);
-
-  React.useEffect(() => {
-    setPlaying(false);
-    setProgress({ currentTime: 0, duration: 0, bufferedTime: 0 });
-    restoredProgressKeyRef.current = "";
-    lastProgressSaveAtRef.current = 0;
-  }, [progressStorageKey, track.id]);
-
-  React.useEffect(() => {
-    const player = playerRef.current;
-    if (!player) {
-      return;
-    }
-    localRemote.setPlayer(player);
-  }, [localRemote, track.id]);
-
-  React.useEffect(() => {
-    const media = getLocalMediaElement();
-    const player = playerRef.current;
-    const nextVolume = clampVolume(volume);
-    const nextMuted = muted || volume <= 0;
-    if (media) {
-      media.volume = nextVolume;
-      media.muted = nextMuted;
-    }
-    if (player) {
-      player.volume = nextVolume;
-      player.muted = nextMuted;
-    }
-  }, [getLocalMediaElement, muted, track.id, volume]);
-
-  React.useEffect(() => {
-    const timer = window.setInterval(readLocalProgress, 250);
-    return () => window.clearInterval(timer);
-  }, [readLocalProgress]);
+    void startPreview(session?.state === "ended").catch(() => {});
+  }, [playback.commands, playing, session, sessionIsActive, startPreview]);
 
   const handleSeek = React.useCallback(
     (seconds: number) => {
-      const media = getLocalMediaElement();
-      const player = playerRef.current;
-      const source = media ?? player;
-      const duration =
-        source && Number.isFinite(source.duration)
-          ? Math.max(0, source.duration)
-          : Math.max(0, progress.duration);
-      if (duration <= 0) {
-        return;
-      }
-      const nextTime = Math.max(0, Math.min(seconds, duration));
-      if (media) {
-        media.currentTime = nextTime;
-      }
-      if (player) {
-        player.currentTime = nextTime;
-      }
-      setProgress((current) => ({
-        ...current,
-        currentTime: nextTime,
+      const nextPosition = duration > 0
+        ? Math.max(0, Math.min(seconds, duration))
+        : Math.max(0, seconds);
+      setDraftPosition(nextPosition);
+      writeLocalPreviewProgress(progressStorageKey, {
+        position: nextPosition,
         duration,
-      }));
-      persistLocalPreviewState(true);
-    },
-    [getLocalMediaElement, persistLocalPreviewState, progress.duration],
-  );
-
-  const handleTogglePlayback = React.useCallback<
-    React.MouseEventHandler<HTMLButtonElement>
-  >(
-    (event) => {
-      const media = getLocalMediaElement();
-      const player = playerRef.current;
-      if (playing) {
-        persistLocalPreviewState(true);
-        media?.pause();
-        if (player) {
-          player.paused = true;
-        }
-        localRemote.pause(event.nativeEvent);
-        return;
+        volume,
+        muted,
+      });
+      if (sessionIsActive && session?.capabilities.seek) {
+        void playback.commands.seek(nextPosition).catch(() => {});
       }
-      if (media) {
-        void media.play().catch(() => {});
-      }
-      if (player) {
-        player.paused = false;
-      }
-      localRemote.play(event.nativeEvent);
-    },
-    [getLocalMediaElement, localRemote, persistLocalPreviewState, playing],
+    }, [
+      duration,
+      muted,
+      playback.commands,
+      progressStorageKey,
+      session?.capabilities.seek,
+      sessionIsActive,
+      volume,
+    ],
   );
 
   const handleToggleMute = React.useCallback(() => {
-    setMuted((current) => {
-      if (current || volume <= 0) {
-        const restoredVolume = lastNonZeroVolumeRef.current;
-        setVolume(restoredVolume);
-        persistLocalPreviewState(true, {
-          muted: false,
-          volume: restoredVolume,
-        });
-        return false;
-      }
-      lastNonZeroVolumeRef.current = volume > 0 ? volume : 1;
-      persistLocalPreviewState(true, { muted: true, volume });
-      return true;
-    });
-  }, [persistLocalPreviewState, volume]);
-
-  const handleVolumeChange = React.useCallback((value: number) => {
-    const nextVolume = clampVolume(value);
-    if (nextVolume > 0) {
-      lastNonZeroVolumeRef.current = nextVolume;
-    }
+    const nextMuted = !(effectiveMuted || effectiveVolume <= 0);
+    const nextVolume = nextMuted
+      ? effectiveVolume
+      : Math.max(effectiveVolume, lastNonZeroVolumeRef.current);
+    setMuted(nextMuted);
     setVolume(nextVolume);
-    setMuted(nextVolume <= 0);
-    persistLocalPreviewState(true, {
-      muted: nextVolume <= 0,
-      volume: nextVolume,
-    });
-  }, [persistLocalPreviewState]);
+    if (sessionIsActive && session?.capabilities.volume) {
+      void playback.commands.setVolume(nextVolume, nextMuted).catch(() => {});
+    }
+  }, [
+    effectiveMuted,
+    effectiveVolume,
+    playback.commands,
+    session?.capabilities.volume,
+    sessionIsActive,
+  ]);
+
+  const handleVolumeChange = React.useCallback(
+    (value: number) => {
+      const nextVolume = clampVolume(value);
+      const nextMuted = nextVolume <= 0;
+      if (nextVolume > 0) {
+        lastNonZeroVolumeRef.current = nextVolume;
+      }
+      setVolume(nextVolume);
+      setMuted(nextMuted);
+      if (sessionIsActive && session?.capabilities.volume) {
+        void playback.commands
+          .setVolume(nextVolume, nextMuted)
+          .catch(() => {});
+      }
+    }, [playback.commands, session?.capabilities.volume, sessionIsActive],
+  );
+
+  const toggleFullscreen = React.useCallback(() => {
+    if (document.fullscreenElement === containerRef.current) {
+      void document.exitFullscreen().catch(() => {});
+      return;
+    }
+    const container = containerRef.current;
+    if (!container?.requestFullscreen) {
+      return;
+    }
+    void container.requestFullscreen().catch(() => {});
+  }, []);
 
   return (
     <div
+      ref={containerRef}
       className={cn(
-        "relative h-full min-h-[16rem] overflow-hidden",
+        "listen-local-preview-player relative flex h-full min-h-[16rem] flex-col overflow-hidden",
         props.className,
       )}
+      data-presentation-active={presentationActive ? "true" : undefined}
+      data-playback-audio-owner="coordinator"
+      data-playback-video-surface={
+        kind === "video" ? "muted-mirror" : undefined
+      }
     >
-      <MediaPlayer
-        ref={playerRef}
-        key={track.id}
-        src={resolveAudioSource(track.previewURL, track.path)}
-        title={track.title}
-        viewType="audio"
-        streamType="on-demand"
-        load="eager"
-        preload="metadata"
-        playsInline
-        onPlay={() => setPlaying(true)}
-        onPause={() => {
-          setPlaying(false);
-          persistLocalPreviewState(true);
-        }}
-        onTimeUpdate={() => readLocalProgress()}
-        onCanPlay={() => {
-          restoreLocalPreviewState();
-          readLocalProgress();
-        }}
-        onEnded={() => {
-          setPlaying(false);
-          readLocalProgress();
-          persistLocalPreviewState(true);
-        }}
-        className="pointer-events-none"
-        style={LISTEN_HIDDEN_ENGINE_STYLE}
+      <div
+        className={cn(
+          "listen-local-preview-player__media flex min-h-0 flex-1 items-center justify-center overflow-hidden",
+          kind !== "video" && "p-6 sm:p-8",
+        )}
+        data-media-kind={kind}
       >
-        <MediaProvider />
-      </MediaPlayer>
-
-      <div className="flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden p-6 sm:p-8">
-        <div className="flex w-full max-w-lg flex-col items-center justify-center text-center">
-          <div className="min-w-0">
-            <div className="overflow-hidden text-balance text-xl font-semibold leading-tight text-sidebar-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] sm:text-2xl">
-              {track.title}
-            </div>
-            <div className="mt-3 truncate text-sm text-sidebar-foreground/58 sm:text-base">
-              {author}
-            </div>
-          </div>
-
-          <div className="mt-8 flex min-h-[2.75rem] w-full max-w-md items-start">
-            <ListenProgressBar
-              currentTime={progress.currentTime}
-              duration={progress.duration}
-              bufferedTime={progress.bufferedTime}
-              ariaLabel={props.text.listen.seek}
-              onSeek={handleSeek}
-              className="mx-auto max-w-md"
+        {kind === "video" ? (
+          <div className="group/video relative flex h-full w-full items-center justify-center">
+            <video
+              ref={videoRef}
+              key={track.previewURL}
+              src={track.previewURL}
+              poster={props.posterURL || track.coverURL}
+              title={track.title}
+              muted
+              playsInline
+              preload="metadata"
+              className="h-full w-full object-contain"
+              onLoadedMetadata={(event) => {
+                const mediaDuration = Number(event.currentTarget.duration);
+                if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                  setDraftDuration(mediaDuration);
+                }
+              }}
             />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="compactIcon"
+                  shape="circle"
+                  className="listen-local-preview-player__fullscreen-action absolute right-3 top-3 z-10"
+                  data-active={presentationActive ? "true" : "false"}
+                  aria-label={
+                    presentationActive
+                      ? props.text.completed.previewExitFullscreen
+                      : props.text.completed.previewEnterFullscreen
+                  }
+                  onClick={toggleFullscreen}
+                >
+                  {presentationActive ? (
+                    <Minimize2 className="h-4 w-4" />
+                  ) : (
+                    <Maximize2 className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                {presentationActive
+                  ? props.text.completed.previewExitFullscreen
+                  : props.text.completed.previewEnterFullscreen}
+              </TooltipContent>
+            </Tooltip>
           </div>
+        ) : (
+          <div className="listen-local-preview-player__identity flex w-full max-w-lg flex-col items-center justify-center">
+            <div className="min-w-0">
+              <div className="listen-local-preview-player__title overflow-hidden [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                {track.title}
+              </div>
+              <div className="listen-local-preview-player__artist mt-3 truncate">
+                {author}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
-          <div className="mt-6">
-            <ListenTransportActions
-              hasTrack
-              playing={playing}
-              showQueueControls={false}
-              loading={false}
-              muted={muted}
-              volume={volume}
-              playMode="order"
-              text={props.text}
-              onPrevious={() => {}}
-              onNext={() => {}}
-              onTogglePlayMode={() => {}}
-              onTogglePlayback={handleTogglePlayback}
-              onToggleMute={handleToggleMute}
-              onVolumeChange={handleVolumeChange}
-            />
-          </div>
+      <div className="shrink-0 px-4 pb-4 pt-3">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+          <ListenProgressBar
+            currentTime={progress.currentTime}
+            duration={progress.duration}
+            bufferedTime={progress.bufferedTime}
+            ariaLabel={props.text.listen.seek}
+            onSeek={handleSeek}
+          />
+          <ListenTransportActions
+            hasTrack={Boolean(track.path || track.previewURL)}
+            playing={playing}
+            loading={loading}
+            showQueueControls={false}
+            muted={effectiveMuted}
+            volume={effectiveVolume}
+            playMode="order"
+            text={props.text}
+            onPrevious={() => {}}
+            onNext={() => {}}
+            onTogglePlayMode={() => {}}
+            onTogglePlayback={handleTogglePlayback}
+            onToggleMute={handleToggleMute}
+            onVolumeChange={handleVolumeChange}
+          />
+          {session?.state === "error" && session.errorMessage ? (
+            <div className="listen-status-text listen-local-preview-player__error truncate" data-tone="error">
+              {session.errorMessage}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

@@ -48,9 +48,7 @@ async function copyTextToClipboard(value: string) {
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-10000px";
-  textarea.style.top = "0";
+  textarea.className = "app-clipboard-fallback-textarea";
   document.body.appendChild(textarea);
   textarea.select();
   try {
@@ -130,7 +128,7 @@ export function MediaPreviewDialog(props: MediaPreviewDialogProps) {
       >
         <DialogHeader
           className={cn(
-            "min-w-0 text-left",
+            "app-media-preview-dialog-header min-w-0",
             showCloseButton && "pr-8",
           )}
         >
@@ -141,7 +139,7 @@ export function MediaPreviewDialog(props: MediaPreviewDialogProps) {
             <div className="flex min-w-0 items-center gap-1.5">
               <DialogDescription
                 className={cn(
-                  "app-media-preview-dialog-url block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap",
+                  "app-media-preview-dialog-url block min-w-0 flex-1 overflow-hidden whitespace-nowrap",
                   props.descriptionClassName,
                 )}
               >
@@ -154,7 +152,8 @@ export function MediaPreviewDialog(props: MediaPreviewDialogProps) {
                       type="button"
                       variant="ghost"
                       size="compactIcon"
-                      className="h-6 w-6 shrink-0 rounded-full"
+                      shape="circle"
+                      className="h-6 w-6 shrink-0"
                       aria-label={descriptionCopyLabel}
                       title={descriptionCopyLabel}
                       onClick={() => void handleCopyDescription()}

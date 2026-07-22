@@ -1,15 +1,466 @@
 package wails
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	settingsdto "xiadown/internal/application/settings/dto"
 	"xiadown/internal/domain/settings"
 )
+
+func TestInitialWindowOptionsCarryMinimumSizes(t *testing.T) {
+	t.Parallel()
+
+	main := buildWindowOptions("main", "XiaDown", "/", settingsdto.WindowBounds{}, settingsdto.Settings{}, false)
+	if main.MinWidth != settings.MinMainWindowWidth || main.MinHeight != settings.MinMainWindowHeight {
+		t.Fatalf("main minimum size = %dx%d, want %dx%d", main.MinWidth, main.MinHeight, settings.MinMainWindowWidth, settings.MinMainWindowHeight)
+	}
+	if !main.Hidden {
+		t.Fatal("main window must be created hidden until the frontend boot surface is ready")
+	}
+
+	settingsWindow := buildWindowOptions("settings", "Settings", "/?window=settings", settingsdto.WindowBounds{}, settingsdto.Settings{}, true)
+	if settingsWindow.MinWidth != settings.MinSettingsWindowWidth || settingsWindow.MinHeight != settings.MinSettingsWindowHeight {
+		t.Fatalf("settings minimum size = %dx%d, want %dx%d", settingsWindow.MinWidth, settingsWindow.MinHeight, settings.MinSettingsWindowWidth, settings.MinSettingsWindowHeight)
+	}
+}
+
+func TestMainWindowAlwaysStartsNativeHidden(t *testing.T) {
+	for _, launchedByAutoStart := range []bool{false, true} {
+		options := buildMainWindowOptions(settingsdto.Settings{}, launchedByAutoStart)
+		if !options.Hidden {
+			t.Fatalf("main window Hidden = false for autostart=%v", launchedByAutoStart)
+		}
+	}
+}
+
+func TestMainWindowStartupThemeScriptUsesEffectiveAppearance(t *testing.T) {
+	for _, test := range []struct {
+		appearance string
+		want       string
+	}{
+		{appearance: settings.AppearanceLight.String(), want: `startupTheme = "light"`},
+		{appearance: settings.AppearanceDark.String(), want: `startupTheme = "dark"`},
+	} {
+		options := buildMainWindowOptions(settingsdto.Settings{
+			EffectiveAppearance: test.appearance,
+		}, false)
+		if !strings.Contains(options.JS, test.want) {
+			t.Fatalf("startup theme script for %q = %q", test.appearance, options.JS)
+		}
+	}
+
+	if script := mainWindowStartupThemeScript("system"); script != "" {
+		t.Fatalf("unexpected startup theme script for unresolved appearance: %q", script)
+	}
+}
+
+func TestStartupConstructsOnlyTheMainWebView(t *testing.T) {
+	t.Parallel()
+
+	sourceBytes, err := os.ReadFile("window_manager.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	constructor := windowManagerFunctionSource(t, source, "func NewWindowManager(")
+	if count := strings.Count(constructor, ".Window.NewWithOptions("); count != 1 {
+		t.Fatalf("startup WebView constructor count = %d, want main only", count)
+	}
+	for _, forbidden := range []string{
+		"buildSettingsWindowOptions(",
+		"buildTrayMiniPlayerWindowOptions(",
+		"registerSettingsWindowEvents(",
+	} {
+		if strings.Contains(constructor, forbidden) {
+			t.Fatalf("startup constructor eagerly initialises a secondary WebView through %q", forbidden)
+		}
+	}
+}
+
+func TestLazyWebViewsInstallPoliciesBeforeRunning(t *testing.T) {
+	t.Parallel()
+
+	sourceBytes, err := os.ReadFile("window_manager.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, signature := range []string{
+		"func (manager *WindowManager) ensureSettingsWindow(",
+		"func (manager *WindowManager) ensureTrayMiniPlayer(",
+	} {
+		body := windowManagerFunctionSource(t, source, signature)
+		constructor := strings.Index(body, "application.NewWindow(withRemoteWebViewPermissionPolicy(")
+		capabilityPolicy := strings.Index(body, "registerWebViewRemoteCapabilityPolicy(window)")
+		add := strings.Index(body, "manager.app.Window.Add(window)")
+		run := strings.Index(body, "window.Run()")
+		if constructor < 0 || capabilityPolicy < 0 || add < 0 || run < 0 {
+			t.Fatalf("%s is missing the prepared lazy-window lifecycle", signature)
+		}
+		if !(constructor < capabilityPolicy && capabilityPolicy < add && add < run) {
+			t.Fatalf("%s must construct, secure, register, then run the WebView", signature)
+		}
+		if strings.Contains(body, "NewWithOptions(") {
+			t.Fatalf("%s must not run before its lifecycle policies are registered", signature)
+		}
+	}
+}
+
+func TestTrayAndUpdateActionsPreserveLazyWindowBehaviour(t *testing.T) {
+	t.Parallel()
+
+	trayBytes, err := os.ReadFile("system_tray.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	traySource := string(trayBytes)
+	for _, required := range []string{
+		"actions.ToggleMiniPlayer()",
+		"controller.actions.OpenUpdate()",
+		"tray.AttachWindow(window).WindowOffset(10)",
+	} {
+		if !strings.Contains(traySource, required) {
+			t.Fatalf("lazy tray contract is missing %q", required)
+		}
+	}
+	if strings.Contains(
+		windowManagerFunctionSource(t, traySource, "func NewSystemTrayController("),
+		"miniPlayer application.Window",
+	) {
+		t.Fatal("system tray construction must not require an eager mini-player WebView")
+	}
+
+	windowBytes, err := os.ReadFile("window_manager.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	navigation := windowManagerFunctionSource(
+		t,
+		string(windowBytes),
+		"func (manager *WindowManager) emitNavigateToAbout(",
+	)
+	for _, required := range []string{
+		"manager.ShowSettingsWindow()",
+		`localStorage.setItem(key, "about")`,
+		`manager.app.Event.Emit("settings:navigate", "about")`,
+	} {
+		if !strings.Contains(navigation, required) {
+			t.Fatalf("lazy settings update navigation is missing %q", required)
+		}
+	}
+}
+
+func windowManagerFunctionSource(t *testing.T, source string, signature string) string {
+	t.Helper()
+	start := strings.Index(source, signature)
+	if start < 0 {
+		t.Fatalf("could not locate %s", signature)
+	}
+	rest := source[start+len(signature):]
+	end := strings.Index(rest, "\nfunc ")
+	if end < 0 {
+		return source[start:]
+	}
+	return source[start : start+len(signature)+end]
+}
+
+func TestMainWindowBootStateShowsNativeSurfaceBeforeFrontendReady(t *testing.T) {
+	state := newMainWindowBootState(true)
+
+	if state.requestShow() {
+		t.Fatal("show request must wait for ApplicationStarted and a safe surface")
+	}
+	if state.markNativeSurfaceReady() {
+		t.Fatal("native surface must wait for ApplicationStarted before revealing the window")
+	}
+	if state.isReady() {
+		t.Fatal("native surface readiness must not impersonate frontend readiness")
+	}
+	if !state.markApplicationStarted() {
+		t.Fatal("ApplicationStarted should reveal the already-installed native surface")
+	}
+	becameReady, shouldReveal := state.markReady()
+	if !becameReady || shouldReveal {
+		t.Fatalf("frontend-ready transition = (%v, %v), want (true, false)", becameReady, shouldReveal)
+	}
+	if becameReady, shouldReveal = state.markReady(); becameReady || shouldReveal {
+		t.Fatal("frontend-ready transition must be idempotent")
+	}
+	if !state.requestShow() {
+		t.Fatal("an explicit show must restore and focus an already-visible window")
+	}
+}
+
+func TestMainWindowBootStateSettlesOnFrontendOrFallback(t *testing.T) {
+	frontend := newMainWindowBootState(true)
+	if frontend.isSettled() {
+		t.Fatal("new boot state must not be settled")
+	}
+	frontend.markReady()
+	if !frontend.isSettled() {
+		t.Fatal("frontend-ready boot state must be settled")
+	}
+
+	fallback := newMainWindowBootState(true)
+	fallback.markFallbackReady()
+	if fallback.isReady() {
+		t.Fatal("fallback readiness must not impersonate frontend readiness")
+	}
+	if !fallback.isSettled() {
+		t.Fatal("fallback-ready boot state must be settled")
+	}
+}
+
+func TestMainWindowBootStateExplicitShowRestoresSafeWindow(t *testing.T) {
+	state := newMainWindowBootState(true)
+	if state.markApplicationStarted() {
+		t.Fatal("ApplicationStarted must wait for a safe surface")
+	}
+	if !state.markNativeSurfaceReady() {
+		t.Fatal("native surface should reveal the initial window")
+	}
+	if !state.requestShow() {
+		t.Fatal("tray or Dock show should be applied even after the initial reveal")
+	}
+}
+
+func TestMainWindowBootStateKeepsAutostartLaunchHidden(t *testing.T) {
+	state := newMainWindowBootState(false)
+
+	if state.markApplicationStarted() {
+		t.Fatal("ApplicationStarted must not reveal a window whose startup intent is hidden")
+	}
+	if state.markNativeSurfaceReady() {
+		t.Fatal("native surface must not reveal a hidden autostart launch")
+	}
+	becameReady, shouldReveal := state.markReady()
+	if !becameReady || shouldReveal {
+		t.Fatalf("hidden frontend-ready transition = (%v, %v), want (true, false)", becameReady, shouldReveal)
+	}
+	if !state.isReady() {
+		t.Fatal("hidden autostart launch should still complete the boot handshake")
+	}
+	if !state.requestShow() {
+		t.Fatal("an explicit later show request should reveal a boot-ready window")
+	}
+}
+
+func TestMainWindowBootStateRecordsShowIntentBeforeNativeSurface(t *testing.T) {
+	state := newMainWindowBootState(false)
+
+	if state.requestShow() {
+		t.Fatal("pre-surface show request should only record visibility intent")
+	}
+	if state.markApplicationStarted() {
+		t.Fatal("ApplicationStarted must still wait for a safe startup surface")
+	}
+	if !state.markNativeSurfaceReady() {
+		t.Fatal("recorded visibility intent should be applied as soon as the native surface exists")
+	}
+}
+
+func TestMainWindowBootStateFallsBackToFrontendWithoutNativeSurface(t *testing.T) {
+	state := newMainWindowBootState(true)
+
+	if state.markApplicationStarted() {
+		t.Fatal("ApplicationStarted must wait for a safe startup surface")
+	}
+	becameReady, shouldReveal := state.markReady()
+	if !becameReady || !shouldReveal {
+		t.Fatalf("frontend fallback transition = (%v, %v), want (true, true)", becameReady, shouldReveal)
+	}
+}
+
+func TestMainWindowBootStateHideBeforeReadyDoesNotResurface(t *testing.T) {
+	state := newMainWindowBootState(true)
+	if state.markApplicationStarted() {
+		t.Fatal("ApplicationStarted must wait for a safe startup surface")
+	}
+	state.requestHide()
+	if state.markNativeSurfaceReady() {
+		t.Fatal("native surface must respect a hide request")
+	}
+	if becameReady, shouldReveal := state.markReady(); !becameReady || shouldReveal {
+		t.Fatalf("hidden frontend-ready transition = (%v, %v), want (true, false)", becameReady, shouldReveal)
+	}
+}
+
+func TestMainWindowBootStateFallbackDoesNotClaimFrontendReady(t *testing.T) {
+	state := newMainWindowBootState(true)
+	if state.markApplicationStarted() {
+		t.Fatal("ApplicationStarted must wait for a safe startup surface")
+	}
+	if !state.markFallbackReady() {
+		t.Fatal("HTML fallback should reveal a manually launched window")
+	}
+	if state.isReady() {
+		t.Fatal("HTML fallback must not impersonate a stable React frame")
+	}
+	if becameReady, shouldReveal := state.markReady(); !becameReady || shouldReveal {
+		t.Fatalf("late frontend-ready transition = (%v, %v), want (true, false)", becameReady, shouldReveal)
+	}
+}
+
+func TestMainWindowBootStateInvalidatesClaimedRevealAfterHide(t *testing.T) {
+	state := newMainWindowBootState(true)
+	if state.markNativeSurfaceReady() {
+		t.Fatal("native surface must wait for ApplicationStarted")
+	}
+	if !state.markApplicationStarted() {
+		t.Fatal("manual launch should claim a reveal")
+	}
+	state.requestHide()
+	if state.shouldApplyReveal() {
+		t.Fatal("a hide request must invalidate an outstanding reveal claim")
+	}
+}
+
+func TestAwaitMainWindowBootReadyFallback(t *testing.T) {
+	t.Run("pending at deadline", func(t *testing.T) {
+		if !awaitMainWindowBootReadyFallback(context.Background(), 0, func() bool { return false }) {
+			t.Fatal("pending handshake should trigger the timeout fallback")
+		}
+	})
+
+	t.Run("already ready", func(t *testing.T) {
+		if awaitMainWindowBootReadyFallback(context.Background(), 0, func() bool { return true }) {
+			t.Fatal("completed handshake must suppress the timeout fallback")
+		}
+	})
+
+	t.Run("shutdown", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if awaitMainWindowBootReadyFallback(ctx, time.Hour, func() bool { return false }) {
+			t.Fatal("shutdown must cancel the timeout fallback")
+		}
+	})
+}
+
+func TestMainWindowBootFallbackRequestFollowsPlatformHTMLPolicy(t *testing.T) {
+	manager := &WindowManager{mainBoot: newMainWindowBootState(false)}
+
+	manager.ReleaseMainWindowBootFallback()
+	if !supportsMainWindowStartupOverlay() {
+		if !manager.mainBoot.isFallbackReady() {
+			t.Fatal("platforms without a native startup overlay should release the HTML fallback immediately")
+		}
+		return
+	}
+	if manager.mainBoot.isFallbackReady() {
+		t.Fatal("a native startup overlay must remain until WebKit finishes navigation")
+	}
+	manager.markMainWindowHTMLSurfaceReady()
+	if !manager.mainBoot.isFallbackReady() {
+		t.Fatal("the pending fallback request must be released when HTML becomes available")
+	}
+}
+
+func TestMainWindowHTMLReadyBeforeFallbackRequestReleasesImmediately(t *testing.T) {
+	manager := &WindowManager{mainBoot: newMainWindowBootState(false)}
+
+	manager.markMainWindowHTMLSurfaceReady()
+	manager.ReleaseMainWindowBootFallback()
+	if !manager.mainBoot.isFallbackReady() {
+		t.Fatal("fallback request should release immediately after HTML is available")
+	}
+}
+
+func TestMainWindowBootFailureCanReleaseNonNativeHTMLSurface(t *testing.T) {
+	if !canReleaseMainWindowBootFallback(false, false) {
+		t.Fatal("non-native frontend failure already proves the HTML bootstrap exists")
+	}
+	if canReleaseMainWindowBootFallback(true, false) {
+		t.Fatal("native overlay must remain until WebKit confirms the HTML surface")
+	}
+	if !canReleaseMainWindowBootFallback(true, true) {
+		t.Fatal("native overlay should release after WebKit confirms the HTML surface")
+	}
+}
+
+func TestMacMainWindowKeepsNativeTrafficLightControls(t *testing.T) {
+	t.Parallel()
+
+	options := application.WebviewWindowOptions{
+		MinimiseButtonState:   application.ButtonHidden,
+		MaximiseButtonState:   application.ButtonHidden,
+		FullscreenButtonState: application.ButtonHidden,
+		CloseButtonState:      application.ButtonHidden,
+	}
+	applyMainWindowControlPolicy(&options, "darwin")
+
+	if options.MinimiseButtonState != application.ButtonEnabled ||
+		options.MaximiseButtonState != application.ButtonEnabled ||
+		options.FullscreenButtonState != application.ButtonEnabled ||
+		options.CloseButtonState != application.ButtonEnabled {
+		t.Fatalf("macOS main window traffic lights = (%v, %v, %v, %v), want all enabled",
+			options.CloseButtonState,
+			options.MinimiseButtonState,
+			options.MaximiseButtonState,
+			options.FullscreenButtonState,
+		)
+	}
+}
+
+func TestInitialPresentationSyncDoesNotDispatchWindowSizing(t *testing.T) {
+	t.Parallel()
+
+	sourceBytes, err := os.ReadFile("window_manager.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	start := strings.Index(source, "func (manager *WindowManager) syncWindowPresentation(")
+	if start < 0 {
+		t.Fatal("could not locate initial presentation sync")
+	}
+	end := strings.Index(source[start:], "\nfunc (manager *WindowManager) enforceMinimumSize(")
+	if end < 0 {
+		t.Fatal("could not locate initial presentation sync")
+	}
+	body := source[start : start+end]
+	for _, forbidden := range []string{".SetMinSize(", ".enforceMinimumSize("} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("initial presentation sync must not call %q before Application.Run", forbidden)
+		}
+	}
+}
+
+func TestShouldExposeDeveloperMenu(t *testing.T) {
+	t.Parallel()
+
+	for _, version := range []string{"", "dev", "development", "1.2.3-alpha.1"} {
+		if !shouldExposeDeveloperMenu(version) {
+			t.Fatalf("expected developer menu for %q", version)
+		}
+	}
+	for _, version := range []string{"1.2.3", "v1.2.3"} {
+		if shouldExposeDeveloperMenu(version) {
+			t.Fatalf("did not expect developer menu for release %q", version)
+		}
+	}
+}
+
+func TestShouldHideNativeMenuBar(t *testing.T) {
+	t.Parallel()
+
+	if shouldHideNativeMenuBar("windows", "dev") {
+		t.Fatal("Windows dev menu must remain visible for reload and DevTools")
+	}
+	if !shouldHideNativeMenuBar("windows", "1.2.3") {
+		t.Fatal("Windows release menu should retain the product's hidden-menu behaviour")
+	}
+	if shouldHideNativeMenuBar("darwin", "1.2.3") {
+		t.Fatal("non-Windows menu bar must not be hidden through the Windows policy")
+	}
+}
 
 func TestShouldStartHidden(t *testing.T) {
 	tests := []struct {
@@ -338,7 +789,7 @@ func TestWindowManagerCachedBoundsUsesLastValidBounds(t *testing.T) {
 	if !ok {
 		t.Fatal("expected cached main bounds")
 	}
-	if got.X != 50 || got.Y != 60 || got.Width != 1280 || got.Height != 720 {
+	if got.X != 50 || got.Y != 60 || got.Width != 1280 || got.Height != settings.MinMainWindowHeight {
 		t.Fatalf("unexpected cached bounds: %+v", got)
 	}
 	if _, ok := manager.cachedBoundsForPersistence(windowTypeMain); ok {

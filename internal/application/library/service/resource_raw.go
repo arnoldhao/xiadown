@@ -74,7 +74,7 @@ func (service *LibraryService) ListResourceSniffResources(ctx context.Context, r
 	return dto.ListResourceSniffResourcesResponse{
 		Session:   service.mapResourceSniffSession(session),
 		Resources: items,
-		UpdatedAt: time.Now().Format(time.RFC3339),
+		UpdatedAt: resourceSniffRawResourcesLastCaptureAt(resources),
 	}, nil
 }
 
@@ -173,7 +173,7 @@ func (service *LibraryService) PrepareResourceSniffRawDownload(ctx context.Conte
 		return dto.ParseYTDLPDownloadResponse{}, apperrors.New(apperrors.CodeResourceResolveFailed, "resource sniff raw resource is not downloadable")
 	}
 	media := resourceMediaFromRawResource(selected)
-	mediaID := service.putResourceMediaSnapshot(media)
+	mediaID := service.putResourceMediaSnapshotForSession(media, sessionID)
 	if mediaID == "" {
 		return dto.ParseYTDLPDownloadResponse{}, apperrors.New(apperrors.CodeResourceResolveFailed, "resource sniff media snapshot is unavailable")
 	}
@@ -290,6 +290,14 @@ func (service *LibraryService) resourceSniffRuntimePIDs() map[int]struct{} {
 }
 
 func (service *LibraryService) listResourceSniffRawResources(session *resourceSniffSession) []resourceSniffRawResource {
+	return service.listResourceSniffRawResourcesWithPreviews(session, true)
+}
+
+func (service *LibraryService) listResourceSniffRawResourcesForStatus(session *resourceSniffSession) []resourceSniffRawResource {
+	return service.listResourceSniffRawResourcesWithPreviews(session, false)
+}
+
+func (service *LibraryService) listResourceSniffRawResourcesWithPreviews(session *resourceSniffSession, includePreviews bool) []resourceSniffRawResource {
 	if session == nil {
 		return nil
 	}
@@ -310,20 +318,21 @@ func (service *LibraryService) listResourceSniffRawResources(session *resourceSn
 	result := make([]resourceSniffRawResource, 0)
 	for _, tab := range tabs {
 		accepted, rejected := tab.capture.snapshot()
-		responses := tab.capture.apiResponsesSnapshot()
-		previews := tab.capture.previewsSnapshot()
 		subtitles := tab.capture.subtitlesSnapshot()
 		observed := tab.capture.observedSnapshot()
-		tabResources := make([]resourceSniffRawResource, 0, len(observed)+len(accepted)+len(rejected)+len(responses)+len(subtitles))
+		tabResources := make([]resourceSniffRawResource, 0, len(observed)+len(accepted)+len(rejected)+len(subtitles))
 		if len(observed) > 0 {
 			tabResources = append(tabResources, rawResourcesFromObserved(tab.targetID, observed)...)
 		} else {
 			tabResources = append(tabResources, rawResourcesFromCandidates(tab.targetID, accepted)...)
 			tabResources = append(tabResources, rawResourcesFromRejected(tab.targetID, rejected)...)
 		}
-		tabResources = append(tabResources, rawResourcesFromAPIResponses(tab.targetID, responses)...)
 		tabResources = append(tabResources, rawResourcesFromSubtitles(tab.targetID, subtitles)...)
-		result = append(result, attachResourceSniffRawPreviews(tabResources, previews)...)
+		if includePreviews {
+			result = append(result, attachResourceSniffRawPreviews(tabResources, tab.capture.previewsSnapshot())...)
+		} else {
+			result = append(result, tabResources...)
+		}
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		left := parseResourceSniffRawSeenAt(result[i].SeenAt)
@@ -337,6 +346,17 @@ func (service *LibraryService) listResourceSniffRawResources(session *resourceSn
 		return result[i].URL < result[j].URL
 	})
 	return dedupeResourceSniffRawResources(result)
+}
+
+func resourceSniffRawResourcesLastCaptureAt(items []resourceSniffRawResource) string {
+	var latest time.Time
+	for _, item := range items {
+		seenAt := parseResourceSniffRawSeenAt(item.SeenAt)
+		if seenAt.After(latest) {
+			latest = seenAt
+		}
+	}
+	return formatResourceSniffRawTime(latest)
 }
 
 func attachResourceSniffRawPreviews(items []resourceSniffRawResource, previews []resourcePreviewSnapshot) []resourceSniffRawResource {
@@ -452,37 +472,6 @@ func rawResourcesFromRejected(targetID string, rejected []resourceRejectedCandid
 		result = append(result, resourceSniffRawResource{
 			ResourceSniffRawResource: item,
 			headers:                  cloneStringMap(candidate.headers),
-		})
-	}
-	return result
-}
-
-func rawResourcesFromAPIResponses(targetID string, responses []resourceAPIResponse) []resourceSniffRawResource {
-	result := make([]resourceSniffRawResource, 0, len(responses))
-	for _, response := range responses {
-		source := "api_response"
-		if resourceSniffRawManifestStream(response.URL, response.MimeType, response.ContentType) {
-			source = "network"
-		}
-		item := dto.ResourceSniffRawResource{
-			Source:       source,
-			URL:          strings.TrimSpace(response.URL),
-			PageURL:      strings.TrimSpace(response.PageURL),
-			Domain:       extractRegistrableDomain(response.URL),
-			MimeType:     strings.TrimSpace(response.MimeType),
-			ContentType:  strings.TrimSpace(response.ContentType),
-			ResourceType: string(response.ResourceType),
-			Status:       response.Status,
-			SizeBytes:    firstPositiveInt64(response.SizeBytes, int64(len(response.Body))),
-			TargetID:     strings.TrimSpace(targetID),
-			SeenAt:       formatResourceSniffRawTime(response.SeenAt),
-		}
-		item.Kind = resourceSniffRawKindWithBody(item.Source, item.URL, item.MimeType, item.ContentType, item.ResourceType, response.Body, item.SizeBytes)
-		item.Downloadable = resourceSniffRawDownloadable(item)
-		item.ID = resourceSniffRawResourceID(item)
-		result = append(result, resourceSniffRawResource{
-			ResourceSniffRawResource: item,
-			headers:                  cloneStringMap(response.RequestHeaders),
 		})
 	}
 	return result

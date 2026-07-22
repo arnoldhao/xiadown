@@ -1,15 +1,15 @@
 {
 	"fixed": {
-		"file_version": "2.0.0"
+		"file_version": "0.0.0"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "2.0.0",
+			"ProductVersion": "dev",
 			"CompanyName": "DreamApp",
-			"FileDescription": "XiaDown",
-			"LegalCopyright": "© 2026, Arnold HAO",
+			"FileDescription": "A yt-dlp powered downloader and transcoder.",
+			"LegalCopyright": "(c) 2026, Arnold HAO",
 			"ProductName": "XiaDown",
-			"Comments": "A yt-dlp powered downloader and transcoder."
+			"Comments": "XiaDown"
 		}
 	}
 }

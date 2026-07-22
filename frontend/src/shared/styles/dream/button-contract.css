@@ -1,0 +1,527 @@
+/*
+ * Stable semantic button contract.
+ *
+ * This file is intentionally loaded after legacy Dream/Completed selectors so
+ * explicit component props win over historical utility-class inference.
+ */
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size] {
+  border: var(--app-button-border, 1px solid transparent);
+  background: var(--dream-surface-soft);
+  color: var(--app-text-primary);
+  box-shadow: none;
+  font-size: var(--app-button-font-size, 13px);
+  font-weight: var(--app-button-font-weight, 600);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-size="default"] {
+  width: var(--app-button-inline-size);
+  height: var(--app-button-block-size, 1.75rem);
+  gap: var(--app-button-gap, var(--app-space-2));
+  padding: var(
+    --app-button-padding,
+    var(--app-space-1) var(--app-space-3)
+  );
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-size="sm"] {
+  width: var(--app-button-inline-size);
+  height: var(--app-button-block-size, 1.75rem);
+  gap: var(--app-button-gap, var(--app-space-2));
+  padding: var(--app-button-padding, 0 0.625rem);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-size="lg"] {
+  width: var(--app-button-inline-size);
+  height: var(--app-button-block-size, 2rem);
+  gap: var(--app-button-gap, var(--app-space-2));
+  padding: var(--app-button-padding, 0 var(--app-space-4));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-size="icon"] {
+  width: var(--app-button-inline-size, 1.75rem);
+  height: var(--app-button-block-size, 1.75rem);
+  gap: var(--app-button-gap, 0);
+  padding: var(--app-button-padding, 0);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-size="compact"] {
+  width: var(--app-button-inline-size);
+  height: var(
+    --app-button-block-size,
+    var(--app-control-height-compact)
+  );
+  gap: var(--app-button-gap, var(--app-space-1-5));
+  padding: var(
+    --app-button-padding,
+    0 var(--app-control-padding-compact-x)
+  );
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-size="compactIcon"] {
+  width: var(
+    --app-button-inline-size,
+    var(--app-control-height-compact)
+  );
+  height: var(
+    --app-button-block-size,
+    var(--app-control-height-compact)
+  );
+  gap: var(--app-button-gap, 0);
+  padding: var(--app-button-padding, 0);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="sidebar"],
+:root .app-dream-button--sidebar.app-motion-surface {
+  border-radius: var(--app-sidebar-radius);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--dream-surface-pressed);
+  color: var(--app-text-primary);
+}
+
+:root:not([data-input-modality="pointer"]) .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size]:focus-visible {
+  outline: 2px solid hsl(var(--app-accent-ring, var(--ring)) / 0.58);
+  outline-offset: -2px;
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="default"][data-tone="accent"][data-size] {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.34);
+  background: hsl(var(--app-accent-solid, var(--primary)));
+  color: hsl(var(--app-accent-on-solid, var(--primary-foreground)));
+  box-shadow: 0 9px 22px -16px hsl(var(--app-accent-brand, var(--primary)) / 0.72);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="default"][data-tone="accent"][data-size]:hover {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.42);
+  background: hsl(var(--app-accent-solid, var(--primary)));
+  background: color-mix(
+    in srgb,
+    hsl(var(--app-accent-solid, var(--primary))) 88%,
+    hsl(var(--foreground)) 12%
+  );
+  color: hsl(var(--app-accent-on-solid, var(--primary-foreground)));
+}
+
+/* Inside a sampled control group, selection is tonal rather than a second
+   prominent action. */
+:root .app-glass-group > .app-dream-button.app-motion-surface[data-app-button][data-variant="default"][data-tone="accent"][data-size] {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.20);
+  background: var(--app-glass-interactive-fill-selected);
+  color: hsl(var(--app-accent-text, var(--primary)));
+  box-shadow: none;
+}
+
+:root .app-glass-group > .app-dream-button.app-motion-surface[data-app-button][data-variant="default"][data-tone="accent"][data-size]:hover {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.28);
+  background: var(--app-glass-interactive-fill-pressed);
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="glass"][data-tone][data-size] {
+  color: var(--app-text-primary);
+}
+
+/* A group samples the backdrop once; glass buttons inside it become tonal. */
+:root .app-glass-surface .app-dream-button.app-motion-surface[data-app-button][data-variant="glass"][data-tone][data-size] {
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="outline"][data-tone][data-size] {
+  border-color: var(--dream-line-soft);
+  background: transparent;
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="outline"][data-tone="accent"][data-size] {
+  border-color: color-mix(
+    in srgb,
+    hsl(var(--app-accent-brand, var(--primary))) 34%,
+    transparent
+  );
+  background: var(--app-accent-surface);
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="outline"][data-tone="accent"][data-size]:hover {
+  border-color: color-mix(
+    in srgb,
+    hsl(var(--app-accent-brand, var(--primary))) 42%,
+    transparent
+  );
+  background: color-mix(
+    in srgb,
+    var(--app-accent-surface) 84%,
+    hsl(var(--app-accent-brand, var(--primary))) 16%
+  );
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="ghost"][data-tone][data-size],
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant="link"][data-tone][data-size] {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="destructive"][data-size] {
+  border-color: hsl(var(--destructive) / 0.16);
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="destructive"][data-size]:hover {
+  background: hsl(var(--destructive) / 0.16);
+  color: hsl(var(--destructive));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="success"][data-size] {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-success) 18%,
+    transparent
+  );
+  background: var(--app-status-surface-success);
+  color: var(--app-status-tone-success);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="success"][data-size]:hover {
+  background: color-mix(
+    in srgb,
+    var(--app-status-tone-success) 16%,
+    transparent
+  );
+  color: var(--app-status-tone-success);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="warning"][data-size] {
+  border-color: color-mix(
+    in srgb,
+    var(--app-status-tone-orphan) 18%,
+    transparent
+  );
+  background: var(--app-status-surface-orphan);
+  color: var(--app-status-tone-orphan);
+}
+
+/* Playback chrome deliberately resolves against media rather than the current
+   window palette. This semantic exception remains part of the button contract. */
+:root .app-dream-button.app-motion-surface.app-flv-preview-fullscreen-action[data-app-button][data-size] {
+  border: 0;
+  border-radius: 9999px;
+  background: var(--app-media-chrome-scrim);
+  color: var(--app-media-chrome-foreground);
+  box-shadow: 0 10px 24px -14px var(--app-media-chrome-shadow);
+  -webkit-backdrop-filter: var(--app-glass-clear-filter);
+  backdrop-filter: var(--app-glass-clear-filter);
+}
+
+:root .app-dream-button.app-motion-surface.app-flv-preview-fullscreen-action[data-app-button][data-size]:is(:hover, :focus-visible) {
+  background: var(--app-media-chrome-scrim-hover);
+  color: var(--app-media-chrome-foreground);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="warning"][data-size]:hover {
+  background: color-mix(
+    in srgb,
+    var(--app-status-tone-orphan) 16%,
+    transparent
+  );
+  color: var(--app-status-tone-orphan);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="neutral"][data-size]:is(
+    [aria-checked="true"],
+    [aria-pressed="true"],
+    [data-active="true"]
+  ) {
+  border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.24);
+  background: var(--app-glass-interactive-fill-selected);
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="neutral"][data-size]:is(
+    [aria-checked="true"],
+    [aria-pressed="true"],
+    [data-active="true"]
+  ):hover {
+  background: var(--app-glass-interactive-fill-pressed);
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size][aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size]:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-shape="control"] {
+  border-radius: var(--app-radius-control);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-shape="capsule"],
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-shape="circle"] {
+  border-radius: var(--app-radius-capsule);
+}
+
+:root .app-dream-button.app-motion-surface[data-app-button][data-variant][data-shape="square"] {
+  border-radius: var(--app-radius-control-compact);
+}
+
+/* Equal-width action groups sample one Dream surface. A small internal gap
+   keeps the middle control's hit area and silhouette independent from both
+   edge controls. */
+:root .app-dream-button-group.app-dream-button-group--segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 1px;
+  padding: 0.125rem;
+}
+
+:root
+  .app-dream-button-group.app-dream-button-group--segmented
+  > .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size] {
+  width: 100%;
+  min-width: 0;
+  height: var(--dream-control-height);
+  min-height: var(--dream-control-height);
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  padding-inline: 0.625rem;
+}
+
+:root
+  .app-dream-button-group.app-dream-button-group--segmented
+  > .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--dream-surface-hover);
+  color: var(--dream-text-strong);
+}
+
+:root
+  .app-dream-button-group.app-dream-button-group--segmented
+  > .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone][data-size][data-active="true"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  opacity: 1;
+}
+
+:root
+  .app-dream-button-group.app-dream-button-group--segmented
+  > .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="destructive"][data-size] {
+  background: transparent;
+  color: hsl(var(--destructive));
+}
+
+:root
+  .app-dream-button-group.app-dream-button-group--segmented
+  > .app-dream-button.app-motion-surface[data-app-button][data-variant][data-tone="destructive"][data-size]:hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+/* Native caption buttons are still canonical Button primitives. This reviewed
+   platform recipe owns their geometry and color outside feature markup. */
+:root .app-dream-button.app-motion-surface.app-window-control[data-app-button][data-variant][data-size] {
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+:root [data-window-controls-platform="macos"]
+  .app-dream-button.app-motion-surface.app-window-control[data-app-button][data-size] {
+  width: 0.75rem;
+  min-width: 0.75rem;
+  height: 0.75rem;
+  min-height: 0.75rem;
+}
+
+:root [data-window-controls-platform="macos"]
+  .app-dream-button.app-motion-surface.app-window-control--macos-close[data-app-button][data-variant][data-tone][data-size] {
+  background: var(--app-window-control-macos-close);
+}
+
+:root [data-window-controls-platform="macos"]
+  .app-dream-button.app-motion-surface.app-window-control--macos-close[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--app-window-control-macos-close-hover);
+}
+
+:root [data-window-controls-platform="macos"]
+  .app-dream-button.app-motion-surface.app-window-control--macos-minimize[data-app-button][data-variant][data-tone][data-size] {
+  background: var(--app-window-control-macos-minimize);
+}
+
+:root [data-window-controls-platform="macos"]
+  .app-dream-button.app-motion-surface.app-window-control--macos-minimize[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--app-window-control-macos-minimize-hover);
+}
+
+:root [data-window-controls-platform="macos"]
+  .app-dream-button.app-motion-surface.app-window-control--macos-maximize[data-app-button][data-variant][data-tone][data-size] {
+  background: var(--app-window-control-macos-maximize);
+}
+
+:root [data-window-controls-platform="macos"]
+  .app-dream-button.app-motion-surface.app-window-control--macos-maximize[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--app-window-control-macos-maximize-hover);
+}
+
+:root .app-dream-button.app-motion-surface.app-window-control--windows[data-app-button][data-variant][data-tone][data-size] {
+  width: var(--app-windows-caption-button-width);
+  min-width: var(--app-windows-caption-button-width);
+  height: 100%;
+  min-height: 100%;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--foreground) / 0.75);
+}
+
+:root .app-dream-button.app-motion-surface.app-window-control--windows[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--app-window-control-hover-surface);
+  color: hsl(var(--foreground));
+}
+
+:root .app-dream-button.app-motion-surface.app-window-control--windows[data-app-button][data-variant][data-tone][data-size]:active {
+  background: var(--app-window-control-pressed-surface);
+}
+
+:root .app-dream-button.app-motion-surface.app-window-control--windows-close[data-app-button][data-variant][data-tone][data-size]:is(:hover, :focus-visible) {
+  background: var(--app-window-control-danger);
+  color: var(--app-window-control-danger-foreground);
+}
+
+:root .app-dream-button.app-motion-surface.app-window-control--windows-close[data-app-button][data-variant][data-tone][data-size]:active {
+  background: var(--app-window-control-danger-pressed);
+  color: var(--app-window-control-danger-foreground);
+}
+
+:root .app-dream-button.app-motion-surface.app-settings-tab-button[data-app-button][data-variant][data-tone][data-size] {
+  border: 0;
+  border-radius: var(--app-radius-xl);
+  background: transparent;
+  color: var(--app-text-secondary);
+  box-shadow: none;
+}
+
+:root .app-dream-button.app-motion-surface.app-settings-tab-button[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--app-glass-interactive-fill);
+  color: var(--app-text-primary);
+}
+
+:root .app-dream-button.app-motion-surface.app-settings-tab-button[data-app-button][data-variant][data-tone][data-size][data-active="true"] {
+  background: var(--app-accent-surface);
+  color: hsl(var(--app-accent-text));
+  box-shadow: inset 0 1px 0 hsl(var(--background) / 0.18);
+}
+
+:root .app-dream-button.app-motion-surface.app-browser-source-card[data-app-button][data-variant][data-tone][data-size],
+:root .app-dream-button.app-motion-surface.app-browser-profile-card[data-app-button][data-variant][data-tone][data-size] {
+  --app-button-border: 0;
+  border-radius: var(--app-radius-lg);
+  background: transparent;
+  color: var(--app-text-primary);
+  box-shadow: none;
+}
+
+:root .app-dream-button.app-motion-surface.app-browser-source-card[data-app-button][data-variant][data-tone][data-size]:hover,
+:root .app-dream-button.app-motion-surface.app-browser-profile-card[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: var(--app-glass-interactive-fill);
+  color: var(--app-text-primary);
+}
+
+:root .app-dream-button.app-motion-surface.app-browser-profile-card[data-app-button][data-variant][data-tone][data-size][aria-checked="true"] {
+  background: var(--app-glass-interactive-fill-selected);
+  color: hsl(var(--app-accent-text));
+  box-shadow: none;
+}
+
+:root .app-dream-button.app-motion-surface.app-browser-profile-card[data-app-button][data-variant][data-tone][data-size]:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+:root .app-dream-button.app-motion-surface.app-new-task-sniff-browser-option[data-app-button][data-variant][data-tone][data-size] {
+  display: flex;
+  width: 7rem;
+  min-width: 0;
+  min-height: 7rem;
+  height: auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-space-3);
+  padding: var(--app-space-3);
+  border-color: var(--dream-line-soft);
+  border-radius: var(--app-radius-lg);
+  background: var(--dream-surface-card);
+  text-align: center;
+}
+
+:root .app-dream-button.app-motion-surface.app-new-task-sniff-browser-option[data-app-button][data-variant][data-tone][data-size]:hover {
+  border-color: var(--dream-line-focus);
+  background: var(--dream-surface-hover);
+}
+
+:root .app-dream-button.app-motion-surface.app-new-task-sniff-profile-choice[data-app-button][data-variant][data-tone][data-size] {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 4.5rem;
+  height: auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--app-space-2-5);
+  padding: var(--app-space-2-5);
+  border-radius: var(--app-radius-lg);
+  text-align: start;
+}
+
+:root .app-dream-button.app-motion-surface.app-new-task-sniff-profile-choice__primary[data-app-button][data-variant][data-tone][data-size] {
+  display: flex;
+  min-width: 0;
+  min-height: 4.5rem;
+  height: auto;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--app-space-2-5);
+  padding: var(--app-space-2-5);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: start;
+}
+
+:root .app-dream-button.app-motion-surface.app-new-task-sniff-profile-choice__primary[data-app-button][data-variant][data-tone][data-size]:hover {
+  background: transparent;
+}
+
+@media (min-width: 640px) {
+  :root .app-dream-button.app-motion-surface.app-new-task-sniff-browser-option[data-app-button][data-variant][data-tone][data-size] {
+    width: 8rem;
+  }
+}
+
+@media (forced-colors: active) {
+  :root .app-dream-button.app-motion-surface.app-browser-source-card[data-app-button][data-variant][data-tone][data-size],
+  :root .app-dream-button.app-motion-surface.app-browser-profile-card[data-app-button][data-variant][data-tone][data-size] {
+    border-color: ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+    forced-color-adjust: auto;
+  }
+
+  :root .app-dream-button.app-motion-surface.app-browser-profile-card[data-app-button][data-variant][data-tone][data-size][aria-checked="true"] {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+}

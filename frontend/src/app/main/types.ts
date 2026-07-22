@@ -73,14 +73,26 @@ export type SetupState = {
 };
 
 export type NewTaskDialogMode = "download" | "sniff" | "transcode";
+export type NewTaskDialogDownloadTarget = {
+  url: string;
+  source?: string;
+  caller?: string;
+};
 export type NewTaskDialogTranscodeSource = {
   fileId?: string;
-  inputPath: string;
+  inputPath?: string;
+  displayLabel?: string;
   title?: string;
   author?: string;
+  libraryId?: string;
+  libraryName?: string;
+  coverURL?: string;
+  format?: string;
+  durationMs?: number;
+  sizeBytes?: number;
 };
 export type DownloadDialogStep = "input" | "config";
-export type DownloadDialogTab = "quick" | "custom" | "sniff";
+export type DownloadDialogTab = "quick" | "custom";
 export type DownloadQuality = "best" | "bitrate" | "audio";
 export type SourceMediaType = "video" | "audio";
 export type SelectOption = {

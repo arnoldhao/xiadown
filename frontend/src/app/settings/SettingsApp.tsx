@@ -3,8 +3,10 @@ import {
 AlertCircle,
 ArrowUpCircle,
 CheckCircle2,
+ChevronRight,
 CircleHelp,
 Cog,
+Database,
 Download,
 ExternalLink,
 FolderOpen,
@@ -17,12 +19,13 @@ Mail,
 MessageSquare,
 Monitor,
 Moon,
+Network,
 Palette,
 Pencil,
 RefreshCcw,
 RefreshCw,
+Sparkles,
 Sun,
-Trash2,
 Twitter,
 } from "lucide-react";
 import * as React from "react";
@@ -30,38 +33,41 @@ import * as React from "react";
 import { ACCENT_SWATCHES,CORE_DEPENDENCY_ORDER,DependencySettingsItem,InlineSwitch,SYSTEM_THEME_COLOR,TabButton,formatHostPort,normalizeProxy,parseNoProxy,previewFontStack,resetProxyTestState,resolveAccentColor,resolveTabFromSection,resolveThemeColorPreview,resolveThemeColorSelection } from "@/app/settings/settings-helpers";
 import { WindowControls } from "@/components/layout/WindowControls";
 import { EqualizerSection } from "@/features/settings/equalizer";
+import { LibraryAccessSettingsCard } from "@/app/settings/LibraryAccessSettingsCard";
+import { BrowserProfilesSheet, DataManagementSheet } from "@/app/settings/SettingsDataSheets";
 import { getXiaText } from "@/features/xiadown/shared";
 import {
 XIA_THEME_PACKS,
 mergeXiaAppearanceConfig,
 readXiaAppearance,
-resolveThemePack,
 type XiaAccentMode,
 type XiaAppearanceSettings,
-type XiaSidebarStyle,
+type XiaSurfaceStyle,
 } from "@/shared/styles/xiadown-theme";
+import {
+  readWindowSurfaceStyleHint,
+  useWindowMaterialMode,
+} from "@/shared/styles/window-material";
 import { cn } from "@/lib/utils";
-import type { BrowserCandidate, PlaybackAudioQualityPreference, ProxySettings, ResourceSniffScope } from "@/shared/contracts/settings";
+import type { PlaybackAudioQualityPreference, ProxySettings, ResourceSniffScope } from "@/shared/contracts/settings";
+import { useI18n } from "@/shared/i18n";
 import { DialogMarkdown } from "@/shared/markdown/dialog-markdown";
 import {
 useDependencies,
 useDependencyUpdates
 } from "@/shared/query/dependencies";
+import { useDataManagementSnapshot } from "@/shared/query/dataManagement";
 import { useOpenLibraryPath } from "@/shared/query/library";
 import {
-useBrowserCandidates,
-useClearSniffProfile,
 useOpenLogDirectory,
-useOpenSniffProfile,
-useRefreshBrowserCandidates,
+useRefreshSystemProxyInfo,
 useSelectDownloadDirectory,
 useSettings,
-useSniffProfileInfo,
 useSystemProxyInfo,
 useTestProxy,
 useUpdateSettings,
 } from "@/shared/query/settings";
-import { useFontFamilies,useLyricsTranscriptionAvailable } from "@/shared/query/system";
+import { openExternalURL, useFontFamilies } from "@/shared/query/system";
 import {
 useCheckForUpdate,
 useDownloadUpdate,
@@ -75,9 +81,7 @@ hasPreparedUpdate,
 hasRemoteUpdate,
 useUpdateStore,
 } from "@/shared/store/update";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
-import { formatBytes } from "@/shared/utils/formatBytes";
 import {
   Dialog,
   DialogClose,
@@ -91,11 +95,21 @@ import {
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
 import {
+  StatusBadge,
+  type DreamStatusTone,
+} from "@/shared/ui/status-badge";
+import {
 SettingsCompactListCard,
 SettingsCompactRow,
 SettingsCompactSeparator,
 } from "@/shared/ui/settings-layout";
+import {
+  defineWorkspacePageContract,
+  WorkspacePage,
+  WorkspacePageContent,
+} from "@/shared/ui/workspace-page";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/shared/ui/tooltip";
+import { formatBytes } from "@/shared/utils/formatBytes";
 import {
 consumePendingSettingsTab,
 listenPendingSettingsTab,
@@ -103,12 +117,16 @@ type XiaSettingsTabId
 } from "./sectionStorage";
 
 const ABOUT_AUTHOR_NAME = "Arnold HAO";
+const ABOUT_CONTACT_EMAIL_URL = "mailto:xunruhao@gmail.com";
 const DREAM_CREATOR_ICON_SRC = "/dreamcreator.png";
 const HUSH_ICON_SRC = "/hush.png";
 const DREAM_APP_ICON_FALLBACK_SRC = "/appicon.png";
+const THIRD_PARTY_NOTICES_SRC = "/THIRD_PARTY_NOTICES.txt";
 
-function formatSniffProfileBytes(value?: number | null): string {
-  return value && value > 0 ? formatBytes(value) : "0 MB";
+function openAboutContactEmail() {
+  void Browser.OpenURL(ABOUT_CONTACT_EMAIL_URL).catch((error) => {
+    console.warn("[Settings] failed to open contact email", error);
+  });
 }
 
 function DreamAppIcon(props: {
@@ -138,28 +156,10 @@ function DreamAppIcon(props: {
   );
 }
 
-function sortBrowserCandidates(candidates: BrowserCandidate[]) {
-  return [...candidates]
-    .filter((candidate) => candidate.available && candidate.id.trim() && candidate.label.trim())
-    .sort((left, right) => {
-      const labelCompare = left.label.localeCompare(right.label, undefined, { sensitivity: "base" });
-      if (labelCompare !== 0) {
-        return labelCompare;
-      }
-      return left.id.localeCompare(right.id);
-    });
-}
-
-function resolveSniffBrowserID(candidates: BrowserCandidate[]) {
-  const chrome = candidates.find((candidate) => candidate.id === "chrome");
-  return chrome?.id ?? candidates[0]?.id ?? "";
-}
-
 export function SettingsApp() {
+  const { t } = useI18n();
   const settings = useSettingsStore((state) => state.settings);
   const { data: liveSettings } = useSettings();
-  const browserCandidatesQuery = useBrowserCandidates();
-  const refreshBrowserCandidates = useRefreshBrowserCandidates();
   const { data: fontFamilies = [], isLoading: isFontFamiliesLoading } = useFontFamilies();
   const updateSettings = useUpdateSettings();
   const selectDownloadDirectory = useSelectDownloadDirectory();
@@ -167,6 +167,7 @@ export function SettingsApp() {
   const openLogDirectory = useOpenLogDirectory();
   const testProxy = useTestProxy();
   const systemProxyQuery = useSystemProxyInfo(true);
+	const refreshSystemProxyInfo = useRefreshSystemProxyInfo();
   const dependenciesQuery = useDependencies({ refetchInterval: 5_000 });
   const dependencyUpdatesQuery = useDependencyUpdates();
   const updateInfo = useUpdateStore((state) => state.info);
@@ -180,9 +181,6 @@ export function SettingsApp() {
   const text = getXiaText(currentSettings?.language);
   const isWindows = System.IsWindows();
   const isMac = System.IsMac();
-  const lyricsTranscriptionAvailability = useLyricsTranscriptionAvailable(isMac);
-  const lyricsTranscriptionAvailable =
-    isMac && lyricsTranscriptionAvailability.data === true;
   const [activeTab, setActiveTab] = React.useState<XiaSettingsTabId>("general");
   const resolveVisibleSettingsTab = React.useCallback(
     (tab: XiaSettingsTabId) => tab,
@@ -190,12 +188,31 @@ export function SettingsApp() {
   );
   const [proxyDraft, setProxyDraft] = React.useState<ProxySettings>(() => normalizeProxy(currentSettings?.proxy));
   const [proxyNoProxyText, setProxyNoProxyText] = React.useState("");
-  const [appearanceDraft, setAppearanceDraft] = React.useState<XiaAppearanceSettings>(() => readXiaAppearance(currentSettings));
+  const initialSurfaceStyle = readWindowSurfaceStyleHint();
+  const [appearanceDraft, setAppearanceDraft] = React.useState<XiaAppearanceSettings>(() => {
+    const appearance = readXiaAppearance(currentSettings);
+    if (
+      !currentSettings &&
+      (initialSurfaceStyle === "glass" || initialSurfaceStyle === "contrast")
+    ) {
+      return { ...appearance, surfaceStyle: initialSurfaceStyle };
+    }
+    return appearance;
+  });
+  const windowMaterial = useWindowMaterialMode(appearanceDraft.surfaceStyle);
   const [fontFamilyDraft, setFontFamilyDraft] = React.useState((currentSettings?.fontFamily ?? "").trim());
   const [fontSizeDraft, setFontSizeDraft] = React.useState(currentSettings?.fontSize ?? 15);
   const [themeColorDraft, setThemeColorDraft] = React.useState(resolveThemeColorSelection(currentSettings?.themeColor));
   const [proxyDialogOpen, setProxyDialogOpen] = React.useState(false);
   const [releaseNotesOpen, setReleaseNotesOpen] = React.useState(false);
+  const [thirdPartyNoticesOpen, setThirdPartyNoticesOpen] = React.useState(false);
+  const [thirdPartyNotices, setThirdPartyNotices] = React.useState("");
+  const [thirdPartyNoticesLoadFailed, setThirdPartyNoticesLoadFailed] = React.useState(false);
+  const [dataManagementOpen, setDataManagementOpen] = React.useState(false);
+  const [browserProfilesOpen, setBrowserProfilesOpen] = React.useState(false);
+  const dataManagementSummary = useDataManagementSnapshot(
+    activeTab === "general" || dataManagementOpen,
+  );
   const [proxyCheckStatus, setProxyCheckStatus] = React.useState<"idle" | "checking" | "available" | "unavailable">("idle");
   const [proxyCheckKey, setProxyCheckKey] = React.useState("");
   const proxyCheckRequestRef = React.useRef(0);
@@ -238,6 +255,27 @@ export function SettingsApp() {
       setUpdateInfo(serverUpdateInfo);
     }
   }, [serverUpdateInfo, setUpdateInfo]);
+
+  React.useEffect(() => {
+    if (!thirdPartyNoticesOpen || thirdPartyNotices || thirdPartyNoticesLoadFailed) {
+      return;
+    }
+    const controller = new AbortController();
+    void fetch(THIRD_PARTY_NOTICES_SRC, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`notice request failed: ${response.status}`);
+        }
+        return response.text();
+      })
+      .then((content) => setThirdPartyNotices(content))
+      .catch((error) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setThirdPartyNoticesLoadFailed(true);
+        }
+      });
+    return () => controller.abort();
+  }, [thirdPartyNotices, thirdPartyNoticesLoadFailed, thirdPartyNoticesOpen]);
 
   React.useEffect(() => {
     if (autoRefreshUpdateRef.current) {
@@ -292,21 +330,6 @@ export function SettingsApp() {
     () => new Map((dependencyUpdatesQuery.data ?? []).map((item) => [item.name, item])),
     [dependencyUpdatesQuery.data],
   );
-  const browserOptions = React.useMemo(
-    () => sortBrowserCandidates(browserCandidatesQuery.data ?? []),
-    [browserCandidatesQuery.data],
-  );
-  const selectedSniffBrowser = React.useMemo(() => {
-    const saved = (currentSettings?.sniffBrowser ?? "").trim();
-    if (saved && browserOptions.some((candidate) => candidate.id === saved)) {
-      return saved;
-    }
-    return resolveSniffBrowserID(browserOptions);
-  }, [browserOptions, currentSettings?.sniffBrowser]);
-  const sniffProfileInfo = useSniffProfileInfo(selectedSniffBrowser);
-  const openSniffProfile = useOpenSniffProfile();
-  const clearSniffProfile = useClearSniffProfile();
-  const browserDataSizeLabel = formatSniffProfileBytes(sniffProfileInfo.data?.sizeBytes);
 
   const isCheckingUpdate = updateInfo.status === "checking" || checkForUpdate.isPending;
   const isUpdateError = updateInfo.status === "error";
@@ -335,14 +358,14 @@ export function SettingsApp() {
     }
     return text.about.latestOk;
   })();
-  const latestUpdateBadgeClass = (() => {
+  const latestUpdateBadgeTone: DreamStatusTone = (() => {
     if (showLatestAppUpdate) {
-      return "app-dream-status-badge-primary";
+      return "accent";
     }
     if (isUpdateError) {
-      return "app-dream-status-badge-danger";
+      return "danger";
     }
-    return "app-dream-status-badge-success";
+    return "success";
   })();
   const latestUpdateBadgeIcon = (() => {
     if (showLatestAppUpdate) {
@@ -357,42 +380,6 @@ export function SettingsApp() {
 
   async function saveSettingsPatch(patch: Parameters<typeof updateSettings.mutateAsync>[0]) {
     await updateSettings.mutateAsync(patch);
-  }
-
-  async function handleRefreshBrowserCandidates() {
-    try {
-      await refreshBrowserCandidates.mutateAsync();
-    } catch (error) {
-      console.warn(error);
-    }
-  }
-
-  function renderLyricsTranscriptionSwitch(props: {
-    checked: boolean;
-    onChange: (checked: boolean) => void;
-    ariaLabel: string;
-  }) {
-    const switchElement = (
-      <InlineSwitch
-        checked={lyricsTranscriptionAvailable && props.checked}
-        disabled={!lyricsTranscriptionAvailable}
-        onChange={props.onChange}
-        ariaLabel={props.ariaLabel}
-      />
-    );
-    if (lyricsTranscriptionAvailable) {
-      return switchElement;
-    }
-    return (
-      <TooltipProvider delayDuration={0}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex">{switchElement}</span>
-          </TooltipTrigger>
-          <TooltipContent side="top">{text.settings.macOSOnly}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
   }
 
   async function saveAppearancePatch(patch: Partial<XiaAppearanceSettings>) {
@@ -413,10 +400,7 @@ export function SettingsApp() {
       return;
     }
 
-    const nextColor =
-      themeColorDraft.trim().toLowerCase() === SYSTEM_THEME_COLOR
-        ? SYSTEM_THEME_COLOR
-        : resolveAccentColor(themeColorDraft, resolveThemePack(nextAppearance.themePackId).preview.accent);
+    const nextColor = resolveThemeColorSelection(themeColorDraft);
     setThemeColorDraft(nextColor);
     await saveSettingsPatch({
       themeColor: nextColor,
@@ -461,10 +445,6 @@ export function SettingsApp() {
     } catch (error) {
       console.warn(error);
     }
-  }
-
-  function openExternalURL(url: string) {
-    void Browser.OpenURL(url);
   }
 
   async function saveProxySettings(next: ProxySettings) {
@@ -561,26 +541,41 @@ export function SettingsApp() {
   }
 
   const tabs: Array<{ id: XiaSettingsTabId; label: string; icon: React.ReactNode }> = [
-    { id: "general", label: text.settings.tabs.general, icon: <Cog className="h-[26px] w-[26px]" /> },
-    { id: "appearance", label: text.settings.tabs.appearance, icon: <Palette className="h-[26px] w-[26px]" /> },
-    { id: "player", label: text.settings.tabs.player, icon: <Headphones className="h-[26px] w-[26px]" /> },
-    { id: "download", label: text.settings.tabs.download, icon: <Download className="h-[26px] w-[26px]" /> },
-    { id: "about", label: text.settings.tabs.about, icon: <Info className="h-[26px] w-[26px]" /> },
+    { id: "general", label: text.settings.tabs.general, icon: <Cog className="app-settings-tab-symbol" /> },
+    { id: "appearance", label: text.settings.tabs.appearance, icon: <Palette className="app-settings-tab-symbol" /> },
+    { id: "player", label: text.settings.tabs.player, icon: <Headphones className="app-settings-tab-symbol" /> },
+    { id: "download", label: text.settings.tabs.download, icon: <Download className="app-settings-tab-symbol" /> },
+    { id: "network", label: text.settings.tabs.network, icon: <Network className="app-settings-tab-symbol" /> },
+    { id: "ai", label: text.settings.tabs.ai, icon: <Sparkles className="app-settings-tab-symbol" /> },
+    { id: "about", label: text.settings.tabs.about, icon: <Info className="app-settings-tab-symbol" /> },
   ];
   const visibleTabs = tabs;
+  const activeTabLabel =
+    visibleTabs.find((tab) => tab.id === activeTab)?.label ??
+    text.settings.tabs.general;
+  const settingsPageContract = defineWorkspacePageContract({
+    presentation: "standalone-window",
+    recipe: "settings",
+    routeLabel: activeTabLabel,
+    topBar: "host-owned",
+    heading: "assistive",
+    contentLayout: "form",
+    footer: "none",
+    scroll: "content",
+    density: "regular",
+    immersion: "standard",
+  });
   const fontOptions = fontFamilies;
   const selectedFont = fontFamilyDraft.trim();
   const hasSelectedFontInList = selectedFont.length === 0 || fontOptions.includes(selectedFont);
-  const activeThemePack = resolveThemePack(appearanceDraft.themePackId);
   const usesSystemAccentColor = themeColorDraft.trim().toLowerCase() === SYSTEM_THEME_COLOR;
   const selectedThemeColorPreview = resolveThemeColorPreview(
     themeColorDraft,
-    activeThemePack.preview.accent,
     currentSettings?.systemThemeColor,
   );
   const editableAccentColor = usesSystemAccentColor
     ? selectedThemeColorPreview
-    : resolveAccentColor(themeColorDraft, activeThemePack.preview.accent);
+    : resolveAccentColor(themeColorDraft);
   const savedProxy = normalizeProxy(currentSettings?.proxy);
   const systemProxyAddress = (systemProxyQuery.data?.address ?? "").trim();
   const isVPNSource = systemProxyQuery.data?.source === "vpn";
@@ -618,10 +613,6 @@ export function SettingsApp() {
       ? proxyDraft.testMessage
       : "";
   const manualProxyReady = proxyDraft.mode === "manual" && proxyDraft.host.trim() !== "" && proxyDraft.port > 0;
-  const activeSegmentStyle: React.CSSProperties = {
-    backgroundColor: "hsl(var(--primary) / 0.13)",
-    color: "hsl(var(--primary))",
-  };
   const resourceSniffScopeOptions: Array<{
     value: ResourceSniffScope;
     label: string;
@@ -741,8 +732,8 @@ export function SettingsApp() {
   const handleProxyStatusRefresh = React.useCallback(async () => {
     if (statusMode === "system") {
       try {
-        const result = await systemProxyQuery.refetch();
-        const nextAddress = (result.data?.address ?? "").trim();
+		const result = await refreshSystemProxyInfo.mutateAsync();
+		const nextAddress = (result.address ?? "").trim();
         if (nextAddress) {
           void runProxyStatusCheck("system", nextAddress);
         } else {
@@ -759,7 +750,7 @@ export function SettingsApp() {
     if (hasStatusAddress) {
       void runProxyStatusCheck(statusMode, statusAddress);
     }
-  }, [hasStatusAddress, runProxyStatusCheck, statusAddress, statusMode, systemProxyQuery]);
+	}, [hasStatusAddress, refreshSystemProxyInfo, runProxyStatusCheck, statusAddress, statusMode]);
 
   const proxySettingsCard = (
     <SettingsCompactListCard>
@@ -774,10 +765,10 @@ export function SettingsApp() {
               key={option.value}
               type="button"
               variant="outline"
+              tone={proxyDraft.mode === option.value ? "accent" : "neutral"}
               size="compact"
-              className="min-w-0 px-2"
+              className="app-settings-option-button min-w-0"
               onClick={() => handleProxyModeChange(option.value)}
-              style={proxyDraft.mode === option.value ? activeSegmentStyle : undefined}
             >
               <span className="min-w-0 truncate">{option.label}</span>
             </Button>
@@ -792,16 +783,16 @@ export function SettingsApp() {
           <SettingsCompactRow label={text.settings.status} contentClassName="min-w-0">
             <div className="flex min-w-0 items-center justify-end gap-2">
               {showSystemSourceBadge ? (
-                <span className="app-settings-status-badge shrink-0">
+                <StatusBadge className="shrink-0" tone="muted">
                   {systemSourceLabel}
-                </span>
+                </StatusBadge>
               ) : null}
-              <span className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono">
+              <span className="app-settings-path-value min-w-0 flex-1 truncate">
                 {statusAddressDisplay}
               </span>
               {hasStatusAddress ? (
                 <span className="inline-flex items-center">
-                <span className={cn("app-settings-status-dot h-2 w-2 rounded-full", isChecking ? "animate-pulse" : "")} data-status={statusDotValue} aria-hidden="true" />
+                <span className={cn("app-settings-status-dot h-2 w-2", isChecking ? "app-motion-pulse" : "")} data-status={statusDotValue} aria-hidden="true" />
                 </span>
               ) : null}
               {showRefreshButton ? (
@@ -815,7 +806,7 @@ export function SettingsApp() {
                   title={text.actions.testProxy}
                   aria-label={text.actions.testProxy}
                 >
-                  {isStatusRefreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                  {isStatusRefreshing ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <RefreshCcw className="h-4 w-4" />}
                 </Button>
               ) : null}
               {proxyDraft.mode === "manual" ? (
@@ -839,19 +830,19 @@ export function SettingsApp() {
   );
   const proxyDialog = proxyDraft.mode === "manual" ? (
     <Dialog open={proxyDialogOpen} onOpenChange={setProxyDialogOpen}>
-      <DialogContent className="grid max-h-[min(34rem,calc(100vh-2rem))] w-[min(28rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
+      <DialogContent className="app-settings-proxy-dialog grid max-w-none gap-3 overflow-hidden">
         <DialogHeader className="min-w-0">
-          <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <DialogTitle className="app-settings-dialog-title overflow-hidden break-words pr-6">
             {text.settings.proxyDialogTitle}
           </DialogTitle>
-          <DialogDescription className="overflow-hidden break-words text-left text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <DialogDescription className="app-settings-dialog-description overflow-hidden break-words">
             {text.settings.proxyDialogHint}
           </DialogDescription>
         </DialogHeader>
         <DialogScrollArea className="min-h-0">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{text.settings.scheme}</span>
+              <span className="app-settings-field-label">{text.settings.scheme}</span>
               <Select value={proxyDraft.scheme} onChange={(event) => handleProxyFieldChange("scheme", event.target.value)} className="w-full">
                 <option value="http">HTTP</option>
                 <option value="https">HTTPS</option>
@@ -859,47 +850,47 @@ export function SettingsApp() {
               </Select>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{text.settings.timeout}</span>
+              <span className="app-settings-field-label">{text.settings.timeout}</span>
               <Input
                 type="number"
                 inputMode="numeric"
                 value={proxyDraft.timeoutSeconds || ""}
                 onChange={(event) => handleProxyFieldChange("timeoutSeconds", event.target.value)}
                 placeholder="30"
-                className="text-sm"
+                className="app-settings-field-input"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{text.settings.host}</span>
-              <Input value={proxyDraft.host} onChange={(event) => handleProxyFieldChange("host", event.target.value)} placeholder="127.0.0.1" className="text-sm" />
+              <span className="app-settings-field-label">{text.settings.host}</span>
+              <Input value={proxyDraft.host} onChange={(event) => handleProxyFieldChange("host", event.target.value)} placeholder="127.0.0.1" className="app-settings-field-input" />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{text.settings.port}</span>
+              <span className="app-settings-field-label">{text.settings.port}</span>
               <Input
                 type="number"
                 inputMode="numeric"
                 value={proxyDraft.port || ""}
                 onChange={(event) => handleProxyFieldChange("port", event.target.value)}
                 placeholder="8080"
-                className="text-sm"
+                className="app-settings-field-input"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{text.settings.username}</span>
-              <Input value={proxyDraft.username} onChange={(event) => handleProxyFieldChange("username", event.target.value)} className="text-sm" />
+              <span className="app-settings-field-label">{text.settings.username}</span>
+              <Input value={proxyDraft.username} onChange={(event) => handleProxyFieldChange("username", event.target.value)} className="app-settings-field-input" />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{text.settings.password}</span>
-              <Input type="password" value={proxyDraft.password} onChange={(event) => handleProxyFieldChange("password", event.target.value)} className="text-sm" />
+              <span className="app-settings-field-label">{text.settings.password}</span>
+              <Input type="password" value={proxyDraft.password} onChange={(event) => handleProxyFieldChange("password", event.target.value)} className="app-settings-field-input" />
             </div>
             <div className="col-span-2 flex flex-col gap-1">
-              <span className="text-xs text-muted-foreground">{text.settings.noProxyList}</span>
-              <Input value={proxyNoProxyText} onChange={(event) => setProxyNoProxyText(event.target.value)} className="text-sm" />
+              <span className="app-settings-field-label">{text.settings.noProxyList}</span>
+              <Input value={proxyNoProxyText} onChange={(event) => setProxyNoProxyText(event.target.value)} className="app-settings-field-input" />
             </div>
           </div>
           <div className="flex flex-col gap-2 pt-2">
             {proxyTestFeedback ? (
-              <div className="app-dream-status-message overflow-hidden break-words px-3 py-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]" data-intent={!proxyDraft.testSuccess ? "danger" : "success"}>
+              <div className="app-dream-status-message app-settings-proxy-feedback overflow-hidden break-words px-3 py-2" data-intent={!proxyDraft.testSuccess ? "danger" : "success"}>
                 {proxyTestFeedback}
               </div>
             ) : null}
@@ -919,7 +910,7 @@ export function SettingsApp() {
                 disabled={!manualProxyReady || testProxy.isPending || updateSettings.isPending}
                 onClick={() => void handleProxyTestAndSave()}
               >
-                {testProxy.isPending || updateSettings.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {testProxy.isPending || updateSettings.isPending ? <Loader2 className="h-4 w-4 app-motion-spin" /> : null}
                 {text.actions.testProxy}
               </Button>
             </div>
@@ -945,35 +936,49 @@ export function SettingsApp() {
   }, [hasStatusAddress, proxyCheckKey, proxyCheckStatus, runProxyStatusCheck, statusAddress, statusKey, statusMode]);
 
   return (
-    <div className="app-dream-window app-settings-window flex h-screen flex-col overflow-hidden text-foreground">
-      <header className="app-dream-header">
+    <WorkspacePage
+      contract={settingsPageContract}
+      className="app-dream-window app-settings-window h-screen overflow-hidden"
+      data-surface-style={appearanceDraft.surfaceStyle}
+      data-window-material={windowMaterial}
+    >
+      <header
+        aria-label={text.settings.title}
+        className="app-dream-header app-settings-host-header"
+      >
         <div
-          className={cn(
-            "wails-drag grid h-[var(--app-page-top-drag-height)] items-center px-4",
-            isWindows
-              ? "grid-cols-[minmax(var(--app-windows-caption-control-width),1fr)_auto_minmax(var(--app-windows-caption-control-width),1fr)]"
-              : "grid-cols-[1fr_auto_1fr]",
-          )}
+          className="app-settings-host-drag-grid wails-drag grid items-center px-4"
+          data-platform={isWindows ? "windows" : "default"}
         >
           <div className="justify-self-start">
-            {isMac ? <div className="h-4 w-[var(--app-macos-traffic-lights-gap)]" /> : null}
+            {isMac ? <div className="app-settings-traffic-light-gap h-4" /> : null}
           </div>
 
           <div aria-hidden="true" />
 
-          <div className="justify-self-end">
-            {isWindows ? <WindowControls platform="windows" /> : null}
+          <div
+            className={cn(
+              "justify-self-end",
+              isWindows && "-mr-4 self-start",
+            )}
+          >
+            {isWindows ? (
+              <WindowControls platform="windows" owner="settings" />
+            ) : null}
           </div>
         </div>
 
-        <div className="app-dream-tabs-bar -mt-1 flex flex-wrap items-center justify-center px-4 pt-0">
+        <nav
+          aria-label={text.settings.title}
+          className="app-dream-tabs-bar -mt-1 flex flex-nowrap items-center justify-center px-4 pt-0"
+        >
           {visibleTabs.map((tab) => (
             <TabButton key={tab.id} id={tab.id} label={tab.label} icon={tab.icon} active={activeTab === tab.id} onClick={setActiveTab} />
           ))}
-        </div>
+        </nav>
       </header>
 
-      <div className="app-dream-content min-h-0 flex-1 overflow-auto">
+      <WorkspacePageContent className="app-dream-content app-settings-page-content">
         <div
           key={activeTab}
           className="app-settings-tab-content mx-auto max-w-4xl space-y-6"
@@ -1035,8 +1040,6 @@ export function SettingsApp() {
                 </SettingsCompactRow>
               </SettingsCompactListCard>
 
-              {proxySettingsCard}
-
               <SettingsCompactListCard>
                 <SettingsCompactRow label={text.settings.logLevel}>
                   <div className="flex items-center gap-2">
@@ -1063,12 +1066,55 @@ export function SettingsApp() {
                   </div>
                 </SettingsCompactRow>
               </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
+                <SettingsCompactRow label={t("dataManagement.settingsRow")}>
+                  <div className="flex items-center gap-3">
+                    <span className="app-settings-data-total">
+                      {dataManagementSummary.isLoading
+                        ? "…"
+                        : formatBytes(dataManagementSummary.data?.totalBytes ?? 0)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compact"
+                      onClick={() => setDataManagementOpen(true)}
+                    >
+                      <Database className="h-4 w-4" />
+                      {t("dataManagement.manage")}
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
+                <SettingsCompactRow label={text.settings.browserData}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="compact"
+                    onClick={() => setBrowserProfilesOpen(true)}
+                  >
+                    {t("dataManagement.manageProfiles")}
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+            </>
+          ) : null}
+
+          {activeTab === "network" ? (
+            <>
+              {proxySettingsCard}
+              <LibraryAccessSettingsCard language={currentSettings?.language} />
             </>
           ) : null}
 
           {activeTab === "appearance" ? (
             <div className="space-y-4">
-              <SettingsCompactListCard contentClassName="p-3">
+              <SettingsCompactListCard contentClassName="app-settings-theme-pack-card-content">
                 <TooltipProvider delayDuration={0}>
                   <div className="grid grid-cols-3 gap-2">
                     {XIA_THEME_PACKS.map((pack) => {
@@ -1076,25 +1122,27 @@ export function SettingsApp() {
                       return (
                         <Tooltip key={pack.id}>
                           <TooltipTrigger asChild>
-                            <button
+                            <Button
                               type="button"
+                              variant="outline"
+                              tone={active ? "accent" : "neutral"}
                               onClick={() => void saveAppearancePatch({ themePackId: pack.id })}
-                              className="app-settings-theme-pack-button app-motion-surface flex h-11 min-w-0 items-center gap-2 overflow-hidden px-2 text-left"
+                              className="app-settings-theme-pack-button app-motion-surface flex min-w-0 items-center overflow-hidden"
                               data-active={active ? "true" : undefined}
-                              style={active ? activeSegmentStyle : undefined}
                             >
                               <span
-                                className="app-settings-theme-preview grid h-6 w-11 shrink-0 grid-cols-[1.15fr_1fr_0.8fr] overflow-hidden"
+                                className="app-settings-theme-preview grid h-6 w-11 shrink-0 overflow-hidden"
                                 aria-hidden="true"
+                                data-theme-pack-preview={pack.id}
                               >
-                                <span style={{ backgroundColor: pack.preview.shell }} />
-                                <span style={{ backgroundColor: pack.preview.sidebar }} />
-                                <span style={{ backgroundColor: pack.preview.accent }} />
+                                <span data-preview-role="shell" />
+                                <span data-preview-role="sidebar" />
+                                <span data-preview-role="accent" />
                               </span>
-                              <span className="block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-right text-[11px] font-medium leading-none text-foreground">
+                              <span className="app-settings-theme-pack-label block min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                                 {text.themePacks[pack.id].label}
                               </span>
-                            </button>
+                            </Button>
                           </TooltipTrigger>
                           <TooltipContent side="top">{text.themePacks[pack.id].description}</TooltipContent>
                         </Tooltip>
@@ -1116,10 +1164,10 @@ export function SettingsApp() {
                         key={item.value}
                         type="button"
                         variant="outline"
+                        tone={(currentSettings?.appearance ?? "auto") === item.value ? "accent" : "neutral"}
                         size="compact"
-                        className={cn("min-w-0 px-2 text-[11px]", (currentSettings?.appearance ?? "auto") === item.value ? "border-transparent" : "")}
+                        className="app-settings-option-button min-w-0"
                         onClick={() => void saveSettingsPatch({ appearance: item.value as "auto" | "light" | "dark" })}
-                        style={currentSettings?.appearance === item.value ? activeSegmentStyle : undefined}
                       >
                         <span className="shrink-0">{item.icon}</span>
                         <span className="min-w-0 truncate">{item.label}</span>
@@ -1130,21 +1178,20 @@ export function SettingsApp() {
 
                 <SettingsCompactSeparator />
 
-                <SettingsCompactRow label={text.settings.sidebarStyle}>
-                  <div className="grid min-w-0 max-w-full grid-cols-3 gap-2">
+                <SettingsCompactRow label={text.settings.surfaceStyle}>
+                  <div className="grid min-w-0 max-w-full grid-cols-2 gap-2">
                     {([
-                      { value: "glass", label: text.settings.sidebarStyleOptions.glass },
-                      { value: "contrast", label: text.settings.sidebarStyleOptions.contrast },
-                      { value: "pixel", label: text.settings.sidebarStyleOptions.pixel },
-                    ] as const satisfies Array<{ value: XiaSidebarStyle; label: string }>).map((option) => (
+                      { value: "glass", label: text.settings.surfaceStyleOptions.glass },
+                      { value: "contrast", label: text.settings.surfaceStyleOptions.contrast },
+                    ] as const satisfies Array<{ value: XiaSurfaceStyle; label: string }>).map((option) => (
                       <Button
                         key={option.value}
                         type="button"
                         variant="outline"
+                        tone={appearanceDraft.surfaceStyle === option.value ? "accent" : "neutral"}
                         size="compact"
-                        className={cn("min-w-0 px-2 text-[11px]", appearanceDraft.sidebarStyle === option.value ? "border-transparent" : "")}
-                        onClick={() => void saveAppearancePatch({ sidebarStyle: option.value })}
-                        style={appearanceDraft.sidebarStyle === option.value ? activeSegmentStyle : undefined}
+                        className="app-settings-option-button min-w-0"
+                        onClick={() => void saveAppearancePatch({ surfaceStyle: option.value })}
                       >
                         <span className="min-w-0 truncate">{option.label}</span>
                       </Button>
@@ -1164,10 +1211,10 @@ export function SettingsApp() {
                         key={option.value}
                         type="button"
                         variant="outline"
+                        tone={appearanceDraft.accentMode === option.value ? "accent" : "neutral"}
                         size="compact"
-                        className={cn("min-w-0 px-2 text-[11px]", appearanceDraft.accentMode === option.value ? "border-transparent" : "")}
+                        className="app-settings-option-button min-w-0"
                         onClick={() => void saveAccentMode(option.value)}
-                        style={appearanceDraft.accentMode === option.value ? activeSegmentStyle : undefined}
                       >
                         <span className="min-w-0 truncate">{option.label}</span>
                       </Button>
@@ -1190,18 +1237,29 @@ export function SettingsApp() {
                                   setThemeColorDraft(SYSTEM_THEME_COLOR);
                                   void saveSettingsPatch({ themeColor: SYSTEM_THEME_COLOR });
                                 }}
-                                className="app-settings-swatch flex h-4 w-4 items-center justify-center transition"
+                                className="app-settings-swatch flex h-4 w-4 items-center justify-center"
                                 data-active={usesSystemAccentColor ? "true" : undefined}
                                 style={
-                                  usesSystemAccentColor
-                                    ? { boxShadow: `0 0 0 1px hsl(var(--border)), 0 0 0 3px ${selectedThemeColorPreview}` }
+                                  usesSystemAccentColor && selectedThemeColorPreview
+                                    ? {
+                                        "--app-settings-swatch-active-color":
+                                          selectedThemeColorPreview,
+                                      } as React.CSSProperties
                                     : undefined
                                 }
                                 aria-label={text.common.followSystem}
                               >
                                 <span
-                                  className="h-full w-full rounded-full"
-                                  style={{ backgroundColor: resolveThemeColorPreview(SYSTEM_THEME_COLOR, activeThemePack.preview.accent, currentSettings?.systemThemeColor) }}
+                                  className="app-settings-swatch-color h-full w-full"
+                                  data-theme-pack-preview={appearanceDraft.themePackId}
+                                  style={
+                                    selectedThemeColorPreview
+                                      ? {
+                                          "--app-settings-swatch-color":
+                                            selectedThemeColorPreview,
+                                        } as React.CSSProperties
+                                      : undefined
+                                  }
                                 />
                               </button>
                             </TooltipTrigger>
@@ -1219,12 +1277,26 @@ export function SettingsApp() {
                                       setThemeColorDraft(color.value);
                                       void saveSettingsPatch({ themeColor: color.value });
                                     }}
-                                    className="app-settings-swatch flex h-4 w-4 items-center justify-center transition"
+                                    className="app-settings-swatch flex h-4 w-4 items-center justify-center"
                                     data-active={active ? "true" : undefined}
-                                    style={active ? { boxShadow: `0 0 0 1px hsl(var(--border)), 0 0 0 3px ${color.value}` } : undefined}
+                                    style={
+                                      active
+                                        ? {
+                                            "--app-settings-swatch-active-color":
+                                              color.value,
+                                          } as React.CSSProperties
+                                        : undefined
+                                    }
                                     aria-label={text.common.colorOptions[color.id]}
                                   >
-                                    <span className="h-full w-full rounded-full" style={{ backgroundColor: color.value }} />
+                                    <span
+                                      className="app-settings-swatch-color h-full w-full"
+                                      style={
+                                        {
+                                          "--app-settings-swatch-color": color.value,
+                                        } as React.CSSProperties
+                                      }
+                                    />
                                   </button>
                                 </TooltipTrigger>
                                 <TooltipContent side="top">{text.common.colorOptions[color.id]}</TooltipContent>
@@ -1241,7 +1313,7 @@ export function SettingsApp() {
                                   setThemeColorDraft(event.target.value);
                                   void saveSettingsPatch({ themeColor: event.target.value });
                                 }}
-                                className="app-settings-swatch h-4 w-4 cursor-pointer bg-transparent p-0"
+                                className="app-settings-swatch h-4 w-4 p-0"
                                 aria-label={text.common.customColor}
                               />
                             </TooltipTrigger>
@@ -1267,12 +1339,32 @@ export function SettingsApp() {
                   >
                     <option value="">{text.common.systemDefault}</option>
                     {!hasSelectedFontInList && selectedFont ? (
-                      <option key={selectedFont} value={selectedFont} style={{ fontFamily: previewFontStack(selectedFont) }}>
+                      <option
+                        className="app-settings-font-preview-option"
+                        key={selectedFont}
+                        value={selectedFont}
+                        style={
+                          {
+                            "--app-settings-font-preview-family":
+                              previewFontStack(selectedFont),
+                          } as React.CSSProperties
+                        }
+                      >
                         {selectedFont} {text.common.current}
                       </option>
                     ) : null}
                     {fontOptions.map((family) => (
-                      <option key={family} value={family} style={{ fontFamily: previewFontStack(family) }}>
+                      <option
+                        className="app-settings-font-preview-option"
+                        key={family}
+                        value={family}
+                        style={
+                          {
+                            "--app-settings-font-preview-family":
+                              previewFontStack(family),
+                          } as React.CSSProperties
+                        }
+                      >
                         {family}
                       </option>
                     ))}
@@ -1294,7 +1386,7 @@ export function SettingsApp() {
                         setFontSizeDraft(next);
                         void saveSettingsPatch({ fontSize: next });
                       }}
-                      className="w-full appearance-none text-xs"
+                      className="app-settings-number-input w-full"
                     />
                   </div>
                 </SettingsCompactRow>
@@ -1325,37 +1417,23 @@ export function SettingsApp() {
               </SettingsCompactListCard>
 
               <SettingsCompactListCard>
-                <SettingsCompactRow label={text.settings.syncedLyrics}>
+                <SettingsCompactRow label={text.settings.romanizedLyrics}>
                   <InlineSwitch
-                    checked={currentSettings?.syncedLyricsEnabled !== false}
-                    onChange={(checked) => void saveSettingsPatch({ syncedLyricsEnabled: checked })}
-                    ariaLabel={text.settings.syncedLyrics}
+                    checked={currentSettings?.romanizedLyrics !== false}
+                    onChange={(checked) => void saveSettingsPatch({ romanizedLyrics: checked })}
+                    ariaLabel={text.settings.romanizedLyrics}
                   />
                 </SettingsCompactRow>
 
-                {!isWindows ? (
-                  <>
-                    <SettingsCompactSeparator />
+                <SettingsCompactSeparator />
 
-                    <SettingsCompactRow label={text.settings.romanizedLyrics}>
-                      {renderLyricsTranscriptionSwitch({
-                        checked: currentSettings?.romanizedLyrics !== false,
-                        onChange: (checked) => void saveSettingsPatch({ romanizedLyrics: checked }),
-                        ariaLabel: text.settings.romanizedLyrics,
-                      })}
-                    </SettingsCompactRow>
-
-                    <SettingsCompactSeparator />
-
-                    <SettingsCompactRow label={text.settings.pinyinLyrics}>
-                      {renderLyricsTranscriptionSwitch({
-                        checked: currentSettings?.pinyinLyrics !== false,
-                        onChange: (checked) => void saveSettingsPatch({ pinyinLyrics: checked }),
-                        ariaLabel: text.settings.pinyinLyrics,
-                      })}
-                    </SettingsCompactRow>
-                  </>
-                ) : null}
+                <SettingsCompactRow label={text.settings.pinyinLyrics}>
+                  <InlineSwitch
+                    checked={currentSettings?.pinyinLyrics !== false}
+                    onChange={(checked) => void saveSettingsPatch({ pinyinLyrics: checked })}
+                    ariaLabel={text.settings.pinyinLyrics}
+                  />
+                </SettingsCompactRow>
               </SettingsCompactListCard>
 
               <EqualizerSection isMac={isMac} isWindows={isWindows} text={text} />
@@ -1364,107 +1442,6 @@ export function SettingsApp() {
 
           {activeTab === "download" ? (
             <>
-              <SettingsCompactListCard>
-                <SettingsCompactRow label={text.settings.sniffBrowser}>
-                  <div className="flex items-center gap-2">
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="compactIcon"
-                            onClick={() => void handleRefreshBrowserCandidates()}
-                            disabled={refreshBrowserCandidates.isPending}
-                            aria-label={text.settings.refreshBrowsers}
-                          >
-                            {refreshBrowserCandidates.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.refreshBrowsers}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <Select
-                      value={selectedSniffBrowser}
-                      onChange={(event) => void saveSettingsPatch({ sniffBrowser: event.target.value })}
-                      className="w-48"
-                      disabled={browserOptions.length === 0}
-                    >
-                      {browserOptions.length === 0 ? (
-                        <option value="">{browserCandidatesQuery.isLoading ? text.settings.checking : text.settings.unavailable}</option>
-                      ) : (
-                        browserOptions.map((candidate) => (
-                          <option key={candidate.id} value={candidate.id}>
-                            {candidate.label}
-                          </option>
-                        ))
-                      )}
-                    </Select>
-                  </div>
-                </SettingsCompactRow>
-
-                <SettingsCompactSeparator />
-
-                <SettingsCompactRow label={text.settings.browserData} contentClassName="min-w-0">
-                  <div className="flex min-w-0 items-center justify-end gap-2">
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span
-                            tabIndex={0}
-                            className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                            aria-label={`${text.settings.browserDataSize}: ${sniffProfileInfo.isFetching ? "..." : browserDataSizeLabel}`}
-                          >
-                            {sniffProfileInfo.isFetching ? "..." : browserDataSizeLabel}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.browserDataSize}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="compactIcon"
-                            className="shrink-0"
-                            onClick={() => void openSniffProfile.mutateAsync({ browser: selectedSniffBrowser })}
-                            disabled={!selectedSniffBrowser || openSniffProfile.isPending}
-                            aria-label={text.settings.browserDataOpen}
-                          >
-                            {openSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.browserDataOpen}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                    <TooltipProvider delayDuration={0}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="compactIcon"
-                            className="shrink-0"
-                            onClick={() =>
-                              void clearSniffProfile
-                                .mutateAsync({ browser: selectedSniffBrowser })
-                                .then(() => sniffProfileInfo.refetch())
-                            }
-                            disabled={!selectedSniffBrowser || clearSniffProfile.isPending}
-                            aria-label={text.settings.browserDataClear}
-                          >
-                            {clearSniffProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{text.settings.browserDataClear}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                </SettingsCompactRow>
-              </SettingsCompactListCard>
-
               <SettingsCompactListCard>
                 <SettingsCompactRow label={text.settings.resourceSniffScope}>
                   <Select
@@ -1516,7 +1493,7 @@ export function SettingsApp() {
               <SettingsCompactListCard>
                 <SettingsCompactRow label={text.settings.downloadDirectory} contentClassName="min-w-0">
                   <div className="flex min-w-0 items-center justify-end gap-2">
-                    <span className="app-settings-path-value min-w-0 max-w-[260px] flex-1 truncate text-right font-mono">
+                    <span className="app-settings-path-value min-w-0 flex-1 truncate">
                       {currentSettings?.downloadDirectory ?? ""}
                     </span>
                     <Button
@@ -1530,7 +1507,7 @@ export function SettingsApp() {
                       aria-label={text.actions.chooseFolder}
                     >
                       {selectDownloadDirectory.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-4 w-4 app-motion-spin" />
                       ) : (
                         <Pencil className="h-4 w-4" />
                       )}
@@ -1566,7 +1543,7 @@ export function SettingsApp() {
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              className="app-settings-help-button inline-flex h-5 w-5 shrink-0 items-center justify-center"
                               aria-label={text.settings.ytdlpConcurrentDownloadsHelp}
                             >
                               <CircleHelp className="h-3.5 w-3.5" />
@@ -1575,7 +1552,7 @@ export function SettingsApp() {
                           <TooltipContent
                             side="top"
                             multiline
-                            className="!max-w-[15rem] text-left leading-relaxed"
+                            className="app-settings-tooltip-long"
                           >
                             {text.settings.ytdlpConcurrentDownloadsHelp}
                           </TooltipContent>
@@ -1612,13 +1589,13 @@ export function SettingsApp() {
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              className="app-settings-help-button inline-flex h-5 w-5 shrink-0 items-center justify-center"
                               aria-label={text.settings.ytdlpConcurrentFragmentsHelp}
                             >
                               <CircleHelp className="h-3.5 w-3.5" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="top" multiline className="!max-w-[15rem] text-left leading-relaxed">
+                          <TooltipContent side="top" multiline className="app-settings-tooltip-long">
                             {text.settings.ytdlpConcurrentFragmentsHelp}
                           </TooltipContent>
                         </Tooltip>
@@ -1654,26 +1631,39 @@ export function SettingsApp() {
             </>
           ) : null}
 
+          {activeTab === "ai" ? (
+            <SettingsCompactListCard>
+              <SettingsCompactRow label={text.settings.tabs.ai}>
+                <StatusBadge marker tone="warning">
+                  {text.settings.aiUnderConstruction}
+                </StatusBadge>
+              </SettingsCompactRow>
+            </SettingsCompactListCard>
+          ) : null}
+
           {activeTab === "about" ? (
             <div className="space-y-6">
-              <div className="flex flex-col items-center gap-2 text-center">
+              <div className="app-settings-about-header flex flex-col items-center gap-2">
                 <img src="/appicon.png" alt={text.appName} className="app-settings-app-icon h-16 w-16" />
-                <div className="text-lg font-semibold text-foreground">{text.appName}</div>
+                <div className="app-settings-about-title">{text.appName}</div>
               </div>
 
               <SettingsCompactListCard>
                 <SettingsCompactRow label={text.about.currentVersion}>
-                  <span className="text-sm font-semibold text-foreground">{aboutVersion}</span>
+                  <span className="app-settings-about-value">{aboutVersion}</span>
                 </SettingsCompactRow>
 
                 <SettingsCompactSeparator />
 
                 <SettingsCompactRow label={text.about.latestVersion}>
                   <div className="flex min-w-0 items-center justify-end">
-                    <Badge variant="outline" className={cn("gap-1 text-sm font-medium", latestUpdateBadgeClass)}>
-                      {React.createElement(latestUpdateBadgeIcon, { className: "h-3.5 w-3.5" })}
+                    <StatusBadge
+                      className="app-settings-latest-badge"
+                      icon={React.createElement(latestUpdateBadgeIcon)}
+                      tone={latestUpdateBadgeTone}
+                    >
                       {latestUpdateLabel}
-                    </Badge>
+                    </StatusBadge>
                   </div>
                 </SettingsCompactRow>
 
@@ -1685,7 +1675,7 @@ export function SettingsApp() {
                       {text.about.viewReleaseNotes}
                     </Button>
                   ) : (
-                    <span className="text-sm text-muted-foreground">{text.about.noReleaseNotes}</span>
+                    <span className="app-settings-about-empty">{text.about.noReleaseNotes}</span>
                   )}
                 </SettingsCompactRow>
 
@@ -1705,7 +1695,7 @@ export function SettingsApp() {
                               disabled={!updateInfo.currentVersion.trim() || checkForUpdate.isPending || isCheckingUpdate || isDownloadingUpdate}
                               aria-label={checkUpdateLabel}
                             >
-                              {isCheckingUpdate ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                              {isCheckingUpdate ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <RefreshCw className="h-4 w-4" />}
                               {checkUpdateLabel}
                             </Button>
                           </TooltipTrigger>
@@ -1725,7 +1715,7 @@ export function SettingsApp() {
                               aria-label={text.about.downloadAndInstall}
                             >
                               {downloadUpdate.isPending || isDownloadingUpdate ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <Loader2 className="h-4 w-4 app-motion-spin" />
                               ) : (
                                 <Download className="h-4 w-4" />
                               )}
@@ -1747,7 +1737,7 @@ export function SettingsApp() {
                               disabled={restartToApply.isPending}
                               aria-label={text.about.restartAfterUpdate}
                             >
-                              {restartToApply.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                              {restartToApply.isPending ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <RefreshCw className="h-4 w-4" />}
                               {text.about.restartAfterUpdate}
                             </Button>
                           </TooltipTrigger>
@@ -1763,20 +1753,20 @@ export function SettingsApp() {
                     <SettingsCompactSeparator />
                     <SettingsCompactRow label={text.about.status}>
                       {isDownloadingUpdate ? (
-                        <div className="w-[220px] max-w-full space-y-1.5">
+                        <div className="app-settings-update-progress max-w-full space-y-1.5">
                           <div className="app-dream-progress-track h-2 w-full">
                             <div
                               className="app-dream-progress-value"
                               style={{ width: `${Math.min(Math.max(updateInfo.progress, 0), 100)}%` }}
                             />
                           </div>
-                          <div className="flex items-center justify-between text-sm text-muted-foreground">
+                          <div className="app-settings-update-meta flex items-center justify-between">
                             <span>{updateInfo.status === "installing" ? text.about.installing : text.about.downloading}</span>
                             <span>{Math.round(updateInfo.progress)}%</span>
                           </div>
                         </div>
                       ) : (
-                        <span className="max-w-[280px] whitespace-pre-wrap break-words text-right text-sm text-destructive">
+                        <span className="app-settings-update-error whitespace-pre-wrap break-words">
                           {updateErrorMessage}
                         </span>
                       )}
@@ -1786,8 +1776,24 @@ export function SettingsApp() {
               </SettingsCompactListCard>
 
               <SettingsCompactListCard>
+                <SettingsCompactRow label={text.about.thirdPartyLicenses}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="compact"
+                    onClick={() => {
+                      setThirdPartyNoticesLoadFailed(false);
+                      setThirdPartyNoticesOpen(true);
+                    }}
+                  >
+                    {text.about.viewReleaseNotes}
+                  </Button>
+                </SettingsCompactRow>
+              </SettingsCompactListCard>
+
+              <SettingsCompactListCard>
                 <SettingsCompactRow label={text.about.craftedBy}>
-                  <span className="text-sm font-semibold text-foreground">{ABOUT_AUTHOR_NAME}</span>
+                  <span className="app-settings-about-value">{ABOUT_AUTHOR_NAME}</span>
                 </SettingsCompactRow>
 
                 <SettingsCompactSeparator />
@@ -1801,7 +1807,7 @@ export function SettingsApp() {
                             type="button"
                             variant="outline"
                             size="compactIcon"
-                            onClick={() => openExternalURL("mailto:xunruhao@gmail.com")}
+                            onClick={openAboutContactEmail}
                             aria-label={text.about.email}
                           >
                             <Mail className="h-4 w-4" />
@@ -1816,7 +1822,7 @@ export function SettingsApp() {
                             type="button"
                             variant="outline"
                             size="compactIcon"
-                            onClick={() => openExternalURL("https://x.com/ArnoldHaoCA")}
+                            onClick={() => void openExternalURL("https://x.com/ArnoldHaoCA")}
                             aria-label={text.about.twitter}
                           >
                             <Twitter className="h-4 w-4" />
@@ -1831,7 +1837,7 @@ export function SettingsApp() {
                             type="button"
                             variant="outline"
                             size="compactIcon"
-                            onClick={() => openExternalURL("https://xiadown.app/")}
+                            onClick={() => void openExternalURL("https://xiadown.app/")}
                             aria-label={text.about.website}
                           >
                             <Globe className="h-4 w-4" />
@@ -1846,7 +1852,7 @@ export function SettingsApp() {
                             type="button"
                             variant="outline"
                             size="compactIcon"
-                            onClick={() => openExternalURL("https://github.com/arnoldhao/xiadown")}
+                            onClick={() => void openExternalURL("https://github.com/arnoldhao/xiadown")}
                             aria-label={text.about.github}
                           >
                             <Github className="h-4 w-4" />
@@ -1868,7 +1874,7 @@ export function SettingsApp() {
                           type="button"
                           variant="outline"
                           size="compactIcon"
-                          onClick={() => openExternalURL("https://github.com/arnoldhao/xiadown/issues")}
+                          onClick={() => void openExternalURL("https://github.com/arnoldhao/xiadown/issues")}
                           aria-label={text.about.sendFeedback}
                         >
                           <MessageSquare className="h-4 w-4" />
@@ -1901,7 +1907,7 @@ export function SettingsApp() {
                         variant="outline"
                         size="compact"
                         className="app-settings-dream-app-link"
-                        onClick={() => openExternalURL(app.url)}
+                        onClick={() => void openExternalURL(app.url)}
                       >
                         <Globe className="h-3.5 w-3.5" />
                         {text.about.website}
@@ -1913,14 +1919,14 @@ export function SettingsApp() {
             </div>
           ) : null}
         </div>
-      </div>
+      </WorkspacePageContent>
 
       {proxyDialog}
 
       <Dialog open={releaseNotesOpen} onOpenChange={setReleaseNotesOpen}>
-        <DialogContent className="grid max-h-[min(34rem,calc(100vh-2rem))] w-[min(28rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
+        <DialogContent className="app-settings-release-notes-dialog grid max-w-none gap-3 overflow-hidden">
           <DialogHeader className="min-w-0">
-            <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            <DialogTitle className="app-settings-dialog-title overflow-hidden break-words pr-6">
               {text.about.viewChangelog}
             </DialogTitle>
           </DialogHeader>
@@ -1934,6 +1940,41 @@ export function SettingsApp() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      <Dialog open={thirdPartyNoticesOpen} onOpenChange={setThirdPartyNoticesOpen}>
+        <DialogContent className="app-settings-notices-dialog grid max-w-none gap-3 overflow-hidden">
+          <DialogHeader className="min-w-0">
+            <DialogTitle className="app-settings-dialog-title overflow-hidden break-words pr-6" data-clamp="false">
+              {text.about.thirdPartyLicenses}
+            </DialogTitle>
+          </DialogHeader>
+          <DialogScrollArea className="min-h-0">
+            {thirdPartyNotices ? (
+              <pre className="app-settings-license-text whitespace-pre-wrap break-words">
+                {thirdPartyNotices}
+              </pre>
+            ) : thirdPartyNoticesLoadFailed ? (
+              <p className="app-settings-update-error">{text.about.thirdPartyLicensesLoadFailed}</p>
+            ) : (
+              <div className="flex min-h-24 items-center justify-center" aria-busy="true">
+                <Loader2 className="app-settings-muted-icon h-5 w-5 app-motion-spin" />
+              </div>
+            )}
+          </DialogScrollArea>
+          <DialogFooter className="shrink-0 items-end sm:items-center">
+            <Button type="button" variant="ghost" size="compact" onClick={() => setThirdPartyNoticesOpen(false)}>
+              {text.about.releaseNotesClose}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <DataManagementSheet
+        open={dataManagementOpen}
+        onOpenChange={setDataManagementOpen}
+      />
+      <BrowserProfilesSheet
+        open={browserProfilesOpen}
+        onOpenChange={setBrowserProfilesOpen}
+      />
+    </WorkspacePage>
   );
 }

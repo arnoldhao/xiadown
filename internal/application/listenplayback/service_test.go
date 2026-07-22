@@ -2,6 +2,7 @@ package listenplayback
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -11,6 +12,30 @@ type fakeTransport struct {
 	actions        []string
 	loads          []fakeLoad
 	seeks          []float64
+}
+
+type blockingLoadTransport struct {
+	fakeTransport
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (transport *blockingLoadTransport) LoadVideo(
+	ctx context.Context,
+	request PlayRequest,
+	strategy VideoLoadStrategy,
+) error {
+	select {
+	case <-transport.entered:
+	default:
+		close(transport.entered)
+	}
+	select {
+	case <-transport.release:
+		return transport.fakeTransport.LoadVideo(ctx, request, strategy)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func TestNormalizeObservedPlaybackAudioQuality(t *testing.T) {
@@ -31,6 +56,7 @@ func TestNormalizeObservedPlaybackAudioQuality(t *testing.T) {
 
 type fakeLoad struct {
 	videoID      string
+	language     string
 	startSeconds float64
 	forceReload  bool
 	loadStrategy VideoLoadStrategy
@@ -99,6 +125,7 @@ func (transport *fakeTransport) LoadVideo(_ context.Context, request PlayRequest
 	transport.currentVideoID = request.Track.VideoID
 	transport.loads = append(transport.loads, fakeLoad{
 		videoID:      request.Track.VideoID,
+		language:     request.Language,
 		startSeconds: request.StartSeconds,
 		forceReload:  request.ForceReload,
 		loadStrategy: strategy,
@@ -213,6 +240,71 @@ func TestRestoredPlayPauseIntentStaysLoadingUntilObservedPlaying(t *testing.T) {
 	}
 	if service.State() != PlaybackStatePlaying {
 		t.Fatalf("expected observed playback to confirm playing, got %s", service.State())
+	}
+}
+
+func TestObservedBufferingPreservesSnapshotStateAndPlaybackIntent(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := NewPlayerService(transport)
+
+	if err := service.PlayQueue(ctx, makeTracks(), 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateObservedPlaybackState(ctx, PlaybackStateBuffering, true, 12, 180); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := service.Snapshot(ctx); snapshot.State != PlaybackStateBuffering {
+		t.Fatalf("expected buffering observation to stay visible in snapshot, got %s", snapshot.State)
+	}
+
+	if err := service.UpdateObservedPlaybackState(ctx, PlaybackStatePlaying, true, 13, 180); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := service.Snapshot(ctx); snapshot.State != PlaybackStatePlaying {
+		t.Fatalf("expected playing observation to replace buffering, got %s", snapshot.State)
+	}
+
+	toggleTransport := &fakeTransport{}
+	toggleService := NewPlayerService(toggleTransport)
+	if err := toggleService.UpdateObservedPlaybackState(ctx, PlaybackStateBuffering, true, 14, 180); err != nil {
+		t.Fatal(err)
+	}
+	if err := toggleService.PlayPause(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := toggleService.Snapshot(ctx); snapshot.State != PlaybackStatePaused {
+		t.Fatalf("expected play/pause during buffering to preserve pause intent, got %s", snapshot.State)
+	}
+	if got := toggleTransport.actions[len(toggleTransport.actions)-1]; got != "pause" {
+		t.Fatalf("expected play/pause during buffering to pause transport, actions=%v", toggleTransport.actions)
+	}
+}
+
+func TestRestoredPlaybackPreservesBufferingAfterActiveObservation(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{currentVideoID: "video-one"}
+	service := NewPlayerService(transport)
+
+	service.ApplyRestoredPlaybackSession(makeTracks(), 0, 42, 180)
+	service.RecordPlaybackIntent()
+	if err := service.PlayPause(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateObservedPlaybackState(ctx, PlaybackStatePaused, false, 0, 180); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := service.Snapshot(ctx); snapshot.State != PlaybackStateLoading {
+		t.Fatalf("expected restored seek to retain loading state, got %s", snapshot.State)
+	}
+	if err := service.UpdateObservedPlaybackState(ctx, PlaybackStateBuffering, true, 42, 180); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := service.Snapshot(ctx); snapshot.State != PlaybackStateBuffering {
+		t.Fatalf("expected restored active observation to remain buffering, got %s", snapshot.State)
+	}
+	if len(transport.actions) != 2 || transport.actions[0] != "play" || transport.actions[1] != "seek" {
+		t.Fatalf("expected buffering to satisfy restored play intent without another transport action, actions=%v", transport.actions)
 	}
 }
 
@@ -422,6 +514,64 @@ func TestPlayQueueWithShuffleEnabledMaterializesSelectedTrackFirst(t *testing.T)
 	}
 }
 
+func TestPlayQueuePublishesLoadingTrackBeforeTransportReturns(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport := &blockingLoadTransport{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	service := NewPlayerService(transport)
+	service.RecordPlaybackIntent()
+	published := make(chan Snapshot, 2)
+	unsubscribe := service.Subscribe(func(snapshot Snapshot) {
+		published <- snapshot
+	})
+	defer unsubscribe()
+
+	completed := make(chan error, 1)
+	go func() {
+		completed <- service.PlayQueue(ctx, makeTracks(), 1, "Queue")
+	}()
+
+	select {
+	case <-transport.entered:
+	case <-ctx.Done():
+		t.Fatal("transport load was not entered")
+	}
+
+	select {
+	case snapshot := <-published:
+		if snapshot.State != PlaybackStateLoading {
+			t.Fatalf("expected loading snapshot, got %q", snapshot.State)
+		}
+		if snapshot.CurrentTrack == nil || snapshot.CurrentTrack.VideoID != "video-two" {
+			t.Fatalf("expected selected track before transport completion, got %#v", snapshot.CurrentTrack)
+		}
+		if snapshot.CurrentIndex != 1 {
+			t.Fatalf("expected selected queue index 1, got %d", snapshot.CurrentIndex)
+		}
+	case <-ctx.Done():
+		t.Fatal("loading snapshot was not published while transport was blocked")
+	}
+
+	select {
+	case err := <-completed:
+		t.Fatalf("PlayQueue returned before transport was released: %v", err)
+	default:
+	}
+
+	close(transport.release)
+	select {
+	case err := <-completed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("PlayQueue did not finish after transport was released")
+	}
+}
+
 func TestNextPublishesCurrentTrackSnapshot(t *testing.T) {
 	ctx := context.Background()
 	transport := &fakeTransport{}
@@ -536,6 +686,114 @@ func TestQueuedTrackLoadsCarryCurrentVolume(t *testing.T) {
 	}
 }
 
+func TestQueueNavigationAlwaysRestartsPreviouslyPlayedDestination(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	if err := service.PlayQueue(ctx, makeTracks(), 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	if initial := transport.loads[len(transport.loads)-1]; initial.restart {
+		t.Fatalf("direct queue creation should preserve direct-play resume semantics, got %#v", initial)
+	}
+	if err := service.Next(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if next := transport.loads[len(transport.loads)-1]; next.videoID != "video-two" || !next.restart || next.startSeconds != 0 {
+		t.Fatalf("next queue destination must restart at zero, got %#v", next)
+	}
+	if err := service.PlayFromQueue(ctx, QueueSelection{Index: 0, TrackID: "one", VideoID: "video-one"}); err != nil {
+		t.Fatal(err)
+	}
+	if selected := transport.loads[len(transport.loads)-1]; selected.videoID != "video-one" || !selected.restart || selected.startSeconds != 0 {
+		t.Fatalf("selected queue destination must restart at zero, got %#v", selected)
+	}
+}
+
+func TestQueueSelectionResolvesIdentityAfterConcurrentReorder(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+
+	service.mu.Lock()
+	service.queue[0], service.queue[1] = service.queue[1], service.queue[0]
+	service.currentIndex = 1
+	service.mu.Unlock()
+
+	if err := service.PlayFromQueue(ctx, QueueSelection{
+		Index:   1,
+		TrackID: "two",
+		VideoID: "video-two",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	queue, index := service.Queue()
+	if index != 0 || queue[index].ID != "two" {
+		t.Fatalf("stale index must resolve the clicked row identity, index=%d queue=%#v", index, queue)
+	}
+	load := transport.loads[len(transport.loads)-1]
+	if load.videoID != "video-two" || !load.restart {
+		t.Fatalf("resolved queue selection must restart the intended song, got %#v", load)
+	}
+}
+
+func TestQueueSelectionDoesNotPlayAnotherRowAfterRemoval(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	loadsBeforeSelection := len(transport.loads)
+
+	if err := service.PlayFromQueue(ctx, QueueSelection{
+		Index:   1,
+		TrackID: "removed-track",
+		VideoID: "removed-video",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.loads) != loadsBeforeSelection {
+		t.Fatalf("missing queue identity must be a safe no-op, loads=%#v", transport.loads)
+	}
+}
+
+func TestAutomaticQueueAdvanceRestartsPreviouslyPlayedDestination(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	service.SetPlaybackLanguage(ctx, "zh-CN")
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.HandleTrackEnded(ctx, "video-one"); err != nil {
+		t.Fatal(err)
+	}
+
+	next := transport.loads[len(transport.loads)-1]
+	if next.videoID != "video-two" || next.language != "zh-CN" || !next.restart || next.startSeconds != 0 {
+		t.Fatalf("automatic queue advance must restart at zero, got %#v", next)
+	}
+}
+
+func TestDirectTrackPlayKeepsExplicitResumePosition(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	if err := service.PlayTrack(ctx, makeTracks()[0], PlayOptions{StartSeconds: 37}); err != nil {
+		t.Fatal(err)
+	}
+
+	load := transport.loads[len(transport.loads)-1]
+	if load.startSeconds != 37 || load.restart {
+		t.Fatalf("direct play should preserve its requested resume position, got %#v", load)
+	}
+}
+
 func TestSetVolumePersistsVolumeBeforeMute(t *testing.T) {
 	ctx := context.Background()
 	store := &fakeSessionStore{}
@@ -544,6 +802,7 @@ func TestSetVolumePersistsVolumeBeforeMute(t *testing.T) {
 		WithSessionStore(store),
 		WithUserInteractionUnlocked(),
 	)
+	service.SetPlaybackLanguage(ctx, "zh-CN")
 	if err := service.PlayQueue(ctx, makeTracks(), 0, "Queue"); err != nil {
 		t.Fatal(err)
 	}
@@ -556,6 +815,9 @@ func TestSetVolumePersistsVolumeBeforeMute(t *testing.T) {
 	if store.saved.VolumeBeforeMute != 0.35 {
 		t.Fatalf("expected persisted volumeBeforeMute 0.35, got %f", store.saved.VolumeBeforeMute)
 	}
+	if store.saved.Language != "zh-CN" {
+		t.Fatalf("expected persisted playback language zh-CN, got %q", store.saved.Language)
+	}
 
 	restoreStore := &fakeSessionStore{session: store.saved, ok: true}
 	restored := NewPlayerService(&fakeTransport{}, WithSessionStore(restoreStore))
@@ -565,6 +827,9 @@ func TestSetVolumePersistsVolumeBeforeMute(t *testing.T) {
 	snapshot := restored.Snapshot(ctx)
 	if snapshot.VolumeBeforeMute != 0.35 {
 		t.Fatalf("expected restored volumeBeforeMute 0.35, got %f", snapshot.VolumeBeforeMute)
+	}
+	if restored.playbackLanguage != "zh-CN" {
+		t.Fatalf("expected restored playback language zh-CN, got %q", restored.playbackLanguage)
 	}
 }
 
@@ -1034,6 +1299,13 @@ func TestRepeatOneDoesNotRealignQueueWhenObservedInQueueVideo(t *testing.T) {
 	if err := service.PlayQueue(ctx, makeTracks(), 1, "Queue"); err != nil {
 		t.Fatal(err)
 	}
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-two",
+		Title:           "Two",
+		Artist:          "Artist",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	service.SetRepeatMode(RepeatModeOne)
 	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
 		ObservedVideoID: "video-three",
@@ -1052,7 +1324,7 @@ func TestRepeatOneDoesNotRealignQueueWhenObservedInQueueVideo(t *testing.T) {
 	if !ok || track.VideoID != "video-two" {
 		t.Fatalf("expected current track to remain video-two, got %#v", track)
 	}
-	if got := transport.loads[len(transport.loads)-1]; got.videoID != "video-two" || !got.forceReload {
+	if got := transport.loads[len(transport.loads)-1]; got.videoID != "video-two" || !got.forceReload || !got.restart {
 		t.Fatalf("expected repeat one to force reload current queue track, got %#v", got)
 	}
 }
@@ -1063,6 +1335,13 @@ func TestRepeatOneRecoversWhenTitleDriftsBeforeVideoID(t *testing.T) {
 	service := newTestService(transport)
 
 	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-one",
+		Title:           "One",
+		Artist:          "Artist",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	service.SetRepeatMode(RepeatModeOne)
@@ -1081,6 +1360,42 @@ func TestRepeatOneRecoversWhenTitleDriftsBeforeVideoID(t *testing.T) {
 	track, ok := service.CurrentTrack()
 	if !ok || track.VideoID != "video-one" || track.Title != "One" {
 		t.Fatalf("expected visible track to remain queue metadata, got %#v", track)
+	}
+	if got := transport.loads[len(transport.loads)-1]; got.videoID != "video-one" || !got.forceReload || !got.restart {
+		t.Fatalf("expected repeat-one safety recovery to restart the current song, got %#v", got)
+	}
+}
+
+func TestProviderQueueTransitionWithoutNearEndSignalRestartsDestination(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+	if err := service.PlayQueue(ctx, makeTracks()[:2], 0, "Queue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-one",
+		Title:           "One",
+		Artist:          "Artist",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.UpdateTrackMetadata(ctx, ObservedTrack{
+		ObservedVideoID: "video-two",
+		Title:           "Two",
+		Artist:          "Artist",
+		TrackChanged:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, index := service.Queue()
+	if index != 1 {
+		t.Fatalf("expected provider transition to select queue index 1, got %d", index)
+	}
+	load := transport.loads[len(transport.loads)-1]
+	if load.videoID != "video-two" || !load.restart || load.loadStrategy != VideoLoadPreferInPlaceWhenSameVideoID {
+		t.Fatalf("provider transition must restart the destination row, got %#v", load)
 	}
 }
 
@@ -1152,6 +1467,10 @@ func TestNearEndVideoIDOnlyTransitionKeepsExpectedQueueMetadata(t *testing.T) {
 	track, ok := service.CurrentTrack()
 	if !ok || track.VideoID != "video-two" || track.Title != "Two" || track.Artist != "Artist" {
 		t.Fatalf("expected queue metadata for video-two to stay visible, got %#v", track)
+	}
+	load := transport.loads[len(transport.loads)-1]
+	if load.videoID != "video-two" || !load.restart || load.loadStrategy != VideoLoadPreferInPlaceWhenSameVideoID {
+		t.Fatalf("expected early provider transition to restart the queue destination, got %#v", load)
 	}
 }
 
@@ -1421,6 +1740,9 @@ func TestAppInitiatedPlaybackReassertsIntendedQueueTrack(t *testing.T) {
 	if !last.forceReload || last.loadStrategy != VideoLoadForceFullPageWhenSameVideoID {
 		t.Fatalf("expected force full-page reload, got %#v", last)
 	}
+	if !last.restart {
+		t.Fatalf("expected queue-next recovery to preserve restart-from-start intent, got %#v", last)
+	}
 }
 
 func TestTrackEndRepeatAllWrapsWhenObservedAlreadyWrapped(t *testing.T) {
@@ -1554,6 +1876,253 @@ func TestAppendToQueueAssignsUniqueIDAgainstExistingQueue(t *testing.T) {
 	}
 	if queue[0].ID == queue[1].ID {
 		t.Fatalf("expected appended duplicate to receive a unique queue ID, got %q", queue[0].ID)
+	}
+}
+
+func TestInsertAfterQueueItemIfCurrentPlacesPlaylistContinuationAtomically(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueueWithIdentity(ctx, []Track{
+		{ID: "current", VideoID: "video-current", Title: "Current"},
+		{ID: "existing", VideoID: "video-existing", Title: "Existing"},
+	}, 0, "Queue", "client:active"); err != nil {
+		t.Fatal(err)
+	}
+	service.InsertNextInQueue(ctx, []Track{
+		{ID: "visible-one", VideoID: "video-visible-one", Title: "Visible One"},
+		{ID: "visible-two", VideoID: "video-visible-two", Title: "Visible Two"},
+	})
+	queue, _ := service.Queue()
+	anchorTrackID := queue[2].ID
+
+	accepted := service.InsertAfterQueueItemIfCurrent(ctx, []Track{
+		{ID: "remaining", VideoID: "video-remaining-one", Title: "Remaining One"},
+		{ID: "remaining", VideoID: "video-remaining-two", Title: "Remaining Two"},
+	}, anchorTrackID, "client:active")
+	if !accepted {
+		t.Fatal("expected continuation insertion to accept the active queue identity")
+	}
+
+	queue, index := service.Queue()
+	got := make([]string, 0, len(queue))
+	for _, track := range queue {
+		got = append(got, track.VideoID)
+	}
+	want := []string{
+		"video-current",
+		"video-visible-one",
+		"video-visible-two",
+		"video-remaining-one",
+		"video-remaining-two",
+		"video-existing",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected continuation directly after visible rows, got %v", got)
+	}
+	if index != 0 {
+		t.Fatalf("expected current track to remain selected, got index %d", index)
+	}
+	if queue[3].ID == queue[4].ID {
+		t.Fatalf("expected duplicate incoming row IDs to be uniquified, got %q", queue[3].ID)
+	}
+}
+
+func TestInsertAfterQueueItemIfCurrentRejectsContinuationAfterQueueReplacement(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueueWithIdentity(ctx, []Track{
+		{ID: "old", VideoID: "video-old", Title: "Old"},
+	}, 0, "Old Queue", "client:old"); err != nil {
+		t.Fatal(err)
+	}
+	oldQueue, _ := service.Queue()
+	oldAnchorTrackID := oldQueue[0].ID
+
+	if err := service.PlayQueueWithIdentity(ctx, []Track{
+		{ID: "new", VideoID: "video-new", Title: "New"},
+	}, 0, "New Queue", "client:new"); err != nil {
+		t.Fatal(err)
+	}
+	accepted := service.InsertAfterQueueItemIfCurrent(ctx, []Track{
+		{ID: "late", VideoID: "video-late", Title: "Late"},
+	}, oldAnchorTrackID, "client:old")
+	if accepted {
+		t.Fatal("expected stale continuation insertion to be rejected")
+	}
+
+	queue, _ := service.Queue()
+	if len(queue) != 1 || queue[0].VideoID != "video-new" {
+		t.Fatalf("expected replacement queue to remain untouched, got %#v", queue)
+	}
+}
+
+func TestInsertAfterQueueItemIfCurrentRejectsMissingAnchorWithoutMutation(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueueWithIdentity(ctx, []Track{
+		{ID: "current", VideoID: "video-current", Title: "Current"},
+		{ID: "existing", VideoID: "video-existing", Title: "Existing"},
+	}, 1, "Queue", "client:active"); err != nil {
+		t.Fatal(err)
+	}
+	before, beforeIndex := service.Queue()
+	accepted := service.InsertAfterQueueItemIfCurrent(ctx, []Track{
+		{ID: "late", VideoID: "video-late", Title: "Late"},
+	}, "missing-anchor", "client:active")
+	if accepted {
+		t.Fatal("expected a missing anchor to reject the continuation insertion")
+	}
+	after, afterIndex := service.Queue()
+	if !reflect.DeepEqual(after, before) || afterIndex != beforeIndex {
+		t.Fatalf(
+			"expected missing-anchor rejection to preserve the queue, before=%#v/%d after=%#v/%d",
+			before,
+			beforeIndex,
+			after,
+			afterIndex,
+		)
+	}
+}
+
+func TestAppendToQueueIfCurrentRejectsLateAppendAfterNewPlayQueue(t *testing.T) {
+	ctx := context.Background()
+	transport := &fakeTransport{}
+	service := newTestService(transport)
+
+	if err := service.PlayQueueWithIdentity(ctx, []Track{
+		{ID: "old-one", VideoID: "old-video-one", Title: "Old One"},
+	}, 0, "Old Queue", "client:old-queue"); err != nil {
+		t.Fatal(err)
+	}
+	oldIdentity := service.Snapshot(ctx).QueueIdentity
+	if oldIdentity != "client:old-queue" {
+		t.Fatalf("expected caller queue identity, got %q", oldIdentity)
+	}
+
+	newQueue := []Track{
+		{ID: "new-one", VideoID: "new-video-one", Title: "New One"},
+		{ID: "new-two", VideoID: "new-video-two", Title: "New Two"},
+	}
+	if err := service.PlayQueueWithIdentity(ctx, newQueue, 1, "New Queue", "client:new-queue"); err != nil {
+		t.Fatal(err)
+	}
+	newIdentity := service.Snapshot(ctx).QueueIdentity
+	if newIdentity != "client:new-queue" || newIdentity == oldIdentity {
+		t.Fatalf("expected a distinct queue identity, old=%q new=%q", oldIdentity, newIdentity)
+	}
+
+	accepted := service.AppendToQueueIfCurrent(ctx, []Track{
+		{ID: "late-old", VideoID: "late-old-video", Title: "Late Old Track"},
+	}, oldIdentity)
+	if accepted {
+		t.Fatal("expected a late append from the replaced queue to be rejected")
+	}
+
+	snapshot := service.Snapshot(ctx)
+	if snapshot.QueueIdentity != newIdentity {
+		t.Fatalf("late append changed queue identity: got %q want %q", snapshot.QueueIdentity, newIdentity)
+	}
+	if snapshot.QueueTitle != "New Queue" || snapshot.CurrentIndex != 1 {
+		t.Fatalf("late append changed active queue state: %#v", snapshot)
+	}
+	if len(snapshot.Queue) != len(newQueue) {
+		t.Fatalf("late append polluted new queue: got %d items want %d", len(snapshot.Queue), len(newQueue))
+	}
+	for index, track := range snapshot.Queue {
+		if track.VideoID != newQueue[index].VideoID {
+			t.Fatalf("queue item %d changed after late append: got %q want %q", index, track.VideoID, newQueue[index].VideoID)
+		}
+	}
+}
+
+func TestCallerQueueIdentityRejectsOldAppendWhilePlayQueueRPCsOverlap(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	transport := &blockingLoadTransport{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	service := NewPlayerService(transport, WithUserInteractionUnlocked())
+	published := make(chan Snapshot, 16)
+	unsubscribe := service.Subscribe(func(snapshot Snapshot) {
+		published <- snapshot
+	})
+	defer unsubscribe()
+
+	oldCompleted := make(chan error, 1)
+	go func() {
+		oldCompleted <- service.PlayQueueWithIdentity(ctx, []Track{
+			{ID: "old-one", VideoID: "old-video-one", Title: "Old One"},
+		}, 0, "Old Queue", "client:old-overlap")
+	}()
+	select {
+	case <-transport.entered:
+	case <-ctx.Done():
+		t.Fatal("old PlayQueue did not reach the blocked transport")
+	}
+
+	newQueue := []Track{
+		{ID: "new-one", VideoID: "new-video-one", Title: "New One"},
+		{ID: "new-two", VideoID: "new-video-two", Title: "New Two"},
+	}
+	newCompleted := make(chan error, 1)
+	go func() {
+		newCompleted <- service.PlayQueueWithIdentity(
+			ctx,
+			newQueue,
+			1,
+			"New Queue",
+			"client:new-overlap",
+		)
+	}()
+
+	newQueuePublished := false
+	for !newQueuePublished {
+		select {
+		case snapshot := <-published:
+			newQueuePublished = snapshot.QueueIdentity == "client:new-overlap"
+		case <-ctx.Done():
+			t.Fatal("new PlayQueue did not replace the queue while the old RPC was blocked")
+		}
+	}
+
+	if service.AppendToQueueIfCurrent(ctx, []Track{
+		{ID: "late-old", VideoID: "late-old-video", Title: "Late Old Track"},
+	}, "client:old-overlap") {
+		t.Fatal("expected the old in-flight command identity to be rejected")
+	}
+	snapshot := service.Snapshot(ctx)
+	if snapshot.QueueIdentity != "client:new-overlap" ||
+		snapshot.QueueTitle != "New Queue" ||
+		snapshot.CurrentIndex != 1 ||
+		len(snapshot.Queue) != len(newQueue) {
+		t.Fatalf("old in-flight append polluted the replacement queue: %#v", snapshot)
+	}
+	for index, track := range snapshot.Queue {
+		if track.VideoID != newQueue[index].VideoID {
+			t.Fatalf("replacement queue item %d changed: got %q want %q", index, track.VideoID, newQueue[index].VideoID)
+		}
+	}
+
+	close(transport.release)
+	for name, completed := range map[string]<-chan error{
+		"old": oldCompleted,
+		"new": newCompleted,
+	} {
+		select {
+		case err := <-completed:
+			if err != nil {
+				t.Fatalf("%s PlayQueue failed after release: %v", name, err)
+			}
+		case <-ctx.Done():
+			t.Fatalf("%s PlayQueue did not finish after release", name)
+		}
 	}
 }
 

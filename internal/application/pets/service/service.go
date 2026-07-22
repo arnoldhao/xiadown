@@ -4,6 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,16 +27,18 @@ import (
 )
 
 const (
-	petColumns          = 8
-	petRows             = 9
-	petCellWidth        = 192
-	petCellHeight       = 208
-	petSheetWidth       = petColumns * petCellWidth
-	petSheetHeight      = petRows * petCellHeight
-	petFrameCount       = petColumns * petRows
-	petMaxZipSizeBytes  = 15 * 1024 * 1024
-	petManifestFileName = "pet.json"
-	petSheetFileName    = "spritesheet.webp"
+	petColumns           = 8
+	petRows              = 9
+	petCellWidth         = 192
+	petCellHeight        = 208
+	petSheetWidth        = petColumns * petCellWidth
+	petSheetHeight       = petRows * petCellHeight
+	petFrameCount        = petColumns * petRows
+	petMaxZipSizeBytes   = 15 * 1024 * 1024
+	petManifestFileName  = "pet.json"
+	petSheetFileName     = "spritesheet.webp"
+	builtinStateFileName = ".builtin-pets-state.json"
+	builtinStateVersion  = 2
 
 	scopeBuiltin  = "builtin"
 	scopeImported = "imported"
@@ -65,6 +70,27 @@ type petImportInspection struct {
 	validationMessage string
 }
 
+type embeddedBuiltinPet struct {
+	entryName     string
+	manifestBytes []byte
+	sheetBytes    []byte
+}
+
+type builtinPetInstallState struct {
+	ID             string  `json:"id"`
+	ManifestSize   int64   `json:"manifestSize"`
+	ManifestDigest string  `json:"manifestDigest"`
+	SheetSize      int64   `json:"sheetSize"`
+	SheetDigest    string  `json:"sheetDigest"`
+	Metadata       dto.Pet `json:"metadata"`
+}
+
+type builtinPetsInstallState struct {
+	Version int                      `json:"version"`
+	Digest  string                   `json:"digest"`
+	Pets    []builtinPetInstallState `json:"pets"`
+}
+
 type petLoadOptions struct {
 	ValidationCode    string
 	ValidationMessage string
@@ -91,12 +117,22 @@ type Service struct {
 	metadataRepo   MetadataRepository
 	importSessions map[string]*onlinePetImportSession
 	settingsReader SettingsReader
+	networkGateway NetworkGatewayProvider
 	builtinReady   bool
 	now            func() time.Time
 }
 
 type SettingsReader interface {
 	GetSettings(ctx context.Context) (settingsdto.Settings, error)
+}
+
+// NetworkGatewayProvider supplies the process-lifetime loopback proxy used by
+// browser-backed features. The endpoint stays stable while its upstream policy
+// changes, so a running Chromium profile never falls back to its own system
+// route when XiaDown is in direct mode.
+type NetworkGatewayProvider interface {
+	ConsumerProxyURL() string
+	ConsumerProxyAttestation() (string, string)
 }
 
 func NewService(baseDir string, builtinFS fs.FS, builtinRoot string, devBuiltinDir string, options ...Option) *Service {
@@ -125,6 +161,12 @@ func WithMetadataRepository(repo MetadataRepository) Option {
 func WithSettingsReader(reader SettingsReader) Option {
 	return func(service *Service) {
 		service.settingsReader = reader
+	}
+}
+
+func WithNetworkGateway(provider NetworkGatewayProvider) Option {
+	return func(service *Service) {
+		service.networkGateway = provider
 	}
 }
 
@@ -319,48 +361,105 @@ func (service *Service) ensureBuiltinPetsLocked(ctx context.Context) error {
 		return fmt.Errorf("create imported pets directory: %w", err)
 	}
 
-	synced := map[string]struct{}{}
-	if service.builtinFS != nil && service.builtinRoot != "" {
-		entries, err := fs.ReadDir(service.builtinFS, service.builtinRoot)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("read embedded pets: %w", err)
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			pet, err := service.syncEmbeddedBuiltinPetLocked(entry.Name())
-			if err != nil {
-				return err
-			}
-			synced[pet.ID] = struct{}{}
-			service.saveMetadataLocked(ctx, pet)
-		}
+	embedded, digest, err := service.readEmbeddedBuiltinPetsLocked()
+	if err != nil {
+		return err
 	}
-	return service.pruneStaleBuiltinPetsLocked(ctx, synced)
+	if state, stateErr := service.readBuiltinPetsInstallStateLocked(); stateErr == nil &&
+		state.Version == builtinStateVersion && state.Digest == digest &&
+		service.builtinPetsInstallStateUsableLocked(ctx, state) {
+		return nil
+	}
+
+	synced := make(map[string]struct{}, len(embedded))
+	installed := make([]builtinPetInstallState, 0, len(embedded))
+	for _, source := range embedded {
+		pet, err := service.syncEmbeddedBuiltinPetLocked(source)
+		if err != nil {
+			return err
+		}
+		synced[pet.ID] = struct{}{}
+		service.saveMetadataLocked(ctx, pet)
+		manifestSize, manifestDigest, err := petFileIdentity(
+			filepath.Join(service.petDir(scopeBuiltin, pet.ID), petManifestFileName),
+		)
+		if err != nil {
+			return fmt.Errorf("identify installed pet manifest %s: %w", pet.ID, err)
+		}
+		sheetSize, sheetDigest, err := petFileIdentity(
+			filepath.Join(service.petDir(scopeBuiltin, pet.ID), petSheetFileName),
+		)
+		if err != nil {
+			return fmt.Errorf("identify installed pet spritesheet %s: %w", pet.ID, err)
+		}
+		installed = append(installed, builtinPetInstallState{
+			ID:             pet.ID,
+			ManifestSize:   manifestSize,
+			ManifestDigest: manifestDigest,
+			SheetSize:      sheetSize,
+			SheetDigest:    sheetDigest,
+			Metadata:       pet,
+		})
+	}
+	if err := service.pruneStaleBuiltinPetsLocked(ctx, synced); err != nil {
+		return err
+	}
+	return service.writeBuiltinPetsInstallStateLocked(builtinPetsInstallState{
+		Version: builtinStateVersion, Digest: digest, Pets: installed,
+	})
 }
 
-func (service *Service) syncEmbeddedBuiltinPetLocked(entryName string) (dto.Pet, error) {
-	sourceDir := filepath.ToSlash(filepath.Join(service.builtinRoot, entryName))
-	manifestBytes, err := fs.ReadFile(service.builtinFS, filepath.ToSlash(filepath.Join(sourceDir, petManifestFileName)))
-	if err != nil {
-		return dto.Pet{}, fmt.Errorf("read embedded pet manifest %s: %w", entryName, err)
+func (service *Service) readEmbeddedBuiltinPetsLocked() ([]embeddedBuiltinPet, string, error) {
+	digest := sha256.New()
+	result := make([]embeddedBuiltinPet, 0)
+	if service.builtinFS == nil || service.builtinRoot == "" {
+		return result, hex.EncodeToString(digest.Sum(nil)), nil
 	}
-	manifest, err := decodeManifest(manifestBytes)
+	entries, err := fs.ReadDir(service.builtinFS, service.builtinRoot)
 	if err != nil {
-		return dto.Pet{}, fmt.Errorf("decode embedded pet manifest %s: %w", entryName, err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return result, hex.EncodeToString(digest.Sum(nil)), nil
+		}
+		return nil, "", fmt.Errorf("read embedded pets: %w", err)
 	}
-	manifest.ID = normalizePetID(manifest.ID, entryName)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		sourceDir := filepath.ToSlash(filepath.Join(service.builtinRoot, entry.Name()))
+		manifestBytes, err := fs.ReadFile(service.builtinFS, filepath.ToSlash(filepath.Join(sourceDir, petManifestFileName)))
+		if err != nil {
+			return nil, "", fmt.Errorf("read embedded pet manifest %s: %w", entry.Name(), err)
+		}
+		sheetBytes, err := fs.ReadFile(service.builtinFS, filepath.ToSlash(filepath.Join(sourceDir, petSheetFileName)))
+		if err != nil {
+			return nil, "", fmt.Errorf("read embedded pet spritesheet %s: %w", entry.Name(), err)
+		}
+		for _, part := range [][]byte{[]byte(entry.Name()), manifestBytes, sheetBytes} {
+			var size [8]byte
+			binary.BigEndian.PutUint64(size[:], uint64(len(part)))
+			_, _ = digest.Write(size[:])
+			_, _ = digest.Write(part)
+		}
+		result = append(result, embeddedBuiltinPet{
+			entryName: entry.Name(), manifestBytes: manifestBytes, sheetBytes: sheetBytes,
+		})
+	}
+	return result, hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func (service *Service) syncEmbeddedBuiltinPetLocked(source embeddedBuiltinPet) (dto.Pet, error) {
+	manifest, err := decodeManifest(source.manifestBytes)
+	if err != nil {
+		return dto.Pet{}, fmt.Errorf("decode embedded pet manifest %s: %w", source.entryName, err)
+	}
+	manifest.ID = normalizePetID(manifest.ID, source.entryName)
 	manifest.DisplayName = normalizePetDisplayName(manifest.DisplayName, manifest.Name, manifest.ID)
 	manifest.SpritesheetPath = petSheetFileName
 
-	sheetBytes, err := fs.ReadFile(service.builtinFS, filepath.ToSlash(filepath.Join(sourceDir, petSheetFileName)))
-	if err != nil {
-		return dto.Pet{}, fmt.Errorf("read embedded pet spritesheet %s: %w", entryName, err)
-	}
-	width, height, validationCode, validation := validateSpritesheetBytes(sheetBytes)
+	width, height, validationCode, validation := validateSpritesheetBytes(source.sheetBytes)
 	targetDir := service.petDir(scopeBuiltin, manifest.ID)
-	if err := writePetPackage(targetDir, manifest, sheetBytes); err != nil {
+	if err := writePetPackage(targetDir, manifest, source.sheetBytes); err != nil {
 		return dto.Pet{}, err
 	}
 	return service.petFromStoredPackage(scopeBuiltin, targetDir, petLoadOptions{
@@ -370,6 +469,127 @@ func (service *Service) syncEmbeddedBuiltinPetLocked(entryName string) (dto.Pet,
 		ImageHeight:       height,
 		TrustValidation:   true,
 	})
+}
+
+func (service *Service) readBuiltinPetsInstallStateLocked() (builtinPetsInstallState, error) {
+	payload, err := os.ReadFile(filepath.Join(service.baseDir, builtinStateFileName))
+	if err != nil {
+		return builtinPetsInstallState{}, err
+	}
+	var state builtinPetsInstallState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		return builtinPetsInstallState{}, err
+	}
+	return state, nil
+}
+
+func (service *Service) builtinPetsInstallStateUsableLocked(ctx context.Context, state builtinPetsInstallState) bool {
+	metadataByID := make(map[string]dto.Pet)
+	if service.metadataRepo != nil {
+		items, err := service.metadataRepo.List(ctx)
+		if err != nil {
+			return false
+		}
+		metadataByID = make(map[string]dto.Pet, len(items))
+		for _, item := range items {
+			if strings.TrimSpace(item.ID) != "" {
+				metadataByID[item.ID] = item
+			}
+		}
+	}
+	expected := make(map[string]builtinPetInstallState, len(state.Pets))
+	for _, pet := range state.Pets {
+		if strings.TrimSpace(pet.ID) == "" || filepath.Base(pet.ID) != pet.ID ||
+			pet.ManifestSize <= 0 || strings.TrimSpace(pet.ManifestDigest) == "" ||
+			pet.SheetSize <= 0 || strings.TrimSpace(pet.SheetDigest) == "" ||
+			pet.Metadata.ID != pet.ID || pet.Metadata.Scope != scopeBuiltin {
+			return false
+		}
+		if _, duplicate := expected[pet.ID]; duplicate {
+			return false
+		}
+		expected[pet.ID] = pet
+		manifestSize, manifestDigest, err := petFileIdentity(
+			filepath.Join(service.petDir(scopeBuiltin, pet.ID), petManifestFileName),
+		)
+		if err != nil || manifestSize != pet.ManifestSize || manifestDigest != pet.ManifestDigest {
+			return false
+		}
+		sheetSize, sheetDigest, err := petFileIdentity(
+			filepath.Join(service.petDir(scopeBuiltin, pet.ID), petSheetFileName),
+		)
+		if err != nil || sheetSize != pet.SheetSize || sheetDigest != pet.SheetDigest {
+			return false
+		}
+		if service.metadataRepo != nil {
+			stored, ok := metadataByID[pet.ID]
+			if !ok || !samePetMetadata(stored, pet.Metadata) {
+				return false
+			}
+		}
+	}
+	entries, err := os.ReadDir(service.scopeDir(scopeBuiltin))
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, ok := expected[entry.Name()]; !ok {
+			return false
+		}
+		delete(expected, entry.Name())
+	}
+	return len(expected) == 0
+}
+
+func petFileIdentity(path string) (int64, string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, "", err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return 0, "", err
+	}
+	if !info.Mode().IsRegular() {
+		return 0, "", fmt.Errorf("pet asset is not a regular file")
+	}
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return 0, "", err
+	}
+	return info.Size(), hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func (service *Service) writeBuiltinPetsInstallStateLocked(state builtinPetsInstallState) error {
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("encode built-in pets state: %w", err)
+	}
+	temporary, err := os.CreateTemp(service.baseDir, ".builtin-pets-state-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create built-in pets state: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer func() { _ = os.Remove(temporaryPath) }()
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("set built-in pets state permissions: %w", err)
+	}
+	if _, err := temporary.Write(payload); err != nil {
+		_ = temporary.Close()
+		return fmt.Errorf("write built-in pets state: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close built-in pets state: %w", err)
+	}
+	if err := os.Rename(temporaryPath, filepath.Join(service.baseDir, builtinStateFileName)); err != nil {
+		return fmt.Errorf("install built-in pets state: %w", err)
+	}
+	return nil
 }
 
 func (service *Service) pruneStaleBuiltinPetsLocked(ctx context.Context, synced map[string]struct{}) error {
@@ -566,6 +786,10 @@ func (service *Service) petFromStoredPackage(scope string, petDir string, option
 	if stat, statErr := os.Stat(sheetPath); statErr == nil {
 		updatedAt = stat.ModTime().UTC()
 	}
+	// SQLite persists timestamps with microsecond precision. Canonicalising the
+	// filesystem timestamp before it enters the install state keeps a repository
+	// round-trip from making an unchanged built-in pet look stale on every launch.
+	updatedAt = updatedAt.Truncate(time.Microsecond)
 	updatedAtValue := updatedAt.Format(time.RFC3339Nano)
 	if !options.TrustValidation {
 		if cachedPetUsable(options.Cached, manifest.ID, scope, sheetPath, updatedAtValue) {
@@ -674,8 +898,8 @@ func cachedPetUsable(cached *dto.Pet, id string, scope string, sheetPath string,
 	if !samePetPath(cached.SpritesheetPath, sheetPath) {
 		return false
 	}
-	if strings.TrimSpace(cached.UpdatedAt) != strings.TrimSpace(updatedAt) &&
-		strings.TrimSpace(cached.CreatedAt) != strings.TrimSpace(updatedAt) {
+	if !samePetTimestamp(cached.UpdatedAt, updatedAt) &&
+		!samePetTimestamp(cached.CreatedAt, updatedAt) {
 		return false
 	}
 	if cached.FrameCount != petFrameCount ||
@@ -710,7 +934,23 @@ func samePetMetadata(left dto.Pet, right dto.Pet) bool {
 		strings.TrimSpace(left.ValidationMessage) == strings.TrimSpace(right.ValidationMessage) &&
 		left.ImageWidth == right.ImageWidth &&
 		left.ImageHeight == right.ImageHeight &&
-		strings.TrimSpace(left.UpdatedAt) == strings.TrimSpace(right.UpdatedAt)
+		samePetTimestamp(left.UpdatedAt, right.UpdatedAt)
+}
+
+func samePetTimestamp(left string, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == right {
+		return true
+	}
+	leftTime, leftErr := time.Parse(time.RFC3339Nano, left)
+	rightTime, rightErr := time.Parse(time.RFC3339Nano, right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	return leftTime.UTC().Truncate(time.Microsecond).Equal(
+		rightTime.UTC().Truncate(time.Microsecond),
+	)
 }
 
 func samePetPath(left string, right string) bool {

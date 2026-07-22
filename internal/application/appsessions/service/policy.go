@@ -92,6 +92,10 @@ func appSessionHomeURL(siteKey string) string {
 		return "https://www.bilibili.com/"
 	case "tiktok":
 		return "https://www.tiktok.com/"
+	case "douyin":
+		return "https://www.douyin.com/"
+	case "xiaohongshu":
+		return "https://www.xiaohongshu.com/explore"
 	case "instagram":
 		return "https://www.instagram.com/"
 	case "x":
@@ -117,6 +121,10 @@ func appSessionLoginURL(siteKey string, fallbackURL string) string {
 		return "https://passport.bilibili.com/login"
 	case "tiktok":
 		return "https://www.tiktok.com/login"
+	case "douyin":
+		return "https://www.douyin.com/"
+	case "xiaohongshu":
+		return "https://www.xiaohongshu.com/explore"
 	case "instagram":
 		return "https://www.instagram.com/accounts/login/"
 	case "x":
@@ -137,8 +145,15 @@ func appSessionLoginURL(siteKey string, fallbackURL string) string {
 func appSessionCookieDomains(siteKey string) []string {
 	policy, _ := sitepolicy.ForSiteKey(siteKey)
 	domains := append([]string(nil), policy.Domains...)
-	if strings.TrimSpace(siteKey) == "youtube" {
+	switch strings.TrimSpace(siteKey) {
+	case "youtube":
 		domains = append(domains, "google.com", "googleusercontent.com", "gstatic.com", "ytimg.com")
+	case "xiaohongshu":
+		// Short-link domains belong to Xiaohongshu's URL-routing policy, but
+		// they are not authentication-cookie scopes. Capturing only the first-
+		// party domain also prevents a same-named short-link cookie from making
+		// a browser profile look signed in.
+		domains = []string{"xiaohongshu.com"}
 	}
 	return domains
 }
@@ -151,6 +166,10 @@ func appSessionSiteLabel(siteKey string) string {
 		return "Bilibili"
 	case "tiktok":
 		return "TikTok"
+	case "douyin":
+		return "Douyin"
+	case "xiaohongshu":
+		return "Xiaohongshu"
 	case "instagram":
 		return "Instagram"
 	case "x":
@@ -176,6 +195,10 @@ func appSessionSiteDesc(siteKey string) string {
 		return "Bilibili account session for member-only and authenticated downloads."
 	case "tiktok":
 		return "TikTok account session for authenticated creator and private-feed downloads."
+	case "douyin":
+		return "Douyin account session for authenticated creator, favorites, and private-feed downloads."
+	case "xiaohongshu":
+		return "Xiaohongshu account session for authenticated notes, favorites, and media downloads."
 	case "instagram":
 		return "Instagram account session for authenticated media downloads."
 	case "x":

@@ -33,8 +33,8 @@ type Result struct {
 var whitespacePattern = regexp.MustCompile(`\s+`)
 
 // Romanize returns a Latin transcription for supported non-Latin lyrics text.
-// On macOS it uses the same system tokenizer approach as Kaset, so Japanese
-// kanji can be converted from their reading rather than by a static kana map.
+// On macOS it uses the system tokenizer so Japanese kanji can be converted from
+// their reading rather than by a static kana map.
 func Romanize(text string) string {
 	return Transcribe(text).Text
 }

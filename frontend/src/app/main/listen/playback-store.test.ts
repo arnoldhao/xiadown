@@ -9,6 +9,7 @@ import type { ListenPlaybackSnapshot } from "@/app/main/listen/playback-api";
 function snapshot(overrides: Partial<ListenPlaybackSnapshot>): ListenPlaybackSnapshot {
   return {
     version: 1,
+    queueIdentity: "client:test",
     state: "playing",
     progress: 0,
     duration: 180,
@@ -77,5 +78,42 @@ describe("listen playback store projection", () => {
 
     expect(next.currentItem).not.toBe(previous.currentItem);
     expect(next.currentItem?.title).toBe("One (Remastered)");
+  });
+
+  test("replaces the projected track when same-track artwork is enriched", () => {
+    const previous = deriveListenPlaybackProjection(
+      snapshot({
+        queue: [
+          {
+            id: "one",
+            videoId: "video-one",
+            title: "One",
+            artist: "Artist",
+          },
+        ],
+      }),
+    );
+    const next = stabilizeListenPlaybackProjection(
+      previous,
+      deriveListenPlaybackProjection(
+        snapshot({
+          version: 2,
+          queue: [
+            {
+              id: "one",
+              videoId: "video-one",
+              title: "One",
+              artist: "Artist",
+              thumbnailUrl: "https://example.com/enriched.jpg",
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(next.currentItem).not.toBe(previous.currentItem);
+    expect(next.currentItem?.thumbnailUrl).toBe(
+      "https://example.com/enriched.jpg",
+    );
   });
 });

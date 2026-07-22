@@ -1,3 +1,116 @@
+.app-pet-display-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16rem;
+  height: 12rem;
+  transform: translate(-50%, -50%);
+  background-image:
+    radial-gradient(
+      ellipse 44% 48% at 50% 52%,
+      hsl(var(--primary) / 0.18) 0%,
+      hsl(var(--primary) / 0.1) 42%,
+      transparent 76%
+    ),
+    radial-gradient(
+      ellipse 34% 34% at 35% 43%,
+      hsl(var(--primary) / 0.12) 0%,
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 34% 38% at 65% 58%,
+      hsl(var(--primary) / 0.1) 0%,
+      transparent 74%
+    ),
+    radial-gradient(
+      ellipse 26% 28% at 50% 30%,
+      hsl(var(--primary) / 0.08) 0%,
+      transparent 72%
+    );
+  filter: blur(24px);
+  pointer-events: none;
+}
+
+.app-pet-display-glow:is(
+    [data-glow-variant="running-summary"],
+    [data-glow-variant="running-playground"]
+  ) {
+  background-image:
+    radial-gradient(
+      ellipse 44% 44% at 50% 54%,
+      hsl(var(--primary) / 0.18) 0%,
+      hsl(var(--primary) / 0.11) 38%,
+      transparent 76%
+    ),
+    radial-gradient(
+      ellipse 28% 30% at 35% 42%,
+      hsl(var(--primary) / 0.11) 0%,
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 32% 34% at 66% 58%,
+      hsl(var(--primary) / 0.1) 0%,
+      transparent 74%
+    );
+  -webkit-mask-image: radial-gradient(
+    ellipse 58% 56% at 50% 52%,
+    black 0%,
+    rgb(0 0 0 / 0.92) 38%,
+    rgb(0 0 0 / 0.58) 64%,
+    rgb(0 0 0 / 0.16) 84%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 58% 56% at 50% 52%,
+    black 0%,
+    rgb(0 0 0 / 0.92) 38%,
+    rgb(0 0 0 / 0.58) 64%,
+    rgb(0 0 0 / 0.16) 84%,
+    transparent 100%
+  );
+}
+
+.app-pet-display-glow[data-glow-variant="running-summary"] {
+  width: 13.5rem;
+  height: 10rem;
+  filter: blur(18px);
+}
+
+.app-pet-display-glow[data-glow-variant="running-playground"] {
+  width: 18rem;
+  height: 18rem;
+  filter: blur(40px);
+}
+
+.app-pet-display-glow[data-glow-variant="gallery-default"] {
+  --pet-card-spotlight-top: var(--background);
+
+  transform: translate(-50%, -50%) scale(1.25);
+  background-image:
+    radial-gradient(
+      ellipse 32% 58% at 50% 18%,
+      hsl(var(--pet-card-spotlight-top) / 0.92) 0%,
+      hsl(var(--primary) / 0.48) 46%,
+      transparent 78%
+    ),
+    radial-gradient(
+      ellipse 58% 34% at 50% 74%,
+      hsl(var(--primary) / 0.46) 0%,
+      hsl(var(--primary) / 0.22) 42%,
+      transparent 76%
+    ),
+    radial-gradient(
+      ellipse 40% 44% at 50% 48%,
+      hsl(var(--pet-card-spotlight-top) / 0.34) 0%,
+      transparent 74%
+    );
+  opacity: 1;
+}
+
+.dark .app-pet-display-glow[data-glow-variant="gallery-default"] {
+  --pet-card-spotlight-top: var(--foreground);
+}
+
 .app-pets-skeleton-card {
   border: 0;
   border-radius: var(--dream-radius-xl);
@@ -5,8 +118,70 @@
   box-shadow: var(--dream-card-shadow);
 }
 
+.app-main-pets-page {
+  container: app-pets-page / inline-size;
+  background: var(--app-surface-canvas);
+}
+
+.app-pets-context-menu-anchor {
+  position: fixed;
+  z-index: var(--app-layer-popover);
+  width: 1px;
+  height: 1px;
+  border: 0;
+  outline: none;
+  opacity: 0;
+}
+
+.app-pet-gallery-context-menu-item {
+  font-weight: 500;
+}
+
+.app-pets-delete-dialog {
+  display: grid;
+  width: min(24rem, calc(100vw - 2rem));
+  max-width: none;
+  max-height: calc(100vh - 2rem);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--app-space-3);
+  overflow: hidden;
+}
+
+.app-pets-delete-dialog__title,
+.app-pets-delete-dialog__description,
+.app-pets-delete-dialog__error {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-align: left;
+  -webkit-box-orient: vertical;
+}
+
+.app-pets-delete-dialog__title {
+  padding-right: var(--app-space-6);
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+}
+
+.app-pets-delete-dialog__description {
+  line-height: 1.25rem;
+  -webkit-line-clamp: 3;
+}
+
+.app-pets-delete-dialog__error {
+  color: hsl(var(--destructive));
+  font-size: var(--app-font-size-xs);
+  line-height: 1.25rem;
+  -webkit-line-clamp: 2;
+}
+
 .app-pets-skeleton-glow {
-  background: linear-gradient(180deg, var(--dream-surface-soft), transparent 48%, hsl(var(--foreground) / 0.035));
+  background: linear-gradient(
+    180deg,
+    var(--dream-surface-soft),
+    transparent 48%,
+    hsl(var(--foreground) / 0.035)
+  );
 }
 
 .app-pets-skeleton-avatar,
@@ -23,6 +198,32 @@
   color: var(--dream-text-strong);
 }
 
+.app-pets-gallery-heading {
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--app-space-2);
+}
+
+.app-pets-gallery-heading .app-workspace-page__heading-actions {
+  align-self: center;
+}
+
+.app-pets-gallery-import-footer {
+  justify-content: center;
+  pointer-events: none;
+}
+
+.app-pets-gallery-import-footer > .app-running-new-download-button {
+  pointer-events: auto;
+}
+
+.app-pets-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 6.125rem);
+  justify-content: start;
+  gap: var(--app-space-4);
+}
+
 .app-pets-loading {
   color: var(--dream-text-soft);
 }
@@ -33,6 +234,7 @@
   background: var(--dream-surface-muted);
   box-shadow: var(--dream-control-shadow);
   color: var(--dream-text-soft);
+  font-size: var(--app-font-size-sm);
 }
 
 .app-pets-detail-grid {
@@ -51,11 +253,12 @@
   transform: translateZ(0);
   transition:
     transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
-    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base)
+      var(--app-motion-ease-standard),
     box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard);
   animation: app-pets-panel-enter 260ms var(--app-motion-ease-enter) both;
-  -webkit-backdrop-filter: blur(14px) saturate(1.08);
-  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .app-pets-detail-card:hover,
@@ -63,8 +266,32 @@
   transform: translateY(var(--app-motion-hover-lift-y));
 }
 
+.app-pets-detail-card--preview,
+.app-pets-detail-card--summary {
+  min-height: 16.75rem;
+}
+
+.app-pets-detail-pet-glow {
+  width: 23rem;
+  height: 18rem;
+  filter: blur(24px);
+}
+
+.app-pets-detail-title {
+  color: var(--dream-text-strong);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.app-pets-detail-description {
+  color: var(--dream-text-muted);
+  font-size: var(--app-font-size-sm);
+  line-height: 1.5rem;
+}
+
 .app-pets-metric {
   color: var(--dream-text-muted);
+  font-size: var(--app-font-size-xs);
 }
 
 .app-pets-metric-label {
@@ -73,53 +300,16 @@
 
 .app-pets-metric-value {
   color: var(--dream-text-strong);
+  font-weight: 500;
 }
 
 .app-pets-detail-actions {
-  border-radius: var(--dream-control-radius);
-  background: var(--dream-surface-muted);
-  box-shadow: var(--dream-control-shadow);
-  padding: 0;
-}
-
-:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action,
-.app-dialog-content .app-pets-detail-actions .app-pets-detail-action {
-  height: var(--dream-control-height);
-  min-height: var(--dream-control-height);
+  width: 100%;
   min-width: 0;
-  border: 0;
-  border-radius: var(--dream-control-radius-inner);
-  background: transparent;
-  color: var(--dream-text-muted);
-  box-shadow: none;
-  padding: 0 0.625rem;
-}
-
-:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action:hover,
-.app-dialog-content .app-pets-detail-actions .app-pets-detail-action:hover {
-  background: var(--dream-surface-hover);
-  color: var(--dream-text-strong);
-}
-
-:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action[data-active="true"],
-.app-dialog-content .app-pets-detail-actions .app-pets-detail-action[data-active="true"] {
-  background: var(--dream-primary-surface);
-  color: var(--dream-primary-text);
-  opacity: 1;
-}
-
-:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action.text-destructive,
-.app-dialog-content .app-pets-detail-actions .app-pets-detail-action.text-destructive {
-  color: hsl(var(--destructive));
-}
-
-:is(.app-dream-frame, .app-main-settings-frame) .app-pets-detail-actions .app-pets-detail-action.text-destructive:hover,
-.app-dialog-content .app-pets-detail-actions .app-pets-detail-action.text-destructive:hover {
-  background: hsl(var(--destructive) / 0.11);
-  color: hsl(var(--destructive));
 }
 
 .app-pets-animation-card {
+  text-align: center;
   border: 0;
   border-radius: var(--dream-radius-xl);
   background: var(--dream-surface-card);
@@ -127,7 +317,8 @@
   color: var(--dream-text-muted);
   outline: none;
   transition:
-    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base)
+      var(--app-motion-ease-standard),
     color var(--app-motion-duration-base) var(--app-motion-ease-standard),
     box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
     transform var(--app-motion-duration-base) var(--app-motion-ease-standard);
@@ -154,22 +345,241 @@
   color: var(--dream-primary-text);
 }
 
+.app-pets-animation-card__glow {
+  width: 7rem;
+  height: 6rem;
+  opacity: 0.65;
+  filter: blur(16px);
+}
+
+.app-pets-animation-card__label {
+  color: var(--dream-text-strong);
+  font-size: var(--app-font-size-xs);
+  font-weight: 500;
+}
+
 .app-pets-gallery-card {
   position: relative;
+  isolation: isolate;
+  display: flex;
+  width: 6.125rem;
+  min-width: 6.125rem;
+  max-width: 6.125rem;
+  height: 8.75rem;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
   border: 0;
   border-radius: var(--dream-radius-xl);
+  padding: 0.75rem;
   background: var(--dream-surface-card);
   box-shadow: var(--dream-card-shadow);
   color: var(--dream-text-strong);
+  text-align: center;
   transform: translateZ(0);
   transition:
     transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
-    background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-base)
+      var(--app-motion-ease-standard),
     box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
     filter var(--app-motion-duration-base) var(--app-motion-ease-standard);
   animation: app-pets-card-enter 260ms var(--app-motion-ease-enter) both;
-  -webkit-backdrop-filter: blur(14px) saturate(1.08);
-  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.app-pets-gallery-card-light {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.app-pets-gallery-card[data-lighting="online"]
+  .app-pets-gallery-card-light--primary {
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      hsl(var(--foreground) / 0.16),
+      transparent 56%
+    ),
+    radial-gradient(
+      circle at 50% 100%,
+      hsl(var(--background) / 0.2),
+      transparent 62%
+    );
+}
+
+.app-pets-gallery-card[data-lighting="online"]
+  .app-pets-gallery-card-light--directional {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--foreground) / 0.14) 0%,
+    hsl(var(--primary) / 0.1) 44%,
+    transparent 68%,
+    hsl(var(--background) / 0.18) 100%
+  );
+}
+
+.app-pets-gallery-card[data-lighting="online"]
+  .app-pets-gallery-card-light--rim {
+  background:
+    radial-gradient(
+      ellipse at 50% -8%,
+      hsl(var(--foreground) / 0.12),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse at 50% 108%,
+      hsl(var(--background) / 0.16),
+      transparent 64%
+    );
+}
+
+.app-pets-gallery-card[data-lighting="imported"]
+  .app-pets-gallery-card-light--primary {
+  background:
+    radial-gradient(
+      ellipse at 50% -10%,
+      hsl(var(--background) / 0.34),
+      transparent 46%
+    ),
+    radial-gradient(
+      circle at 50% 48%,
+      hsl(var(--primary) / 0.24),
+      transparent 58%
+    ),
+    radial-gradient(
+      ellipse at 50% 108%,
+      hsl(var(--background) / 0.22),
+      transparent 64%
+    );
+}
+
+.app-pets-gallery-card[data-lighting="imported"]
+  .app-pets-gallery-card-light--directional {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--background) / 0.2) 0%,
+    hsl(var(--primary) / 0.14) 48%,
+    hsl(var(--background) / 0.18) 100%
+  );
+}
+
+.app-pets-gallery-card[data-lighting="imported"]
+  .app-pets-gallery-card-light--rim {
+  background:
+    radial-gradient(
+      ellipse at 50% 108%,
+      hsl(var(--background) / 0.2),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse at 50% 48%,
+      hsl(var(--primary) / 0.1),
+      transparent 68%
+    );
+}
+
+.app-pets-gallery-card[data-lighting="default"]
+  .app-pets-gallery-card-light--primary {
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      hsl(var(--background) / 0.18),
+      transparent 56%
+    ),
+    radial-gradient(
+      circle at 50% 52%,
+      hsl(var(--primary) / 0.12),
+      transparent 62%
+    );
+}
+
+.app-pets-gallery-card[data-lighting="default"]
+  .app-pets-gallery-card-light--directional {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--background) / 0.16) 0%,
+    hsl(var(--primary) / 0.1) 44%,
+    transparent 68%,
+    hsl(var(--foreground) / 0.1) 100%
+  );
+}
+
+.app-pets-gallery-card[data-lighting="default"]
+  .app-pets-gallery-card-light--rim {
+  background: radial-gradient(
+    ellipse at 50% 108%,
+    hsl(var(--foreground) / 0.12),
+    transparent 60%
+  );
+}
+
+.app-pets-gallery-card-light--spotlight {
+  z-index: 10;
+  bottom: auto;
+  height: 92%;
+  clip-path: polygon(22% 0, 78% 0, 98% 92%, 2% 92%);
+  background:
+    radial-gradient(
+      ellipse 42% 18% at 50% 0%,
+      hsl(var(--background) / 0.98) 0%,
+      hsl(var(--primary) / 0.62) 44%,
+      transparent 78%
+    ),
+    linear-gradient(
+      180deg,
+      hsl(var(--background) / 0.92) 0%,
+      hsl(var(--primary) / 0.52) 32%,
+      hsl(var(--primary) / 0.22) 64%,
+      transparent 88%
+    );
+  opacity: 0.95;
+}
+
+.dark .app-pets-gallery-card-light--spotlight {
+  background:
+    radial-gradient(
+      ellipse 42% 18% at 50% 0%,
+      hsl(var(--foreground) / 0.72) 0%,
+      hsl(var(--primary) / 0.62) 44%,
+      transparent 78%
+    ),
+    linear-gradient(
+      180deg,
+      hsl(var(--foreground) / 0.62) 0%,
+      hsl(var(--primary) / 0.56) 32%,
+      hsl(var(--foreground) / 0.2) 64%,
+      transparent 88%
+    );
+}
+
+.app-pets-gallery-card-pet {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 0%;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-pets-gallery-card-label {
+  position: relative;
+  z-index: 30;
+  width: 100%;
+  overflow: hidden;
+  margin-top: 0.5rem;
+  padding-inline: 0.25rem;
+  color: var(--dream-text-strong);
+  font-size: var(--app-font-size-sm);
+  font-weight: 500;
+  line-height: 1.25rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-pets-gallery-card::after {
@@ -181,15 +591,14 @@
   z-index: 15;
   width: 34%;
   border-radius: inherit;
-  background:
-    linear-gradient(
-      100deg,
-      transparent 0%,
-      hsl(var(--background) / 0.12) 28%,
-      hsl(var(--background) / 0.56) 50%,
-      hsl(var(--primary) / 0.20) 64%,
-      transparent 100%
-    );
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    hsl(var(--background) / 0.12) 28%,
+    hsl(var(--background) / 0.56) 50%,
+    hsl(var(--primary) / 0.2) 64%,
+    transparent 100%
+  );
   filter: blur(6px);
   opacity: 0;
   transform: translateX(-120%) skewX(-13deg);
@@ -212,11 +621,28 @@
   transform: scale(var(--app-motion-press-scale));
 }
 
-.app-pets-gallery-card:focus-visible {
-  outline: none;
+.app-pets-gallery-card[data-lighting="imported"] {
+  background: var(--dream-primary-surface-muted);
   box-shadow:
-    var(--dream-card-shadow),
-    inset 0 0 0 1px var(--dream-line-focus);
+    inset 0 1px 0 hsl(var(--background) / 0.38),
+    inset 0 16px 24px hsl(var(--primary) / 0.08),
+    inset 0 -18px 24px hsl(var(--background) / 0.16);
+}
+
+.app-pets-gallery-card[data-lighting="online"] {
+  background: var(--dream-surface-card);
+  box-shadow:
+    inset 0 1px 0 hsl(var(--foreground) / 0.22),
+    inset 0 16px 24px hsl(var(--primary) / 0.08),
+    inset 0 -18px 24px hsl(var(--background) / 0.16);
+}
+
+.app-pets-gallery-card[data-lighting="default"] {
+  background: var(--dream-surface-card);
+  box-shadow:
+    inset 0 1px 0 hsl(var(--background) / 0.36),
+    inset 0 16px 24px hsl(var(--primary) / 0.06),
+    inset 0 -18px 24px hsl(var(--foreground) / 0.09);
 }
 
 .app-pets-gallery-card[data-default="true"] {
@@ -226,16 +652,32 @@
     inset 0 0 0 1px var(--dream-primary-line);
 }
 
-.app-pets-gallery-card-imported {
-  background: var(--dream-primary-surface-muted);
+.app-pets-gallery-card[data-lighting="imported"]:hover {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--background) / 0.44),
+    inset 0 18px 26px hsl(var(--primary) / 0.12),
+    inset 0 -20px 28px hsl(var(--background) / 0.2);
 }
 
-.app-pets-gallery-card-online {
-  background: var(--dream-surface-card);
+.app-pets-gallery-card[data-lighting="online"]:hover {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--foreground) / 0.26),
+    inset 0 18px 26px hsl(var(--primary) / 0.11),
+    inset 0 -20px 28px hsl(var(--background) / 0.2);
 }
 
-.app-pets-gallery-card-default {
-  background: var(--dream-surface-card);
+.app-pets-gallery-card[data-lighting="default"]:hover {
+  box-shadow:
+    inset 0 1px 0 hsl(var(--background) / 0.4),
+    inset 0 18px 26px hsl(var(--primary) / 0.09),
+    inset 0 -20px 28px hsl(var(--foreground) / 0.12);
+}
+
+.app-pets-gallery-card:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--dream-card-shadow),
+    inset 0 0 0 1px var(--dream-line-focus);
 }
 
 .app-pets-guide-index {
@@ -257,6 +699,39 @@
   color: var(--dream-text-muted);
 }
 
+.app-pets-import-dialog {
+  max-width: min(92vw, 34rem);
+}
+
+.app-pets-import-dialog__header {
+  text-align: start;
+}
+
+.app-pets-import-dialog__scroll {
+  max-height: min(68vh, 34rem);
+}
+
+.app-pets-import-description,
+.app-pets-info-box__content,
+.app-pets-import-empty {
+  font-size: var(--app-font-size-xs);
+}
+
+.app-pets-import-description {
+  color: var(--dream-text-muted);
+  line-height: 1.25rem;
+}
+
+.app-pets-import-heading {
+  color: var(--dream-text-strong);
+  font-size: var(--app-font-size-sm);
+  font-weight: 500;
+}
+
+.app-pets-import-empty {
+  color: var(--dream-text-muted);
+}
+
 .app-pets-info-row > :first-child {
   color: var(--dream-text-soft);
 }
@@ -265,21 +740,25 @@
   color: var(--dream-text-strong);
 }
 
+.app-pets-info-row__value {
+  font-weight: 500;
+  text-align: end;
+}
+
 .app-pets-status-message {
   border: 0;
   border-radius: var(--dream-control-radius);
   box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+  font-size: var(--app-font-size-xs);
+  line-height: 1.25rem;
   animation: app-pets-status-enter 180ms var(--app-motion-ease-enter) both;
 }
 
 .app-pets-status-message[data-intent="success"] {
-  background: hsl(142 72% 42% / 0.11);
-  color: hsl(142 54% 30%);
-  box-shadow: inset 0 0 0 1px hsl(142 72% 42% / 0.14);
-}
-
-.dark .app-pets-status-message[data-intent="success"] {
-  color: hsl(142 62% 72%);
+  background: var(--app-status-surface-success);
+  color: var(--app-status-tone-success);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--app-status-tone-success) 14%, transparent);
 }
 
 .app-pets-status-message[data-intent="danger"] {
@@ -288,8 +767,15 @@
   box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.14);
 }
 
-@media (max-width: 900px) {
+@container app-pets-page (max-width: 900px) {
   .app-pets-detail-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (forced-colors: active) {
+  .app-pet-display-glow,
+  .app-pets-gallery-card-light {
+    display: none;
   }
 }

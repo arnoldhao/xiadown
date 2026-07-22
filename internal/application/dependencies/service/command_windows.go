@@ -4,12 +4,10 @@ package service
 
 import (
 	"os/exec"
-	"syscall"
+
+	"xiadown/internal/infrastructure/processutil"
 )
 
 func configureCommand(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	processutil.ConfigureCLI(cmd)
 }

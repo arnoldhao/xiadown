@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PropsWithChildren,
+} from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Events } from "@wailsio/runtime";
 
-import { SettingsApp } from "./app/settings";
-import { MainApp } from "./app/main";
-import { TrayMiniPlayerApp } from "./app/main/TrayMiniPlayerApp";
 import { LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY } from "./shared/query/library";
 import { setLatestSettingsQueryData, useSettings } from "./shared/query/settings";
 import { useSettingsStore } from "./shared/store/settings";
@@ -14,6 +17,8 @@ import {
   applyXiaAppearanceChange,
   applyXiaTheme,
 } from "./shared/styles/theme-runtime";
+import { applyWindowMaterialMode } from "./shared/styles/window-material";
+import { STARTUP_SURFACE_READY_EVENT } from "./startup-presentation";
 
 function isWailsRuntimeReady() {
   return typeof window !== "undefined" && typeof (window as any)._wails?.dispatchWailsEvent === "function";
@@ -28,6 +33,7 @@ function readWindowType() {
 }
 
 const initialWindowType = readWindowType();
+applyWindowMaterialMode();
 if (typeof document !== "undefined" && initialWindowType) {
   document.documentElement.dataset.window = initialWindowType;
 }
@@ -39,15 +45,49 @@ function applyAppLanguage(nextLanguage: string) {
   document.title = t("xiadown.appName", language);
 }
 
-function App() {
+function App({
+  children,
+  onStartupReady,
+}: PropsWithChildren<{ onStartupReady?: () => void | (() => void) }>) {
   const queryClient = useQueryClient();
-  const { data: settings, refetch: refetchSettings } = useSettings();
-  const setSettings = useSettingsStore((state) => state.setSettings);
   const [windowType, setWindowType] = useState(initialWindowType);
+  const {
+    data: settings,
+    isError: settingsFailed,
+    refetch: refetchSettings,
+  } = useSettings(
+    windowType !== "appearance-lab",
+  );
+  const setSettings = useSettingsStore((state) => state.setSettings);
+  const [startupSurfaceReady, setStartupSurfaceReady] = useState(
+    () =>
+      initialWindowType !== "" ||
+      document.documentElement.dataset.startupSurface === "ready",
+  );
+  const startupReady = useRef(false);
+  const startupCleanup = useRef<(() => void) | undefined>(undefined);
 
   useEffect(() => {
     setWindowType(readWindowType());
   }, []);
+
+  useLayoutEffect(() => {
+    if (windowType !== "") {
+      setStartupSurfaceReady(true);
+      return;
+    }
+    const markSurfaceReady = () => setStartupSurfaceReady(true);
+    if (document.documentElement.dataset.startupSurface === "ready") {
+      markSurfaceReady();
+      return;
+    }
+    window.addEventListener(STARTUP_SURFACE_READY_EVENT, markSurfaceReady, {
+      once: true,
+    });
+    return () => {
+      window.removeEventListener(STARTUP_SURFACE_READY_EVENT, markSurfaceReady);
+    };
+  }, [windowType]);
 
   useEffect(() => {
     if (windowType) {
@@ -59,22 +99,43 @@ function App() {
     delete document.documentElement.dataset.window;
   }, [windowType]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyAppLanguage(detectBrowserLanguage());
     applyPlatformChrome();
   }, []);
 
-  useEffect(() => {
-    if (!settings) {
+  useLayoutEffect(() => {
+    if (!settings || windowType === "appearance-lab") {
       return;
     }
     setSettings(settings);
     applyXiaTheme(settings);
     applyAppLanguage(settings.language);
-  }, [settings, setSettings]);
+  }, [settings, setSettings, windowType]);
+
+  useLayoutEffect(() => {
+    if (
+      startupReady.current ||
+      windowType === "appearance-lab" ||
+      !startupSurfaceReady ||
+      (!settings && !settingsFailed)
+    ) {
+      return;
+    }
+    startupReady.current = true;
+    const cleanup = onStartupReady?.();
+    startupCleanup.current = typeof cleanup === "function" ? cleanup : undefined;
+  }, [onStartupReady, settings, settingsFailed, startupSurfaceReady, windowType]);
+
+  useLayoutEffect(
+    () => () => {
+      startupCleanup.current?.();
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!isWailsRuntimeReady()) {
+    if (!isWailsRuntimeReady() || windowType === "appearance-lab") {
       return;
     }
 
@@ -107,9 +168,12 @@ function App() {
       offSettingsUpdated();
       offThemeChanged();
     };
-  }, [queryClient, setSettings]);
+  }, [queryClient, setSettings, windowType]);
 
   useEffect(() => {
+    if (windowType === "appearance-lab") {
+      return;
+    }
     const reconcileSettings = () => {
       if (document.visibilityState === "hidden") {
         return;
@@ -123,15 +187,9 @@ function App() {
       window.removeEventListener("focus", reconcileSettings);
       document.removeEventListener("visibilitychange", reconcileSettings);
     };
-  }, [refetchSettings]);
+  }, [refetchSettings, windowType]);
 
-  if (windowType === "settings") {
-    return <SettingsApp />;
-  }
-  if (windowType === "tray-miniplayer") {
-    return <TrayMiniPlayerApp />;
-  }
-  return <MainApp />;
+  return children;
 }
 
 export default App;

@@ -2,7 +2,6 @@ import { System } from "@wailsio/runtime";
 import { CheckCircle2, CheckSquare, ChevronRight, CircleSlash, ClipboardList, Clock3, Eye, Files, LayoutGrid, Loader2, PencilLine, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 import * as React from "react";
 
-import { WindowControls } from "@/components/layout/WindowControls";
 import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import type { LibraryDTO, OperationListItemDTO } from "@/shared/contracts/library";
@@ -16,9 +15,15 @@ import { Select } from "@/shared/ui/select";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
 import { PetDisplay } from "@/shared/ui/pet-player";
 import { formatBytes } from "@/shared/utils/formatBytes";
+import { validateRenameDisplayName } from "@/shared/utils/renameDisplayName";
 import { buildAssetPreviewURL, extractExtensionFromPath, getPathBaseName, stripPathExtension } from "@/shared/utils/resourceHelpers";
 
 import { CompletedFileDetailContent,CompletedFileDetailHeader,CompletedTaskDetailContent,CompletedTaskDetailHeader,SelectionCheckbox } from "@/app/main/completed/detail-components";
+import {
+  CompletedFileArtwork,
+  CompletedTaskArtwork,
+  resolveCompletedArtworkImageURL,
+} from "@/app/main/completed/CompletedArtwork";
 import { CompletedFileMaintenanceControls } from "@/app/main/completed/FileMaintenanceControls";
 import { CompletedListViewSwitch } from "@/app/main/completed/ListTabButton";
 import { COMPLETED_FILE_TYPE_ORDER,buildCompletedCoverLookup,canPreviewCompletedFile,firstCompletedText,formatCompletedTranscodedFromLabel,formatRelativeTime,isCompletedLibraryFileUnavailable,resolveCompletedDeleteDialogMessage,resolveCompletedDeleteDialogTitle,resolveCompletedFileCoverURL,resolveCompletedFileIcon,resolveCompletedFileType,resolveCompletedFileTypeLabel,resolveCompletedImagePreviewURL,resolveCompletedLibraryFileExplicitCoverURL,resolveCompletedOperationExplicitCoverURL,resolveCompletedPageLabel,resolveCompletedPerPageLabel,resolveCompletedPreviewGroupIcon,resolveCompletedPreviewGroupLabel,resolveCompletedPreviewKind,resolveCompletedSelectionSummary,resolveCompletedStatusLabel,resolveCompletedTaskCoverURL,resolveCompletedTaskFileTypeSummaries,resolveCompletedTotalLabel,resolveOperationUpdatedAt,resolveUnknownErrorMessage } from "@/app/main/helpers";
@@ -37,58 +42,6 @@ type RenameDisplayNameTarget = {
   id: string;
   name: string;
 };
-
-const COMPLETED_RENAME_DISPLAY_NAME_MAX_LENGTH = 160;
-const COMPLETED_RENAME_INVALID_NAME_PATTERN = /[<>:"/\\|?*\u0000-\u001f\u007f]/;
-const COMPLETED_RENAME_RESERVED_NAMES = new Set([
-  "CON",
-  "PRN",
-  "AUX",
-  "NUL",
-  "COM1",
-  "COM2",
-  "COM3",
-  "COM4",
-  "COM5",
-  "COM6",
-  "COM7",
-  "COM8",
-  "COM9",
-  "LPT1",
-  "LPT2",
-  "LPT3",
-  "LPT4",
-  "LPT5",
-  "LPT6",
-  "LPT7",
-  "LPT8",
-  "LPT9",
-]);
-
-function validateCompletedRenameDisplayName(
-  name: string,
-  text: ReturnType<typeof getXiaText>,
-) {
-  const trimmed = name.trim();
-  if (!trimmed) {
-    return text.completed.renameNameRequired;
-  }
-  if ([...trimmed].length > COMPLETED_RENAME_DISPLAY_NAME_MAX_LENGTH) {
-    return text.completed.renameNameTooLong;
-  }
-  if (
-    COMPLETED_RENAME_INVALID_NAME_PATTERN.test(trimmed) ||
-    trimmed.replace(/\./g, "") === "" ||
-    trimmed.endsWith(".")
-  ) {
-    return text.completed.renameNameInvalid;
-  }
-  const reservedCandidate = trimmed.split(".")[0]?.toUpperCase() ?? "";
-  if (COMPLETED_RENAME_RESERVED_NAMES.has(reservedCandidate)) {
-    return text.completed.renameNameInvalid;
-  }
-  return "";
-}
 
 function resolveCompletedLibrarySourceFileLabel(
   file: LibraryDTO["files"][number],
@@ -1060,7 +1013,11 @@ export function CompletedPage(props: {
     if (!target || renamePending) {
       return;
     }
-    const validationError = validateCompletedRenameDisplayName(name, props.text);
+    const validationError = validateRenameDisplayName(name, {
+      required: props.text.completed.renameNameRequired,
+      invalid: props.text.completed.renameNameInvalid,
+      tooLong: props.text.completed.renameNameTooLong,
+    });
     if (validationError) {
       setRenameError(validationError);
       return;
@@ -1209,7 +1166,7 @@ export function CompletedPage(props: {
               type="button"
               aria-hidden="true"
               tabIndex={-1}
-              className="fixed z-50 h-px w-px opacity-0 outline-none"
+              className="app-completed-context-anchor fixed z-50 h-px w-px"
               style={{
                 left: contextMenuTarget.x,
                 top: contextMenuTarget.y,
@@ -1230,9 +1187,9 @@ export function CompletedPage(props: {
               onSelect={handleViewContextMenuTarget}
             >
               <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
-                <Eye className="h-4 w-4 text-muted-foreground" />
+                <Eye className="app-completed-context-menu-icon h-4 w-4" />
               </div>
-              <span className="truncate font-medium text-muted-foreground">
+              <span className="app-completed-context-menu-label truncate">
                 {props.text.actions.view}
               </span>
             </DropdownMenuItem>
@@ -1242,9 +1199,9 @@ export function CompletedPage(props: {
               onSelect={handleRenameContextMenuTarget}
             >
               <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
-                <PencilLine className="h-4 w-4 text-muted-foreground" />
+                <PencilLine className="app-completed-context-menu-icon h-4 w-4" />
               </div>
-              <span className="truncate font-medium text-muted-foreground">
+              <span className="app-completed-context-menu-label truncate">
                 {contextMenuTarget?.kind === "file"
                   ? props.text.completed.renameFile
                   : props.text.completed.renameTask}
@@ -1256,9 +1213,9 @@ export function CompletedPage(props: {
               onSelect={() => void handleDeleteContextMenuTarget()}
             >
               <div className={SIDEBAR_DROPDOWN_ICON_SLOT_CLASS_NAME}>
-                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                <Trash2 className="app-completed-context-menu-icon h-4 w-4" />
               </div>
-              <span className="truncate font-medium text-muted-foreground">
+              <span className="app-completed-context-menu-label truncate">
                 {props.text.actions.deleteItem}
               </span>
             </DropdownMenuItem>
@@ -1284,7 +1241,7 @@ export function CompletedPage(props: {
       <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
         <DialogHeader className="min-w-0">
           <DialogTitle
-            className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+            className="app-completed-confirm-title overflow-hidden break-words pr-6 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
           >
             {deleteConfirmTarget
               ? resolveCompletedDeleteDialogTitle(
@@ -1294,7 +1251,7 @@ export function CompletedPage(props: {
               : props.text.actions.deleteItem}
           </DialogTitle>
           <DialogDescription
-            className="overflow-hidden break-words text-left leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+            className="app-completed-confirm-description overflow-hidden break-words [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
           >
             {deleteConfirmTarget
               ? resolveCompletedDeleteDialogMessage(
@@ -1307,7 +1264,7 @@ export function CompletedPage(props: {
 
         <div className="min-h-0 overflow-hidden">
           {deleteConfirmError ? (
-            <div className="app-dream-status-message overflow-hidden break-words px-3 py-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]" data-intent="danger">
+            <div className="app-dream-status-message app-completed-dialog-status overflow-hidden break-words px-3 py-2 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]" data-intent="danger">
               {deleteConfirmError}
             </div>
           ) : null}
@@ -1328,7 +1285,7 @@ export function CompletedPage(props: {
             onClick={() => void executeDeleteConfirmation()}
           >
             {isDeleteConfirmPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 app-completed-loading-spinner" />
             ) : null}
             {props.text.actions.deleteItem}
           </Button>
@@ -1350,7 +1307,7 @@ export function CompletedPage(props: {
       >
         <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(26rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_auto_auto] gap-3 overflow-hidden">
           <DialogHeader className="min-w-0">
-            <DialogTitle className="truncate pr-6 text-left">
+            <DialogTitle className="app-completed-dialog-title truncate pr-6">
               {isFileRename
                 ? props.text.completed.renameFileTitle
                 : props.text.completed.renameTaskTitle}
@@ -1360,7 +1317,7 @@ export function CompletedPage(props: {
           <div className="grid min-w-0 gap-2">
             <label
               htmlFor="completed-rename-name"
-              className="text-xs font-medium text-muted-foreground"
+              className="app-completed-rename-label"
             >
               {isFileRename
                 ? props.text.completed.renameFileNameLabel
@@ -1394,7 +1351,7 @@ export function CompletedPage(props: {
             />
             {renameError ? (
               <div
-                className="app-dream-status-message overflow-hidden break-words px-3 py-2 text-xs leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
+                className="app-dream-status-message app-completed-dialog-status overflow-hidden break-words px-3 py-2 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]"
                 data-intent="danger"
               >
                 {renameError}
@@ -1409,7 +1366,7 @@ export function CompletedPage(props: {
               </Button>
             </DialogClose>
             <Button disabled={!canSaveRename} onClick={() => void executeRename()}>
-              {renamePending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {renamePending ? <Loader2 className="h-4 w-4 app-completed-loading-spinner" /> : null}
               {props.text.actions.save}
             </Button>
           </div>
@@ -1444,7 +1401,7 @@ export function CompletedPage(props: {
           <div className={COMPLETED_FILTER_MENU_ICON_CLASS}>
             <X className="h-4 w-4" />
           </div>
-          <span className="app-completed-filter-menu-label truncate font-medium">
+          <span className="app-completed-filter-menu-label truncate">
             {props.text.actions.clear}
           </span>
         </DropdownMenuItem>
@@ -1626,15 +1583,13 @@ export function CompletedPage(props: {
                   size="icon"
                   className={cn(
                     "app-completed-toolbar-button relative h-8 w-8 p-0",
-                    activeFilterCount > 0
-                      ? "bg-accent text-accent-foreground"
-                      : "",
                   )}
+                  data-active={activeFilterCount > 0 ? "true" : undefined}
                   aria-label={props.text.completed.searchFilter}
                 >
                   <SlidersHorizontal className="h-4 w-4" />
                   {activeFilterCount > 0 ? (
-                    <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                    <span className="app-completed-filter-active-marker absolute top-1 right-1 h-1.5 w-1.5" />
                   ) : null}
                 </Button>
               </DropdownMenuTrigger>
@@ -1680,7 +1635,8 @@ export function CompletedPage(props: {
               type="button"
               variant="ghost"
               size="sm"
-              className="app-completed-selection-action text-destructive"
+              tone="destructive"
+              className="app-completed-selection-action"
               disabled={
                 !canDeleteCurrentSelection ||
                 deleteFiles.isPending ||
@@ -1726,7 +1682,7 @@ export function CompletedPage(props: {
 
   const renderEmptyListState = (label: string) => (
     <div
-      className="flex h-full min-h-[16rem] items-center justify-center px-6 text-center"
+      className="app-completed-empty-state flex h-full min-h-[16rem] items-center justify-center px-6"
       onMouseDown={handleBlankListMouseDown}
     >
       <div className="flex min-w-0 flex-col items-center justify-center gap-3">
@@ -1738,9 +1694,9 @@ export function CompletedPage(props: {
           size={96}
           load={Boolean(props.petImageURL)}
           className="shrink-0"
-          glowClassName="opacity-60"
+          glowClassName="app-completed-empty-pet-glow"
         />
-        <div className="max-w-[18rem] text-sm font-medium leading-5 text-muted-foreground">
+        <div className="app-completed-empty-label max-w-[18rem]">
           {label}
         </div>
       </div>
@@ -1793,8 +1749,8 @@ export function CompletedPage(props: {
           previewPresentationModeActive ? "true" : undefined
         }
         className={cn(
-          "app-main-detail-pane app-completed-inline-detail my-3 flex w-[25rem] shrink-0 flex-col overflow-hidden xl:w-[27rem]",
-          previewPresentationModeActive && "z-[300] overflow-visible",
+          "app-main-detail-pane app-completed-inline-detail my-3 flex w-[25rem] shrink-0 flex-col overflow-hidden",
+          previewPresentationModeActive && "overflow-visible",
         )}
       >
         {viewMode === "tasks" && selectedTask ? (
@@ -1827,7 +1783,7 @@ export function CompletedPage(props: {
 
   return (
     <div
-      className="app-main-page app-main-completed-page flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+      className="app-main-page app-main-completed-page flex min-h-0 flex-1 flex-col overflow-hidden"
       onMouseDownCapture={handleCompletedPageMouseDownCapture}
       onClickCapture={handleCompletedPageClickCapture}
     >
@@ -1854,10 +1810,10 @@ export function CompletedPage(props: {
           {renderToolbarActionGroup()}
           <div
             className={cn(
-              "app-dream-search-control app-dream-control-shell app-completed-search-control wails-no-drag h-9 transition-[width,box-shadow,border-color] duration-200 ease-out",
+              "app-dream-search-control app-dream-control-shell app-completed-search-control wails-no-drag h-9",
               searchInputExpanded
                 ? "w-[18rem] min-w-[10rem] px-3"
-                : "w-9 min-w-9 shrink-0 grow-0 cursor-text justify-center px-0",
+                : "w-9 min-w-9 shrink-0 grow-0 justify-center px-0",
             )}
             onMouseDown={(event) => {
               if (searchInputExpanded || selectionMode) {
@@ -1878,7 +1834,7 @@ export function CompletedPage(props: {
             role={searchInputExpanded || selectionMode ? undefined : "button"}
             tabIndex={searchInputExpanded || selectionMode ? undefined : 0}
           >
-            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <Search className="app-completed-search-icon h-4 w-4 shrink-0" />
             {searchInputExpanded ? (
               <>
                 <Input
@@ -1889,28 +1845,27 @@ export function CompletedPage(props: {
                   onBlur={handleSearchBlur}
                   placeholder={searchPlaceholder}
                   size="compact"
-                  className="app-control-input-compact h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 shadow-none"
+                  className="app-completed-search-input app-control-input-compact h-auto min-w-0 flex-1 px-0"
                 />
                 <span
-                  className={cn(
-                    "block shrink-0 overflow-hidden transition-[width,opacity,transform] duration-200 ease-out",
-                    searchHasText
-                      ? "w-5 translate-x-0 opacity-100"
-                      : "w-0 -translate-x-1 opacity-0",
-                  )}
+                  className="app-completed-search-clear-reveal block shrink-0 overflow-hidden"
+                  data-visible={searchHasText ? "true" : "false"}
                 >
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="icon"
+                    shape="circle"
                     aria-label={props.text.actions.clear}
                     title={props.text.actions.clear}
                     disabled={!searchHasText}
                     tabIndex={searchHasText ? 0 : -1}
-                    className="app-completed-search-clear flex h-5 w-5 items-center justify-center transition focus-visible:outline-none disabled:pointer-events-none"
+                    className="app-completed-search-clear h-5 w-5"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={clearSearch}
                   >
                     <X className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 </span>
               </>
             ) : null}
@@ -1923,9 +1878,7 @@ export function CompletedPage(props: {
               ? "flex min-w-[var(--app-windows-caption-control-width)]"
               : "hidden",
           )}
-        >
-          {isWindows ? <WindowControls platform="windows" /> : null}
-        </div>
+        />
       </div>
 
       <div className="app-main-page-content app-main-completed-content flex min-h-0 flex-1 gap-3 overflow-hidden pr-3">
@@ -1939,10 +1892,6 @@ export function CompletedPage(props: {
             ) : (
               <div
                 className="app-completed-task-grid grid gap-x-4 gap-y-5"
-                style={{
-                  gridTemplateColumns:
-                    "repeat(auto-fill, minmax(min(100%, 7.75rem), 1fr))",
-                }}
                 onMouseDown={handleBlankListMouseDown}
               >
                 {pagedTasks.map((entry) => {
@@ -1969,6 +1918,8 @@ export function CompletedPage(props: {
                     entry,
                     props.text,
                   ).filter((item) => item.count > 0);
+                  const taskArtworkImageURL =
+                    resolveCompletedArtworkImageURL(entry.coverURL);
 
                   return (
                     <button
@@ -1988,27 +1939,24 @@ export function CompletedPage(props: {
                       data-selected={
                         taskSelectionMode && isChecked ? "true" : "false"
                       }
-                      className="app-completed-task-card group relative overflow-hidden text-left transition"
+                      className="app-completed-task-card group relative overflow-hidden"
                     >
                       <div className="app-completed-task-card-cover relative aspect-square overflow-hidden">
-                        <img
+                        <CompletedTaskArtwork
+                          task={entry}
                           src={entry.coverURL}
                           alt={entry.operation.name}
                           className="app-completed-task-card-image h-full w-full object-cover"
-                          loading="lazy"
-                          decoding="async"
-                          draggable={false}
                         />
-                        <img
-                          src={entry.coverURL}
-                          alt=""
-                          aria-hidden="true"
-                          className="app-completed-task-card-glow pointer-events-none absolute inset-0 h-full w-full scale-[1.08] object-cover"
-                          loading="lazy"
-                          decoding="async"
-                          draggable={false}
-                        />
-                        <div className="app-completed-task-card-cover-overlay absolute inset-0 transition" />
+                        {taskArtworkImageURL ? (
+                          <CompletedTaskArtwork
+                            task={entry}
+                            src={taskArtworkImageURL}
+                            alt=""
+                            className="app-completed-task-card-glow pointer-events-none absolute inset-0 h-full w-full scale-[1.08] object-cover"
+                          />
+                        ) : null}
+                        <div className="app-completed-task-card-cover-overlay absolute inset-0" />
                         <div className="app-completed-task-card-sheen absolute inset-y-[-20%] left-[-48%] w-[38%] rotate-[12deg]" />
                         {taskSelectionMode ? (
                           <SelectionCheckbox
@@ -2017,7 +1965,7 @@ export function CompletedPage(props: {
                           />
                         ) : null}
                         <span
-                          className="app-completed-task-card-status-time absolute bottom-1.5 left-1.5 inline-flex max-w-[calc(100%-0.75rem)] items-center gap-1 truncate px-2 py-1 text-2xs font-medium"
+                          className="app-completed-task-card-status-time absolute bottom-1.5 left-1.5 inline-flex max-w-[calc(100%-0.75rem)] items-center gap-1 truncate px-2 py-1"
                           title={statusTimeLabel}
                           aria-label={statusTimeLabel}
                         >
@@ -2039,13 +1987,13 @@ export function CompletedPage(props: {
                       </div>
                       <div className="app-completed-task-card-body relative grid gap-1 px-0.5 pt-1.5">
                         <div
-                          className="app-completed-task-card-title truncate text-xs font-semibold leading-4 transition-colors"
+                          className="app-completed-task-card-title truncate"
                           title={entry.operation.name}
                         >
                           {entry.operation.name}
                         </div>
                         {fileSummaryItems.length > 0 ? (
-                          <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1 overflow-hidden text-2xs font-medium leading-4">
+                          <div className="app-completed-task-card-meta flex min-w-0 items-center gap-1 overflow-hidden">
                             {fileSummaryItems.map((item) => {
                               const Icon = item.icon;
                               return (
@@ -2065,7 +2013,7 @@ export function CompletedPage(props: {
                           </div>
                         ) : (
                           <div
-                            className="app-completed-task-card-meta flex min-w-0 items-center overflow-hidden text-2xs font-medium leading-4"
+                            className="app-completed-task-card-meta flex min-w-0 items-center overflow-hidden"
                             aria-hidden="true"
                           />
                         )}
@@ -2088,7 +2036,9 @@ export function CompletedPage(props: {
                   previewKind === "image"
                     ? resolveCompletedImagePreviewURL(file)
                     : file.coverURL;
-                const hasThumbnail = Boolean(fileThumbnailURL);
+                const hasThumbnail = Boolean(
+                  resolveCompletedArtworkImageURL(fileThumbnailURL),
+                );
                 const isChecked = selectedFileIdsSet.has(file.id);
                 const isActive =
                   !fileSelectionMode && selectedFileId === file.id;
@@ -2118,30 +2068,20 @@ export function CompletedPage(props: {
                     data-selected={
                       fileSelectionMode && isChecked ? "true" : "false"
                     }
-                    className="app-completed-file-card group relative flex w-full items-center gap-3 overflow-hidden px-3 py-2.5 text-left transition"
+                    className="app-completed-file-card group relative flex w-full items-center gap-3 overflow-hidden px-3 py-2.5"
                   >
-                    <span className="app-completed-file-thumb relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg">
+                    <span className="app-completed-file-thumb relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden">
+                      <CompletedFileArtwork
+                        file={file}
+                        src={fileThumbnailURL}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
                       {hasThumbnail ? (
-                        <img
-                          src={fileThumbnailURL}
-                          alt=""
-                          aria-hidden="true"
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                          decoding="async"
-                          draggable={false}
-                        />
+                        <span className="app-completed-file-icon app-completed-file-icon-floating absolute bottom-1 right-1 flex !h-5 !w-5 shrink-0 items-center justify-center">
+                          <FileIcon className="h-3.5 w-3.5" />
+                        </span>
                       ) : null}
-                      <span
-                        className={cn(
-                          "app-completed-file-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
-                          hasThumbnail
-                            ? "app-completed-file-icon-floating absolute bottom-1 right-1 !h-5 !w-5"
-                            : "relative",
-                        )}
-                      >
-                        <FileIcon className="h-3.5 w-3.5" />
-                      </span>
                       {fileSelectionMode ? (
                         <SelectionCheckbox
                           checked={isChecked}
@@ -2150,18 +2090,18 @@ export function CompletedPage(props: {
                       ) : null}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="app-completed-file-title truncate text-sm font-semibold leading-5 transition-colors">
+                      <div className="app-completed-file-title truncate">
                         {file.name}
                       </div>
-                      <div className="app-completed-file-subtitle mt-0.5 truncate text-xs leading-4">
+                      <div className="app-completed-file-subtitle mt-0.5 truncate">
                         {fileTaskLabel}
                       </div>
                     </div>
-                    <div className="app-completed-file-meta flex shrink-0 items-center gap-2 text-xs">
-                      <span className="app-completed-file-format rounded-md px-1.5 py-0.5 font-medium">
+                    <div className="app-completed-file-meta flex shrink-0 items-center gap-2">
+                      <span className="app-completed-file-format px-1.5 py-0.5">
                         {file.format}
                       </span>
-                      <span className="app-completed-file-size min-w-[3.75rem] text-right tabular-nums">
+                      <span className="app-completed-file-size min-w-[3.75rem] tabular-nums">
                         {file.sizeBytes > 0
                           ? formatBytes(file.sizeBytes)
                           : "--"}
@@ -2177,7 +2117,7 @@ export function CompletedPage(props: {
       </div>
 
       <div className="app-main-page-footer flex items-center justify-between gap-3 px-5 py-3">
-          <div className="text-xs text-muted-foreground">
+          <div className="app-completed-footer-total">
             {resolveCompletedTotalLabel(
               currentTotalCount,
               viewMode,
@@ -2201,7 +2141,7 @@ export function CompletedPage(props: {
                 setFilePage(1);
               }}
               aria-label={props.text.completed.perPage}
-              className="app-completed-page-size-select h-8 min-w-[7.5rem] px-2.5 text-xs"
+              className="app-completed-page-size-select h-8 min-w-[7.5rem] px-2.5"
             >
               {currentPageSizeOptions.map((option) => (
                 <option key={option} value={option}>
@@ -2209,7 +2149,7 @@ export function CompletedPage(props: {
                 </option>
               ))}
             </Select>
-            <div className="min-w-[4.75rem] text-center text-xs text-muted-foreground">
+            <div className="app-completed-footer-page-label min-w-[4.75rem]">
               {resolveCompletedPageLabel(
                 currentPage,
                 currentPageCount,
@@ -2221,7 +2161,7 @@ export function CompletedPage(props: {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="app-completed-footer-pager-button !h-full !w-[var(--app-control-height-compact)] rounded-none"
+                className="app-completed-footer-pager-button !h-full !w-[var(--app-control-height-compact)]"
                 aria-label={props.text.completed.previousPage}
                 title={props.text.completed.previousPage}
                 disabled={currentPage <= 1}
@@ -2239,7 +2179,7 @@ export function CompletedPage(props: {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="app-completed-footer-pager-button !h-full !w-[var(--app-control-height-compact)] rounded-none"
+                className="app-completed-footer-pager-button !h-full !w-[var(--app-control-height-compact)]"
                 aria-label={props.text.completed.nextPage}
                 title={props.text.completed.nextPage}
                 disabled={currentPage >= currentPageCount}

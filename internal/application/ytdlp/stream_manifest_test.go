@@ -291,6 +291,67 @@ func TestResolveManifestReference(t *testing.T) {
 	}
 }
 
+func TestAnalyzeHLSManifestRejectsUnsafeReferences(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{name: "segment file", manifest: "#EXTM3U\n#EXTINF:4,\nfile:///etc/passwd"},
+		{name: "segment tcp", manifest: "#EXTM3U\n#EXTINF:4,\ntcp://media.example:9000"},
+		{name: "credentialed segment", manifest: "#EXTM3U\n#EXTINF:4,\nhttps://user:secret@media.example/segment.ts"},
+		{name: "variant rtmp", manifest: "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nrtmp://media.example/live"},
+		{name: "key data", manifest: "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"data:text/plain,key\"\n#EXTINF:4,\nsegment.ts"},
+		{name: "init map file", manifest: "#EXTM3U\n#EXT-X-MAP:URI=\"file:///tmp/init.mp4\"\n#EXTINF:4,\nsegment.m4s"},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			preflight := AnalyzeStreamManifest(
+				"https://media.example/master.m3u8",
+				[]byte(test.manifest),
+				"application/vnd.apple.mpegurl",
+				nil,
+			)
+			if !preflight.IsUnsupported() || preflight.UnsupportedReason != unsupportedManifestReferenceReason {
+				t.Fatalf("expected unsafe manifest reference to be rejected, got %#v", preflight)
+			}
+		})
+	}
+}
+
+func TestAnalyzeDASHManifestRejectsUnsafeReferences(t *testing.T) {
+	t.Parallel()
+
+	manifest := `<?xml version="1.0"?>
+<MPD><Period><AdaptationSet><Representation>
+  <BaseURL>file:///etc/passwd</BaseURL>
+</Representation></AdaptationSet></Period></MPD>`
+	preflight := AnalyzeStreamManifest(
+		"https://media.example/manifest.mpd",
+		[]byte(manifest),
+		"application/dash+xml",
+		nil,
+	)
+	if !preflight.IsUnsupported() || preflight.UnsupportedReason != unsupportedManifestReferenceReason {
+		t.Fatalf("expected unsafe DASH reference to be rejected, got %#v", preflight)
+	}
+}
+
+func TestFirstHLSSegmentProbeRejectsUnsafeSegmentReference(t *testing.T) {
+	t.Parallel()
+
+	manifest := `#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="https://media.example/key"
+#EXTINF:4.0,
+file:///etc/passwd`
+	if probe, ok := FirstHLSSegmentProbe("https://media.example/master.m3u8", []byte(manifest)); ok || probe.URL != "" {
+		t.Fatalf("unsafe segment probe unexpectedly resolved: %#v, ok=%v", probe, ok)
+	}
+}
+
 func TestExtractHLSPlaylistReferences(t *testing.T) {
 	t.Parallel()
 

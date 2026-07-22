@@ -14,6 +14,19 @@ export type HslColor = {
   l: number;
 };
 
+export const WCAG_CONTRAST = {
+  smallText: 4.5,
+  nonText: 3,
+} as const;
+
+export type FunctionalAccentTokens = {
+  brand: string;
+  text: string;
+  solid: string;
+  onSolid: string;
+  ring: string;
+};
+
 function parseHexToRgb(hex: string | undefined) {
   if (!hex) return null;
   const normalized = hex.trim();
@@ -95,10 +108,23 @@ function hslColorToRgb(color: HslColor) {
   };
 }
 
-function relativeLuminance(rgb: { r: number; g: number; b: number }) {
+export function parseHslToken(token: string | undefined): HslColor | null {
+  if (!token) return null;
+  const match = /^\s*(-?(?:\d+(?:\.\d+)?|\.\d+))\s+(-?(?:\d+(?:\.\d+)?|\.\d+))%\s+(-?(?:\d+(?:\.\d+)?|\.\d+))%\s*$/.exec(
+    token,
+  );
+  if (!match) return null;
+  return {
+    h: Number(match[1]),
+    s: clampPercent(Number(match[2])),
+    l: clampPercent(Number(match[3])),
+  };
+}
+
+export function relativeLuminance(rgb: { r: number; g: number; b: number }) {
   const channel = (value: number) => {
     const normalized = clamp(value) / 255;
-    return normalized <= 0.03928
+    return normalized <= 0.04045
       ? normalized / 12.92
       : Math.pow((normalized + 0.055) / 1.055, 2.4);
   };
@@ -110,17 +136,136 @@ function relativeLuminance(rgb: { r: number; g: number; b: number }) {
   );
 }
 
-function contrastRatio(a: number, b: number) {
+export function contrastRatio(a: number, b: number) {
   const lighter = Math.max(a, b);
   const darker = Math.min(a, b);
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+export function contrastRatioForHslColors(a: HslColor, b: HslColor) {
+  return contrastRatio(
+    relativeLuminance(hslColorToRgb(a)),
+    relativeLuminance(hslColorToRgb(b)),
+  );
+}
+
+const lightForeground: HslColor = { h: 0, s: 0, l: 100 };
+const darkForeground: HslColor = { h: 0, s: 0, l: 7 };
+
+function foregroundForHslColor(color: HslColor) {
+  const lightContrast = contrastRatioForHslColors(lightForeground, color);
+  const darkContrast = contrastRatioForHslColors(darkForeground, color);
+  return darkContrast >= lightContrast
+    ? { color: darkForeground, hex: "#111111", contrast: darkContrast }
+    : { color: lightForeground, hex: "#ffffff", contrast: lightContrast };
+}
+
 export function pickAccessibleForegroundForHslColor(color: HslColor) {
-  const luminance = relativeLuminance(hslColorToRgb(color));
-  const whiteContrast = contrastRatio(1, luminance);
-  const blackContrast = contrastRatio(luminance, relativeLuminance({ r: 17, g: 17, b: 17 }));
-  return blackContrast >= whiteContrast ? "#111111" : "#ffffff";
+  return foregroundForHslColor(color).hex;
+}
+
+function normalizeContrastSurfaces(
+  surfaces: HslColor | readonly HslColor[],
+): readonly HslColor[] {
+  return Array.isArray(surfaces) ? surfaces : [surfaces as HslColor];
+}
+
+function meetsContrastAgainstSurfaces(
+  color: HslColor,
+  surfaces: readonly HslColor[],
+  minimum: number,
+) {
+  return surfaces.every(
+    (surface) => contrastRatioForHslColors(color, surface) >= minimum,
+  );
+}
+
+function closestColorByLightness(
+  base: HslColor,
+  predicate: (candidate: HslColor) => boolean,
+  preferLighter: boolean,
+) {
+  const baseLightness = Math.round(clampPercent(base.l));
+  const directions = preferLighter ? [1, -1] : [-1, 1];
+
+  for (let distance = 0; distance <= 100; distance += 1) {
+    for (const direction of directions) {
+      const lightness = baseLightness + distance * direction;
+      if (lightness < 0 || lightness > 100) continue;
+      const candidate = { ...base, l: lightness };
+      if (predicate(candidate)) return candidate;
+      if (distance === 0) break;
+    }
+  }
+
+  return { ...base, l: baseLightness };
+}
+
+function preferLighterAgainst(surfaces: readonly HslColor[]) {
+  const averageLuminance =
+    surfaces.reduce(
+      (sum, surface) => sum + relativeLuminance(hslColorToRgb(surface)),
+      0,
+    ) / surfaces.length;
+  return averageLuminance < 0.5;
+}
+
+/**
+ * Derives distinct functional roles from a brand color. The generated text role
+ * meets WCAG AA for normal text, the ring meets the non-text threshold, and the
+ * solid role remains distinguishable from its surrounding surfaces while also
+ * providing readable button labels.
+ */
+export function deriveFunctionalAccentTokens(
+  hex: string | undefined,
+  surfaces: HslColor | readonly HslColor[],
+): FunctionalAccentTokens | null {
+  const base = hexToHslColor(hex);
+  if (!base) return null;
+
+  const normalizedSurfaces = normalizeContrastSurfaces(surfaces);
+  if (normalizedSurfaces.length === 0) return null;
+  const preferLighter = preferLighterAgainst(normalizedSurfaces);
+
+  const text = closestColorByLightness(
+    base,
+    (candidate) =>
+      meetsContrastAgainstSurfaces(
+        candidate,
+        normalizedSurfaces,
+        WCAG_CONTRAST.smallText,
+      ),
+    preferLighter,
+  );
+  const ring = closestColorByLightness(
+    base,
+    (candidate) =>
+      meetsContrastAgainstSurfaces(
+        candidate,
+        normalizedSurfaces,
+        WCAG_CONTRAST.nonText,
+      ),
+    preferLighter,
+  );
+  const solid = closestColorByLightness(
+    base,
+    (candidate) =>
+      meetsContrastAgainstSurfaces(
+        candidate,
+        normalizedSurfaces,
+        WCAG_CONTRAST.nonText,
+      ) && foregroundForHslColor(candidate).contrast >= WCAG_CONTRAST.smallText,
+    preferLighter,
+  );
+  const onSolid = foregroundForHslColor(solid).color;
+
+  return {
+    brand: toHslToken(base),
+    text: toHslToken(text),
+    solid: toHslToken(solid),
+    onSolid: toHslToken(onSolid),
+    ring: toHslToken(ring),
+  };
 }
 
 export function hexToHsl(hex: string | undefined): string | null {
@@ -178,13 +323,6 @@ export function deriveAccentTokens(hex: string | undefined, isDark: boolean) {
 }
 
 export function pickAccessibleForeground(hex: string | undefined): string | null {
-  if (!hex) return null;
-  const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
-  if (!match) return null;
-  const r = clamp(parseInt(match[1], 16));
-  const g = clamp(parseInt(match[2], 16));
-  const b = clamp(parseInt(match[3], 16));
-  // YIQ contrast
-  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
-  return yiq >= 150 ? "#111111" : "#ffffff";
+  const color = hexToHslColor(hex);
+  return color ? pickAccessibleForegroundForHslColor(color) : null;
 }

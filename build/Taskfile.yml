@@ -4,29 +4,34 @@ tasks:
   go:mod:tidy:
     summary: Runs `go mod tidy`
     internal: true
+    run: once
     cmds:
       - go mod tidy
 
   install:frontend:deps:
     summary: Install frontend dependencies
+    run: once
     dir: frontend
     sources:
       - package.json
       - bun.lock
     generates:
-      - node_modules
+      - node_modules/.wails-deps.stamp
     preconditions:
       - sh: bun --version
         msg: "Looks like bun isn't installed. Install bun: https://bun.sh"
     cmds:
-      - bun install
+      - bun install && bun scripts/prepare-wails-deps.mjs
 
   build:frontend:
     label: build:frontend (DEV={{.DEV}})
     summary: Build the frontend project
+    run: once
     dir: frontend
     sources:
       - "**/*"
+      - exclude: node_modules/**/*
+      - exclude: dist/**/*
     generates:
       - dist/**/*
     deps:
@@ -82,6 +87,7 @@ tasks:
   generate:bindings:
     label: generate:bindings (BUILD_FLAGS={{.BUILD_FLAGS}})
     summary: Generates bindings for the frontend
+    run: once
     deps:
       - task: go:mod:tidy
     sources:
@@ -98,6 +104,7 @@ tasks:
 
   generate:icons:
     summary: Generates Windows `.ico` and Mac `.icns` files from an image
+    run: once
     dir: build
     sources:
       - "../frontend/public/appicon.png"
@@ -117,11 +124,21 @@ tasks:
     cmds:
       - bun run dev -- --host {{.VITE_HOST}} --port {{.VITE_PORT}} --strictPort
 
+  dev:wait-frontend:
+    summary: Waits until Vite can serve the XiaDown boot path
+    dir: frontend
+    cmds:
+      - bun scripts/wait-for-dev-server.mjs --host {{.VITE_HOST}} --port {{.VITE_PORT}}
+
   update:build-assets:
     summary: Updates the build assets
     dir: build
     cmds:
       - wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .
+      # Wails alpha2.117 regenerates both plist files with its own lower minimum.
+      # Restore XiaDown's supported baseline after every metadata refresh.
+      - go run ./tools/render_metadata darwin-plist --input darwin/Info.plist --output darwin/Info.plist
+      - go run ./tools/render_metadata darwin-plist --input darwin/Info.dev.plist --output darwin/Info.dev.plist
 
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)

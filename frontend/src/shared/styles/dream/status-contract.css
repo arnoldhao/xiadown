@@ -1,0 +1,116 @@
+/*
+ * Canonical compact status contract.
+ *
+ * Feature code chooses only `data-tone` and localized content. Geometry,
+ * color, state contrast, markers, and icon sizing live here.
+ */
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone] {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 1.35rem;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: var(--app-radius-capsule);
+  padding: 0.12rem 0.42rem;
+  background: var(--app-status-surface-neutral);
+  color: var(--app-status-tone-neutral);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone="neutral"] {
+  background: var(--app-status-surface-neutral);
+  color: var(--app-status-tone-neutral);
+}
+
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone="accent"],
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone="busy"] {
+  border-color: color-mix(in srgb, var(--app-status-tone-busy) 14%, transparent);
+  background: var(--app-status-surface-busy);
+  color: var(--app-status-tone-busy);
+}
+
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone="success"] {
+  border-color: color-mix(in srgb, var(--app-status-tone-success) 14%, transparent);
+  background: var(--app-status-surface-success);
+  color: var(--app-status-tone-success);
+}
+
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--app-status-tone-orphan) 14%, transparent);
+  background: var(--app-status-surface-orphan);
+  color: var(--app-status-tone-orphan);
+}
+
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--app-status-tone-error) 14%, transparent);
+  background: var(--app-status-surface-error);
+  color: var(--app-status-tone-error);
+}
+
+:root .app-dream-status-badge[data-app-status-badge="true"][data-tone="muted"] {
+  background: var(--app-status-surface-idle);
+  color: var(--app-status-tone-idle);
+}
+
+:root .app-dream-status-badge[data-app-status-badge="true"][data-icon-only="true"] {
+  width: var(--app-control-height-compact);
+  min-width: var(--app-control-height-compact);
+  min-height: var(--app-control-height-compact);
+  justify-content: center;
+  padding: 0;
+}
+
+.app-dream-status-badge__icon,
+.app-dream-status-badge__marker {
+  flex: 0 0 auto;
+}
+
+.app-dream-status-badge__icon,
+.app-dream-status-badge__icon > svg {
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.app-dream-status-badge__icon > svg {
+  stroke-width: 1.7;
+}
+
+.app-dream-status-badge__marker {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: var(--app-radius-capsule);
+  background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 11%, transparent);
+}
+
+.app-dream-status-badge__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:root .app-dream-status-badge.app-settings-dependency-status[data-app-status-badge="true"][data-tone] {
+  max-width: 100%;
+  gap: 0;
+  padding: 0;
+}
+
+.app-settings-dependency-status .app-dream-status-badge__label > span + span {
+  border-inline-start: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+
+@media (forced-colors: active) {
+  :root .app-dream-status-badge[data-app-status-badge="true"][data-tone] {
+    border-color: ButtonText;
+    background: ButtonFace;
+    color: ButtonText;
+    forced-color-adjust: auto;
+  }
+}

@@ -1,27 +1,12 @@
-import {
-MediaPlayer,
-MediaProvider,
-MediaRemoteControl,
-getTimeRangesEnd
-} from "@vidstack/react";
 import { Call,Events,System,Window } from "@wailsio/runtime";
 import {
 Download,
 FolderOpen,
 Heart,
 Loader2,
-PanelLeftClose,
-PanelLeftOpen,
 Pause,
 Play,
-Ratio,
-Repeat2,
-Shuffle,
-SkipBack,
 SkipForward,
-Square,
-Volume2,
-VolumeX
 } from "lucide-react";
 import * as React from "react";
 
@@ -32,9 +17,10 @@ import { cn } from "@/lib/utils";
 import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import type { Pet } from "@/shared/contracts/pets";
 import { messageBus } from "@/shared/message";
-import { openExternalURL,useLyricsTranscriptionAvailable } from "@/shared/query/system";
+import { openExternalURL } from "@/shared/query/system";
 import { useSettingsStore } from "@/shared/store/settings";
-import { PetDisplay } from "@/shared/ui/pet-player";
+import { GlassSurface } from "@/shared/ui/glass-surface";
+import { Button } from "@/shared/ui/button";
 import {
 Tooltip,
 TooltipContent,
@@ -42,22 +28,37 @@ TooltipProvider,
 TooltipTrigger
 } from "@/shared/ui/tooltip";
 import {
-LISTEN_HIDDEN_ENGINE_STYLE,
+LISTEN_PLAYER_FOOTER_ICON_BUTTON_CLASS,
 LISTEN_PLAYER_SURFACE_WIDTH_CLASS,
 LISTEN_PRIMARY_PLAY_BUTTON_CLASS,
 LISTEN_PRIMARY_PLAY_BUTTON_HOVER_CLASS,
 LISTEN_PRIMARY_PLAY_BUTTON_SIZE_CLASS,
 LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS,
 } from "@/shared/styles/listen";
-
 import { LISTEN_LIVE_PLAYER_EVENT,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_EVENT,LISTEN_NATIVE_PLAYER_SERVICE } from "@/app/main/listen/catalog";
-import { callListenTrackLyrics } from "@/app/main/listen/lyrics-api";
+import { listenArtistBrowseTrack } from "@/app/main/listen/artist-navigation";
+import { callListenLyricsCandidate,callListenLyricsForTrackCached,callListenTrackLyricsCached,resolveListenLyricsOnlineArtist } from "@/app/main/listen/lyrics-api";
+import { ListenLyricsControls } from "@/app/main/listen/lyrics-controls";
+import { resolveListenLyricsErrorPresentation } from "@/app/main/listen/lyrics-errors";
+import { normalizeListenLyricsPlaybackRate } from "@/app/main/listen/lyrics-clock";
+import { readListenLyricsManualOverride,type ListenLyricsManualOverride } from "@/app/main/listen/lyrics-preferences";
+import { useListenTrackLyricsPrefetch } from "@/app/main/listen/lyrics-prefetch";
 import { ListenLyricsSurface } from "@/app/main/listen/lyrics";
+import { ListenLyricsWorkspace } from "@/app/main/listen/lyrics-workspace";
 import {
-readListenNativeVideoRadius,
-useListenNativeVideoUnderlay,
-} from "@/app/main/listen/native-video-underlay";
-import { copyListenTextToClipboard,fetchListenLyricsCached,forgetListenLyricsCache,getListenErrorCode,getListenErrorMessage,isListenLyricsDataAvailable,listenArtistCountFromLabelParts,listenLyricsSummary,LISTEN_EMPTY_PROGRESS,LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,logListenLyrics,normalizeListenInlineVideoAspectRatio,normalizeListenLiveNativeState,readListenLyricsCache,readListenNativeEventURLVideoId,resolveListenNativeEventVideoAspectRatio,resolveListenPlaybackStatusLabel,resolveListenTrackVideoAvailability,resolveTrustedListenOnlineArtistLabel,splitListenArtistLabel,type ListenArtistLabelPart,type ListenLyricsTrackRequest,type ListenVideoAvailability } from "@/app/main/listen/playback-helpers";
+  createListenNativeVideoSequence,
+  LISTEN_LIVE_VIDEO_ASPECT_RATIO,
+  LISTEN_LIVE_VIDEO_EMBED_SETTLE_MS,
+  LISTEN_LIVE_VIDEO_FRAME_GAP,
+  LISTEN_LIVE_VIDEO_MIN_WINDOW_HEIGHT,
+  LISTEN_LIVE_VIDEO_MIN_WINDOW_WIDTH,
+  LISTEN_LIVE_VIDEO_TOPBAR_HEIGHT,
+  ListenInlineVideoSurface,
+  ListenLiveVideoShell,
+  type ListenNativeVideoRect,
+} from "@/app/main/listen/native-video-surfaces";
+import { copyListenTextToClipboard,forgetListenLyricsCache,forgetListenLyricsCacheVariants,getListenErrorCode,getListenErrorMessage,isListenLiveEventForSession,isListenLyricsDataAvailable,listenLyricsSummary,LISTEN_EMPTY_PROGRESS,LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,logListenLyrics,normalizeListenLiveNativeState,readListenLyricsCache,readListenNativeEventURLVideoId,resolveListenLyricsCurrentState,resolveListenNativeEventVideoAspectRatio,resolveListenPlaybackActivity,resolveListenPlaybackStatusLabel,resolveListenTrackVideoAvailability,resolveTrustedListenOnlineArtistLabel,splitListenArtistLabel,type ListenArtistLabelPart,type ListenLyricsTrackRequest,type ListenVideoAvailability } from "@/app/main/listen/playback-helpers";
+import { useListenRadioFullscreenVideoDefault } from "@/app/main/listen/radio-fullscreen-video";
 import { ListenLocalPlaybackQueuePopup,ListenPlaybackQueuePopup,type ListenQueuePopupAnchor } from "@/app/main/listen/queue-popups";
 import {
   ListenCompactCoverSurface,
@@ -70,101 +71,56 @@ import {
 } from "@/app/main/listen/playback-ui";
 import { ListenArtworkVisualizer,ListenInlineVisualizer } from "@/app/main/listen/Visualizer";
 import { fetchListenTrackInfo } from "@/app/main/listen/api";
-import { clampVolume,formatProgressSeconds,resolveAudioSource } from "@/app/main/listen/local-library";
+import { clampVolume } from "@/app/main/listen/local-library";
+import { ListenPlayerProgress } from "@/app/main/listen/player-progress";
+import {
+  ListenPlayerTransport,
+  ListenPlayerVolume,
+  ListenScrollingText,
+  ListenSubtitleText,
+  ListenTrackInfoRow,
+} from "@/app/main/listen/playback-controls";
 import { buildListenPosterCandidates,buildYouTubeWatchURL } from "@/app/main/listen/storage";
-import type { ListenLocalItem,ListenLyricsData,ListenLyricsKind,ListenMode,ListenNativePlayerEvent,ListenObservedPlaybackAudioQuality,ListenOnlineItem,ListenPlayMode,ListenPlayerCommand,ListenRemotePlaybackState,ListenTrackArtist } from "@/app/main/listen/types";
-import { ListenOnlineArtwork,ListenSourceBadge } from "@/app/main/listen/ui";
+import type { ListenExternalCommand,ListenLocalItem,ListenLyricsData,ListenLyricsKind,ListenMode,ListenNativePlayerEvent,ListenObservedPlaybackAudioQuality,ListenOnlineItem,ListenPlaybackSource,ListenPlayMode,ListenPlayerCommand,ListenPlayerCompanionMode,ListenPlayerPresentation,ListenRemotePlaybackState,ListenTrackArtist } from "@/app/main/listen/types";
+import { ListenOnlineArtwork } from "@/app/main/listen/ui";
+import {
+  ListenWorkspaceLocalQueueCompanion,
+  ListenWorkspaceLyricsCompanion,
+  ListenWorkspaceOnlineQueueCompanion,
+  ListenWorkspaceQueueModeSwitch,
+} from "@/app/main/listen/workspace-companion";
+import {
+  ListenPlayerSourceBadge,
+  ListenWorkspaceFullscreenBackdrop,
+  listenPlaybackSourceFromMode,
+  resolveListenPlayerSourceLabel,
+  resolveListenFullscreenQualityLabel,
+} from "@/app/main/listen/workspace-player-shared";
 import {
   isEqualizerArtworkVisualizerMode,
   isEqualizerSpectrumVisualizerMode,
   type EqualizerVisualizerMode,
 } from "@/shared/contracts/equalizer";
 import { useEqualizerSnapshot,useEqualizerVisualizerFrame } from "@/shared/query/equalizer";
+import {
+  playbackSessionByID,
+  usePlaybackCoordinator,
+  type PlaybackSessionRequest,
+  type PlaybackSnapshot,
+} from "@/shared/playback";
 
-type ListenNativeVideoRect = ListenAirPlayAnchor & {
-  centerX?: number;
-  centerY?: number;
-  stageWidth?: number;
-  stageHeight?: number;
-  viewportWidth?: number;
-  viewportHeight?: number;
-  radius?: number;
-  interactive?: boolean;
-  sequence?: number;
-};
-type ListenLocalAirPlayMediaElement = HTMLMediaElement & {
-  webkitShowPlaybackTargetPicker?: () => void;
-  remote?: {
-    prompt?: () => Promise<void>;
-  };
-};
-const LISTEN_MEDIA_SPLIT_MIN_WIDTH = 760;
-const LISTEN_LIVE_VIDEO_ASPECT_RATIO = 16 / 9;
-const LISTEN_LIVE_VIDEO_TOPBAR_HEIGHT = 74;
-const LISTEN_LIVE_VIDEO_FRAME_GAP = 10;
-const LISTEN_LIVE_VIDEO_MIN_WINDOW_WIDTH = 960;
-const LISTEN_LIVE_VIDEO_MIN_WINDOW_HEIGHT = 640;
-const LISTEN_LIVE_VIDEO_GEOMETRY_SETTLE_DELAYS_MS = [
-  32,
-  80,
-  140,
-  220,
-  340,
-  480,
-  680,
-  920,
-] as const;
-const LISTEN_LIVE_VIDEO_EMBED_SETTLE_MS = 360;
-const LISTEN_LIVE_VIDEO_REVEAL_MS = 780;
-function createListenNativeVideoSequence(requestId: number) {
-  return Date.now() * 1000 + requestId;
-}
-
-function listenArtistBrowseTrack(
-  track: ListenOnlineItem,
-  artist: string,
-  labelParts: ListenArtistLabelPart[],
-): ListenOnlineItem | null {
-  const artistName = artist.trim();
-  if (!artistName) {
-    return null;
-  }
-  const linkedArtist = listenTrackArtistByName(track.artists, artistName);
-  if (linkedArtist) {
-    return {
-      ...track,
-      channel: linkedArtist.name,
-      artists: [linkedArtist],
-      artistBrowseId: linkedArtist.browseId,
-      artistSource: linkedArtist.browseId ? "api-linked" : undefined,
-      thumbnailUrl: linkedArtist.thumbnailUrl,
-    };
-  }
-  const keepOriginalArtistLink =
-    (listenArtistCountFromLabelParts(labelParts) <= 1 &&
-      artistName === track.channel.trim()) ||
-    (track.artistSource === "api-linked-multiple" &&
-      artistName === labelParts.find((part) => part.kind === "artist")?.text.trim());
-  return {
-    ...track,
-    channel: artistName,
-    artistBrowseId: keepOriginalArtistLink ? track.artistBrowseId : undefined,
-    artistSource: keepOriginalArtistLink ? track.artistSource : undefined,
-  };
-}
-
-function listenTrackArtistByName(
-  artists: ListenTrackArtist[] | undefined,
-  name: string,
-): ListenTrackArtist | null {
-  const normalizedName = name.trim();
-  if (!normalizedName || !Array.isArray(artists)) {
-    return null;
-  }
-  return (
-    artists.find((artist) => artist.name.trim() === normalizedName) ?? null
+function listenLyricsMatchesManualOverride(
+  lyrics: ListenLyricsData | null,
+  override: ListenLyricsManualOverride,
+) {
+  return Boolean(
+    lyrics &&
+      lyrics.providerId?.trim().toLowerCase() === override.providerId &&
+      lyrics.providerTrackId?.trim() === override.providerTrackId,
   );
 }
+
+const LISTEN_MEDIA_SPLIT_MIN_WIDTH = 760;
 
 function listenArtistLabelPartsFromTrackArtists(
   artists: ListenTrackArtist[] | undefined,
@@ -194,6 +150,8 @@ function listenArtistLabelPartsFromTrackArtists(
 
 function ListenEmptyPlaybackChrome(props: {
   mode: ListenMode;
+  presentation: ListenPlayerPresentation;
+  workspaceFullscreen?: boolean;
   listOpen: boolean;
   onToggleList: () => void;
   reserveWindowControls: boolean;
@@ -205,15 +163,24 @@ function ListenEmptyPlaybackChrome(props: {
   text: ReturnType<typeof getXiaText>;
   onToggleMute: () => void;
   onVolumeChange: (value: number) => void;
+  onOpenPlaybackSource?: (source: ListenPlaybackSource) => void;
+  onRequestPlayerFullscreen?: () => void;
 }) {
   const noop = React.useCallback(() => {}, []);
+  const playbackSource = listenPlaybackSourceFromMode(props.mode);
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
       <ListenPlayerChrome
         mediaMode="cover"
+        presentation={props.presentation}
+        workspaceFullscreen={props.workspaceFullscreen}
+        backdropCandidates={[LISTEN_DEFAULT_COVER_IMAGE_URL]}
         reserveWindowControls={props.reserveWindowControls}
         airPlaySupported={false}
-        sourceBadge={<ListenSourceBadge mode={props.mode} text={props.text} />}
+        sourceBadge={<ListenPlayerSourceBadge source={playbackSource} text={props.text} />}
+        sourceLabel={resolveListenPlayerSourceLabel(playbackSource, props.text)}
+        onOpenSource={props.onOpenPlaybackSource ? () => props.onOpenPlaybackSource?.(playbackSource) : undefined}
+        onRequestFullscreen={props.onRequestPlayerFullscreen}
         headerCover={
           <ListenCompactCoverSurface
             srcCandidates={[LISTEN_DEFAULT_COVER_IMAGE_URL]}
@@ -235,7 +202,11 @@ function ListenEmptyPlaybackChrome(props: {
         hasVideo={false}
         videoHidden
         live={props.mode === "hush"}
-        fullscreenLive={props.mode === "hush" && !props.listOpen}
+        fullscreenLive={
+          props.presentation === "page" &&
+          props.mode === "hush" &&
+          !props.listOpen
+        }
         listOpen={props.listOpen}
         onToggleList={props.onToggleList}
         pet={props.pet}
@@ -268,6 +239,10 @@ function ListenEmptyPlaybackChrome(props: {
 export function ListenPlayback(props: {
   mode: ListenMode;
   active: boolean;
+  presentation: ListenPlayerPresentation;
+  companionMode?: ListenPlayerCompanionMode;
+  workspaceFullscreen?: boolean;
+  presentationCommand?: ListenExternalCommand | null;
   listOpen: boolean;
   onToggleList: () => void;
   reserveWindowControls: boolean;
@@ -327,6 +302,13 @@ export function ListenPlayback(props: {
   onlineQueueCanUndo: boolean;
   onlineQueueCanRedo: boolean;
   onSelectLocalQueueTrack: (item: ListenLocalItem) => void;
+  onClearLocalQueue: () => void;
+  onRemoveLocalQueueItem: (item: ListenLocalItem) => void;
+  onMoveLocalQueueItem: (item: ListenLocalItem, direction: -1 | 1) => void;
+  onUndoLocalQueueEdit: () => void;
+  onRedoLocalQueueEdit: () => void;
+  localQueueCanUndo: boolean;
+  localQueueCanRedo: boolean;
   onLocalPlayingChange: (playing: boolean) => void;
   onLocalProgressChange: (
     currentTime: number,
@@ -345,39 +327,84 @@ export function ListenPlayback(props: {
   onOpenOnlineArtist: (track: ListenOnlineItem) => void;
   onDownloadTrack: (url: string) => void;
   onOpenLocalDirectory: () => void;
+  onOpenPlaybackSource?: (source: ListenPlaybackSource) => void;
+  onRequestPlayerFullscreen?: () => void;
+  onExitPlayerFullscreen?: () => void;
 }) {
-  const playerRef = React.useRef<React.ElementRef<typeof MediaPlayer> | null>(
-    null,
-  );
-  const localRemote = React.useMemo(() => new MediaRemoteControl(), []);
-  const localResumeRef = React.useRef(props.localResumeTime);
-  const localRestoreAppliedRef = React.useRef("");
-  const localReplayStartedAtRef = React.useRef<number | null>(null);
-  const pendingLocalCommandRef = React.useRef<ListenPlayerCommand | null>(null);
+  const playbackCoordinatorState = usePlaybackCoordinator();
+  const handledLocalCommandRef = React.useRef(0);
+  const pendingLocalStartRef = React.useRef<{
+    sessionID: string;
+    promise: Promise<PlaybackSnapshot>;
+  } | null>(null);
+  const handledLocalEndedSessionRef = React.useRef("");
   const localTrack = props.selectedLocal;
+  const localSessionID = localTrack ? `music-local:${localTrack.id}` : "";
+  const localPlaybackSession = localSessionID
+    ? playbackSessionByID(playbackCoordinatorState.snapshot, localSessionID)
+    : null;
+  const localPlaybackState: ListenRemotePlaybackState =
+    localPlaybackSession && localPlaybackSession.item.id === localTrack?.id
+      ? localPlaybackSession.state
+      : props.localPlaying
+        ? "loading"
+        : "paused";
+  const localPlaybackActivity = resolveListenPlaybackActivity(localPlaybackState);
+  const localTimelineRunning = localPlaybackActivity.timelineRunning;
+  const localTransportLoading = localPlaybackActivity.loading;
   const [localMediaMode, setLocalMediaMode] =
     React.useState<ListenMediaMode>("cover");
   const [localQueueOpen, setLocalQueueOpen] = React.useState(false);
   const [localQueueAnchor, setLocalQueueAnchor] =
     React.useState<ListenQueuePopupAnchor | null>(null);
+  const handledLocalPresentationCommandRef = React.useRef(0);
   const [localLyricsState, setLocalLyricsState] = React.useState<{
     lyricsId: string;
     loading: boolean;
     data: ListenLyricsData | null;
     error: string;
+    errorCode?: string;
+    errorRetryable?: boolean;
   }>({
     lyricsId: "",
     loading: false,
     data: null,
     error: "",
   });
-  const localLyricsAvailable = isListenLyricsDataAvailable(localLyricsState.data);
   const localFullscreenLyricsDefaultKeyRef = React.useRef("");
   const localLyricsRetryKeyRef = React.useRef("");
+  const localLyricsRequestGenerationRef = React.useRef(0);
   const [localLyricsRetryToken, setLocalLyricsRetryToken] = React.useState(0);
-  const syncedLyricsEnabled = useSettingsStore(
-    (state) => state.settings?.syncedLyricsEnabled !== false,
-  );
+
+  React.useEffect(() => {
+    const command = props.presentationCommand;
+    if (!command || handledLocalPresentationCommandRef.current === command.id) {
+      return;
+    }
+    handledLocalPresentationCommandRef.current = command.id;
+    if (
+      command.command === "show-lyrics" &&
+      props.presentation !== "companion"
+    ) {
+      setLocalQueueOpen(false);
+      setLocalMediaMode("lyrics");
+    } else if (
+      command.command === "show-queue" &&
+      props.presentation !== "companion"
+    ) {
+      setLocalQueueOpen(true);
+    }
+  }, [props.presentation, props.presentationCommand]);
+  React.useLayoutEffect(() => {
+    if (!props.companionMode) {
+      return;
+    }
+    setLocalQueueOpen(false);
+    setLocalMediaMode("cover");
+  }, [props.companionMode]);
+  // Normal playback always prefers timed lyrics; providers fall back to plain
+  // text only when no acceptable synchronized version exists.
+  const syncedLyricsEnabled = true;
   const romanizedLyricsSetting = useSettingsStore(
     (state) => state.settings?.romanizedLyrics !== false,
   );
@@ -408,11 +435,8 @@ export function ListenPlayback(props: {
   const handleLocalArtworkVisualizerVisibleChange = React.useCallback((visible: boolean) => {
     setLocalArtworkVisualizerState({ key: localArtworkVisualizerKey, visible });
   }, [localArtworkVisualizerKey]);
-  const lyricsTranscriptionAvailability = useLyricsTranscriptionAvailable(isMac);
-  const lyricsTranscriptionAvailable =
-    isMac && lyricsTranscriptionAvailability.data === true;
-  const romanizedLyrics = lyricsTranscriptionAvailable && romanizedLyricsSetting;
-  const pinyinLyrics = lyricsTranscriptionAvailable && pinyinLyricsSetting;
+  const romanizedLyrics = romanizedLyricsSetting;
+  const pinyinLyrics = pinyinLyricsSetting;
 
   const localLyricsTrack = React.useMemo<ListenLyricsTrackRequest | null>(() => {
     if (!localTrack) {
@@ -422,240 +446,210 @@ export function ListenPlayback(props: {
       lyricsId: `local:${localTrack.id}`,
       title: localTrack.lyricsTitle || localTrack.title,
       artist: localTrack.lyricsArtist || localTrack.author,
+      album: localTrack.album,
+      localPath: localTrack.path,
       durationLabel: localTrack.durationLabel,
     };
   }, [
     localTrack?.author,
+    localTrack?.album,
     localTrack?.durationLabel,
     localTrack?.id,
     localTrack?.lyricsArtist,
     localTrack?.lyricsTitle,
+    localTrack?.path,
     localTrack?.title,
   ]);
+  const localLyricsWorkspaceTrack = React.useMemo(() => {
+    if (!localLyricsTrack) {
+      return null;
+    }
+    return {
+      lyricsId: localLyricsTrack.lyricsId,
+      title: localLyricsTrack.title,
+      artist: localLyricsTrack.artist,
+      album: localLyricsTrack.album,
+      localPath: localLyricsTrack.localPath,
+      durationSeconds: props.localProgress.duration,
+    };
+  }, [localLyricsTrack, props.localProgress.duration]);
+  const localLyricsCurrentState = resolveListenLyricsCurrentState(
+    localLyricsState,
+    localLyricsState.lyricsId,
+    String(localLyricsTrack?.lyricsId ?? ""),
+  );
+  const localLyricsAvailable = isListenLyricsDataAvailable(
+    localLyricsCurrentState.data,
+  );
   const retryLocalLyrics = React.useCallback(() => {
     const lyricsId = String(localLyricsTrack?.lyricsId || "").trim();
     if (!lyricsId) {
       return;
     }
+    localLyricsRequestGenerationRef.current += 1;
     localLyricsRetryKeyRef.current = lyricsId;
-    forgetListenLyricsCache(lyricsId, props.text.locale);
+    forgetListenLyricsCache(lyricsId, props.text.locale, {
+      synced: syncedLyricsEnabled,
+    });
     setLocalLyricsRetryToken((value) => value + 1);
-  }, [localLyricsTrack?.lyricsId, props.text.locale]);
+  }, [localLyricsTrack?.lyricsId, props.text.locale, syncedLyricsEnabled]);
 
-  const getLocalMediaElement = React.useCallback(() => {
-    const provider = playerRef.current?.provider as
-      | {
-          media?: HTMLMediaElement;
-          audio?: HTMLAudioElement;
-        }
-      | null
-      | undefined;
-    if (provider?.media instanceof HTMLMediaElement) {
-      return provider.media;
-    }
-    if (provider?.audio instanceof HTMLAudioElement) {
-      return provider.audio;
-    }
-    const root = playerRef.current as unknown as
-      | {
-          querySelector?: (selector: string) => Element | null;
-        }
-      | null
-      | undefined;
-    const element =
-      typeof root?.querySelector === "function"
-        ? root.querySelector("audio,video")
-        : null;
-    return element instanceof HTMLMediaElement ? element : null;
-  }, []);
-
-  const handleLocalAirPlay = React.useCallback(() => {
-    const media = getLocalMediaElement() as
-      | ListenLocalAirPlayMediaElement
-      | null;
-    if (!media) {
+  const handleLocalLyricsChange = React.useCallback((data: ListenLyricsData) => {
+    const lyricsId = String(localLyricsWorkspaceTrack?.lyricsId ?? "").trim();
+    if (!lyricsId) {
       return;
     }
-    if (typeof media.webkitShowPlaybackTargetPicker === "function") {
-      media.webkitShowPlaybackTargetPicker();
+    localLyricsRequestGenerationRef.current += 1;
+    forgetListenLyricsCache(lyricsId, props.text.locale, {
+      synced: syncedLyricsEnabled,
+    });
+    setLocalLyricsState({
+      lyricsId,
+      loading: false,
+      data,
+      error: "",
+    });
+  }, [
+    localLyricsWorkspaceTrack?.lyricsId,
+    props.text.locale,
+    syncedLyricsEnabled,
+  ]);
+
+  const handleLocalLyricsRestoreAutomatic = React.useCallback(async () => {
+    if (!localLyricsWorkspaceTrack) {
       return;
     }
-    if (typeof media.remote?.prompt === "function") {
-      void media.remote.prompt().catch((error) => {
-        console.warn("[Listen] local AirPlay picker unavailable", error);
-      });
-    }
-  }, [getLocalMediaElement]);
+    forgetListenLyricsCacheVariants(
+      String(localLyricsWorkspaceTrack.lyricsId ?? ""),
+    );
+    retryLocalLyrics();
+  }, [
+    localLyricsWorkspaceTrack,
+    retryLocalLyrics,
+  ]);
+
+  const buildLocalSessionRequest = React.useCallback(
+    (options: { startSeconds?: number; forceReload?: boolean } = {}): PlaybackSessionRequest | null => {
+      if (!localTrack || !localSessionID) {
+        return null;
+      }
+      const uri = localTrack.path.trim() || localTrack.previewURL.trim();
+      if (!uri) {
+        return null;
+      }
+      return {
+        sessionId: localSessionID,
+        item: {
+          id: localTrack.id,
+          kind: "audio",
+          source: { provider: "local", uri },
+          title: localTrack.title,
+          artist: localTrack.author,
+          artworkUrl: localTrack.coverURL,
+        },
+        startSeconds: Math.max(0, options.startSeconds ?? props.localResumeTime),
+        volume: clampVolume(props.volume),
+        muted: props.muted || props.volume <= 0,
+        forceReload: options.forceReload,
+      };
+    }, [
+      localSessionID,
+      localTrack,
+      props.localResumeTime,
+      props.muted,
+      props.volume,
+    ],
+  );
 
   const runLocalPlayerCommand = React.useCallback(
-    (command: ListenPlayerCommand) => {
-      const player = playerRef.current;
-      if (!player) {
-        pendingLocalCommandRef.current =
-          command.command === "play" ||
-          command.command === "replay" ||
-          command.command === "resume" ||
-          command.command === "seek"
-            ? command
-            : null;
+    async (command: ListenPlayerCommand) => {
+      if (props.mode !== "linger" || !localTrack || !localSessionID) {
         return;
       }
-      if (command.command === "replay") {
-        const media = getLocalMediaElement();
-        pendingLocalCommandRef.current = null;
-        if (media) {
-          media.currentTime = 0;
-          void media.play().catch(() => {});
+      const activeSession = playbackCoordinatorState.snapshot.active;
+      const session = playbackSessionByID(
+        playbackCoordinatorState.snapshot,
+        localSessionID,
+      );
+      const isActive = activeSession?.id === localSessionID;
+      if (command.command === "pause") {
+        if (isActive && session?.capabilities.playPause) {
+          await playbackCoordinatorState.commands.pause();
+          return;
         }
-        player.currentTime = 0;
-        player.paused = false;
-        return;
-      }
-      if (command.command === "play" || command.command === "resume") {
-        const media = getLocalMediaElement();
-        pendingLocalCommandRef.current = null;
-        if (media) {
-          void media.play().catch(() => {});
+        const pendingStart = pendingLocalStartRef.current;
+        if (!activeSession && pendingStart?.sessionID === localSessionID) {
+          const started = await pendingStart.promise.catch(() => null);
+          if (
+            started?.active?.id === localSessionID &&
+            started.active.capabilities.playPause
+          ) {
+            await playbackCoordinatorState.commands.pause();
+          }
         }
-        player.paused = false;
         return;
       }
-      if (command.command === "seek") {
-        const media = getLocalMediaElement();
-        const seconds = Math.max(0, command.startSeconds ?? 0);
-        pendingLocalCommandRef.current = null;
-        if (media) {
-          media.currentTime = seconds;
+      if (command.command === "seek" && isActive && session?.capabilities.seek) {
+        await playbackCoordinatorState.commands.seek(
+          Math.max(0, command.startSeconds ?? 0),
+        );
+        return;
+      }
+      if (
+        (command.command === "play" || command.command === "resume") &&
+        isActive &&
+        session?.state !== "ended" &&
+        session?.capabilities.playPause
+      ) {
+        await playbackCoordinatorState.commands.play();
+        return;
+      }
+      const request = buildLocalSessionRequest({
+        startSeconds:
+          command.command === "replay"
+            ? 0
+            : command.command === "seek"
+              ? command.startSeconds
+              : undefined,
+        forceReload: command.command === "replay" || command.forceReload,
+      });
+      if (request) {
+        const pendingStart = {
+          sessionID: localSessionID,
+          promise: playbackCoordinatorState.commands.startPersistent(request),
+        };
+        pendingLocalStartRef.current = pendingStart;
+        try {
+          await pendingStart.promise;
+        } finally {
+          if (pendingLocalStartRef.current === pendingStart) {
+            pendingLocalStartRef.current = null;
+          }
         }
-        player.currentTime = seconds;
-        return;
       }
-      const media = getLocalMediaElement();
-      pendingLocalCommandRef.current = null;
-      localReplayStartedAtRef.current = null;
-      media?.pause();
-      player.paused = true;
     },
-    [getLocalMediaElement],
+    [
+      buildLocalSessionRequest,
+      localSessionID,
+      localTrack,
+      playbackCoordinatorState.commands,
+      playbackCoordinatorState.snapshot,
+      props.mode,
+    ],
   );
 
   const handleLocalTogglePlayback = React.useCallback<
     React.MouseEventHandler<HTMLButtonElement>
-  >((event) => {
+  >(() => {
     props.onLocalPlaybackIntent();
-    if (props.localPlaying) {
-      localRemote.pause(event.nativeEvent);
-      return;
-    }
-    localRemote.play(event.nativeEvent);
-  }, [localRemote, props.localPlaying, props.onLocalPlaybackIntent]);
-
-  React.useEffect(() => {
-    if (props.mode !== "linger" || !props.localCommand) {
-      return;
-    }
-    runLocalPlayerCommand(props.localCommand);
-  }, [props.localCommand, props.mode, runLocalPlayerCommand]);
-
-  React.useEffect(() => {
-    const player = playerRef.current;
-    if (!player) {
-      return;
-    }
-    localRemote.setPlayer(player);
-  }, [localRemote, localTrack?.id, props.mode]);
-
-  React.useEffect(() => {
-    if (props.mode !== "linger") {
-      return;
-    }
-    const media = getLocalMediaElement();
-    if (!media) {
-      return;
-    }
-    media.setAttribute("x-webkit-airplay", "allow");
-    media.disableRemotePlayback = false;
-  }, [getLocalMediaElement, localTrack?.id, props.mode]);
-
-  React.useEffect(() => {
-    if (props.mode !== "linger") {
-      return;
-    }
-    const player = playerRef.current;
-    const media = getLocalMediaElement();
-    if (!player && !media) {
-      return;
-    }
-    const nextVolume = clampVolume(props.volume);
-    const nextMuted = props.muted || props.volume <= 0;
-    if (media) {
-      media.volume = nextVolume;
-      media.muted = nextMuted;
-    }
-    if (player) {
-      player.volume = nextVolume;
-      player.muted = nextMuted;
-    }
+    void runLocalPlayerCommand({
+      id: Date.now(),
+      command: localPlaybackActivity.transportActive ? "pause" : "play",
+    }).catch(() => {});
   }, [
-    getLocalMediaElement,
-    props.mode,
-    props.muted,
-    props.volume,
-    localTrack?.id,
-  ]);
-
-  React.useEffect(() => {
-    if (props.mode !== "linger" || !localTrack) {
-      localReplayStartedAtRef.current = null;
-      props.onLocalProgressChange(0, 0, 0);
-      return;
-    }
-
-    const syncProgress = () => {
-      const player = playerRef.current;
-      const media = getLocalMediaElement();
-      const source = media ?? player;
-      let currentTime =
-        source && Number.isFinite(source.currentTime)
-          ? Math.max(0, source.currentTime)
-          : 0;
-      const duration =
-        source && Number.isFinite(source.duration)
-          ? Math.max(0, source.duration)
-          : Math.max(0, props.localProgress.duration);
-      const buffered = (source as { buffered?: TimeRanges } | null)?.buffered;
-      const bufferedTime = buffered
-        ? Math.max(0, getTimeRangesEnd(buffered) ?? 0)
-        : Math.max(0, Math.min(props.localProgress.bufferedTime, duration));
-      const replayStartedAt = localReplayStartedAtRef.current;
-      const paused =
-        media?.paused ?? (player ? Boolean(player.paused) : true);
-      if (currentTime > 0.05) {
-        localReplayStartedAtRef.current = null;
-      } else if (
-        replayStartedAt !== null &&
-        props.playMode === "repeat" &&
-        !paused
-      ) {
-        currentTime = Math.max(
-          0,
-          Math.min((performance.now() - replayStartedAt) / 1000, duration),
-        );
-      }
-      props.onLocalProgressChange(currentTime, duration, bufferedTime);
-    };
-
-    syncProgress();
-    const timer = window.setInterval(syncProgress, 250);
-    return () => window.clearInterval(timer);
-  }, [
-    getLocalMediaElement,
-    localTrack?.id,
-    props.localProgress.bufferedTime,
-    props.localProgress.duration,
-    props.mode,
-    props.onLocalProgressChange,
-    props.playMode,
+    localPlaybackActivity.transportActive,
+    props.onLocalPlaybackIntent,
+    runLocalPlayerCommand,
   ]);
 
   const handleLocalSeek = React.useCallback(
@@ -663,152 +657,167 @@ export function ListenPlayback(props: {
       if (props.mode !== "linger" || !localTrack) {
         return;
       }
-      const player = playerRef.current;
-      const media = getLocalMediaElement();
-      const source = media ?? player;
-      const duration =
-        source && Number.isFinite(source.duration)
-          ? Math.max(0, source.duration)
-          : Math.max(0, props.localProgress.duration);
-      if (duration <= 0) {
-        return;
-      }
-      const nextTime = Math.max(0, Math.min(seconds, duration));
-      localReplayStartedAtRef.current = null;
-      if (media) {
-        media.currentTime = nextTime;
-      }
-      if (player) {
-        player.currentTime = nextTime;
-      }
-      const buffered = (source as { buffered?: TimeRanges } | null)?.buffered;
-      const bufferedTime = buffered
-        ? Math.max(0, getTimeRangesEnd(buffered) ?? 0)
-        : Math.max(0, Math.min(props.localProgress.bufferedTime, duration));
-      props.onLocalProgressChange(nextTime, duration, bufferedTime);
-    },
-    [
-      getLocalMediaElement,
+      const duration = Math.max(0, props.localProgress.duration);
+      const nextTime = duration > 0
+        ? Math.max(0, Math.min(seconds, duration))
+        : Math.max(0, seconds);
+      props.onLocalProgressChange(
+        nextTime,
+        duration,
+        Math.max(props.localProgress.bufferedTime, nextTime),
+      );
+      void runLocalPlayerCommand({
+        id: Date.now(),
+        command: "seek",
+        startSeconds: nextTime,
+      }).catch(() => {});
+    }, [
       localTrack,
       props.localProgress.bufferedTime,
       props.localProgress.duration,
       props.mode,
       props.onLocalProgressChange,
+      runLocalPlayerCommand,
     ],
   );
 
-  const handleLocalTimeUpdate = React.useCallback(
-    (currentTime: number) => {
-      if (props.mode !== "linger" || !localTrack) {
-        return;
-      }
-      const player = playerRef.current;
-      const media = getLocalMediaElement();
-      const source = media ?? player;
-      const duration =
-        source && Number.isFinite(source.duration)
-          ? Math.max(0, source.duration)
-          : Math.max(0, props.localProgress.duration);
-      if (duration <= 0) {
-        return;
-      }
-      const sourceTime =
-        source && Number.isFinite(source.currentTime)
-          ? Math.max(0, source.currentTime)
-          : currentTime;
-      const nextTime = Math.max(0, Math.min(sourceTime, duration));
-      if (nextTime > 0.05) {
-        localReplayStartedAtRef.current = null;
-      }
-      const buffered = (source as { buffered?: TimeRanges } | null)?.buffered;
-      const bufferedTime = buffered
-        ? Math.max(0, getTimeRangesEnd(buffered) ?? 0)
-        : Math.max(0, Math.min(props.localProgress.bufferedTime, duration));
-      props.onLocalProgressChange(nextTime, duration, bufferedTime);
-    },
-    [
-      getLocalMediaElement,
-      localTrack,
-      props.localProgress.bufferedTime,
-      props.localProgress.duration,
-      props.mode,
-      props.onLocalProgressChange,
-    ],
-  );
-
-  const syncLocalReplayState = React.useCallback(() => {
-    const player = playerRef.current;
-    const media = getLocalMediaElement();
-    const source = media ?? player;
-    const duration =
-      source && Number.isFinite(source.duration)
-        ? Math.max(0, source.duration)
-        : Math.max(0, props.localProgress.duration);
-    const buffered = (source as { buffered?: TimeRanges } | null)?.buffered;
-    const bufferedTime = buffered
-      ? Math.max(0, getTimeRangesEnd(buffered) ?? 0)
-      : Math.max(0, Math.min(props.localProgress.bufferedTime, duration));
-    if (media) {
-      media.currentTime = 0;
+  const handleLocalPrevious = React.useCallback(() => {
+    const active = playbackCoordinatorState.snapshot.active;
+    if (active?.id === localSessionID && active.capabilities.previous) {
+      void playbackCoordinatorState.commands.previous().catch(() => props.onPrevious());
+      return;
     }
-    if (player) {
-      player.currentTime = 0;
-    }
-    localReplayStartedAtRef.current = performance.now();
-    props.onLocalProgressChange(0, duration, bufferedTime);
-    props.onLocalPlayingChange(true);
+    props.onPrevious();
   }, [
-    getLocalMediaElement,
+    localSessionID,
+    playbackCoordinatorState.commands,
+    playbackCoordinatorState.snapshot.active,
+    props.onPrevious,
+  ]);
+
+  const handleLocalNext = React.useCallback(() => {
+    const active = playbackCoordinatorState.snapshot.active;
+    if (active?.id === localSessionID && active.capabilities.next) {
+      void playbackCoordinatorState.commands.next().catch(() => props.onNext());
+      return;
+    }
+    props.onNext();
+  }, [
+    localSessionID,
+    playbackCoordinatorState.commands,
+    playbackCoordinatorState.snapshot.active,
+    props.onNext,
+  ]);
+
+  React.useEffect(() => {
+    const command = props.localCommand;
+    if (
+      props.mode !== "linger" ||
+      !command ||
+      handledLocalCommandRef.current === command.id
+    ) {
+      return;
+    }
+    handledLocalCommandRef.current = command.id;
+    void runLocalPlayerCommand(command).catch(() => {});
+  }, [props.localCommand, props.mode, runLocalPlayerCommand]);
+
+  React.useEffect(() => {
+    const active = playbackCoordinatorState.snapshot.active;
+    if (
+      props.mode === "linger" ||
+      !active?.id.startsWith("music-local:") ||
+      !active.capabilities.playPause ||
+      active.state === "paused" ||
+      active.state === "ended"
+    ) {
+      return;
+    }
+    // Changing the Music source is a playback handoff, unlike navigating to
+    // another workspace. Pause the backend-owned local session before the
+    // legacy online source starts so there can never be two audible engines.
+    void playbackCoordinatorState.commands.pause().catch(() => {});
+  }, [
+    playbackCoordinatorState.commands,
+    playbackCoordinatorState.snapshot.active,
+    props.mode,
+  ]);
+
+  React.useEffect(() => {
+    if (props.mode !== "linger" || !localTrack || !localSessionID) {
+      return;
+    }
+    const session = playbackSessionByID(
+      playbackCoordinatorState.snapshot,
+      localSessionID,
+    );
+    if (!session || session.item.id !== localTrack.id) {
+      return;
+    }
+    const duration = Math.max(session.duration, session.item.duration ?? 0);
+    props.onLocalProgressChange(
+      session.position,
+      duration,
+      Math.max(session.position, Math.min(props.localProgress.bufferedTime, duration)),
+    );
+    props.onLocalPlayingChange(
+      session.state === "playing" || session.state === "buffering",
+    );
+    if (session.state !== "ended") {
+      handledLocalEndedSessionRef.current = "";
+    }
+    if (
+      session.state === "ended" &&
+      playbackCoordinatorState.snapshot.active?.id === localSessionID &&
+      handledLocalEndedSessionRef.current !== localSessionID
+    ) {
+      handledLocalEndedSessionRef.current = localSessionID;
+      props.onEnded();
+    }
+  }, [
+    localSessionID,
+    localTrack,
+    playbackCoordinatorState.snapshot,
     props.localProgress.bufferedTime,
-    props.localProgress.duration,
+    props.mode,
+    props.onEnded,
     props.onLocalPlayingChange,
     props.onLocalProgressChange,
   ]);
 
   React.useEffect(() => {
-    localReplayStartedAtRef.current = null;
-    localRestoreAppliedRef.current = "";
-    localResumeRef.current = props.localResumeTime;
-  }, [localTrack?.id, props.mode]);
-
-  React.useEffect(() => {
-    if (props.mode !== "linger" || !localTrack) {
-      return;
-    }
-    const resumeSeconds = Math.max(0, localResumeRef.current);
     if (
-      resumeSeconds <= 0 ||
-      localRestoreAppliedRef.current === localTrack.id
+      props.mode !== "linger" ||
+      playbackCoordinatorState.snapshot.active?.id !== localSessionID
     ) {
       return;
     }
-    let attempts = 0;
-    const timer = window.setInterval(() => {
-      const player = playerRef.current;
-      if (!player) {
-        return;
-      }
-      const duration = Number.isFinite(player.duration)
-        ? Math.max(0, player.duration)
-        : 0;
-      if (duration <= 0 && attempts < 30) {
-        attempts += 1;
-        return;
-      }
-      const target =
-        duration > 0
-          ? Math.min(resumeSeconds, Math.max(duration - 1, 0))
-          : resumeSeconds;
-      if (target > 0.5) {
-        player.currentTime = target;
-      }
-      localRestoreAppliedRef.current = localTrack.id;
-      window.clearInterval(timer);
-    }, 160);
-    return () => window.clearInterval(timer);
-  }, [localTrack?.id, props.mode]);
+    const active = playbackCoordinatorState.snapshot.active;
+    if (!active.capabilities.volume) {
+      return;
+    }
+    const volume = clampVolume(props.volume);
+    if (
+      Math.abs(active.volume - volume) < 0.001 &&
+      active.muted === (props.muted || volume <= 0)
+    ) {
+      return;
+    }
+    void playbackCoordinatorState.commands
+      .setVolume(volume, props.muted || volume <= 0)
+      .catch(() => {});
+  }, [
+    localSessionID,
+    playbackCoordinatorState.commands,
+    playbackCoordinatorState.snapshot.active,
+    props.mode,
+    props.muted,
+    props.volume,
+  ]);
 
   React.useEffect(() => {
+    const requestGeneration = localLyricsRequestGenerationRef.current + 1;
+    localLyricsRequestGenerationRef.current = requestGeneration;
     if (props.mode !== "linger" || !localTrack || !localLyricsTrack) {
       logListenLyrics("local skip fetch", {
         reason: props.mode !== "linger"
@@ -850,8 +859,21 @@ export function ListenPlayback(props: {
       localLyricsRetryKeyRef.current = "";
     }
     const lyricsMode = { synced: syncedLyricsEnabled };
-    const cachedLyrics = forceRequest ? null : readListenLyricsCache(lyricsId, props.text.locale, lyricsMode);
-    const refreshCachedPlain = syncedLyricsEnabled && cachedLyrics?.kind === "plain";
+    const manualTrack = {
+      id: lyricsId,
+      lyricsId,
+      title: localLyricsTrack.title,
+      artist: localLyricsTrack.artist,
+      album: localLyricsTrack.album,
+      localPath: localLyricsTrack.localPath,
+      durationSeconds: props.localProgress.duration,
+    };
+    const manualOverride = readListenLyricsManualOverride(manualTrack);
+    const storedLyrics = forceRequest ? null : readListenLyricsCache(lyricsId, props.text.locale, lyricsMode);
+    const cachedLyrics = manualOverride && !listenLyricsMatchesManualOverride(storedLyrics, manualOverride)
+      ? null
+      : storedLyrics;
+    const refreshCachedPlain = false;
     logListenLyrics("local request state", {
       lyricsId,
       title: localLyricsTrack.title,
@@ -883,15 +905,26 @@ export function ListenPlayback(props: {
       data: cachedLyrics,
       error: "",
     });
-    void fetchListenLyricsCached(
-      props.httpBaseURL,
-      localLyricsTrack,
-      props.localProgress.duration,
-      props.text.locale,
-      { force: forceRequest, refreshPlain: refreshCachedPlain, synced: syncedLyricsEnabled },
-    )
+    const lyricsRequest = manualOverride
+      ? callListenLyricsCandidate({
+          track: manualTrack,
+          candidate: manualOverride,
+          language: props.text.locale,
+          synced: syncedLyricsEnabled,
+        })
+      : callListenLyricsForTrackCached({
+          track: manualTrack,
+          cacheID: lyricsId,
+          durationSeconds: props.localProgress.duration,
+          language: props.text.locale,
+          synced: syncedLyricsEnabled,
+        });
+    void lyricsRequest
       .then((data) => {
-        if (cancelled) {
+        if (
+          cancelled ||
+          localLyricsRequestGenerationRef.current !== requestGeneration
+        ) {
           logListenLyrics("local fetch ignored after cancel", {
             lyricsId,
             result: listenLyricsSummary(data),
@@ -910,7 +943,10 @@ export function ListenPlayback(props: {
         });
       })
       .catch((error: unknown) => {
-        if (cancelled) {
+        if (
+          cancelled ||
+          localLyricsRequestGenerationRef.current !== requestGeneration
+        ) {
           logListenLyrics("local fetch error ignored after cancel", {
             lyricsId,
             error: getListenErrorMessage(error),
@@ -924,13 +960,19 @@ export function ListenPlayback(props: {
           error: getListenErrorMessage(error),
           code: getListenErrorCode(error),
         });
+        const presentation = resolveListenLyricsErrorPresentation(
+          props.text,
+          error,
+        );
         setLocalLyricsState({
           lyricsId,
           loading: false,
           data: cachedLyrics,
           error: cachedLyrics
             ? ""
-            : getListenErrorMessage(error) || props.text.listen.lyricsEmpty,
+            : presentation.message,
+          errorCode: cachedLyrics ? undefined : presentation.code,
+          errorRetryable: cachedLyrics ? undefined : presentation.retryable,
         });
       });
     return () => {
@@ -941,6 +983,7 @@ export function ListenPlayback(props: {
     props.text.listen.lyricsEmpty,
     props.text.locale,
     props.httpBaseURL,
+    props.localProgress.duration,
     localTrack?.id,
     localLyricsRetryToken,
     props.mode,
@@ -948,7 +991,13 @@ export function ListenPlayback(props: {
   ]);
 
   React.useEffect(() => {
-    if (props.mode !== "linger" || props.listOpen || !localTrack) {
+    if (
+      props.presentation !== "fullscreen" ||
+      props.mode !== "linger" ||
+      props.listOpen ||
+      localQueueOpen ||
+      !localTrack
+    ) {
       localFullscreenLyricsDefaultKeyRef.current = "";
       return;
     }
@@ -966,17 +1015,57 @@ export function ListenPlayback(props: {
     localLyricsAvailable,
     localLyricsState.lyricsId,
     localMediaMode,
+    localQueueOpen,
     localTrack,
     props.listOpen,
     props.mode,
+    props.presentation,
   ]);
 
   if (props.mode !== "linger") {
     const track = props.selectedOnline;
     if (!track) {
+      if (props.companionMode === "queue") {
+        return (
+          <ListenWorkspaceOnlineQueueCompanion
+            queueTitle={props.onlineQueueTitle}
+            queueItems={props.onlineQueueItems}
+            selectedQueueId={props.selectedOnlineId}
+            httpBaseURL={props.httpBaseURL}
+            playMode={props.playMode}
+            text={props.text}
+            onPlayModeChange={props.onPlayModeChange}
+            onClearQueue={props.onClearOnlineQueue}
+            onRemoveQueueItem={props.onRemoveOnlineQueueItem}
+            onMoveQueueItem={props.onMoveOnlineQueueItem}
+            onUndoQueueEdit={props.onUndoOnlineQueueEdit}
+            onRedoQueueEdit={props.onRedoOnlineQueueEdit}
+            queueCanUndo={props.onlineQueueCanUndo}
+            queueCanRedo={props.onlineQueueCanRedo}
+            onSelectQueueTrack={props.onSelectOnlineQueueTrack}
+          />
+        );
+      }
+      if (props.companionMode === "lyrics") {
+        return (
+          <ListenWorkspaceLyricsCompanion
+            artworkCandidates={[LISTEN_DEFAULT_COVER_IMAGE_URL]}
+            title={props.text.listen.nowPlaying}
+            text={props.text}
+          >
+            <ListenLyricsSurface
+              variant="companion"
+              text={props.text}
+              lyrics={null}
+            />
+          </ListenWorkspaceLyricsCompanion>
+        );
+      }
       return (
         <ListenEmptyPlaybackChrome
           mode={props.mode}
+          presentation={props.presentation}
+          workspaceFullscreen={props.workspaceFullscreen}
           listOpen={props.listOpen}
           onToggleList={props.onToggleList}
           reserveWindowControls={props.reserveWindowControls}
@@ -988,6 +1077,8 @@ export function ListenPlayback(props: {
           text={props.text}
           onToggleMute={props.onToggleMute}
           onVolumeChange={props.onVolumeChange}
+          onOpenPlaybackSource={props.onOpenPlaybackSource}
+          onRequestPlayerFullscreen={props.onRequestPlayerFullscreen}
         />
       );
     }
@@ -995,7 +1086,11 @@ export function ListenPlayback(props: {
     return (
       <ListenYouTubePlayback
         mode={props.mode}
+        presentation={props.presentation}
+        companionMode={props.companionMode}
+        workspaceFullscreen={props.workspaceFullscreen}
         active={props.active}
+        presentationCommand={props.presentationCommand}
         listOpen={props.listOpen}
         onToggleList={props.onToggleList}
         reserveWindowControls={props.reserveWindowControls}
@@ -1050,15 +1145,107 @@ export function ListenPlayback(props: {
         pinyinLyrics={pinyinLyrics}
         visualizerMode={visualizerMode}
         visualizerEnabled={visualizerEnabled}
+        onOpenPlaybackSource={props.onOpenPlaybackSource}
+        onRequestPlayerFullscreen={props.onRequestPlayerFullscreen}
+        onExitPlayerFullscreen={props.onExitPlayerFullscreen}
       />
     );
   }
 
   const track = localTrack;
+  const renderLocalLyricsControls = (
+    placement: "overlay" | "companion" | "fullscreen",
+    controlsTrack: NonNullable<typeof localLyricsWorkspaceTrack>,
+  ) => (
+    <ListenLyricsControls
+      key={`${controlsTrack.lyricsId ?? controlsTrack.title}:${placement}`}
+      placement={placement}
+      text={props.text}
+      track={controlsTrack}
+      lyrics={localLyricsCurrentState.data}
+      currentTimeMs={Math.max(0, props.localProgress.currentTime * 1000)}
+      timelineRunning={localTimelineRunning}
+      language={props.text.locale}
+      synced={syncedLyricsEnabled}
+      romanized={romanizedLyrics}
+      pinyin={pinyinLyrics}
+      onLyricsChange={handleLocalLyricsChange}
+      onRestoreAutomatic={handleLocalLyricsRestoreAutomatic}
+    />
+  );
+  if (props.companionMode === "queue") {
+    return (
+      <ListenWorkspaceLocalQueueCompanion
+        queueTitle={props.text.listen.upNext}
+        queueItems={props.localQueueItems}
+        selectedQueueId={props.selectedLocalId}
+        playMode={props.playMode}
+        text={props.text}
+        onPlayModeChange={props.onPlayModeChange}
+        onClearQueue={props.onClearLocalQueue}
+        onRemoveQueueItem={props.onRemoveLocalQueueItem}
+        onMoveQueueItem={props.onMoveLocalQueueItem}
+        onUndoQueueEdit={props.onUndoLocalQueueEdit}
+        onRedoQueueEdit={props.onRedoLocalQueueEdit}
+        queueCanUndo={props.localQueueCanUndo}
+        queueCanRedo={props.localQueueCanRedo}
+        onSelectQueueTrack={props.onSelectLocalQueueTrack}
+      />
+    );
+  }
+
+  if (props.companionMode === "lyrics") {
+    return (
+      <ListenWorkspaceLyricsCompanion
+        artworkCandidates={[
+          track?.coverURL || LISTEN_DEFAULT_COVER_IMAGE_URL,
+          LISTEN_DEFAULT_COVER_IMAGE_URL,
+        ]}
+        title={track?.title || props.text.listen.nowPlaying}
+        text={props.text}
+        lyricsControls={
+          localLyricsWorkspaceTrack
+            ? renderLocalLyricsControls("companion", localLyricsWorkspaceTrack)
+            : undefined
+        }
+      >
+        {localLyricsWorkspaceTrack ? (
+          <ListenLyricsWorkspace
+            variant="companion"
+            surfaceActive={props.active && props.companionMode === "lyrics"}
+            text={props.text}
+            track={localLyricsWorkspaceTrack}
+            current={{
+              lyrics: localLyricsCurrentState.data,
+              loading: localLyricsCurrentState.loading,
+              error: localLyricsCurrentState.error,
+              errorCode: localLyricsCurrentState.errorCode,
+              errorRetryable: localLyricsCurrentState.errorRetryable,
+              onRetry: retryLocalLyrics,
+            }}
+            currentTimeMs={Math.max(0, props.localProgress.currentTime * 1000)}
+            timelineRunning={localTimelineRunning}
+            romanized={romanizedLyrics}
+            pinyin={pinyinLyrics}
+            onSeek={track ? handleLocalSeek : undefined}
+          />
+        ) : (
+          <ListenLyricsSurface
+            variant="companion"
+            text={props.text}
+            lyrics={null}
+          />
+        )}
+      </ListenWorkspaceLyricsCompanion>
+    );
+  }
+
   if (!track) {
     return (
       <ListenEmptyPlaybackChrome
         mode="linger"
+        presentation={props.presentation}
+        workspaceFullscreen={props.workspaceFullscreen}
         listOpen={props.listOpen}
         onToggleList={props.onToggleList}
         reserveWindowControls={props.reserveWindowControls}
@@ -1070,53 +1257,61 @@ export function ListenPlayback(props: {
         text={props.text}
         onToggleMute={props.onToggleMute}
         onVolumeChange={props.onVolumeChange}
+        onOpenPlaybackSource={props.onOpenPlaybackSource}
+        onRequestPlayerFullscreen={props.onRequestPlayerFullscreen}
       />
     );
   }
+
+  const activeLocalLyricsWorkspaceTrack = localLyricsWorkspaceTrack ?? {
+    lyricsId: `local:${track.id}`,
+    title: track.lyricsTitle || track.title,
+    artist: track.lyricsArtist || track.author,
+    album: track.album,
+    localPath: track.path,
+    durationSeconds: props.localProgress.duration,
+  };
+  const localLyricsControls = localMediaMode === "lyrics"
+    ? renderLocalLyricsControls(
+        props.presentation === "page"
+          ? "overlay"
+          : props.presentation === "fullscreen"
+            ? "fullscreen"
+            : "companion",
+        activeLocalLyricsWorkspaceTrack,
+      )
+    : null;
 
   return (
     <div className={cn(
       "relative h-full min-h-0",
       localArtworkVisualizerVisible ? "overflow-visible" : "overflow-hidden",
     )}>
-      <MediaPlayer
-        ref={playerRef}
-        key={track.id}
-        src={resolveAudioSource(track.previewURL, track.path)}
-        title={track.title}
-        viewType="audio"
-        streamType="on-demand"
-        load="eager"
-        preload="metadata"
-        loop={false}
-        playsInline
-        onPlay={() => props.onLocalPlayingChange(true)}
-        onPause={() => {
-          localReplayStartedAtRef.current = null;
-          props.onLocalPlayingChange(false);
-        }}
-        onReplay={() => syncLocalReplayState()}
-        onTimeUpdate={(detail) => handleLocalTimeUpdate(detail.currentTime)}
-        onEnded={() => {
-          props.onLocalPlayingChange(false);
-          props.onEnded();
-        }}
-        onCanPlay={() => {
-          if (pendingLocalCommandRef.current) {
-            runLocalPlayerCommand(pendingLocalCommandRef.current);
-          }
-        }}
-        className="pointer-events-none"
-        style={LISTEN_HIDDEN_ENGINE_STYLE}
-      >
-        <MediaProvider />
-      </MediaPlayer>
-
       <ListenPlayerChrome
         mediaMode={localMediaMode}
+        presentation={props.presentation}
+        workspaceFullscreen={props.workspaceFullscreen}
+        backdropCandidates={[
+          track.coverURL || LISTEN_DEFAULT_COVER_IMAGE_URL,
+          LISTEN_DEFAULT_COVER_IMAGE_URL,
+        ]}
         reserveWindowControls={props.reserveWindowControls}
-        airPlaySupported={props.airPlaySupported}
-        sourceBadge={<ListenSourceBadge mode="linger" text={props.text} />}
+        airPlaySupported={false}
+        sourceBadge={<ListenPlayerSourceBadge source="local" text={props.text} />}
+        sourceLabel={resolveListenPlayerSourceLabel("local", props.text)}
+        onOpenSource={props.onOpenPlaybackSource ? () => props.onOpenPlaybackSource?.("local") : undefined}
+        onRequestFullscreen={props.onRequestPlayerFullscreen}
+        onExitFullscreen={props.onExitPlayerFullscreen}
+        lyricsControls={
+          props.presentation === "page" ? undefined : localLyricsControls
+        }
+        queueControls={
+          <ListenWorkspaceQueueModeSwitch
+            playMode={props.playMode}
+            text={props.text}
+            onChange={props.onPlayModeChange}
+          />
+        }
         headerCover={
           <ListenCompactCoverSurface
             key={track.id}
@@ -1135,7 +1330,7 @@ export function ListenPlayback(props: {
                 <ListenArtworkVisualizerBridge
                   mode={visualizerMode}
                   enabled={visualizerEnabled}
-                  active={props.localPlaying}
+                  active={localTimelineRunning}
                   onVisibleChange={handleLocalArtworkVisualizerVisibleChange}
                 />
               ) : null
@@ -1143,24 +1338,34 @@ export function ListenPlayback(props: {
           />
         }
         lyrics={
-          <ListenLyricsSurface
+          <ListenLyricsWorkspace
+            variant={props.presentation === "companion" || props.workspaceFullscreen ? "companion" : "player"}
+            surfaceActive={props.active && localMediaMode === "lyrics"}
             text={props.text}
-            lyrics={localLyricsState.data}
-            loading={localLyricsState.loading}
-            error={localLyricsState.error}
-            onRetry={localLyricsState.error ? retryLocalLyrics : undefined}
+            track={activeLocalLyricsWorkspaceTrack}
+            current={{
+              lyrics: localLyricsCurrentState.data,
+              loading: localLyricsCurrentState.loading,
+              error: localLyricsCurrentState.error,
+              errorCode: localLyricsCurrentState.errorCode,
+              errorRetryable: localLyricsCurrentState.errorRetryable,
+              onRetry: retryLocalLyrics,
+            }}
             currentTimeMs={Math.max(0, props.localProgress.currentTime * 1000)}
-            timelineRunning={props.localPlaying}
+            timelineRunning={localTimelineRunning}
             romanized={romanizedLyrics}
             pinyin={pinyinLyrics}
+            controls={
+              props.presentation === "page" ? localLyricsControls : undefined
+            }
             onSeek={handleLocalSeek}
           />
         }
         hasVideo={false}
         videoHidden
-        lyricsAvailable={localLyricsAvailable || Boolean(localLyricsState.error)}
-        lyricsKind={localLyricsState.data?.kind}
-        lyricsLoading={!localLyricsAvailable && localLyricsState.loading}
+        lyricsAvailable
+        lyricsKind={localLyricsCurrentState.data?.kind}
+        lyricsLoading={!localLyricsAvailable && localLyricsCurrentState.loading}
         title={track.title}
         subtitle={track.author}
         infoActions={
@@ -1175,29 +1380,58 @@ export function ListenPlayback(props: {
           </>
         }
         progress={props.localProgress}
+        progressLoading={localTransportLoading}
         onSeek={handleLocalSeek}
         playing={props.localPlaying}
-        loading={false}
+        loading={localTransportLoading}
+        playbackState={localPlaybackState}
         muted={props.muted}
         volume={props.volume}
         playMode={props.playMode}
         text={props.text}
-        onAirPlay={props.airPlaySupported ? handleLocalAirPlay : undefined}
-        onMediaModeChange={setLocalMediaMode}
-        onPrevious={props.onPrevious}
-        onNext={props.onNext}
+        onMediaModeChange={(mode) => {
+          setLocalQueueOpen(false);
+          setLocalMediaMode(mode);
+        }}
+        onPrevious={handleLocalPrevious}
+        onNext={handleLocalNext}
         onPlayModeChange={props.onPlayModeChange}
         onTogglePlayback={handleLocalTogglePlayback}
         onToggleMute={props.onToggleMute}
         onVolumeChange={props.onVolumeChange}
         onToggleQueue={(anchor) => {
           setLocalQueueAnchor(anchor);
-          setLocalQueueOpen((current) => !current);
+          setLocalQueueOpen((current) => {
+            const next = !current;
+            if (next) {
+              setLocalMediaMode("cover");
+            }
+            return next;
+          });
         }}
         visualizerMode={visualizerMode}
         visualizerEnabled={visualizerEnabled}
-        visualizerActive={props.localPlaying}
+        visualizerActive={localTimelineRunning}
         queueOpen={localQueueOpen}
+        workspaceQueue={
+          <ListenWorkspaceLocalQueueCompanion
+            queueTitle={props.text.listen.upNext}
+            queueItems={props.localQueueItems}
+            selectedQueueId={props.selectedLocalId}
+            playMode={props.playMode}
+            text={props.text}
+            onPlayModeChange={props.onPlayModeChange}
+            onClearQueue={props.onClearLocalQueue}
+            onRemoveQueueItem={props.onRemoveLocalQueueItem}
+            onMoveQueueItem={props.onMoveLocalQueueItem}
+            onUndoQueueEdit={props.onUndoLocalQueueEdit}
+            onRedoQueueEdit={props.onRedoLocalQueueEdit}
+            queueCanUndo={props.localQueueCanUndo}
+            queueCanRedo={props.localQueueCanRedo}
+            showFooter={props.presentation !== "companion"}
+            onSelectQueueTrack={props.onSelectLocalQueueTrack}
+          />
+        }
         queueOverlay={
           localQueueOpen ? (
             <ListenLocalPlaybackQueuePopup
@@ -1206,6 +1440,13 @@ export function ListenPlayback(props: {
               queueItems={props.localQueueItems}
               selectedQueueId={props.selectedLocalId}
               text={props.text}
+              onClearQueue={props.onClearLocalQueue}
+              onRemoveQueueItem={props.onRemoveLocalQueueItem}
+              onMoveQueueItem={props.onMoveLocalQueueItem}
+              onUndoQueueEdit={props.onUndoLocalQueueEdit}
+              onRedoQueueEdit={props.onRedoLocalQueueEdit}
+              queueCanUndo={props.localQueueCanUndo}
+              queueCanRedo={props.localQueueCanRedo}
               onSelectQueueTrack={props.onSelectLocalQueueTrack}
               onClose={() => setLocalQueueOpen(false)}
             />
@@ -1219,6 +1460,10 @@ export function ListenPlayback(props: {
 export function ListenYouTubePlayback(props: {
   mode: Exclude<ListenMode, "linger">;
   active: boolean;
+  presentation: ListenPlayerPresentation;
+  companionMode?: ListenPlayerCompanionMode;
+  workspaceFullscreen?: boolean;
+  presentationCommand?: ListenExternalCommand | null;
   listOpen: boolean;
   onToggleList: () => void;
   reserveWindowControls: boolean;
@@ -1281,6 +1526,9 @@ export function ListenYouTubePlayback(props: {
   pinyinLyrics: boolean;
   visualizerMode: EqualizerVisualizerMode;
   visualizerEnabled: boolean;
+  onOpenPlaybackSource?: (source: ListenPlaybackSource) => void;
+  onRequestPlayerFullscreen?: () => void;
+  onExitPlayerFullscreen?: () => void;
 }) {
   const resumeRef = React.useRef(props.resumeSeconds);
   const artworkVisualizerKey = `${props.track.id}:${props.visualizerMode}:${props.visualizerEnabled}:${props.playing}`;
@@ -1297,6 +1545,11 @@ export function ListenYouTubePlayback(props: {
   const intendedVideoSinceRef = React.useRef(Date.now());
   const liveMismatchReplayAtRef = React.useRef(0);
   const isLive = props.track.group === "live";
+  useListenTrackLyricsPrefetch({ enabled: props.active && !isLive, track: props.track, durationSeconds: props.progress.duration, language: props.text.locale, synced: props.syncedLyricsEnabled });
+  const livePlaybackSessionIDRef = React.useRef("");
+  React.useEffect(() => {
+    livePlaybackSessionIDRef.current = "";
+  }, [isLive, props.track.videoId]);
   const playerService = isLive
     ? LISTEN_LIVE_PLAYER_SERVICE
     : LISTEN_NATIVE_PLAYER_SERVICE;
@@ -1336,7 +1589,11 @@ export function ListenYouTubePlayback(props: {
       if (isLive) {
         return;
       }
-      const artistTrack = listenArtistBrowseTrack(props.track, artist, artistLabelParts);
+      const artistTrack = listenArtistBrowseTrack(
+        props.track,
+        { name: artist },
+        artistLabelParts,
+      );
       if (artistTrack) {
         props.onOpenArtist(artistTrack);
       }
@@ -1348,7 +1605,12 @@ export function ListenYouTubePlayback(props: {
   const trackVideoId = props.track.videoId.trim();
   const canCheckVideoAvailability = !isLive && trackVideoId !== "";
   const showDownloadAction = !isLive && props.track.videoId.trim() !== "";
-  const sourceBadge = <ListenSourceBadge mode={props.mode} text={props.text} />;
+  const playbackSource = listenPlaybackSourceFromMode(props.mode);
+  const artworkRevisionKey = [
+    props.track.id,
+    props.track.videoId,
+    props.track.thumbnailUrl?.trim() ?? "",
+  ].join(":");
   const trackPageURL = React.useMemo(() => {
     const videoId = props.track.videoId.trim();
     return videoId ? buildYouTubeWatchURL(videoId) : "";
@@ -1377,31 +1639,51 @@ export function ListenYouTubePlayback(props: {
   const [queueOpen, setQueueOpen] = React.useState(false);
   const [queueAnchor, setQueueAnchor] =
     React.useState<ListenQueuePopupAnchor | null>(null);
+  const handledPresentationCommandRef = React.useRef(0);
   const [lyricsState, setLyricsState] = React.useState<{
     videoId: string;
     loading: boolean;
     data: ListenLyricsData | null;
     error: string;
+    errorCode?: string;
+    errorRetryable?: boolean;
   }>({
     videoId: props.track.videoId,
     loading: false,
     data: null,
     error: "",
 	  });
+	  const onlineLyricsCurrentState = resolveListenLyricsCurrentState(
+	    lyricsState,
+	    lyricsState.videoId,
+	    props.track.videoId,
+	  );
 	  const lyricsRetryKeyRef = React.useRef("");
+	  const lyricsRequestGenerationRef = React.useRef(0);
 	  const [lyricsRetryToken, setLyricsRetryToken] = React.useState(0);
-	  const [lyricsCurrentTimeMs, setLyricsCurrentTimeMs] = React.useState(() =>
+  const [lyricsCurrentTimeMs, setLyricsCurrentTimeMs] = React.useState(() =>
 	    Math.max(0, props.progress.currentTime * 1000),
 	  );
+  const [lyricsPlaybackRate, setLyricsPlaybackRate] = React.useState(1);
+  const onlineLyricsWorkspaceTrack = React.useMemo(() => ({
+    videoId: props.track.videoId,
+    title: props.track.title,
+    artist: resolveListenLyricsOnlineArtist(props.track),
+    durationSeconds: props.progress.duration,
+  }), [
+    props.progress.duration,
+    props.track.artists,
+    props.track.channel,
+    props.track.title,
+    props.track.videoId,
+  ]);
   const hasPlayableBuffer =
     props.state === "playing" ||
     (isLive && props.playing && props.state === "buffering") ||
     props.progress.currentTime > 0.15 ||
     props.progress.bufferedTime > 0.15;
-  const transportLoading =
-    props.enabled &&
-    (props.state === "loading" ||
-      (props.state === "buffering" && !hasPlayableBuffer));
+  const playbackActivity = resolveListenPlaybackActivity(props.state);
+  const transportLoading = props.enabled && playbackActivity.loading;
   const progressLoading =
     !playbackAdvertising &&
     props.state !== "error" &&
@@ -1427,10 +1709,17 @@ export function ListenYouTubePlayback(props: {
     React.useState(false);
   const [inlineNativeVideoSettled, setInlineNativeVideoSettled] =
     React.useState(false);
+	const [embeddedVideoFullscreen, setEmbeddedVideoFullscreen] =
+		React.useState(false);
+	const [embeddedVideoFullscreenPending, setEmbeddedVideoFullscreenPending] =
+		React.useState(false);
+	const embeddedVideoGeometrySuspended =
+		embeddedVideoFullscreen || embeddedVideoFullscreenPending;
   const inlineNativeVideoRectRef = React.useRef<ListenNativeVideoRect | null>(null);
   const inlineNativeVideoRequestRef = React.useRef(0);
   const liveFullscreenActive =
     props.active &&
+    props.presentation === "page" &&
     props.mode === "hush" &&
     isLive &&
     !props.listOpen;
@@ -1452,7 +1741,7 @@ export function ListenYouTubePlayback(props: {
     hasPlayableBuffer;
   const inlineVideoHasSurface =
     props.active &&
-    !isLive &&
+    props.presentation === "fullscreen" &&
     mediaMode === "video" &&
     hasVideo &&
     props.enabled;
@@ -1465,26 +1754,81 @@ export function ListenYouTubePlayback(props: {
   const inlineVideoRevealReady =
     inlineVideoModeActive &&
     hasPlayableBuffer;
-  const inlineVideoVisible =
-    inlineVideoRevealReady &&
-    inlineNativeVideoShown;
+  const inlineVideoVisible = inlineVideoRevealReady && inlineNativeVideoShown;
+  useListenRadioFullscreenVideoDefault({
+    presentation: props.presentation,
+    workspaceFullscreen: props.workspaceFullscreen === true,
+    active: props.active,
+    enabled: props.enabled,
+    live: isLive,
+    trackKey: `${props.track.id}:${trackVideoId}`,
+    hasVideo,
+    nativeVideoAvailable: inlineNativeVideoAvailable,
+    queueOpen,
+    mediaMode,
+    setQueueOpen,
+    setMediaMode,
+  });
   const retryLyrics = React.useCallback(() => {
     const videoId = props.track.videoId.trim();
     if (!videoId) {
       return;
     }
+    lyricsRequestGenerationRef.current += 1;
     lyricsRetryKeyRef.current = videoId;
-    forgetListenLyricsCache(videoId, props.text.locale);
+    forgetListenLyricsCache(videoId, props.text.locale, {
+      synced: props.syncedLyricsEnabled,
+    });
     setLyricsRetryToken((value) => value + 1);
-  }, [props.text.locale, props.track.videoId]);
+  }, [
+    props.syncedLyricsEnabled,
+    props.text.locale,
+    props.track.videoId,
+  ]);
+
+  const handleOnlineLyricsChange = React.useCallback((data: ListenLyricsData) => {
+    const videoId = props.track.videoId.trim();
+    if (!videoId) {
+      return;
+    }
+    lyricsRequestGenerationRef.current += 1;
+    forgetListenLyricsCache(videoId, props.text.locale, {
+      synced: props.syncedLyricsEnabled,
+    });
+    setLyricsState({
+      videoId,
+      loading: false,
+      data,
+      error: "",
+    });
+  }, [
+    props.syncedLyricsEnabled,
+    props.text.locale,
+    props.track.videoId,
+  ]);
+
+  const handleOnlineLyricsRestoreAutomatic = React.useCallback(async () => {
+    forgetListenLyricsCacheVariants(onlineLyricsWorkspaceTrack.videoId);
+    retryLyrics();
+  }, [
+    onlineLyricsWorkspaceTrack,
+    retryLyrics,
+  ]);
 
   React.useEffect(() => {
     resumeRef.current = props.resumeSeconds;
   }, [props.resumeSeconds, props.track.videoId]);
 
   React.useEffect(() => {
+    if (onlineLyricsCurrentState.data?.kind === "synced") {
+      return;
+    }
     setLyricsCurrentTimeMs(Math.max(0, props.progress.currentTime * 1000));
-  }, [props.progress.currentTime, props.track.videoId]);
+  }, [
+    onlineLyricsCurrentState.data?.kind,
+    props.progress.currentTime,
+    props.track.videoId,
+  ]);
 
   React.useEffect(() => {
     intendedVideoSinceRef.current = Date.now();
@@ -1498,6 +1842,7 @@ export function ListenYouTubePlayback(props: {
     setPlaybackAdvertisingProgress(null);
     setPlaybackErrorLabel("");
     setPlaybackErrorMessage("");
+    setLyricsPlaybackRate(1);
     setLyricsState({
       videoId: props.track.videoId,
       loading: false,
@@ -1508,6 +1853,11 @@ export function ListenYouTubePlayback(props: {
       setMediaMode("cover");
     }
   }, [isLive, props.track.videoId]);
+
+	React.useEffect(() => {
+		setEmbeddedVideoFullscreen(false);
+		setEmbeddedVideoFullscreenPending(false);
+	}, [isLive]);
 
   React.useEffect(() => {
     setVideoAvailability(resolveListenTrackVideoAvailability(props.track, isLive));
@@ -1521,7 +1871,12 @@ export function ListenYouTubePlayback(props: {
   ]);
 
   React.useEffect(() => {
-    if (mediaMode !== "lyrics") {
+    const requestGeneration = lyricsRequestGenerationRef.current + 1;
+    lyricsRequestGenerationRef.current = requestGeneration;
+    if (
+      mediaMode !== "lyrics" &&
+      props.companionMode !== "lyrics"
+    ) {
       return;
     }
     if (isLive) {
@@ -1558,8 +1913,18 @@ export function ListenYouTubePlayback(props: {
       lyricsRetryKeyRef.current = "";
     }
     const lyricsMode = { synced: props.syncedLyricsEnabled };
-    const cachedLyrics = forceRequest ? null : readListenLyricsCache(videoId, props.text.locale, lyricsMode);
-    const refreshCachedPlain = props.syncedLyricsEnabled && cachedLyrics?.kind === "plain";
+    const manualTrack = {
+      videoId,
+      title: props.track.title,
+      artist: props.track.channel,
+      durationSeconds: props.progress.duration,
+    };
+    const manualOverride = readListenLyricsManualOverride(manualTrack);
+    const storedLyrics = forceRequest ? null : readListenLyricsCache(videoId, props.text.locale, lyricsMode);
+    const cachedLyrics = manualOverride && !listenLyricsMatchesManualOverride(storedLyrics, manualOverride)
+      ? null
+      : storedLyrics;
+    const refreshCachedPlain = false;
     logListenLyrics("online request state", {
       videoId,
       title: props.track.title,
@@ -1591,14 +1956,25 @@ export function ListenYouTubePlayback(props: {
       data: cachedLyrics,
       error: "",
     });
-    void callListenTrackLyrics({
-      track: props.track,
-      durationSeconds: props.progress.duration,
-      language: props.text.locale,
-      synced: props.syncedLyricsEnabled,
-    })
+    const lyricsRequest = manualOverride
+      ? callListenLyricsCandidate({
+          track: manualTrack,
+          candidate: manualOverride,
+          language: props.text.locale,
+          synced: props.syncedLyricsEnabled,
+        })
+      : callListenTrackLyricsCached({
+          track: props.track,
+          durationSeconds: props.progress.duration,
+          language: props.text.locale,
+          synced: props.syncedLyricsEnabled,
+        });
+    void lyricsRequest
       .then((data) => {
-        if (cancelled) {
+        if (
+          cancelled ||
+          lyricsRequestGenerationRef.current !== requestGeneration
+        ) {
           logListenLyrics("online fetch ignored after cancel", {
             videoId,
             result: listenLyricsSummary(data),
@@ -1617,7 +1993,10 @@ export function ListenYouTubePlayback(props: {
         });
       })
       .catch((error: unknown) => {
-        if (cancelled) {
+        if (
+          cancelled ||
+          lyricsRequestGenerationRef.current !== requestGeneration
+        ) {
           logListenLyrics("online fetch error ignored after cancel", {
             videoId,
             error: getListenErrorMessage(error),
@@ -1631,13 +2010,19 @@ export function ListenYouTubePlayback(props: {
           error: getListenErrorMessage(error),
           code: getListenErrorCode(error),
         });
+        const presentation = resolveListenLyricsErrorPresentation(
+          props.text,
+          error,
+        );
         setLyricsState({
           videoId,
           loading: false,
           data: cachedLyrics,
           error: cachedLyrics
             ? ""
-            : getListenErrorMessage(error) || props.text.listen.lyricsEmpty,
+            : presentation.message,
+          errorCode: cachedLyrics ? undefined : presentation.code,
+          errorRetryable: cachedLyrics ? undefined : presentation.retryable,
         });
       });
     return () => {
@@ -1646,10 +2031,12 @@ export function ListenYouTubePlayback(props: {
   }, [
     isLive,
     mediaMode,
+    props.companionMode,
     props.text.listen.lyricsEmpty,
     props.text.locale,
     props.track.channel,
     props.track.durationLabel,
+    props.progress.duration,
     props.track.title,
     props.track.videoId,
     props.syncedLyricsEnabled,
@@ -1662,11 +2049,65 @@ export function ListenYouTubePlayback(props: {
     [playerService],
   );
 
+  React.useEffect(() => {
+    const command = props.presentationCommand;
+    if (!command || handledPresentationCommandRef.current === command.id) {
+      return;
+    }
+    handledPresentationCommandRef.current = command.id;
+    if (
+      command.command === "show-lyrics" &&
+      !isLive &&
+      props.presentation !== "companion"
+    ) {
+      setQueueOpen(false);
+      setMediaMode("lyrics");
+    } else if (
+      command.command === "show-queue" &&
+      props.presentation !== "companion"
+    ) {
+      setQueueOpen(true);
+    } else if (
+      command.command === "show-video" &&
+      props.presentation === "fullscreen"
+    ) {
+      setQueueOpen(false);
+      setMediaMode("video");
+    } else if (command.command === "open-artist" && !isLive) {
+      const artistTrack = command.artist
+        ? listenArtistBrowseTrack(props.track, command.artist, artistLabelParts)
+        : props.track;
+      props.onOpenArtist(artistTrack ?? props.track);
+    }
+  }, [
+    artistLabelParts,
+    isLive,
+    props.onOpenArtist,
+    props.presentation,
+    props.presentationCommand,
+    props.track,
+  ]);
+  React.useLayoutEffect(() => {
+    if (!props.companionMode) {
+      return;
+    }
+    setQueueOpen(false);
+    setMediaMode("cover");
+  }, [props.companionMode]);
+  React.useEffect(() => {
+    if (props.presentation === "fullscreen") {
+      return;
+    }
+    setQueueOpen(false);
+    setMediaMode((current) => (current === "video" ? "cover" : current));
+  }, [props.presentation]);
+
   const shouldPollLyricsTime =
     props.enabled &&
     !isLive &&
-    mediaMode === "lyrics" &&
-    lyricsState.data?.kind === "synced";
+    (props.companionMode === "lyrics" ||
+      (props.companionMode !== "queue" && mediaMode === "lyrics")) &&
+    onlineLyricsCurrentState.data?.kind === "synced";
 
   React.useEffect(() => {
     if (isLive) {
@@ -1934,7 +2375,7 @@ export function ListenYouTubePlayback(props: {
   }, [callNativePlayer]);
 
   React.useEffect(() => {
-    if (isLive || props.listOpen) {
+    if (!props.workspaceFullscreen || isLive || props.listOpen || queueOpen) {
       fullscreenLyricsDefaultKeyRef.current = "";
       return;
     }
@@ -1963,8 +2404,10 @@ export function ListenYouTubePlayback(props: {
     mediaMode,
     props.active,
     props.listOpen,
+    queueOpen,
     props.track.id,
     props.track.videoId,
+    props.workspaceFullscreen,
     trackVideoId,
   ]);
 
@@ -1991,6 +2434,9 @@ export function ListenYouTubePlayback(props: {
           }
           const visible = Boolean(shown);
           setInlineNativeVideoShown(visible);
+          if (!visible) {
+            setInlineNativeVideoAvailable(false);
+          }
           return visible;
         })
         .catch((error) => {
@@ -2007,20 +2453,16 @@ export function ListenYouTubePlayback(props: {
   );
 
   React.useEffect(() => {
-    if (isLive) {
-      return;
-    }
     if (!inlineVideoModeActive) {
       hideInlineEmbeddedVideo();
     }
   }, [
     hideInlineEmbeddedVideo,
     inlineVideoModeActive,
-    isLive,
   ]);
 
   React.useEffect(() => {
-    if (isLive || !inlineVideoModeActive || inlineVideoRevealReady) {
+    if (!inlineVideoModeActive || inlineVideoRevealReady) {
       return;
     }
     hideInlineEmbeddedVideo();
@@ -2028,7 +2470,6 @@ export function ListenYouTubePlayback(props: {
     hideInlineEmbeddedVideo,
     inlineVideoModeActive,
     inlineVideoRevealReady,
-    isLive,
     props.track.videoId,
   ]);
 
@@ -2073,9 +2514,12 @@ export function ListenYouTubePlayback(props: {
 
   React.useEffect(() => {
     return () => {
-      const requestRef = isLive
-        ? liveNativeVideoRequestRef
-        : inlineNativeVideoRequestRef;
+      const requestRef =
+        mediaModeRef.current === "video"
+          ? inlineNativeVideoRequestRef
+          : isLive
+            ? liveNativeVideoRequestRef
+            : inlineNativeVideoRequestRef;
       const requestId = requestRef.current + 1;
       requestRef.current = requestId;
       const sequence = createListenNativeVideoSequence(requestId);
@@ -2129,12 +2573,16 @@ export function ListenYouTubePlayback(props: {
 
   const handleOnlineMediaModeChange = React.useCallback(
     (mode: ListenMediaMode) => {
+      if (mode === "video" && props.presentation !== "fullscreen") {
+        return;
+      }
+      setQueueOpen(false);
       setMediaMode(mode);
       if (mode !== "video") {
         hideInlineEmbeddedVideo();
       }
     },
-    [hideInlineEmbeddedVideo],
+    [hideInlineEmbeddedVideo, props.presentation],
   );
 
   const handleOpenTrackPage = React.useCallback(() => {
@@ -2215,7 +2663,25 @@ export function ListenYouTubePlayback(props: {
         forceReload: options.forceReload === true,
         volume: clampVolume(options.volume ?? props.volume),
         muted: options.muted ?? props.muted,
-      }).catch(markNativePlayerUnavailable);
+      })
+        .then(() => {
+          if (!isLive) {
+            return;
+          }
+          return callNativePlayer("Status")
+            .then((rawStatus) => {
+              const status = rawStatus as ListenNativePlayerEvent;
+              if (
+                status.provider === "stream" &&
+                status.videoId?.trim() === props.track.videoId &&
+                status.sessionId?.trim()
+              ) {
+                livePlaybackSessionIDRef.current = status.sessionId.trim();
+              }
+            })
+            .catch(() => {});
+        })
+        .catch(markNativePlayerUnavailable);
     },
     [
       callNativePlayer,
@@ -2352,9 +2818,24 @@ export function ListenYouTubePlayback(props: {
       if (!data || data.source !== playerEventSource) {
         return;
       }
+      if (
+        isLive &&
+        !isListenLiveEventForSession(
+          data,
+          "stream",
+          livePlaybackSessionIDRef.current,
+        )
+      ) {
+        return;
+      }
       if (data.type === "debug") {
         return;
       }
+	  if (data.type === "embedded-video-fullscreen-change") {
+		setEmbeddedVideoFullscreen(data.active === true);
+		setEmbeddedVideoFullscreenPending(false);
+		return;
+	  }
       if (data.type === "video-closed") {
         setMediaMode((current) => (current === "video" ? "cover" : current));
         return;
@@ -2394,6 +2875,14 @@ export function ListenYouTubePlayback(props: {
 	          eventVideoId === props.track.videoId ||
 	          requestedVideoId === props.track.videoId ||
 	          eventURLVideoId === props.track.videoId;
+	      if (
+	        isLive &&
+	        eventBelongsToCurrentTrack &&
+	        !livePlaybackSessionIDRef.current &&
+	        data.sessionId?.trim()
+	      ) {
+	        livePlaybackSessionIDRef.current = data.sessionId.trim();
+	      }
 	      if (!isLive && data.type === "lyrics-time") {
 	        if (
 	          eventBelongsToCurrentTrack &&
@@ -2401,6 +2890,9 @@ export function ListenYouTubePlayback(props: {
 	          Number.isFinite(data.currentTime)
 	        ) {
 	          setLyricsCurrentTimeMs(Math.max(0, data.currentTime * 1000));
+	          setLyricsPlaybackRate(
+	            normalizeListenLyricsPlaybackRate(data.playbackRate),
+	          );
 	        }
 	        return;
 	      }
@@ -2712,9 +3204,164 @@ export function ListenYouTubePlayback(props: {
     props.track.videoId,
   ]);
 
+  const handleRequestEmbeddedVideoFullscreen = React.useCallback(() => {
+	if (embeddedVideoFullscreenPending) {
+		return;
+	}
+	setEmbeddedVideoFullscreenPending(true);
+    void (async () => {
+      if (!isLive) {
+		await callNativePlayer(
+			embeddedVideoFullscreen
+				? "ExitEmbeddedVideoFullscreen"
+				: "RequestEmbeddedVideoFullscreen",
+		);
+        return;
+      }
+      let sessionId = livePlaybackSessionIDRef.current.trim();
+      if (!sessionId) {
+        const status = (await callNativePlayer("Status")) as ListenNativePlayerEvent;
+        if (
+          status.provider === "stream" &&
+          status.videoId?.trim() === props.track.videoId &&
+          status.sessionId?.trim()
+        ) {
+          sessionId = status.sessionId.trim();
+          livePlaybackSessionIDRef.current = sessionId;
+        }
+      }
+	  await callNativePlayer(
+		embeddedVideoFullscreen
+			? "ExitEmbeddedVideoFullscreen"
+			: "RequestEmbeddedVideoFullscreen",
+		{
+		  provider: "stream",
+		  sessionId,
+		},
+	  );
+    })().catch((error) => {
+      const description = getListenErrorMessage(error);
+      console.warn("[Listen] embedded video fullscreen unavailable", error);
+      messageBus.publishToast({
+        id: "listen-video-fullscreen-error",
+        intent: "danger",
+        title: props.text.completed.previewEnterFullscreen,
+        description,
+        source: "listen",
+      });
+	}).finally(() => {
+		setEmbeddedVideoFullscreenPending(false);
+    });
+  }, [
+	callNativePlayer,
+	embeddedVideoFullscreen,
+	embeddedVideoFullscreenPending,
+	isLive,
+	props.text.completed.previewEnterFullscreen,
+	props.track.videoId,
+  ]);
+
   const playbackTimelineProgress = playbackAdvertising
     ? playbackAdvertisingProgress ?? LISTEN_EMPTY_PROGRESS
     : props.progress;
+  const lyricsSurfaceTimeMs =
+    onlineLyricsCurrentState.data?.kind === "synced"
+      ? lyricsCurrentTimeMs
+      : Math.max(0, props.progress.currentTime * 1000);
+  const lyricsSurfacePlaybackRate =
+    onlineLyricsCurrentState.data?.kind === "synced"
+      ? lyricsPlaybackRate
+      : 1;
+  const lyricsTimelineRunning =
+    props.playing && playbackActivity.timelineRunning && !playbackAdvertising;
+  const renderOnlineLyricsControls = (
+    placement: "overlay" | "companion" | "fullscreen",
+  ) => (
+    <ListenLyricsControls
+      key={`${onlineLyricsWorkspaceTrack.videoId}:${placement}`}
+      placement={placement}
+      text={props.text}
+      track={onlineLyricsWorkspaceTrack}
+      lyrics={onlineLyricsCurrentState.data}
+      currentTimeMs={lyricsSurfaceTimeMs}
+      timelineRunning={lyricsTimelineRunning}
+      playbackRate={lyricsSurfacePlaybackRate}
+      language={props.text.locale}
+      synced={props.syncedLyricsEnabled}
+      romanized={props.romanizedLyrics}
+      pinyin={props.pinyinLyrics}
+      onLyricsChange={handleOnlineLyricsChange}
+      onRestoreAutomatic={handleOnlineLyricsRestoreAutomatic}
+    />
+  );
+  if (props.companionMode === "queue") {
+    return (
+      <ListenWorkspaceOnlineQueueCompanion
+        queueTitle={props.queueTitle}
+        queueItems={props.queueItems}
+        selectedQueueId={props.selectedQueueId}
+        httpBaseURL={props.httpBaseURL}
+        playMode={props.playMode}
+        text={props.text}
+        onPlayModeChange={props.onPlayModeChange}
+        onClearQueue={isLive ? undefined : props.onClearQueue}
+        onRemoveQueueItem={isLive ? undefined : props.onRemoveQueueItem}
+        onMoveQueueItem={isLive ? undefined : props.onMoveQueueItem}
+        onUndoQueueEdit={isLive ? undefined : props.onUndoQueueEdit}
+        onRedoQueueEdit={isLive ? undefined : props.onRedoQueueEdit}
+        queueCanUndo={!isLive && props.queueCanUndo}
+        queueCanRedo={!isLive && props.queueCanRedo}
+        onSelectQueueTrack={props.onSelectQueueTrack}
+      />
+    );
+  }
+
+  if (props.companionMode === "lyrics") {
+    return (
+      <ListenWorkspaceLyricsCompanion
+        artworkCandidates={buildListenPosterCandidates(
+          props.httpBaseURL,
+          props.track,
+        )}
+        title={props.track.title}
+        text={props.text}
+        lyricsControls={
+          isLive ? undefined : renderOnlineLyricsControls("companion")
+        }
+      >
+        <ListenLyricsWorkspace
+          variant="companion"
+          surfaceActive={props.active && props.companionMode === "lyrics"}
+          text={props.text}
+          track={onlineLyricsWorkspaceTrack}
+          current={{
+            lyrics: onlineLyricsCurrentState.data,
+            loading: onlineLyricsCurrentState.loading,
+            error: onlineLyricsCurrentState.error,
+            errorCode: onlineLyricsCurrentState.errorCode,
+            errorRetryable: onlineLyricsCurrentState.errorRetryable,
+            onRetry: retryLyrics,
+          }}
+          currentTimeMs={lyricsSurfaceTimeMs}
+          timelineRunning={lyricsTimelineRunning}
+          playbackRate={lyricsSurfacePlaybackRate}
+          romanized={props.romanizedLyrics}
+          pinyin={props.pinyinLyrics}
+          onSeek={isLive ? undefined : handleOnlineSeek}
+        />
+      </ListenWorkspaceLyricsCompanion>
+    );
+  }
+
+  const onlineLyricsControls = !isLive && mediaMode === "lyrics"
+    ? renderOnlineLyricsControls(
+        props.presentation === "page"
+          ? "overlay"
+          : props.presentation === "fullscreen"
+            ? "fullscreen"
+            : "companion",
+      )
+    : null;
 
   return (
     <div className={cn(
@@ -2723,15 +3370,36 @@ export function ListenYouTubePlayback(props: {
     )}>
       <ListenPlayerChrome
         mediaMode={mediaMode}
+        presentation={props.presentation}
+        workspaceFullscreen={props.workspaceFullscreen}
+        backdropCandidates={buildListenPosterCandidates(
+          props.httpBaseURL,
+          props.track,
+        )}
         listOpen={props.listOpen}
         onToggleList={props.onToggleList}
         reserveWindowControls={props.reserveWindowControls}
         airPlaySupported={props.airPlaySupported}
-        sourceBadge={sourceBadge}
+        sourceBadge={<ListenPlayerSourceBadge source={playbackSource} text={props.text} />}
+        sourceLabel={resolveListenPlayerSourceLabel(playbackSource, props.text)}
+        onOpenSource={props.onOpenPlaybackSource ? () => props.onOpenPlaybackSource?.(playbackSource) : undefined}
+        onRequestFullscreen={props.onRequestPlayerFullscreen}
+        onExitFullscreen={props.onExitPlayerFullscreen}
+        onRequestVideoFullscreen={handleRequestEmbeddedVideoFullscreen}
+        lyricsControls={
+          props.presentation === "page" ? undefined : onlineLyricsControls
+        }
+        queueControls={
+          <ListenWorkspaceQueueModeSwitch
+            playMode={props.playMode}
+            text={props.text}
+            onChange={props.onPlayModeChange}
+          />
+        }
         observedPlaybackAudioQuality={props.observedPlaybackAudioQuality}
         headerCover={
           <ListenCompactCoverSurface
-            key={props.track.id}
+            key={artworkRevisionKey}
             srcCandidates={buildListenPosterCandidates(
               props.httpBaseURL,
               props.track,
@@ -2741,7 +3409,7 @@ export function ListenYouTubePlayback(props: {
         }
         cover={
           <ListenOnlineArtwork
-            key={props.track.id}
+            key={artworkRevisionKey}
             httpBaseURL={props.httpBaseURL}
             track={props.track}
             className="!w-full"
@@ -2759,35 +3427,38 @@ export function ListenYouTubePlayback(props: {
           />
         }
         lyrics={
-          <ListenLyricsSurface
+          <ListenLyricsWorkspace
+            variant={props.presentation === "companion" || props.workspaceFullscreen ? "companion" : "player"}
+            surfaceActive={props.active && mediaMode === "lyrics"}
             text={props.text}
-            lyrics={lyricsState.data}
-            loading={lyricsState.loading}
-            error={lyricsState.error}
-            onRetry={lyricsState.error ? retryLyrics : undefined}
-            currentTimeMs={
-              lyricsState.data?.kind === "synced"
-                ? lyricsCurrentTimeMs
-                : Math.max(0, props.progress.currentTime * 1000)
-            }
-            timelineRunning={
-              props.playing &&
-              props.state === "playing" &&
-              !playbackAdvertising
-            }
+            track={onlineLyricsWorkspaceTrack}
+            current={{
+              lyrics: onlineLyricsCurrentState.data,
+              loading: onlineLyricsCurrentState.loading,
+              error: onlineLyricsCurrentState.error,
+              errorCode: onlineLyricsCurrentState.errorCode,
+              errorRetryable: onlineLyricsCurrentState.errorRetryable,
+              onRetry: retryLyrics,
+            }}
+            currentTimeMs={lyricsSurfaceTimeMs}
+            timelineRunning={lyricsTimelineRunning}
+            playbackRate={lyricsSurfacePlaybackRate}
             romanized={props.romanizedLyrics}
             pinyin={props.pinyinLyrics}
+            controls={
+              props.presentation === "page" ? onlineLyricsControls : undefined
+            }
             onSeek={isLive ? undefined : handleOnlineSeek}
           />
         }
         hasVideo={hasVideo}
-        videoHidden={isLive}
         videoLoading={videoLoading}
         live={isLive}
         fullscreenLive={liveFullscreenActive}
         videoId={props.track.videoId}
         liveVideoModeActive={liveVideoModeActive}
         liveVideoVisible={liveVideoVisible}
+		nativeVideoGeometrySuspended={embeddedVideoGeometrySuspended}
         inlineVideoRevealReady={inlineVideoRevealReady}
         inlineVideoVisible={inlineVideoVisible}
         inlineVideoAspectRatio={videoAspectRatio}
@@ -2796,8 +3467,8 @@ export function ListenYouTubePlayback(props: {
         pet={props.pet}
         petImageURL={props.petImageURL}
         lyricsAvailable={!isLive}
-        lyricsKind={lyricsState.data?.kind}
-        lyricsLoading={lyricsState.loading}
+        lyricsKind={onlineLyricsCurrentState.data?.kind}
+        lyricsLoading={onlineLyricsCurrentState.loading}
         title={props.track.title}
         subtitle={artistName}
         subtitleArtistParts={artistName && !isLive ? artistLabelParts : undefined}
@@ -2815,16 +3486,13 @@ export function ListenYouTubePlayback(props: {
               <ListenPlayerIconButton
                 label={props.text.listen.favorite}
                 active={props.favoriteActive}
-                className={cn(
-                  props.favoriteActive && "text-sidebar-primary",
-                )}
                 disabled={props.favoriteBusy}
                 onClick={props.onToggleFavorite}
               >
                 <Heart
                   className={cn(
                     "h-4 w-4",
-                    props.favoriteActive && "fill-current",
+                    props.favoriteActive && "listen-playback-icon--filled",
                   )}
                 />
               </ListenPlayerIconButton>
@@ -2862,7 +3530,11 @@ export function ListenYouTubePlayback(props: {
         onStopPlayback={handleStopPlayback}
         onFitLiveVideoWindow={handleFitLiveVideoWindow}
         onLiveVideoRectChange={showLiveEmbeddedVideo}
-        onInlineVideoRectChange={showInlineEmbeddedVideo}
+        onInlineVideoRectChange={
+          props.presentation === "fullscreen"
+            ? showInlineEmbeddedVideo
+            : undefined
+        }
         playing={props.playing}
         loading={transportLoading}
         playbackState={props.state}
@@ -2880,12 +3552,39 @@ export function ListenYouTubePlayback(props: {
         onVolumeChange={props.onVolumeChange}
         onToggleQueue={(anchor) => {
           setQueueAnchor(anchor);
-          setQueueOpen((current) => !current);
+          setQueueOpen((current) => {
+            const next = !current;
+            if (next) {
+              setMediaMode("cover");
+              hideInlineEmbeddedVideo();
+            }
+            return next;
+          });
         }}
         visualizerMode={props.visualizerMode}
         visualizerEnabled={props.visualizerEnabled}
         visualizerActive={props.playing}
         queueOpen={queueOpen}
+        workspaceQueue={
+          <ListenWorkspaceOnlineQueueCompanion
+            queueTitle={props.queueTitle}
+            queueItems={props.queueItems}
+            selectedQueueId={props.selectedQueueId}
+            httpBaseURL={props.httpBaseURL}
+            playMode={props.playMode}
+            text={props.text}
+            onPlayModeChange={props.onPlayModeChange}
+            onClearQueue={isLive ? undefined : props.onClearQueue}
+            onRemoveQueueItem={isLive ? undefined : props.onRemoveQueueItem}
+            onMoveQueueItem={isLive ? undefined : props.onMoveQueueItem}
+            onUndoQueueEdit={isLive ? undefined : props.onUndoQueueEdit}
+            onRedoQueueEdit={isLive ? undefined : props.onRedoQueueEdit}
+            queueCanUndo={!isLive && props.queueCanUndo}
+            queueCanRedo={!isLive && props.queueCanRedo}
+            showFooter={props.presentation !== "companion"}
+            onSelectQueueTrack={props.onSelectQueueTrack}
+          />
+        }
         queueOverlay={
           queueOpen ? (
             <ListenPlaybackQueuePopup
@@ -2914,11 +3613,21 @@ export function ListenYouTubePlayback(props: {
 
 function ListenPlayerChrome(props: {
   mediaMode: ListenMediaMode;
+  presentation: ListenPlayerPresentation;
+  workspaceFullscreen?: boolean;
+  backdropCandidates?: string[];
   listOpen?: boolean;
   onToggleList?: () => void;
   reserveWindowControls: boolean;
   airPlaySupported: boolean;
   sourceBadge?: React.ReactNode;
+  sourceLabel?: string;
+  onOpenSource?: () => void;
+  lyricsControls?: React.ReactNode;
+  queueControls?: React.ReactNode;
+  onRequestFullscreen?: () => void;
+  onExitFullscreen?: () => void;
+  onRequestVideoFullscreen?: () => void;
   headerCover?: React.ReactNode;
   cover: React.ReactNode;
   lyrics: React.ReactNode;
@@ -2930,6 +3639,7 @@ function ListenPlayerChrome(props: {
   videoId?: string;
   liveVideoModeActive?: boolean;
   liveVideoVisible?: boolean;
+	nativeVideoGeometrySuspended?: boolean;
   inlineVideoRevealReady?: boolean;
   inlineVideoVisible?: boolean;
   inlineVideoAspectRatio?: number;
@@ -2989,16 +3699,36 @@ function ListenPlayerChrome(props: {
   visualizerActive?: boolean;
   queueOpen?: boolean;
   queueOverlay?: React.ReactNode;
+  workspaceQueue?: React.ReactNode;
 }) {
+  const workspaceCompanion = props.presentation === "companion";
+  const renderedMediaMode = props.mediaMode;
+  const [videoAppFullscreen, setVideoAppFullscreen] = React.useState(false);
   const inlineVideoActive =
-    !props.live &&
+    props.presentation === "fullscreen" &&
     props.hasVideo &&
-    props.mediaMode === "video" &&
+    renderedMediaMode === "video" &&
     Boolean(props.onInlineVideoRectChange);
-  const splitMode = props.mediaMode === "lyrics" || inlineVideoActive;
+  const workspaceQueueActive =
+    (props.workspaceFullscreen === true || workspaceCompanion) &&
+    props.queueOpen === true &&
+    Boolean(props.workspaceQueue);
+  const inlineVideoFullscreen =
+    props.workspaceFullscreen === true &&
+    inlineVideoActive &&
+    !workspaceQueueActive &&
+    videoAppFullscreen;
+  const splitMode =
+    workspaceQueueActive || renderedMediaMode === "lyrics" || inlineVideoActive;
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const playerStackRef = React.useRef<HTMLDivElement | null>(null);
-  const layoutKey = props.listOpen === true ? "list" : "fullscreen";
+  const layoutKey = [
+    props.presentation,
+    props.listOpen === true ? "list" : "compact",
+    renderedMediaMode,
+    workspaceQueueActive ? "queue" : "media",
+    inlineVideoFullscreen ? "video-app-fullscreen" : "video-carved",
+  ].join(":");
   const [layoutSnapshot, setLayoutSnapshot] = React.useState({
     key: "",
     width: 0,
@@ -3011,22 +3741,73 @@ function ListenPlayerChrome(props: {
     ? layoutSnapshot.playerStackHeight
     : 0;
   const splitEnabled =
-    splitMode && layoutMeasured && layoutWidth >= LISTEN_MEDIA_SPLIT_MIN_WIDTH;
-  const singleColumnLyrics =
-    props.mediaMode === "lyrics" && !inlineVideoActive && !splitEnabled;
-  const playLabel = props.playing ? props.text.listen.pause : props.text.listen.play;
+    splitMode &&
+    (props.workspaceFullscreen ||
+      (layoutMeasured && layoutWidth >= LISTEN_MEDIA_SPLIT_MIN_WIDTH));
+  const singleColumnContext =
+    (workspaceQueueActive || renderedMediaMode === "lyrics") &&
+    !inlineVideoActive &&
+    !splitEnabled;
+  const playLabel = props.loading
+    ? resolveListenPlaybackStatusLabel(
+        props.playbackState ?? "loading",
+        props.text,
+      )
+    : props.playing
+      ? props.text.listen.pause
+      : props.text.listen.play;
   const visualizerMode = props.visualizerMode ?? "off";
   const visualizerEnabled = props.visualizerEnabled === true && visualizerMode !== "off";
   const visualizerActive = props.visualizerActive === true && props.playing && !props.loading;
+  React.useEffect(() => {
+    if (!inlineVideoActive || workspaceQueueActive) {
+      setVideoAppFullscreen(false);
+    }
+  }, [inlineVideoActive, workspaceQueueActive]);
+  React.useEffect(() => {
+    setVideoAppFullscreen(false);
+  }, [props.videoId]);
+  const handleToggleVideoAppFullscreen = React.useCallback(() => {
+    setVideoAppFullscreen((current) => !current);
+  }, []);
+  React.useEffect(() => {
+    if (!inlineVideoFullscreen) {
+      return;
+    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) {
+        return;
+      }
+      if (document.querySelector('[role="dialog"][data-state="open"]')) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      setVideoAppFullscreen(false);
+    };
+    window.addEventListener("keydown", handleEscape, true);
+    return () => window.removeEventListener("keydown", handleEscape, true);
+  }, [inlineVideoFullscreen]);
   const inlineVideoSurface = inlineVideoActive ? (
     <ListenInlineVideoSurface
-      variant={splitEnabled ? "wide" : "compact"}
+      variant={
+        inlineVideoFullscreen
+          ? "fullscreen"
+          : splitEnabled
+            ? "wide"
+            : "compact"
+      }
       active={
         inlineVideoActive &&
-        layoutMeasured &&
+        (inlineVideoFullscreen || layoutMeasured) &&
         props.inlineVideoRevealReady === true
       }
-      visible={layoutMeasured && props.inlineVideoVisible === true}
+      visible={
+        (inlineVideoFullscreen || layoutMeasured) &&
+        props.inlineVideoVisible === true
+      }
+	  geometrySuspended={props.nativeVideoGeometrySuspended === true}
       aspectRatio={props.inlineVideoAspectRatio}
       pet={props.pet ?? null}
       petImageURL={props.petImageURL ?? ""}
@@ -3036,19 +3817,41 @@ function ListenPlayerChrome(props: {
     />
   ) : null;
   const activeMedia =
+    (workspaceQueueActive ? props.workspaceQueue : null) ??
     inlineVideoSurface ??
-    (props.mediaMode === "lyrics"
+    (renderedMediaMode === "lyrics"
       ? props.lyrics
       : props.cover);
   const mediaStage =
-    inlineVideoSurface ? (
+    workspaceQueueActive ? (
+      <div
+        className={cn(
+          "h-full min-h-0 w-full overflow-hidden",
+          props.workspaceFullscreen &&
+            "listen-workspace-fullscreen-player__queue",
+        )}
+      >
+        {props.workspaceFullscreen ? (
+          <GlassSurface
+            className="listen-workspace-fullscreen-player__queue-surface h-full min-h-0 w-full"
+            surfaceRole="card"
+            elevation="floating"
+            shape="card"
+          >
+            {props.workspaceQueue}
+          </GlassSurface>
+        ) : (
+          props.workspaceQueue
+        )}
+      </div>
+    ) : inlineVideoSurface ? (
       inlineVideoSurface
-    ) : props.mediaMode !== "lyrics" ? (
+    ) : renderedMediaMode !== "lyrics" ? (
       props.cover
     ) : (
       <div
         className={cn(
-          "w-full transition-[opacity,transform] duration-300 ease-out",
+          "listen-player-media-transition w-full",
           splitEnabled ? "h-full" : "aspect-square",
         )}
       >
@@ -3087,24 +3890,45 @@ function ListenPlayerChrome(props: {
     observer.observe(root);
     observer.observe(stack);
     return () => observer.disconnect();
-  }, [layoutKey, props.mediaMode]);
+  }, [layoutKey, renderedMediaMode]);
 
   return (
     <TooltipProvider delayDuration={0}>
       <div
         ref={rootRef}
         data-listen-player-root="true"
+        data-player-presentation={props.presentation}
+        data-workspace-fullscreen={props.workspaceFullscreen ? "true" : undefined}
+        data-fullscreen-media-mode={
+          props.workspaceFullscreen ? renderedMediaMode : undefined
+        }
+        data-workspace-split={splitEnabled ? "true" : "false"}
+        data-video-app-fullscreen={inlineVideoFullscreen ? "true" : "false"}
         data-artwork-visualizer-visible={visualizerEnabled ? "true" : "false"}
+        data-playback-state={props.playbackState}
         className={cn(
-          "relative flex h-full min-h-0 flex-col",
+          "relative isolate flex h-full min-h-0 flex-col",
+          props.workspaceFullscreen && "listen-workspace-fullscreen-player",
+          workspaceCompanion && "listen-workspace-companion-player",
           visualizerEnabled ? "overflow-visible" : "overflow-hidden",
         )}
       >
-        {props.fullscreenLive ? (
+        {props.workspaceFullscreen && !props.fullscreenLive && !inlineVideoActive ? (
+          <ListenWorkspaceFullscreenBackdrop
+            candidates={props.backdropCandidates ?? [LISTEN_DEFAULT_COVER_IMAGE_URL]}
+            playing={props.playing}
+          />
+        ) : null}
+        {inlineVideoFullscreen ? (
+          <div className="listen-workspace-fullscreen-player__video">
+            {inlineVideoSurface}
+          </div>
+        ) : props.fullscreenLive ? (
           <ListenLiveVideoShell
             videoId={props.videoId ?? ""}
             liveVideoModeActive={props.liveVideoModeActive === true}
             liveVideoVisible={props.liveVideoVisible === true}
+			geometrySuspended={props.nativeVideoGeometrySuspended === true}
             track={props.track}
             httpBaseURL={props.httpBaseURL ?? ""}
             pet={props.pet ?? null}
@@ -3131,83 +3955,112 @@ function ListenPlayerChrome(props: {
         ) : (
         <div
           className={cn(
-            "min-h-0 flex-1 px-3 pb-2 pt-1 sm:px-5 sm:pb-4",
+            "relative z-10 min-h-0 flex-1 px-3 pb-2 pt-1 sm:px-5 sm:pb-4",
+            props.workspaceFullscreen && "listen-workspace-fullscreen-player__content",
+            workspaceCompanion && "listen-workspace-companion-player__content",
             visualizerEnabled ? "overflow-visible" : "overflow-hidden",
           )}
         >
           <div
+            data-split={splitEnabled ? "true" : "false"}
+            data-motion={props.workspaceFullscreen || inlineVideoActive ? "off" : "on"}
             className={cn(
-              "mx-auto grid h-full min-h-0 w-full items-center gap-6",
-              inlineVideoActive
-                ? "transition-none"
-                : "transition-[max-width,gap] duration-300 ease-out",
-              splitMode
-                ? splitEnabled
-                  ? "max-w-7xl grid-cols-[18rem_minmax(0,1fr)] gap-6 lg:gap-8"
-                  : "max-w-[18rem] justify-center"
-                : "max-w-[18rem] justify-center",
+              "listen-player-layout-grid mx-auto grid h-full min-h-0 w-full items-center gap-6",
+              props.workspaceFullscreen
+                ? "listen-workspace-fullscreen-player__grid"
+                : workspaceCompanion
+                  ? "listen-workspace-companion-player__grid"
+                : splitMode
+                  ? splitEnabled
+                    ? "max-w-7xl grid-cols-[18rem_minmax(0,1fr)] gap-6 lg:gap-8"
+                    : "max-w-[18rem] justify-center"
+                  : "max-w-[18rem] justify-center",
             )}
           >
             <div
+              data-motion={inlineVideoActive ? "off" : "on"}
               className={cn(
-                "min-w-0",
-                inlineVideoActive
-                  ? "transition-none"
-                  : "transition-transform duration-300 ease-out",
-                splitEnabled ? "justify-self-start" : "justify-self-center",
+                "listen-player-now-playing min-w-0",
+                props.workspaceFullscreen &&
+                  "listen-workspace-fullscreen-player__now-playing",
+                props.workspaceFullscreen || splitEnabled
+                  ? "justify-self-start"
+                  : workspaceCompanion
+                    ? "w-full justify-self-stretch"
+                    : "justify-self-center",
               )}
             >
               <div
                 ref={playerStackRef}
-                className={cn("mx-auto", LISTEN_PLAYER_SURFACE_WIDTH_CLASS)}
+                className={cn(
+                  "mx-auto w-full",
+                  props.workspaceFullscreen
+                    ? "listen-workspace-fullscreen-player__stack"
+                    : workspaceCompanion
+                      ? "listen-workspace-companion-player__stack"
+                    : LISTEN_PLAYER_SURFACE_WIDTH_CLASS,
+                )}
               >
-                {singleColumnLyrics ? (
-                  <div className="listen-single-lyrics-panel flex h-[min(42rem,calc(100vh-8.5rem))] max-h-full min-h-0 flex-col overflow-hidden animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-                    <div className="mb-4 flex shrink-0 items-center gap-3 text-left">
+                {singleColumnContext ? (
+                  <div
+                    data-player-context={workspaceQueueActive ? "queue" : "lyrics"}
+                    className="listen-single-lyrics-panel flex h-[min(42rem,calc(100vh-8.5rem))] max-h-full min-h-0 flex-col overflow-hidden"
+                  >
+                    <div className="listen-single-lyrics-panel__header mb-4 flex shrink-0 items-center gap-3">
                       {props.headerCover}
                       <div className="min-w-0 flex-1">
                         <ListenScrollingText
                           text={props.title}
-                          className="text-[15px] font-semibold leading-6 text-sidebar-foreground"
+                          className="listen-single-lyrics-panel__title"
                         />
                         <ListenSubtitleText
                           text={props.subtitle || props.text.listen.nowPlaying}
                           artistParts={props.subtitleArtistParts}
-                          className="mt-0.5 text-[12px] font-medium leading-5 text-sidebar-foreground/55"
+                          className="listen-single-lyrics-panel__subtitle mt-0.5"
                           onClick={props.subtitle ? props.onSubtitleClick : undefined}
                           onArtistClick={props.onSubtitleArtistClick}
                         />
                       </div>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            className={cn(
-                              LISTEN_PRIMARY_PLAY_BUTTON_CLASS,
-                              LISTEN_PRIMARY_PLAY_BUTTON_SIZE_CLASS.small,
-                              props.disabled
-                                ? "cursor-not-allowed opacity-35"
-                                : LISTEN_PRIMARY_PLAY_BUTTON_HOVER_CLASS,
-                            )}
-                            disabled={props.disabled}
-                            aria-label={playLabel}
-                            title={playLabel}
-                            onClick={props.onTogglePlayback}
-                          >
-                            {props.loading ? (
-                              <Loader2 className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small, "animate-spin")} />
-                            ) : props.playing ? (
-                              <Pause className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small, "fill-current")} />
-                            ) : (
-                              <Play className={cn("ml-0.5 fill-current", LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small)} />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">{playLabel}</TooltipContent>
-                      </Tooltip>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="default"
+                              size="icon"
+                              shape="circle"
+                              className={cn(
+                                LISTEN_PRIMARY_PLAY_BUTTON_CLASS,
+                                LISTEN_PRIMARY_PLAY_BUTTON_SIZE_CLASS.small,
+                                !props.disabled && LISTEN_PRIMARY_PLAY_BUTTON_HOVER_CLASS,
+                              )}
+                              disabled={props.disabled}
+                              aria-label={playLabel}
+                              title={playLabel}
+                              onClick={props.onTogglePlayback}
+                            >
+                              {props.loading ? (
+                                <Loader2 className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small, "listen-loading-spinner")} />
+                              ) : props.playing ? (
+                                <Pause className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small, "listen-playback-icon--filled")} />
+                              ) : (
+                                <Play className={cn("listen-playback-icon--filled ml-0.5", LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.small)} />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">{playLabel}</TooltipContent>
+                        </Tooltip>
+                        <ListenPlayerIconButton
+                          label={props.text.listen.next}
+                          disabled={props.disabled}
+                          onClick={props.onNext}
+                        >
+                          <SkipForward className="listen-playback-icon--filled h-4 w-4" />
+                        </ListenPlayerIconButton>
+                      </div>
                     </div>
                     <div className="min-h-0 flex-1 overflow-hidden">
-                      {props.lyrics}
+                      {workspaceQueueActive ? mediaStage : props.lyrics}
                     </div>
                   </div>
                 ) : (
@@ -3216,7 +4069,7 @@ function ListenPlayerChrome(props: {
                       {splitMode && splitEnabled ? null : mediaStage}
                     </div>
                     {splitMode && splitEnabled ? (
-                      <div className={cn(splitEnabled ? "block animate-in fade-in-0 zoom-in-95 duration-300" : "hidden")}>
+                      <div className={cn("listen-player-split-cover", splitEnabled ? "block" : "hidden")}>
                         {props.cover}
                       </div>
                     ) : null}
@@ -3236,6 +4089,14 @@ function ListenPlayerChrome(props: {
                     <ListenPlayerProgress
                       progress={props.progress}
                       text={props.text}
+                      centerLabel={
+                        props.workspaceFullscreen || workspaceCompanion
+                          ? resolveListenFullscreenQualityLabel(
+                              props.observedPlaybackAudioQuality,
+                              props.text,
+                            )
+                          : ""
+                      }
                       live={props.live}
                       playing={props.playing}
                       advertising={props.advertising}
@@ -3258,41 +4119,38 @@ function ListenPlayerChrome(props: {
                       onTogglePlayback={props.onTogglePlayback}
                       disabled={props.disabled}
                     />
-                    <ListenPlayerVolume
-                      muted={props.muted}
-                      volume={props.volume}
-                      text={props.text}
-                      onToggleMute={props.onToggleMute}
-                      onVolumeChange={props.onVolumeChange}
-                    />
+                    {props.workspaceFullscreen ? null : (
+                      <ListenPlayerVolume
+                        muted={props.muted}
+                        volume={props.volume}
+                        text={props.text}
+                        onToggleMute={props.onToggleMute}
+                        onVolumeChange={props.onVolumeChange}
+                      />
+                    )}
                   </>
                 )}
               </div>
             </div>
             {splitMode ? (
               <div
+                data-motion={inlineVideoActive ? "off" : "on"}
+                data-visible={splitEnabled ? "true" : "false"}
                 className={cn(
-                  "min-h-0",
-                  inlineVideoActive
-                    ? "transition-none"
-                    : "transition-[opacity,transform] duration-300 ease-out",
+                  "listen-player-secondary-media min-h-0",
+                  props.workspaceFullscreen && "listen-workspace-fullscreen-player__media",
                   splitEnabled
-                    ? "flex h-full translate-x-0 items-center justify-center opacity-100"
-                    : "pointer-events-none hidden translate-x-4 opacity-0",
+                    ? "flex h-full translate-x-0 items-center justify-center"
+                    : "pointer-events-none hidden translate-x-4",
                 )}
                 style={
-                  splitEnabled && playerStackHeight > 0
+                  !props.workspaceFullscreen && splitEnabled && playerStackHeight > 0
                     ? { height: playerStackHeight }
                     : undefined
                 }
               >
                 <div
-                  className={cn(
-                    "h-full w-full max-w-[46rem]",
-                    inlineVideoActive
-                      ? "animate-none"
-                      : "animate-in fade-in-0 slide-in-from-right-3 duration-300",
-                  )}
+                  className="listen-player-secondary-media__content h-full w-full max-w-[46rem]"
                 >
                   {splitEnabled ? mediaStage : null}
                 </div>
@@ -3301,26 +4159,103 @@ function ListenPlayerChrome(props: {
           </div>
         </div>
         )}
-        {props.fullscreenLive ? null : props.queueOverlay}
+        {props.presentation === "page" ? props.queueOverlay : null}
         {props.fullscreenLive ? null : (
         <ListenPlayerFooter
-          mediaMode={props.mediaMode}
+          mediaMode={renderedMediaMode}
+          presentation={props.presentation}
+          workspaceFullscreen={props.workspaceFullscreen}
           reserveWindowControls={props.reserveWindowControls}
           airPlaySupported={props.airPlaySupported}
-          sourceBadge={props.sourceBadge}
+          sourceBadge={props.workspaceFullscreen ? undefined : props.sourceBadge}
+          sourceLabel={props.sourceLabel}
+          fullscreenTransport={
+            inlineVideoFullscreen ? (
+              <div className="listen-video-fullscreen-transport flex min-w-0 flex-1 items-center gap-2">
+                <ListenPlayerIconButton
+                  label={playLabel}
+                  disabled={props.disabled}
+                  className={cn(
+                    LISTEN_PLAYER_FOOTER_ICON_BUTTON_CLASS,
+                    "listen-player-footer__transport-toggle shrink-0",
+                  )}
+                  onClick={props.onTogglePlayback}
+                >
+                  {props.loading ? (
+                    <Loader2 className="h-4 w-4 listen-loading-spinner" />
+                  ) : props.playing ? (
+                    <Pause className="listen-playback-icon--filled h-4 w-4" />
+                  ) : (
+                    <Play className="listen-playback-icon--filled ml-0.5 h-4 w-4" />
+                  )}
+                </ListenPlayerIconButton>
+                <ListenPlayerProgress
+                  variant="footer"
+                  progress={props.progress}
+                  text={props.text}
+                  live={props.live}
+                  playing={props.playing}
+                  advertising={props.advertising}
+                  advertisingLabel={props.advertisingLabel}
+                  loading={props.progressLoading}
+                  errorActive={props.errorActive}
+                  errorLabel={props.errorLabel}
+                  errorTitle={props.errorTitle}
+                  onSeek={props.onSeek}
+                />
+              </div>
+            ) : undefined
+          }
+          leading={
+            props.workspaceFullscreen ? (
+              <div className="listen-workspace-fullscreen-player__volume wails-no-drag">
+                <ListenPlayerVolume
+                  muted={props.muted}
+                  volume={props.volume}
+                  text={props.text}
+                  onToggleMute={props.onToggleMute}
+                  onVolumeChange={props.onVolumeChange}
+                />
+              </div>
+            ) : undefined
+          }
           hasVideo={props.hasVideo}
-          videoHidden={props.videoHidden || props.live}
+          videoHidden={props.videoHidden}
           videoLoading={props.videoLoading}
           live={props.live}
           lyricsAvailable={props.lyricsAvailable !== false}
           lyricsKind={props.lyricsKind}
           lyricsLoading={props.lyricsLoading}
           queueOpen={props.queueOpen}
-          sourceBadgeQuality={props.observedPlaybackAudioQuality}
           text={props.text}
-          onAirPlay={props.onAirPlay}
+          muted={props.muted}
+          onAirPlay={props.presentation === "page" ? props.onAirPlay : undefined}
           onMediaModeChange={props.onMediaModeChange}
           onToggleQueue={props.onToggleQueue}
+          onToggleMute={props.workspaceFullscreen ? undefined : props.onToggleMute}
+          onOpenSource={props.onOpenSource}
+          lyricsControls={
+            renderedMediaMode === "lyrics" ? props.lyricsControls : undefined
+          }
+          companionControls={
+            workspaceCompanion
+              ? workspaceQueueActive
+                ? props.queueControls
+                : renderedMediaMode === "lyrics"
+                  ? props.lyricsControls
+                  : undefined
+              : undefined
+          }
+          videoAppFullscreen={inlineVideoFullscreen}
+          onToggleVideoAppFullscreen={
+            inlineVideoActive ? handleToggleVideoAppFullscreen : undefined
+          }
+          onRequestVideoFullscreen={
+            inlineVideoActive && props.inlineVideoVisible === true
+              ? props.onRequestVideoFullscreen
+              : undefined
+          }
+          onRequestFullscreen={props.onRequestFullscreen}
         />
         )}
       </div>
@@ -3328,865 +4263,6 @@ function ListenPlayerChrome(props: {
   );
 }
 
-function ListenInlineVideoSurface(props: {
-  variant: "compact" | "wide";
-  active: boolean;
-  visible: boolean;
-  aspectRatio?: number;
-  pet: Pet | null;
-  petImageURL: string;
-  title: string;
-  text: ReturnType<typeof getXiaText>;
-  onRectChange?: (
-    rect: ListenNativeVideoRect,
-  ) => boolean | void | Promise<boolean | void>;
-}) {
-  const frameRef = React.useRef<HTMLDivElement | null>(null);
-  const stageRef = React.useRef<HTMLDivElement | null>(null);
-  const aspectRatio = normalizeListenInlineVideoAspectRatio(
-    props.aspectRatio ?? LISTEN_INLINE_VIDEO_FALLBACK_ASPECT_RATIO,
-  );
-  const [frameSize, setFrameSize] = React.useState({ width: 0, height: 0 });
-  const [visualVisible, setVisualVisible] = React.useState(false);
-  const rectRevealRequestRef = React.useRef(0);
-  const {
-    resetHole: resetNativeVideoHole,
-    setHole: setNativeVideoHole,
-  } = useListenNativeVideoUnderlay(props.active);
-  const frameReady = frameSize.width > 1 && frameSize.height > 1;
-  const geometrySignature = [
-    props.variant,
-    Math.round(aspectRatio * 1000) / 1000,
-    Math.round(frameSize.width * 2) / 2,
-    Math.round(frameSize.height * 2) / 2,
-  ].join(":");
-
-  React.useEffect(() => {
-    if (!props.visible) {
-      setVisualVisible(false);
-    }
-  }, [props.visible]);
-
-  React.useLayoutEffect(() => {
-    rectRevealRequestRef.current += 1;
-    setVisualVisible(false);
-  }, [geometrySignature]);
-
-  React.useLayoutEffect(() => {
-    const frame = frameRef.current;
-    if (!frame || typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const sync = () => {
-      const rect = frame.getBoundingClientRect();
-      const width = Math.max(0, rect.width);
-      const height = Math.max(0, rect.height);
-      setFrameSize((current) => {
-        if (
-          Math.abs(current.width - width) < 0.5 &&
-          Math.abs(current.height - height) < 0.5
-        ) {
-          return current;
-        }
-        return { width, height };
-      });
-    };
-    sync();
-    const observer = new ResizeObserver(sync);
-    observer.observe(frame);
-    return () => observer.disconnect();
-  }, []);
-
-  React.useLayoutEffect(() => {
-    const onRectChange = props.onRectChange;
-    if (!props.active || !onRectChange || !frameReady) {
-      return;
-    }
-    const element = stageRef.current;
-    if (!element) {
-      return;
-    }
-    let readFrame = 0;
-    let commitFrame = 0;
-    let lastRectSignature = "";
-    let revealRetryCount = 0;
-    const timers: number[] = [];
-    const readRadius = () => readListenNativeVideoRadius(element);
-    const pushRect = (force = false) => {
-      const rect = element.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) {
-        return;
-      }
-      const radius = readRadius();
-      const frameRect = frameRef.current?.getBoundingClientRect() ?? rect;
-      const viewportWidth = Math.max(1, window.innerWidth);
-      const viewportHeight = Math.max(1, window.innerHeight);
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const signature = [
-        Math.round(rect.left * 2) / 2,
-        Math.round(rect.top * 2) / 2,
-        Math.round(rect.width * 2) / 2,
-        Math.round(rect.height * 2) / 2,
-        Math.round(frameRect.width * 2) / 2,
-        Math.round(frameRect.height * 2) / 2,
-        Math.round(viewportWidth * 2) / 2,
-        Math.round(viewportHeight * 2) / 2,
-        Math.round(radius * 2) / 2,
-      ].join(":");
-      const geometryChanged = signature !== lastRectSignature;
-      if (!force && !geometryChanged) {
-        return;
-      }
-      lastRectSignature = signature;
-      if (geometryChanged) {
-        revealRetryCount = 0;
-      }
-      rectRevealRequestRef.current += 1;
-      const requestToken = rectRevealRequestRef.current;
-      setVisualVisible(false);
-      resetNativeVideoHole();
-      const scheduleRevealRetry = () => {
-        if (rectRevealRequestRef.current !== requestToken) {
-          return;
-        }
-        if (revealRetryCount >= 18) {
-          return;
-        }
-        revealRetryCount += 1;
-        timers.push(window.setTimeout(() => syncRect(true), 220));
-      };
-      const nativeRect = {
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-        centerX,
-        centerY,
-        stageWidth: Math.max(1, frameRect.width),
-        stageHeight: Math.max(1, frameRect.height),
-        viewportWidth,
-        viewportHeight,
-        radius,
-      };
-      let applyResult: boolean | void | Promise<boolean | void>;
-      try {
-        applyResult = onRectChange(nativeRect);
-      } catch {
-        return;
-      }
-      void Promise.resolve(applyResult).then((shown) => {
-        if (rectRevealRequestRef.current !== requestToken || shown === false) {
-          if (shown === false) {
-            scheduleRevealRetry();
-          }
-          return;
-        }
-        revealRetryCount = 0;
-        const nextRect = element.getBoundingClientRect();
-        if (nextRect.width < 1 || nextRect.height < 1) {
-          return;
-        }
-        setNativeVideoHole(nextRect, readRadius());
-        setVisualVisible(true);
-      }).catch(() => {
-        scheduleRevealRetry();
-      });
-    };
-    const cancelScheduledRect = () => {
-      window.cancelAnimationFrame(readFrame);
-      window.cancelAnimationFrame(commitFrame);
-      readFrame = 0;
-      commitFrame = 0;
-    };
-    const syncRect = (force = false) => {
-      cancelScheduledRect();
-      readFrame = window.requestAnimationFrame(() => {
-        commitFrame = window.requestAnimationFrame(() => pushRect(force));
-      });
-    };
-    const scheduleRect = () => syncRect();
-    syncRect(true);
-    LISTEN_LIVE_VIDEO_GEOMETRY_SETTLE_DELAYS_MS.forEach((delay) => {
-      timers.push(window.setTimeout(scheduleRect, delay));
-    });
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(scheduleRect);
-    observer?.observe(element);
-    if (frameRef.current) {
-      observer?.observe(frameRef.current);
-    }
-    window.addEventListener("resize", scheduleRect);
-    window.addEventListener("scroll", scheduleRect, true);
-    window.visualViewport?.addEventListener("resize", scheduleRect);
-    window.visualViewport?.addEventListener("scroll", scheduleRect);
-    return () => {
-      rectRevealRequestRef.current += 1;
-      cancelScheduledRect();
-      timers.forEach((timer) => window.clearTimeout(timer));
-      observer?.disconnect();
-      window.removeEventListener("resize", scheduleRect);
-      window.removeEventListener("scroll", scheduleRect, true);
-      window.visualViewport?.removeEventListener("resize", scheduleRect);
-      window.visualViewport?.removeEventListener("scroll", scheduleRect);
-      resetNativeVideoHole();
-    };
-  }, [
-    aspectRatio,
-    frameReady,
-    frameSize.height,
-    frameSize.width,
-    props.active,
-    props.onRectChange,
-    props.variant,
-    resetNativeVideoHole,
-    setNativeVideoHole,
-  ]);
-
-  const stageStyle = React.useMemo<React.CSSProperties | undefined>(() => {
-    if (frameSize.width <= 1 || frameSize.height <= 1) {
-      return {
-        aspectRatio,
-      };
-    }
-    let width = frameSize.width;
-    let height = width / aspectRatio;
-    if (height > frameSize.height) {
-      height = frameSize.height;
-      width = height * aspectRatio;
-    }
-    return {
-      width: `${Math.max(1, width)}px`,
-      height: `${Math.max(1, height)}px`,
-      aspectRatio,
-    };
-  }, [aspectRatio, frameSize.height, frameSize.width]);
-
-  return (
-    <div
-      ref={frameRef}
-      className={cn(
-        "listen-inline-video-frame",
-        props.variant === "wide"
-          ? "listen-inline-video-frame-wide"
-          : "listen-inline-video-frame-compact",
-      )}
-      data-native-video={visualVisible ? "underlay" : "pending"}
-    >
-      <div
-        ref={stageRef}
-        className="listen-inline-video-stage"
-        style={stageStyle}
-        data-native-video={visualVisible ? "underlay" : "pending"}
-      >
-        {!visualVisible ? (
-          <div className="listen-inline-video-pending-layer">
-            <PetDisplay
-              pet={props.pet}
-              imageUrl={props.petImageURL}
-              animation="review"
-              alt={props.title || props.text.listen.video}
-              size={88}
-              className="h-24 w-24"
-            />
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function ListenLiveVideoShell(props: {
-  videoId: string;
-  liveVideoModeActive: boolean;
-  liveVideoVisible: boolean;
-  track?: ListenOnlineItem;
-  httpBaseURL: string;
-  pet: Pet | null;
-  petImageURL: string;
-  title: string;
-  subtitle: string;
-  listOpen: boolean;
-  reserveWindowControls: boolean;
-  playing: boolean;
-  loading: boolean;
-  playbackState?: ListenRemotePlaybackState;
-  disabled?: boolean;
-  muted: boolean;
-  volume: number;
-  text: ReturnType<typeof getXiaText>;
-  onToggleList?: () => void;
-  onTogglePlayback: React.MouseEventHandler<HTMLButtonElement>;
-  onStopPlayback?: () => void;
-  onFitLiveVideoWindow?: () => void;
-  onLiveVideoRectChange?: (
-    rect: ListenNativeVideoRect,
-  ) => boolean | void | Promise<boolean | void>;
-  onToggleMute: () => void;
-  onVolumeChange: (value: number) => void;
-}) {
-  const coverAreaRef = React.useRef<HTMLDivElement | null>(null);
-  const previousLiveVideoVisibleRef = React.useRef(props.liveVideoVisible);
-  const rectRevealRequestRef = React.useRef(0);
-  const [visualLiveVideoVisible, setVisualLiveVideoVisible] =
-    React.useState(props.liveVideoVisible);
-  const visualLiveVideoVisibleRef = React.useRef(visualLiveVideoVisible);
-  const [liveVideoRevealActive, setLiveVideoRevealActive] =
-    React.useState(false);
-  const {
-    resetHole: resetNativeVideoHole,
-    setHole: setNativeVideoHole,
-  } = useListenNativeVideoUnderlay(props.liveVideoModeActive);
-  const playbackState =
-    props.playbackState ??
-    (props.loading ? "loading" : props.playing ? "playing" : "idle");
-  const playLabel = props.playing ? props.text.listen.pause : props.text.listen.play;
-  const playbackDisabled = props.disabled === true;
-  const stopDisabled =
-    playbackDisabled ||
-    !props.onStopPlayback ||
-    (!props.playing && !props.loading && playbackState === "idle");
-  const statusLabel = resolveListenPlaybackStatusLabel(playbackState, props.text);
-  const statusClass = resolveListenLivePlaybackStatusClass(playbackState);
-  const listLabel = props.listOpen
-    ? props.text.listen.collapseList
-    : props.text.listen.openList;
-  const titleLabel = props.title || props.text.listen.selectStation;
-  const authorLabel = props.subtitle.trim();
-  React.useEffect(() => {
-    visualLiveVideoVisibleRef.current = visualLiveVideoVisible;
-  }, [visualLiveVideoVisible]);
-
-  React.useEffect(() => {
-    const wasVisible = previousLiveVideoVisibleRef.current;
-    previousLiveVideoVisibleRef.current = props.liveVideoVisible;
-    if (!props.liveVideoVisible) {
-      rectRevealRequestRef.current += 1;
-      visualLiveVideoVisibleRef.current = false;
-      setVisualLiveVideoVisible(false);
-      setLiveVideoRevealActive(false);
-      return;
-    }
-    if (!wasVisible) {
-      setLiveVideoRevealActive(false);
-    }
-  }, [props.liveVideoVisible]);
-
-  React.useLayoutEffect(() => {
-    if (!props.liveVideoModeActive || !props.liveVideoVisible) {
-      return;
-    }
-    const element = coverAreaRef.current;
-    if (!element) {
-      return;
-    }
-    let frame = 0;
-    const revealCurrentRect = () => {
-      const rect = element.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) {
-        return;
-      }
-      setNativeVideoHole(rect, readListenNativeVideoRadius(element));
-      visualLiveVideoVisibleRef.current = true;
-      setVisualLiveVideoVisible(true);
-    };
-    frame = window.requestAnimationFrame(revealCurrentRect);
-    return () => window.cancelAnimationFrame(frame);
-  }, [props.liveVideoModeActive, props.liveVideoVisible, props.videoId, setNativeVideoHole]);
-
-  React.useLayoutEffect(() => {
-    const onLiveVideoRectChange = props.onLiveVideoRectChange;
-    if (!props.liveVideoModeActive || !onLiveVideoRectChange) {
-      return;
-    }
-    const element = coverAreaRef.current;
-    if (!element) {
-      return;
-    }
-    let readFrame = 0;
-    let commitFrame = 0;
-    let lastRectSignature = "";
-    const timers: number[] = [];
-    const readRadius = () => readListenNativeVideoRadius(element);
-    const pushRect = (force = false) => {
-      const rect = element.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) {
-        return;
-      }
-      const radius = readRadius();
-      const viewportWidth = Math.max(1, window.innerWidth);
-      const viewportHeight = Math.max(1, window.innerHeight);
-      const shellElement = element.closest(".listen-live-video-shell");
-      const shellRect =
-        shellElement instanceof Element
-          ? shellElement.getBoundingClientRect()
-          : null;
-      const stageWidth = shellRect
-        ? Math.max(1, shellRect.width - LISTEN_LIVE_VIDEO_FRAME_GAP * 2)
-        : Math.max(1, viewportWidth - LISTEN_LIVE_VIDEO_FRAME_GAP * 2);
-      const stageHeight = shellRect
-        ? Math.max(
-            1,
-            shellRect.height -
-              LISTEN_LIVE_VIDEO_TOPBAR_HEIGHT -
-              LISTEN_LIVE_VIDEO_FRAME_GAP * 2,
-          )
-        : Math.max(
-            1,
-            viewportHeight -
-              LISTEN_LIVE_VIDEO_TOPBAR_HEIGHT -
-              LISTEN_LIVE_VIDEO_FRAME_GAP * 2,
-          );
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      const signature = [
-        Math.round(rect.left * 2) / 2,
-        Math.round(rect.top * 2) / 2,
-        Math.round(rect.width * 2) / 2,
-        Math.round(rect.height * 2) / 2,
-        Math.round(centerX * 2) / 2,
-        Math.round(centerY * 2) / 2,
-        Math.round(stageWidth * 2) / 2,
-        Math.round(stageHeight * 2) / 2,
-        Math.round(viewportWidth * 2) / 2,
-        Math.round(viewportHeight * 2) / 2,
-        Math.round(radius * 2) / 2,
-      ].join(":");
-      if (!force && signature === lastRectSignature) {
-        return;
-      }
-      lastRectSignature = signature;
-      rectRevealRequestRef.current += 1;
-      const requestToken = rectRevealRequestRef.current;
-      const wasVisuallyVisible = visualLiveVideoVisibleRef.current;
-      visualLiveVideoVisibleRef.current = false;
-      resetNativeVideoHole();
-      setVisualLiveVideoVisible(false);
-      setLiveVideoRevealActive(false);
-      const applyResult = onLiveVideoRectChange({
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-        centerX,
-        centerY,
-        stageWidth,
-        stageHeight,
-        viewportWidth,
-        viewportHeight,
-        radius,
-      });
-      void Promise.resolve(applyResult).then((shown) => {
-        if (rectRevealRequestRef.current !== requestToken || shown === false) {
-          return;
-        }
-        const nextRect = element.getBoundingClientRect();
-        if (nextRect.width < 1 || nextRect.height < 1) {
-          return;
-        }
-        setNativeVideoHole(nextRect, readRadius());
-        if (!wasVisuallyVisible) {
-          setLiveVideoRevealActive(true);
-          timers.push(window.setTimeout(() => {
-            if (rectRevealRequestRef.current !== requestToken) {
-              return;
-            }
-            setLiveVideoRevealActive(false);
-          }, LISTEN_LIVE_VIDEO_REVEAL_MS));
-        }
-        visualLiveVideoVisibleRef.current = true;
-        setVisualLiveVideoVisible(true);
-      }).catch(() => {});
-    };
-    const cancelScheduledRect = () => {
-      window.cancelAnimationFrame(readFrame);
-      window.cancelAnimationFrame(commitFrame);
-      readFrame = 0;
-      commitFrame = 0;
-    };
-    const syncRect = (force = false) => {
-      cancelScheduledRect();
-      readFrame = window.requestAnimationFrame(() => {
-        commitFrame = window.requestAnimationFrame(() => pushRect(force));
-      });
-    };
-    const scheduleRect = () => syncRect();
-    syncRect(true);
-    LISTEN_LIVE_VIDEO_GEOMETRY_SETTLE_DELAYS_MS.forEach((delay) => {
-      timers.push(window.setTimeout(scheduleRect, delay));
-    });
-    const shell = element.closest(".listen-live-video-shell");
-    const content = element.closest(".listen-content-surface");
-    const animatedTargets = [shell, content].filter(
-      (target): target is Element => target instanceof Element,
-    );
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(scheduleRect);
-    observer?.observe(element);
-    animatedTargets.forEach((target) => {
-      target.addEventListener("animationend", scheduleRect);
-      target.addEventListener("transitionend", scheduleRect);
-    });
-    window.addEventListener("resize", scheduleRect);
-    window.addEventListener("scroll", scheduleRect, true);
-    window.visualViewport?.addEventListener("resize", scheduleRect);
-    window.visualViewport?.addEventListener("scroll", scheduleRect);
-    return () => {
-      rectRevealRequestRef.current += 1;
-      cancelScheduledRect();
-      timers.forEach((timer) => window.clearTimeout(timer));
-      observer?.disconnect();
-      animatedTargets.forEach((target) => {
-        target.removeEventListener("animationend", scheduleRect);
-        target.removeEventListener("transitionend", scheduleRect);
-      });
-      window.removeEventListener("resize", scheduleRect);
-      window.removeEventListener("scroll", scheduleRect, true);
-      window.visualViewport?.removeEventListener("resize", scheduleRect);
-      window.visualViewport?.removeEventListener("scroll", scheduleRect);
-      resetNativeVideoHole();
-    };
-  }, [
-    props.liveVideoModeActive,
-    props.onLiveVideoRectChange,
-    props.videoId,
-    resetNativeVideoHole,
-    setNativeVideoHole,
-  ]);
-  return (
-    <div
-      className={cn(
-        "listen-live-video-shell listen-video-shell",
-        props.reserveWindowControls && "listen-video-shell-windows",
-      )}
-    >
-      <div className="wails-no-drag absolute left-3 top-3 z-40 sm:left-5">
-        <ListenPlayerIconButton
-          label={listLabel}
-          tooltipSide="bottom"
-          className="listen-video-expand-button"
-          onClick={props.onToggleList}
-        >
-          {props.listOpen ? (
-            <PanelLeftClose className="h-4 w-4" />
-          ) : (
-            <PanelLeftOpen className="h-4 w-4" />
-          )}
-        </ListenPlayerIconButton>
-      </div>
-      <header
-        className={cn(
-          "listen-video-topbar wails-drag",
-          props.reserveWindowControls && "listen-video-topbar-windows",
-        )}
-      >
-        <div className="listen-video-info-area">
-          <ListenFullscreenChannelCover
-            httpBaseURL={props.httpBaseURL}
-            track={props.track}
-            title={titleLabel}
-          />
-          <div className="listen-video-info">
-            <div className="listen-video-title-line">
-              <h1>
-                <ListenScrollingText
-                  text={titleLabel}
-                  as="span"
-                />
-              </h1>
-              {authorLabel ? (
-                <>
-                  <span className="listen-video-title-separator" aria-hidden="true">
-                    ·
-                  </span>
-                  <span className="listen-video-author">
-                    <ListenScrollingText text={authorLabel} as="span" />
-                  </span>
-                </>
-              ) : null}
-            </div>
-            <div className="listen-video-status-cluster">
-              {visualLiveVideoVisible && props.onFitLiveVideoWindow ? (
-                <div className="listen-video-fit-group wails-no-drag">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="listen-video-fit-group-button"
-                        aria-label={props.text.listen.fitWindow}
-                        onClick={props.onFitLiveVideoWindow}
-                      >
-                        <Ratio className="h-3 w-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      {props.text.listen.fitWindow}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              ) : null}
-              <span className={cn("listen-video-playback-status", statusClass)}>
-                <span>{statusLabel}</span>
-              </span>
-            </div>
-          </div>
-          <div className="listen-video-actions wails-no-drag">
-            <ListenFullscreenVolumeControl
-              muted={props.muted}
-              volume={props.volume}
-              text={props.text}
-              onToggleMute={props.onToggleMute}
-              onVolumeChange={props.onVolumeChange}
-            />
-            <ListenPlayerIconButton
-              label={playLabel}
-              tooltip={false}
-              disabled={playbackDisabled}
-              className="listen-video-action-button listen-video-action-button-primary"
-              onClick={props.onTogglePlayback}
-            >
-              {props.loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : props.playing ? (
-                <Pause className="h-4 w-4 fill-current" />
-              ) : (
-                <Play className="ml-0.5 h-4 w-4 fill-current" />
-              )}
-            </ListenPlayerIconButton>
-            <ListenPlayerIconButton
-              label={props.text.listen.stop}
-              tooltip={false}
-              disabled={stopDisabled}
-              className="listen-video-action-button"
-              onClick={props.onStopPlayback}
-            >
-              <Square className="h-3.5 w-3.5 fill-current" />
-            </ListenPlayerIconButton>
-          </div>
-        </div>
-      </header>
-      <div
-        ref={coverAreaRef}
-        className="listen-video-cover-area"
-        data-native-video={visualLiveVideoVisible ? "underlay" : "pending"}
-        data-reveal={liveVideoRevealActive ? "true" : undefined}
-      >
-        {(!visualLiveVideoVisible || liveVideoRevealActive) ? (
-          <div
-            className="listen-video-pending-layer"
-            data-handoff={liveVideoRevealActive ? "true" : undefined}
-          >
-            <PetDisplay
-              pet={props.pet}
-              imageUrl={props.petImageURL}
-              animation="review"
-              alt={props.title || props.text.listen.selectStation}
-              size={88}
-              className="h-24 w-24"
-            />
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function ListenFullscreenChannelCover(props: {
-  httpBaseURL: string;
-  track?: ListenOnlineItem;
-  title: string;
-}) {
-  return (
-    <div className="listen-video-avatar-button" aria-hidden="true">
-      <ListenLiveFlatCoverImage
-        httpBaseURL={props.httpBaseURL}
-        track={props.track}
-        title={props.title}
-        className="h-full w-full object-cover"
-      />
-    </div>
-  );
-}
-
-function ListenLiveFlatCoverImage(props: {
-  httpBaseURL: string;
-  track?: ListenOnlineItem;
-  title: string;
-  className?: string;
-}) {
-  const imageKey = `${props.httpBaseURL}:${props.track?.id ?? ""}:${props.track?.thumbnailUrl ?? ""}:${props.track?.videoId ?? ""}`;
-  const candidates = React.useMemo(() => (
-    props.track
-      ? buildListenPosterCandidates(props.httpBaseURL, props.track)
-      : [LISTEN_DEFAULT_COVER_IMAGE_URL]
-  ), [props.httpBaseURL, props.track]);
-  const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const src =
-    candidates[candidateIndex] ?? LISTEN_DEFAULT_COVER_IMAGE_URL;
-
-  React.useEffect(() => {
-    setCandidateIndex(0);
-  }, [imageKey]);
-
-  return (
-    <img
-      src={src}
-      alt={props.title}
-      className={cn("block bg-white", props.className)}
-      draggable={false}
-      onError={() => {
-        setCandidateIndex((current) =>
-          current + 1 < candidates.length ? current + 1 : current,
-        );
-      }}
-    />
-  );
-}
-
-function resolveListenLivePlaybackStatusClass(state: ListenRemotePlaybackState) {
-  switch (state) {
-    case "playing":
-      return "is-playing";
-    case "loading":
-    case "buffering":
-      return "is-loading";
-    case "error":
-      return "is-error";
-    default:
-      return "";
-  }
-}
-
-function ListenFullscreenVolumeControl(props: {
-  muted: boolean;
-  volume: number;
-  text: ReturnType<typeof getXiaText>;
-  onToggleMute: () => void;
-  onVolumeChange: (value: number) => void;
-}) {
-  const visibleVolume = props.muted ? 0 : clampVolume(props.volume);
-  const volumePercent = Math.round(visibleVolume * 1000) / 10;
-  const [open, setOpen] = React.useState(false);
-  const closeTimerRef = React.useRef<number | null>(null);
-
-  const clearCloseTimer = React.useCallback(() => {
-    if (closeTimerRef.current === null) {
-      return;
-    }
-    window.clearTimeout(closeTimerRef.current);
-    closeTimerRef.current = null;
-  }, []);
-
-  const openSlider = React.useCallback(() => {
-    clearCloseTimer();
-    setOpen(true);
-  }, [clearCloseTimer]);
-
-  const scheduleClose = React.useCallback(() => {
-    clearCloseTimer();
-    closeTimerRef.current = window.setTimeout(() => {
-      setOpen(false);
-      closeTimerRef.current = null;
-    }, 140);
-  }, [clearCloseTimer]);
-
-  React.useEffect(() => clearCloseTimer, [clearCloseTimer]);
-
-  return (
-    <div
-      className="listen-video-volume wails-no-drag group/listen-fullscreen-volume"
-      data-open={open ? "true" : "false"}
-      onPointerLeave={scheduleClose}
-      onPointerDownCapture={(event) => event.stopPropagation()}
-      onMouseDownCapture={(event) => event.stopPropagation()}
-      onBlurCapture={scheduleClose}
-    >
-      <span
-        className="listen-video-volume-trigger wails-no-drag"
-        onPointerEnter={openSlider}
-        onFocusCapture={openSlider}
-      >
-        <ListenPlayerIconButton
-          label={props.muted || props.volume <= 0 ? props.text.listen.unmute : props.text.listen.mute}
-          tooltip={false}
-          className="listen-video-action-button"
-          onClick={props.onToggleMute}
-        >
-          {props.muted || props.volume <= 0 ? (
-            <VolumeX className="h-4 w-4" />
-          ) : (
-            <Volume2 className="h-4 w-4" />
-          )}
-        </ListenPlayerIconButton>
-      </span>
-      {open ? (
-        <div
-          className="listen-video-volume-slider wails-no-drag"
-          onPointerEnter={clearCloseTimer}
-          onPointerDownCapture={(event) => event.stopPropagation()}
-          onMouseDownCapture={(event) => event.stopPropagation()}
-          onFocusCapture={clearCloseTimer}
-        >
-          <div className="listen-volume-slider wails-no-drag">
-            <div className="listen-volume-slider-track" aria-hidden="true">
-              <span style={{ width: `${volumePercent}%` }} />
-            </div>
-            <span
-              aria-hidden="true"
-              className="listen-volume-slider-thumb"
-              style={{ left: `${volumePercent}%` }}
-            />
-            <input
-              className="listen-volume-range wails-no-drag"
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={visibleVolume}
-              aria-label={props.text.listen.volume}
-              title={props.text.listen.volume}
-              onChange={(event) => props.onVolumeChange(Number(event.target.value))}
-            />
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ListenTrackInfoRow(props: {
-  title: string;
-  subtitle: string;
-  subtitleArtistParts?: ListenArtistLabelPart[];
-  onSubtitleClick?: () => void;
-  onSubtitleArtistClick?: (artist: string) => void;
-  actions?: React.ReactNode;
-}) {
-  return (
-    <div className="mt-5 flex min-h-14 items-center justify-between gap-4">
-      <div className="min-w-0 flex-1 overflow-hidden text-left">
-        <ListenScrollingText
-          text={props.title}
-          className="text-lg font-semibold leading-6 text-sidebar-foreground"
-        />
-        <ListenSubtitleText
-          text={props.subtitle}
-          artistParts={props.subtitleArtistParts}
-          className="mt-0.5 text-sm leading-5 text-sidebar-foreground/58"
-          onClick={props.onSubtitleClick}
-          onArtistClick={props.onSubtitleArtistClick}
-        />
-      </div>
-      {props.actions ? (
-        <div className="relative z-10 flex shrink-0 items-center gap-1.5">{props.actions}</div>
-      ) : null}
-    </div>
-  );
-}
 
 function ListenPlayerInlineVisualizer(props: {
   mode: EqualizerVisualizerMode;
@@ -4238,641 +4314,5 @@ function ListenArtworkVisualizerBridge(props: {
       active={props.active}
       visible={visible}
     />
-  );
-}
-
-function ListenSubtitleText(props: {
-  text: string;
-  artistParts?: ListenArtistLabelPart[];
-  className?: string;
-  onClick?: () => void;
-  onArtistClick?: (artist: string) => void;
-}) {
-  const artistParts = props.artistParts ?? [];
-  if (
-    props.onArtistClick &&
-    listenArtistCountFromLabelParts(artistParts) > 0
-  ) {
-    return (
-      <ListenArtistScrollingText
-        text={props.text}
-        artistParts={artistParts}
-        className={props.className}
-        onArtistClick={props.onArtistClick}
-      />
-    );
-  }
-  return (
-    <ListenScrollingText
-      text={props.text}
-      className={props.className}
-      onClick={props.onClick}
-    />
-  );
-}
-
-function ListenArtistScrollingText(props: {
-  text: string;
-  artistParts: ListenArtistLabelPart[];
-  className?: string;
-  onArtistClick: (artist: string) => void;
-}) {
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const contentRef = React.useRef<HTMLSpanElement | null>(null);
-  const [overflow, setOverflow] = React.useState(0);
-  const normalizedText = props.text.trim();
-  const scrolling = overflow > 1;
-  const style = scrolling
-    ? ({
-        "--listen-marquee-shift": `-${Math.ceil(overflow + 18)}px`,
-        "--listen-marquee-duration": `${Math.min(
-          14,
-          Math.max(7, (overflow + 180) / 30),
-        )}s`,
-      } as React.CSSProperties)
-    : undefined;
-
-  React.useLayoutEffect(() => {
-    const container = containerRef.current;
-    const contentElement = contentRef.current;
-    if (!container || !contentElement) {
-      return;
-    }
-    const syncOverflow = () => {
-      setOverflow(
-        Math.max(0, contentElement.scrollWidth - container.clientWidth),
-      );
-    };
-    syncOverflow();
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const observer = new ResizeObserver(syncOverflow);
-    observer.observe(container);
-    observer.observe(contentElement);
-    return () => observer.disconnect();
-  }, [normalizedText, props.artistParts]);
-
-  return (
-    <div
-      ref={containerRef}
-      className={cn(
-        "group/listen-marquee relative block w-full max-w-full min-w-0 overflow-hidden whitespace-nowrap text-left",
-        props.className,
-      )}
-      title={normalizedText}
-    >
-      <span
-        ref={contentRef}
-        className={cn(
-          "inline-block max-w-none pr-4 align-top",
-          scrolling && "listen-marquee-text",
-        )}
-        style={style}
-      >
-        {props.artistParts.map((part, index) =>
-          part.kind === "separator" ? (
-            <span key={`separator-${index}`} aria-hidden="true">
-              {part.text}
-            </span>
-          ) : (
-            <button
-              key={`artist-${index}-${part.text}`}
-              type="button"
-              className="inline rounded-sm bg-transparent p-0 text-left font-[inherit] leading-[inherit] text-inherit underline-offset-4 transition hover:text-sidebar-foreground hover:underline focus-visible:outline-none"
-              title={part.text}
-              onClick={() => props.onArtistClick(part.text)}
-            >
-              {part.text}
-            </button>
-          ),
-        )}
-      </span>
-    </div>
-  );
-}
-
-function ListenScrollingText(props: {
-  text: string;
-  className?: string;
-  onClick?: () => void;
-  as?: "div" | "span";
-}) {
-  const containerRef = React.useRef<HTMLElement | null>(null);
-  const contentRef = React.useRef<HTMLSpanElement | null>(null);
-  const [overflow, setOverflow] = React.useState(0);
-  const normalizedText = props.text.trim();
-  const scrolling = overflow > 1;
-  const style = scrolling
-    ? ({
-        "--listen-marquee-shift": `-${Math.ceil(overflow + 18)}px`,
-        "--listen-marquee-duration": `${Math.min(
-          14,
-          Math.max(7, (overflow + 180) / 30),
-        )}s`,
-      } as React.CSSProperties)
-    : undefined;
-  const className = cn(
-    "group/listen-marquee relative block w-full max-w-full min-w-0 overflow-hidden whitespace-nowrap text-left",
-    props.onClick &&
-      "rounded-md underline-offset-4 transition hover:text-sidebar-foreground hover:underline focus-visible:outline-none",
-    props.className,
-  );
-  const content = (
-    <span
-      ref={contentRef}
-      className={cn(
-        "inline-block max-w-none pr-4 align-top",
-        scrolling && "listen-marquee-text",
-      )}
-      style={style}
-    >
-      {normalizedText}
-    </span>
-  );
-
-  React.useLayoutEffect(() => {
-    const container = containerRef.current;
-    const contentElement = contentRef.current;
-    if (!container || !contentElement) {
-      return;
-    }
-    const syncOverflow = () => {
-      setOverflow(
-        Math.max(0, contentElement.scrollWidth - container.clientWidth),
-      );
-    };
-    syncOverflow();
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const observer = new ResizeObserver(syncOverflow);
-    observer.observe(container);
-    observer.observe(contentElement);
-    return () => observer.disconnect();
-  }, [normalizedText]);
-
-  if (props.onClick) {
-    return (
-      <button
-        ref={containerRef as React.RefObject<HTMLButtonElement>}
-        type="button"
-        className={className}
-        title={normalizedText}
-        onClick={props.onClick}
-      >
-        {content}
-      </button>
-    );
-  }
-
-  if (props.as === "span") {
-    return (
-      <span
-        ref={containerRef as React.RefObject<HTMLSpanElement>}
-        className={className}
-        title={normalizedText}
-      >
-        {content}
-      </span>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef as React.RefObject<HTMLDivElement>}
-      className={className}
-      title={normalizedText}
-    >
-      {content}
-    </div>
-  );
-}
-
-function ListenPlayerProgress(props: {
-  progress: {
-    currentTime: number;
-    duration: number;
-    bufferedTime: number;
-  };
-  text: ReturnType<typeof getXiaText>;
-  live?: boolean;
-  playing?: boolean;
-  advertising?: boolean;
-  advertisingLabel?: string;
-  loading?: boolean;
-  errorActive?: boolean;
-  errorLabel?: string;
-  errorTitle?: string;
-  onSeek?: (seconds: number) => void;
-}) {
-  const duration = Number.isFinite(props.progress.duration)
-    ? Math.max(0, props.progress.duration)
-    : 0;
-  const currentTime = Math.max(
-    0,
-    Math.min(
-      Number.isFinite(props.progress.currentTime)
-        ? props.progress.currentTime
-        : 0,
-      duration,
-    ),
-  );
-  const bufferedPercent =
-    duration > 0
-      ? Math.max(0, Math.min(100, (props.progress.bufferedTime / duration) * 100))
-      : 0;
-  const playedPercent =
-    duration > 0 ? Math.max(0, Math.min(100, (currentTime / duration) * 100)) : 0;
-  const canSeek = duration > 0 && Boolean(props.onSeek);
-  const remainingTime = Math.max(0, duration - currentTime);
-  const errorCode = props.errorLabel?.trim() || "";
-  const errorMessage = props.errorTitle?.trim() || "";
-  const hasError = Boolean(props.errorActive || errorCode || errorMessage);
-  const advertising = Boolean(props.advertising && !hasError);
-  const loading = Boolean(props.loading && !hasError && !advertising);
-  const statusActive = props.live || hasError || advertising || loading;
-  const errorLabel = errorCode
-    ? `${props.text.listen.errorCodeLabel}: ${errorCode}`
-    : props.text.listen.errorStatus;
-  const errorTooltip = errorMessage || errorLabel;
-  const label = advertising
-    ? props.advertisingLabel?.trim() || props.text.listen.adBadge
-    : loading
-      ? props.text.listen.loading
-      : props.text.listen.liveBadge;
-  const hasTimedAdProgress =
-    advertising &&
-    duration > 0 &&
-    (playedPercent > 0 || bufferedPercent > 0);
-  const livePlaying = Boolean(props.playing && !loading && !advertising && !hasError);
-  const handleSeekInput = React.useCallback(
-    (event: React.FormEvent<HTMLInputElement>) => {
-      if (!canSeek) {
-        return;
-      }
-      const nextTime = Number(event.currentTarget.value);
-      if (!Number.isFinite(nextTime)) {
-        return;
-      }
-      props.onSeek?.(nextTime);
-    },
-    [canSeek, props.onSeek],
-  );
-
-  if (statusActive) {
-    return (
-      <div className="mt-4">
-        <div className="relative flex h-6 items-center">
-          <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-sidebar-foreground/10">
-            {hasError ? null : advertising && hasTimedAdProgress ? (
-              <>
-                <div
-                  className="h-full rounded-full bg-sidebar-foreground/12"
-                  style={{ width: `${bufferedPercent}%` }}
-                />
-                <div
-                  className="absolute inset-y-0 left-0 rounded-full bg-sidebar-primary"
-                  style={{ width: `${playedPercent}%` }}
-                />
-              </>
-            ) : advertising ? (
-              <div className="h-full w-full rounded-full bg-red-500/42 dark:bg-red-400/42" />
-            ) : loading ? (
-              <div className="h-full w-full animate-pulse rounded-full bg-sidebar-primary/45" />
-            ) : props.live ? (
-              <div
-                className={cn(
-                  "relative h-full w-full rounded-full",
-                  livePlaying
-                    ? "bg-sidebar-primary/72"
-                    : "bg-sidebar-primary/34",
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute right-0 top-1/2 block h-2.5 w-2.5 -translate-y-1/2 translate-x-1/2 rounded-full bg-sidebar-primary shadow-[0_0_0_3px_hsl(var(--sidebar-background)/0.88)]",
-                    livePlaying ? "opacity-100" : "opacity-55",
-                  )}
-                >
-                  {livePlaying ? (
-                    <span className="absolute inset-0 rounded-full bg-sidebar-primary/55 animate-ping" />
-                  ) : null}
-                </span>
-              </div>
-            ) : (
-              <div
-                className="absolute inset-y-0 left-0 rounded-full bg-sidebar-primary"
-                style={{ width: `${playedPercent}%` }}
-              />
-            )}
-          </div>
-        </div>
-        <div className="mt-0.5 grid h-4 grid-cols-[1fr_auto_1fr] items-center text-[11px] font-medium tabular-nums text-sidebar-foreground/46">
-          {hasError ? (
-            <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="min-w-0 truncate text-left font-semibold text-red-600 dark:text-red-300">
-                    {errorLabel}
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" multiline className="text-left text-xs leading-snug">
-                  {errorTooltip}
-                </TooltipContent>
-              </Tooltip>
-              <span aria-hidden="true" />
-              <span aria-hidden="true" />
-            </>
-          ) : advertising ? (
-            <>
-              <span className="min-w-0 truncate text-left font-semibold text-red-600 dark:text-red-300">
-                {label}
-              </span>
-              <span aria-hidden="true" />
-              <span aria-hidden="true" />
-            </>
-          ) : loading ? (
-            <>
-              <span aria-hidden="true" />
-              <span className="justify-self-center font-semibold text-sidebar-foreground/55">
-                {label}
-              </span>
-              <span aria-hidden="true" />
-            </>
-          ) : (
-            <>
-              <span aria-hidden="true" />
-              <span className="justify-self-center font-semibold uppercase tracking-[0.12em] text-red-600 dark:text-red-300">
-                {label}
-              </span>
-              <span aria-hidden="true" />
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-4">
-      <div
-        className="listen-player-progress-control wails-no-drag group/progress relative flex h-6 items-center"
-        onPointerDown={(event) => event.stopPropagation()}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-sidebar-foreground/10">
-          <div
-            className="h-full rounded-full bg-sidebar-foreground/12"
-            style={{ width: `${bufferedPercent}%` }}
-          />
-          <div
-            className="absolute inset-y-0 left-0 rounded-full bg-sidebar-primary"
-            style={{ width: `${playedPercent}%` }}
-          />
-        </div>
-        {canSeek ? (
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 scale-75 rounded-full border border-sidebar-background bg-sidebar-primary opacity-0 shadow-[0_5px_14px_-8px_hsl(var(--sidebar-primary)/0.9)] transition-[left,opacity,transform] duration-150 ease-out group-hover/progress:scale-100 group-hover/progress:opacity-100 group-focus-within/progress:scale-100 group-focus-within/progress:opacity-100"
-            style={{ left: `${playedPercent}%` }}
-          />
-        ) : null}
-        <input
-          type="range"
-          min={0}
-          max={duration || 0}
-          step={0.01}
-          value={currentTime}
-          disabled={!canSeek}
-          aria-label={props.text.listen.nowPlaying}
-          className="wails-no-drag relative z-10 h-6 w-full cursor-pointer touch-none opacity-0 disabled:cursor-not-allowed"
-          onInput={handleSeekInput}
-          onChange={handleSeekInput}
-        />
-      </div>
-      <div className="mt-0.5 flex items-center justify-between text-[11px] font-medium tabular-nums text-sidebar-foreground/46">
-        <span>{formatProgressSeconds(currentTime)}</span>
-        <span>-{formatProgressSeconds(remainingTime)}</span>
-      </div>
-    </div>
-  );
-}
-
-function ListenPlayerTransport(props: {
-  playing: boolean;
-  loading: boolean;
-  playMode: ListenPlayMode;
-  live?: boolean;
-  disabled?: boolean;
-  text: ReturnType<typeof getXiaText>;
-  onPrevious: () => void;
-  onNext: () => void;
-  onPlayModeChange: (mode: ListenPlayMode) => void;
-  onTogglePlayback: React.MouseEventHandler<HTMLButtonElement>;
-}) {
-  const shuffleActive = props.playMode === "shuffle";
-  const repeatActive = !props.live && props.playMode === "repeat";
-  const playLabel = props.playing ? props.text.listen.pause : props.text.listen.play;
-
-  if (props.live) {
-    return (
-      <div className="mt-3 flex h-14 items-center justify-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                LISTEN_PRIMARY_PLAY_BUTTON_CLASS,
-                LISTEN_PRIMARY_PLAY_BUTTON_SIZE_CLASS.medium,
-                props.disabled
-                  ? "cursor-not-allowed opacity-35"
-                  : LISTEN_PRIMARY_PLAY_BUTTON_HOVER_CLASS,
-              )}
-              disabled={props.disabled}
-              aria-label={playLabel}
-              title={playLabel}
-              onClick={props.onTogglePlayback}
-            >
-              {props.loading ? (
-                <Loader2 className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.medium, "animate-spin")} />
-              ) : props.playing ? (
-                <Pause className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.medium, "fill-current")} />
-              ) : (
-                <Play className={cn("ml-0.5 fill-current", LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.medium)} />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{playLabel}</TooltipContent>
-        </Tooltip>
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-3 grid h-14 grid-cols-[3.5rem_1fr_3.5rem] items-center">
-      <div className="justify-self-start">
-        <ListenTransportIconButton
-          label={props.text.listen.playModeShuffle}
-          active={shuffleActive}
-          disabled={props.disabled}
-          size="small"
-          onClick={() => props.onPlayModeChange(shuffleActive ? "order" : "shuffle")}
-        >
-          <Shuffle className="h-4 w-4" />
-        </ListenTransportIconButton>
-      </div>
-      <div className="flex items-center justify-center gap-3">
-        <ListenTransportIconButton
-          label={props.text.listen.previous}
-          disabled={props.disabled}
-          onClick={props.onPrevious}
-        >
-          <SkipBack className="h-5 w-5" />
-        </ListenTransportIconButton>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className={cn(
-                LISTEN_PRIMARY_PLAY_BUTTON_CLASS,
-                LISTEN_PRIMARY_PLAY_BUTTON_SIZE_CLASS.medium,
-                props.disabled
-                  ? "cursor-not-allowed opacity-35"
-                  : LISTEN_PRIMARY_PLAY_BUTTON_HOVER_CLASS,
-              )}
-              disabled={props.disabled}
-              aria-label={playLabel}
-              title={playLabel}
-              onClick={props.onTogglePlayback}
-            >
-              {props.loading ? (
-                <Loader2 className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.medium, "animate-spin")} />
-              ) : props.playing ? (
-                <Pause className={cn(LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.medium, "fill-current")} />
-              ) : (
-                <Play className={cn("ml-0.5 fill-current", LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS.medium)} />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">{playLabel}</TooltipContent>
-        </Tooltip>
-        <ListenTransportIconButton
-          label={props.text.listen.next}
-          disabled={props.disabled}
-          onClick={props.onNext}
-        >
-          <SkipForward className="h-5 w-5" />
-        </ListenTransportIconButton>
-      </div>
-      <div className="justify-self-end">
-        <ListenTransportIconButton
-          label={props.text.listen.playModeRepeat}
-          active={repeatActive}
-          disabled={props.live || props.disabled}
-          size="small"
-          onClick={() => props.onPlayModeChange(repeatActive ? "order" : "repeat")}
-        >
-          <Repeat2 className="h-4 w-4" />
-        </ListenTransportIconButton>
-      </div>
-    </div>
-  );
-}
-
-function ListenTransportIconButton(props: {
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  size?: "normal" | "small";
-  children: React.ReactNode;
-  onClick?: React.MouseEventHandler<HTMLButtonElement>;
-}) {
-  const small = props.size === "small";
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          data-active={props.active ? "true" : "false"}
-          disabled={props.disabled}
-          className={cn(
-            "relative flex items-center justify-center rounded-full text-sidebar-foreground/55 transition-[transform,background-color,color,opacity] duration-200 ease-out hover:scale-[1.05] hover:bg-sidebar-background/54 hover:text-sidebar-foreground active:scale-95 focus-visible:outline-none",
-            "data-[active=true]:text-sidebar-primary",
-            "disabled:pointer-events-none disabled:opacity-35",
-            small ? "h-8 w-8" : "h-10 w-10",
-          )}
-          aria-label={props.label}
-          title={props.label}
-          onClick={props.onClick}
-        >
-          {props.children}
-          {props.active ? (
-            <span className="absolute bottom-0 h-1 w-1 rounded-full bg-sidebar-primary" />
-          ) : null}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        {props.label}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-function ListenPlayerVolume(props: {
-  muted: boolean;
-  volume: number;
-  text: ReturnType<typeof getXiaText>;
-  onToggleMute: () => void;
-  onVolumeChange: (value: number) => void;
-}) {
-  const visibleVolume = props.muted ? 0 : clampVolume(props.volume);
-  const volumePercent = Math.round(visibleVolume * 1000) / 10;
-
-  return (
-    <div className="mt-4 flex h-8 items-center gap-3 text-sidebar-foreground/48">
-      <ListenPlayerIconButton
-        label={props.muted || props.volume <= 0 ? props.text.listen.unmute : props.text.listen.mute}
-        className="h-8 w-8 shadow-none"
-        onClick={props.onToggleMute}
-      >
-        {props.muted || props.volume <= 0 ? (
-          <VolumeX className="h-4 w-4" />
-        ) : (
-          <Volume2 className="h-4 w-4" />
-        )}
-      </ListenPlayerIconButton>
-      <div className="group/volume-slider relative flex h-6 min-w-0 flex-1 items-center">
-        <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-sidebar-foreground/10">
-          <div
-            className="absolute inset-y-0 left-0 rounded-full bg-sidebar-primary transition-[width] duration-150 ease-out"
-            style={{ width: `${volumePercent}%` }}
-          />
-        </div>
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 scale-75 rounded-full border border-sidebar-background bg-sidebar-primary opacity-0 shadow-[0_5px_14px_-8px_hsl(var(--sidebar-primary)/0.9)] transition-[left,opacity,transform] duration-150 ease-out group-hover/volume-slider:scale-100 group-hover/volume-slider:opacity-100 group-focus-within/volume-slider:scale-100 group-focus-within/volume-slider:opacity-100"
-          style={{ left: `${volumePercent}%` }}
-        />
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.01}
-          value={visibleVolume}
-          aria-label={props.text.listen.volume}
-          title={props.text.listen.volume}
-          className="relative z-10 h-6 w-full cursor-pointer opacity-0"
-          onChange={(event) => props.onVolumeChange(Number(event.target.value))}
-        />
-      </div>
-      <ListenPlayerIconButton
-        label={props.text.listen.volume}
-        className="h-8 w-8 shadow-none"
-        onClick={() => props.onVolumeChange(1)}
-      >
-        <Volume2 className="h-4 w-4" />
-      </ListenPlayerIconButton>
-    </div>
   );
 }

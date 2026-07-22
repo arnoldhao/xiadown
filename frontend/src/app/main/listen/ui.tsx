@@ -37,6 +37,7 @@ getXiaText
 } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
+import { ListenCoverArtwork } from "@/shared/assets/listen-cover-artwork";
 import { Button } from "@/shared/ui/button";
 import {
 DreamSegmentSwitch,
@@ -47,6 +48,7 @@ SidebarMenu,
 SidebarMenuButton,
 SidebarMenuItem,
 } from "@/shared/ui/sidebar";
+import { StatusBadge } from "@/shared/ui/status-badge";
 import {
 Tooltip,
 TooltipContent,
@@ -61,7 +63,7 @@ LISTEN_LIST_SECTION_TITLE_CLASS,
 
 import { clampVolume,formatProgressSeconds } from "@/app/main/listen/local-library";
 import { resolveTrustedListenOnlineArtistLabel } from "@/app/main/listen/playback-helpers";
-import { buildListenAvatarImageCandidates,buildListenImageCandidates,buildListenPosterCandidates,buildListenTrackThumbnailCandidates } from "@/app/main/listen/storage";
+import { buildListenAvatarImageCandidates,buildListenImageCandidates,buildListenPosterCandidates } from "@/app/main/listen/storage";
 import type { ListenArtistItem,ListenCategoryItem,ListenLiveStatus,ListenLiveStatusValue,ListenLocalItem,ListenMode,ListenOnlineItem,ListenPlayMode,ListenPlaylistItem,ListenPlaylistLibraryAction } from "@/app/main/listen/types";
 import { doesListenThumbnailSuggestVideoContent,hasListenMusicVideoContent,isListenMusicVideoKnownNoVideo } from "@/app/main/listen/video-types";
 
@@ -108,15 +110,15 @@ export function ListenAvatar(props: {
 
   return (
     <div
+      data-selected={props.selected ? "true" : undefined}
+      data-shape={props.shape === "circle" ? "circle" : undefined}
       className={cn(
-        "relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden bg-sidebar-background/68 text-xs font-semibold text-sidebar-foreground shadow-[inset_0_1px_0_hsl(var(--background)/0.20)] ring-1 ring-[hsl(var(--foreground)/0.08)]",
-        props.shape === "circle" ? "rounded-full" : "rounded-2xl",
-        props.selected && "ring-sidebar-primary/26",
+        "listen-avatar relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden",
       )}
     >
-      <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,hsl(var(--primary)/0.30),transparent_58%),linear-gradient(135deg,hsl(var(--muted)),hsl(var(--background)))]" />
+      <span className="listen-artwork-placeholder absolute inset-0" />
       {!imageReady ? (
-        <span className="pointer-events-none relative z-0 text-sidebar-foreground/58">
+        <span className="listen-avatar__placeholder pointer-events-none relative z-0">
           {props.shape === "circle" ? (
             <UserRound className="h-4 w-4" />
           ) : (
@@ -130,9 +132,9 @@ export function ListenAvatar(props: {
           src={activeAvatarURL}
           alt=""
           className={cn(
-            "absolute inset-0 z-10 h-full w-full object-cover transition-opacity duration-150",
-            imageReady ? "opacity-100" : "opacity-0",
+            "listen-image-reveal absolute inset-0 z-10 h-full w-full object-cover",
           )}
+          data-ready={imageReady ? "true" : "false"}
           loading="eager"
           onLoad={() => setImageReady(true)}
           onError={() => {
@@ -155,118 +157,18 @@ export function ListenLocalArtwork(props: {
   className?: string;
 }) {
   const coverURL = props.track.coverURL.trim();
-  const [failedURLs, setFailedURLs] = React.useState<Set<string>>(
-    () => new Set(),
-  );
-  const source =
-    [coverURL, LISTEN_DEFAULT_COVER_IMAGE_URL]
-      .filter(Boolean)
-      .find((url) => !failedURLs.has(url)) ?? "";
-
-  React.useEffect(() => {
-    setFailedURLs(new Set());
-  }, [props.track.coverURL]);
 
   return (
-    <div
+    <ListenCoverArtwork
+      alt=""
+      candidates={[coverURL, LISTEN_DEFAULT_COVER_IMAGE_URL]}
       className={cn(
-        "flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-sidebar-background/68 text-sidebar-foreground/75 shadow-[inset_0_1px_0_hsl(var(--background)/0.20)] ring-1 ring-[hsl(var(--foreground)/0.08)]",
+        "listen-local-artwork flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden",
         props.className,
       )}
-    >
-      {source ? (
-        <img
-          src={source}
-          alt=""
-          className="h-full w-full object-cover"
-          loading="lazy"
-          onError={() =>
-            setFailedURLs((current) => {
-              const next = new Set(current);
-              next.add(source);
-              return next;
-            })
-          }
-        />
-      ) : (
-        <Music2 className="h-5 w-5" />
-      )}
-    </div>
+      loading="lazy"
+    />
   );
-}
-
-export function useListenStableImageSource(srcCandidates: string[]) {
-  const candidateKey = srcCandidates.join("\n");
-  const candidates = React.useMemo(() => {
-    const normalized = srcCandidates.map((url) => url.trim()).filter(Boolean);
-    return Array.from(new Set([...normalized, LISTEN_DEFAULT_COVER_IMAGE_URL]));
-  }, [candidateKey]);
-  const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const [visibleSrc, setVisibleSrc] = React.useState(
-    LISTEN_DEFAULT_COVER_IMAGE_URL,
-  );
-  const activeSrc =
-    candidates[Math.min(candidateIndex, Math.max(candidates.length - 1, 0))] ||
-    LISTEN_DEFAULT_COVER_IMAGE_URL;
-  const activeSrcRef = React.useRef(activeSrc);
-
-  React.useEffect(() => {
-    activeSrcRef.current = activeSrc;
-  }, [activeSrc]);
-
-  React.useEffect(() => {
-    setCandidateIndex(0);
-  }, [candidateKey]);
-
-  React.useEffect(() => {
-    const source = activeSrc.trim() || LISTEN_DEFAULT_COVER_IMAGE_URL;
-    if (source === visibleSrc) {
-      return;
-    }
-    let disposed = false;
-    const commitSource = () => {
-      if (!disposed && activeSrcRef.current === source) {
-        setVisibleSrc(source);
-      }
-    };
-    const advanceSource = () => {
-      if (disposed || activeSrcRef.current !== source) {
-        return;
-      }
-      setCandidateIndex((current) =>
-        current + 1 < candidates.length ? current + 1 : current,
-      );
-    };
-
-    if (typeof window === "undefined" || typeof window.Image === "undefined") {
-      commitSource();
-      return () => {
-        disposed = true;
-      };
-    }
-
-    const image = new window.Image();
-    image.decoding = "async";
-    image.loading = "eager";
-    image.onload = commitSource;
-    image.onerror = advanceSource;
-    image.src = source;
-    if (image.complete && image.naturalWidth > 0) {
-      commitSource();
-    }
-
-    return () => {
-      disposed = true;
-      image.onload = null;
-      image.onerror = null;
-    };
-  }, [activeSrc, candidates.length, visibleSrc]);
-
-  return {
-    activeSrc,
-    visibleSrc,
-    imageReady: activeSrc === visibleSrc,
-  };
 }
 
 export function ListenOnlineArtwork(props: {
@@ -280,12 +182,6 @@ export function ListenOnlineArtwork(props: {
     () => buildListenPosterCandidates(props.httpBaseURL, props.track),
     [props.httpBaseURL, props.track.thumbnailUrl, props.track.videoId],
   );
-  const {
-    activeSrc: activePoster,
-    visibleSrc: visiblePoster,
-    imageReady: posterReady,
-  } = useListenStableImageSource(posterCandidates);
-
   return (
     <ListenArtworkShell
       className={props.className}
@@ -293,21 +189,14 @@ export function ListenOnlineArtwork(props: {
       visualizerVisible={props.visualizerVisible}
     >
       <>
-        <img
-          key={visiblePoster}
-          src={visiblePoster}
+        <ListenCoverArtwork
           alt={props.track.title}
-          className="block h-full w-full object-cover transition-transform duration-500 ease-out"
-          loading="eager"
+          candidates={posterCandidates}
+          className="h-full w-full"
+          imageClassName="listen-cover-artwork-motion-image"
+          changeSweep
         />
-        {posterReady ? (
-          <span
-            key={`cover-sweep-${activePoster}`}
-            className="listen-cover-change-sweep"
-            aria-hidden="true"
-          />
-        ) : null}
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.02),rgba(15,23,42,0.12))]" />
+        <div className="listen-cover-artwork-wash pointer-events-none absolute inset-0" />
       </>
     </ListenArtworkShell>
   );
@@ -329,8 +218,9 @@ export function ListenActionIconButton(props: {
             type="button"
             variant="outline"
             size="compactIcon"
+            shape="circle"
             className={cn(
-              "h-10 w-10 rounded-full",
+              "h-10 w-10",
               LISTEN_CONTROL_ICON_BUTTON_CLASS,
               props.className,
             )}
@@ -364,14 +254,15 @@ export function ListenVolumeControl(props: {
   const volumePercent = Math.round(visibleVolume * 1000) / 10;
   return (
     <Tooltip>
-      <div className="group/volume flex items-center rounded-full">
+      <div className="listen-volume-control group/volume flex items-center">
         <TooltipTrigger asChild>
           <Button
             type="button"
             variant="outline"
             size="compactIcon"
+            shape="circle"
             className={cn(
-              "h-10 w-10 rounded-full",
+              "h-10 w-10",
               LISTEN_CONTROL_ICON_BUTTON_CLASS,
             )}
             disabled={!props.hasTrack}
@@ -387,21 +278,15 @@ export function ListenVolumeControl(props: {
           </Button>
         </TooltipTrigger>
         <span
-          className={cn(
-            "ml-0 block w-0 overflow-hidden opacity-0 transition-[margin,width,opacity] duration-150 ease-out",
-            "group-hover/volume:ml-2 group-hover/volume:w-20 group-hover/volume:opacity-100",
-            "group-focus-within/volume:ml-2 group-focus-within/volume:w-20 group-focus-within/volume:opacity-100",
-          )}
+          className="listen-volume-control__reveal ml-0 block w-0 overflow-hidden group-hover/volume:ml-2 group-hover/volume:w-20 group-focus-within/volume:ml-2 group-focus-within/volume:w-20"
         >
           <span
-            className={cn(
-              "relative flex h-6 w-20 items-center",
-              !props.hasTrack && "opacity-40",
-            )}
+            className="listen-volume-control__slider relative flex h-6 w-20 items-center"
+            data-disabled={!props.hasTrack ? "true" : undefined}
           >
-            <span className="pointer-events-none absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-sidebar-foreground/10">
+            <span className="listen-volume-control__track pointer-events-none absolute left-0 right-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden">
               <span
-                className="absolute inset-y-0 left-0 rounded-full bg-sidebar-primary"
+                className="listen-volume-control__fill absolute inset-y-0 left-0"
                 style={{ width: `${volumePercent}%` }}
               />
             </span>
@@ -414,7 +299,7 @@ export function ListenVolumeControl(props: {
               disabled={!props.hasTrack}
               aria-label={props.text.listen.volume}
               title={props.text.listen.volume}
-              className="relative z-10 h-6 w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              className="listen-volume-control__input relative z-10 h-6 w-full"
               onChange={(event) =>
                 props.onVolumeChange(Number(event.target.value))
               }
@@ -439,19 +324,18 @@ export function ListenArtworkShell(props: {
       data-frame-active={frameActive ? "true" : "false"}
       data-visualizer-visible={props.visualizerVisible === true ? "true" : "false"}
       className={cn(
-        "listen-artwork-shell relative isolate w-full shrink-0 overflow-visible transition-[padding] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)] animate-in fade-in-0 zoom-in-95",
+        "listen-artwork-shell relative isolate w-full shrink-0 overflow-visible",
         props.className,
       )}
     >
       <div
         className={cn(
-          "listen-artwork-shadow absolute inset-0 z-0 translate-y-5 rounded-[2rem] bg-black/14 blur-3xl transition-[transform,opacity] duration-300 ease-out",
-          "opacity-100",
+          "listen-artwork-shadow absolute inset-0 z-0 translate-y-5",
         )}
       />
       {props.visualizer}
       <div
-        className="listen-artwork-frame relative z-10 aspect-square overflow-hidden rounded-[2rem] bg-white shadow-[0_28px_90px_-42px_rgba(15,23,42,0.45)] transition-[transform,box-shadow] duration-300 [transition-timing-function:cubic-bezier(0.2,_0.8,_0.2,_1)]"
+        className="listen-artwork-frame relative z-10 aspect-square overflow-hidden"
         onPointerEnter={() => setFrameActive(true)}
         onPointerLeave={() => setFrameActive(false)}
         onFocusCapture={() => setFrameActive(true)}
@@ -463,7 +347,7 @@ export function ListenArtworkShell(props: {
       >
         {props.children}
         <span
-          className="pointer-events-none absolute inset-0 z-30 rounded-[2rem] border border-white/50"
+          className="listen-artwork-frame__rim pointer-events-none absolute inset-0 z-30"
           aria-hidden="true"
         />
       </div>
@@ -471,67 +355,46 @@ export function ListenArtworkShell(props: {
   );
 }
 
-export function ListenSourceBadge(props: {
-  mode: ListenMode;
-  text: ReturnType<typeof getXiaText>;
-}) {
-  if (props.mode === "hush") {
-    return (
-      <>
-        <Radio className="h-3 w-3" />
-        {props.text.listen.hush}
-      </>
-    );
-  }
-  if (props.mode === "muse") {
-    return (
-      <>
-        <SimpleBrandIcon icon={siYoutubemusic} className="h-3 w-3" />
-        {props.text.listen.muse}
-      </>
-    );
-  }
-  return (
-    <>
-      <Disc3 className="h-3 w-3" />
-      {props.text.listen.linger}
-    </>
-  );
-}
-
 export function ListenModeTabs(props: {
   mode: ListenMode;
   compact: boolean;
   text: ReturnType<typeof getXiaText>;
+  labels?: Partial<Record<ListenMode, string>>;
+  order?: readonly ListenMode[];
   onChange: (mode: ListenMode) => void;
 }) {
-  const items: readonly DreamSegmentSwitchItem<ListenMode>[] = [
-    {
+  const itemsByMode: Record<ListenMode, DreamSegmentSwitchItem<ListenMode>> = {
+    hush: {
       value: "hush",
-      label: props.text.listen.hush,
+      label: props.labels?.hush ?? props.text.listen.hush,
       tooltip: props.text.listen.hushTooltip,
       icon: <Radio className="h-4 w-4" />,
     },
-    {
+    muse: {
       value: "muse",
-      label: props.text.listen.muse,
+      label: props.labels?.muse ?? props.text.listen.muse,
       tooltip: props.text.listen.museTooltip,
       icon: <SimpleBrandIcon icon={siYoutubemusic} className="h-4 w-4" />,
     },
-    {
+    linger: {
       value: "linger",
-      label: props.text.listen.linger,
+      label: props.labels?.linger ?? props.text.listen.linger,
       tooltip: props.text.listen.lingerTooltip,
       icon: <Disc3 className="h-4 w-4" />,
     },
-  ];
+  };
+  const items: readonly DreamSegmentSwitchItem<ListenMode>[] = (
+    props.order ?? ["hush", "muse", "linger"]
+  ).map((mode) => itemsByMode[mode]);
 
   return (
     <DreamSegmentSwitch
       value={props.mode}
       items={items}
       compact={props.compact}
-      ariaLabel={`${props.text.listen.hushTooltip} / ${props.text.listen.museTooltip} / ${props.text.listen.lingerTooltip}`}
+      ariaLabel={items
+        .map((item) => item.tooltip ?? item.label)
+        .join(" / ")}
       className="listen-mode-switch"
       onValueChange={props.onChange}
     />
@@ -546,26 +409,25 @@ export function ListenLocalListControls(props: {
   onClearMissing: () => void;
 }) {
   return (
-    <div className="listen-list-control-surface listen-list-control-surface-bottom pointer-events-auto inline-flex w-auto gap-1 rounded-[1.35rem] p-1.5">
+    <div className="listen-local-list-controls listen-list-control-surface listen-list-control-surface-bottom pointer-events-auto inline-flex w-auto gap-1 p-1.5">
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
+            shape="circle"
             aria-label={props.text.listen.localRefresh}
             title={props.text.listen.localRefresh}
             disabled={props.refreshing}
             data-active={props.refreshing ? "true" : "false"}
-            className={cn(
-              "relative z-10 flex h-9 w-9 items-center justify-center rounded-2xl text-sidebar-foreground/55 transition-[color,transform,opacity,background-color,box-shadow] duration-200 ease-out active:scale-95",
-              "hover:text-sidebar-foreground focus-visible:outline-none disabled:pointer-events-none disabled:opacity-70",
-              "data-[active=true]:bg-[hsl(var(--dream-shell-top)/0.68)] data-[active=true]:text-sidebar-foreground data-[active=true]:shadow-[0_10px_28px_-20px_hsl(var(--foreground)/0.62),inset_0_0_0_1px_hsl(var(--foreground)/0.07)] dark:data-[active=true]:bg-white/10",
-            )}
+            className="listen-list-toolbar-button relative z-10 h-9 w-9"
             onClick={props.onRefresh}
           >
             <RefreshCw
-              className={cn("h-4 w-4", props.refreshing ? "animate-spin" : "")}
+              className={cn("h-4 w-4", props.refreshing ? "listen-loading-spinner" : "")}
             />
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent side="top">
           {props.text.listen.localRefresh}
@@ -573,25 +435,24 @@ export function ListenLocalListControls(props: {
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
+            shape="circle"
             aria-label={props.text.listen.localClearMissing}
             title={props.text.listen.localClearMissing}
             disabled={props.clearingMissing}
             data-active={props.clearingMissing ? "true" : "false"}
-            className={cn(
-              "relative z-10 flex h-9 w-9 items-center justify-center rounded-2xl text-sidebar-foreground/55 transition-[color,transform,opacity,background-color,box-shadow] duration-200 ease-out active:scale-95",
-              "hover:text-sidebar-foreground focus-visible:outline-none disabled:pointer-events-none disabled:opacity-70",
-              "data-[active=true]:bg-[hsl(var(--dream-shell-top)/0.68)] data-[active=true]:text-sidebar-foreground data-[active=true]:shadow-[0_10px_28px_-20px_hsl(var(--foreground)/0.62),inset_0_0_0_1px_hsl(var(--foreground)/0.07)] dark:data-[active=true]:bg-white/10",
-            )}
+            className="listen-list-toolbar-button relative z-10 h-9 w-9"
             onClick={props.onClearMissing}
           >
             {props.clearingMissing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 listen-loading-spinner" />
             ) : (
               <Trash2 className="h-4 w-4" />
             )}
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent side="top">
           {props.text.listen.localClearMissing}
@@ -609,15 +470,16 @@ export function ListenConnectionPromptCard(props: {
 }) {
   return (
     <div className="flex min-h-full items-center justify-center px-2 py-6">
-      <div className="listen-list-control-surface listen-list-control-surface-top relative w-full max-w-[17rem] rounded-[26px] px-5 py-6 text-center">
+      <div className="listen-connection-prompt listen-list-control-surface listen-list-control-surface-top relative w-full max-w-[17rem] px-5 py-6">
         <div className="relative flex flex-col items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[hsl(var(--dream-shell-top)/0.42)] text-sidebar-foreground/70 shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.07)]">
+          <div className="listen-connection-prompt__icon flex h-12 w-12 items-center justify-center">
             {props.icon ?? <Link2 className="h-5 w-5" />}
           </div>
-          <p className="text-sm leading-6 text-sidebar-foreground/78">{props.message}</p>
+          <p className="listen-connection-prompt__message">{props.message}</p>
           <Button
             type="button"
-            className="rounded-full bg-sidebar-primary px-5 text-sidebar-primary-foreground shadow-[0_18px_40px_-24px_hsl(var(--sidebar-primary)/0.68)] hover:bg-sidebar-primary/90"
+            shape="capsule"
+            className="listen-connection-prompt__action"
             onClick={props.onAction}
           >
             {props.actionLabel}
@@ -660,14 +522,13 @@ export function ListenTransportActions(props: {
         : props.text.listen.playModeOrder;
   return (
     <div className="flex justify-center">
-      <div className="listen-list-control-surface listen-list-control-surface-bottom inline-flex flex-wrap items-center justify-center gap-3 rounded-full px-3 py-2.5">
+      <div className="listen-transport-actions listen-list-control-surface listen-list-control-surface-bottom inline-flex flex-wrap items-center justify-center gap-3 px-3 py-2.5">
         {props.showQueueControls === false ? null : (
           <>
             <ListenActionIconButton
               label={`${props.text.listen.playbackMode}: ${playModeLabel}`}
               className={cn(
-                props.playMode !== "order" &&
-                  "bg-sidebar-primary/12 text-sidebar-primary hover:bg-sidebar-primary/14 hover:text-sidebar-primary shadow-[inset_0_0_0_1px_hsl(var(--sidebar-primary)/0.18)]",
+                props.playMode !== "order" && "listen-action-icon-button--active",
               )}
               disabled={!props.hasTrack || props.playModeDisabled}
               onClick={props.onTogglePlayMode}
@@ -691,12 +552,12 @@ export function ListenTransportActions(props: {
         )}
         <ListenActionIconButton
           label={playbackLabel}
-          className="h-12 w-12 rounded-full border-transparent bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_18px_42px_-18px_hsl(var(--sidebar-primary)/0.65)] hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground"
+          className="listen-primary-play-button listen-primary-play-button-hover h-12 w-12"
           disabled={!props.hasTrack || props.loading}
           onClick={props.onTogglePlayback}
         >
           {props.loading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
+            <Loader2 className="h-5 w-5 listen-loading-spinner" />
           ) : props.playing ? (
             <Pause className="h-5 w-5" />
           ) : (
@@ -753,33 +614,23 @@ export function ListenProgressBar(props: {
   const canSeek = duration > 0 && Boolean(props.onSeek);
 
   return (
-    <div className={cn("w-full max-w-2xl px-1", props.className)}>
+    <div
+      className={cn("listen-progress-bar w-full max-w-2xl px-1", props.className)}
+      data-tone={lightTone ? "light" : "default"}
+    >
       <div
-        className={cn(
-          "relative mb-2 h-5",
-          canSeek ? "cursor-pointer" : undefined,
-        )}
+        className="listen-progress-bar__interaction relative mb-2 h-5"
+        data-seekable={canSeek ? "true" : undefined}
       >
         <div
-          className={cn(
-            "absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full",
-            lightTone ? "bg-white/12" : "bg-foreground/10",
-          )}
+          className="listen-progress-bar__track absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden"
         >
           <div
-            className={cn(
-              "absolute inset-y-0 left-0 rounded-full transition-[width] duration-300",
-              lightTone ? "bg-white/26" : "bg-sidebar-foreground/12",
-            )}
+            className="listen-progress-bar__buffer absolute inset-y-0 left-0"
             style={{ width: `${bufferedProgress * 100}%` }}
           />
           <div
-            className={cn(
-              "absolute inset-y-0 left-0 h-full rounded-full transition-[width] duration-150",
-              lightTone
-                ? "bg-[linear-gradient(90deg,rgba(255,255,255,0.95),rgba(255,255,255,0.62))] shadow-[0_0_24px_rgba(255,255,255,0.18)]"
-                : "bg-[linear-gradient(90deg,hsl(var(--sidebar-primary)),hsl(var(--sidebar-primary)/0.72))] shadow-[0_0_24px_hsl(var(--sidebar-primary)/0.35)]",
-            )}
+            className="listen-progress-bar__played absolute inset-y-0 left-0 h-full"
             style={{ width: `${progress * 100}%` }}
           />
         </div>
@@ -787,12 +638,7 @@ export function ListenProgressBar(props: {
           <>
             <span
               aria-hidden="true"
-              className={cn(
-                "pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border shadow-sm transition-[left] duration-150",
-                lightTone
-                  ? "border-white/70 bg-white"
-                  : "border-sidebar-background bg-sidebar-primary",
-              )}
+              className="listen-progress-bar__thumb pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2"
               style={{ left: `${progress * 100}%` }}
             />
             <input
@@ -802,7 +648,7 @@ export function ListenProgressBar(props: {
               step={0.1}
               value={currentTime}
               aria-label={props.ariaLabel}
-              className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+              className="listen-progress-bar__input absolute inset-0 z-10 h-full w-full"
               onChange={(event) => {
                 const nextTime = Number(event.currentTarget.value);
                 if (Number.isFinite(nextTime)) {
@@ -814,10 +660,7 @@ export function ListenProgressBar(props: {
         ) : null}
       </div>
       <div
-        className={cn(
-          "flex items-center justify-between text-[11px] font-medium tabular-nums",
-          lightTone ? "text-white/62" : "text-sidebar-foreground/46",
-        )}
+        className="listen-progress-bar__timestamps flex items-center justify-between"
       >
         <span>{formatProgressSeconds(currentTime)}</span>
         <span>{formatProgressSeconds(duration)}</span>
@@ -862,7 +705,7 @@ export function ListenOnlineGroup(props: {
     <div className="listen-online-group">
       {headerTitle || hasHeaderActions ? (
         <div className="wails-drag mb-2 flex min-h-7 items-center justify-between gap-2 px-2">
-          <div className="min-w-0 truncate text-xs font-semibold text-sidebar-foreground/58">
+          <div className="listen-online-group__title min-w-0 truncate">
             {headerTitle}
           </div>
           {hasHeaderActions ? (
@@ -874,8 +717,9 @@ export function ListenOnlineGroup(props: {
                       type="button"
                       variant="ghost"
                       size="compactIcon"
+                      shape="circle"
                       className={cn(
-                        "h-7 w-7 rounded-full",
+                        "h-7 w-7",
                         LISTEN_CONTROL_ICON_BUTTON_CLASS,
                       )}
                       aria-label={props.text.listen.playAll}
@@ -897,8 +741,9 @@ export function ListenOnlineGroup(props: {
                       type="button"
                       variant="ghost"
                       size="compactIcon"
+                      shape="circle"
                       className={cn(
-                        "h-7 w-7 rounded-full",
+                        "h-7 w-7",
                         LISTEN_CONTROL_ICON_BUTTON_CLASS,
                       )}
                       aria-label={props.text.listen.shuffleAll}
@@ -920,8 +765,9 @@ export function ListenOnlineGroup(props: {
                       type="button"
                       variant="ghost"
                       size="compactIcon"
+                      shape="circle"
                       className={cn(
-                        "h-7 w-7 rounded-full",
+                        "h-7 w-7",
                         LISTEN_CONTROL_ICON_BUTTON_CLASS,
                       )}
                       aria-label={props.text.listen.undoQueue}
@@ -944,8 +790,9 @@ export function ListenOnlineGroup(props: {
                       type="button"
                       variant="ghost"
                       size="compactIcon"
+                      shape="circle"
                       className={cn(
-                        "h-7 w-7 rounded-full",
+                        "h-7 w-7",
                         LISTEN_CONTROL_ICON_BUTTON_CLASS,
                       )}
                       aria-label={props.text.listen.redoQueue}
@@ -968,10 +815,11 @@ export function ListenOnlineGroup(props: {
                       type="button"
                       variant="ghost"
                       size="compactIcon"
+                      tone="destructive"
+                      shape="circle"
                       className={cn(
-                        "h-7 w-7 rounded-full",
+                        "h-7 w-7",
                         LISTEN_CONTROL_ICON_BUTTON_CLASS,
-                        "hover:bg-destructive/10 hover:text-destructive",
                       )}
                       aria-label={props.clearLabel ?? props.text.listen.clearQueue}
                       title={props.clearLabel ?? props.text.listen.clearQueue}
@@ -1030,15 +878,15 @@ export function ListenOnlineGroup(props: {
                   selected={selected}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-sidebar-foreground">
+                  <div className="listen-list-row__title flex min-w-0 items-center gap-1.5">
                     <span className="min-w-0 truncate">{item.title}</span>
                     {showVideoIndicator ? <ListenMuseVideoIndicator /> : null}
                   </div>
-                  <div className="truncate text-xs text-sidebar-foreground/58">
+                  <div className="listen-list-row__metadata truncate">
                     {metadataParts.join(" · ")}
                   </div>
                   {item.description ? (
-                    <div className="truncate text-[11px] text-sidebar-foreground/48">
+                    <div className="listen-list-row__description truncate">
                       {item.description}
                     </div>
                   ) : null}
@@ -1058,8 +906,9 @@ export function ListenOnlineGroup(props: {
                         type="button"
                         variant="outline"
                         size="compactIcon"
+                        shape="circle"
                         className={cn(
-                          "h-8 w-8 rounded-full",
+                          "h-8 w-8",
                           LISTEN_CONTROL_ICON_BUTTON_CLASS,
                         )}
                         aria-label={props.editLabel ?? props.text.listen.editChannel}
@@ -1083,10 +932,11 @@ export function ListenOnlineGroup(props: {
                         type="button"
                         variant="outline"
                         size="compactIcon"
+                        tone="destructive"
+                        shape="circle"
                         className={cn(
-                          "h-8 w-8 rounded-full",
+                          "h-8 w-8",
                           LISTEN_CONTROL_ICON_BUTTON_CLASS,
-                          "hover:bg-destructive/10 hover:text-destructive",
                         )}
                         aria-label={
                           props.removeLabel ?? props.text.listen.removeFromQueue
@@ -1144,7 +994,8 @@ function ListenQueueMoveButton(props: {
           type="button"
           variant="outline"
           size="compactIcon"
-          className={cn("h-7 w-7 rounded-full", LISTEN_CONTROL_ICON_BUTTON_CLASS)}
+          shape="circle"
+          className={cn("h-7 w-7", LISTEN_CONTROL_ICON_BUTTON_CLASS)}
           aria-label={props.label}
           title={props.label}
           disabled={props.disabled}
@@ -1230,7 +1081,7 @@ export function ListenHorizontalCardRow(props: {
     <div className="listen-horizontal-card-row relative min-w-0 overflow-hidden">
       <div
         ref={scrollRef}
-        className="flex min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overflow-y-hidden pb-1 pr-10 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 snap-x snap-mandatory gap-4 overflow-x-auto overflow-y-hidden pb-1 pr-10 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
         {props.children}
       </div>
@@ -1261,17 +1112,16 @@ function ListenHorizontalScrollButton(props: {
   return (
     <div
       className={cn(
-        "absolute top-0 z-30 h-[7.25rem] w-20",
-        isLeft
-          ? "left-0 bg-gradient-to-r from-[hsl(var(--sidebar-background)/0.94)] via-[hsl(var(--sidebar-background)/0.68)] to-transparent"
-          : "right-0 bg-gradient-to-l from-[hsl(var(--sidebar-background)/0.94)] via-[hsl(var(--sidebar-background)/0.68)] to-transparent",
+        "listen-horizontal-scroll-fade absolute top-0 z-30 h-[10rem] w-20",
+        isLeft ? "left-0" : "right-0",
       )}
+      data-side={props.side}
       onPointerDown={(event) => event.stopPropagation()}
     >
       <button
         type="button"
         className={cn(
-          "listen-horizontal-scroll-button flex h-full w-full items-center text-sidebar-foreground/58 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35",
+          "listen-horizontal-scroll-button flex h-full w-full items-center",
           isLeft ? "justify-start pl-1.5" : "justify-end pr-1.5",
         )}
         aria-label={props.label}
@@ -1283,7 +1133,7 @@ function ListenHorizontalScrollButton(props: {
         }}
         onPointerDown={(event) => event.stopPropagation()}
       >
-        <span className="flex h-10 w-10 items-center justify-center rounded-full border border-sidebar-border/45 bg-sidebar-background/78 shadow-[0_14px_30px_-24px_hsl(var(--foreground)/0.86),inset_0_1px_0_hsl(var(--background)/0.22)] backdrop-blur-md transition-[transform,background-color,color,box-shadow] duration-200 ease-out hover:scale-[1.04] hover:bg-sidebar-background/92 hover:text-sidebar-foreground active:scale-95">
+        <span className="app-listen-horizontal-scroll-control flex h-10 w-10 items-center justify-center">
           {isLeft ? (
             <ChevronLeft className="h-4 w-4" />
           ) : (
@@ -1451,18 +1301,14 @@ export function ListenMuseTrackList(props: {
               key={item.id}
               type="button"
               className={cn(
-                "listen-track-list-row grid min-h-14 w-full grid-cols-[2rem_minmax(0,1fr)_3.25rem] items-center gap-2 rounded-2xl border border-transparent px-2 py-2 text-left transition-[transform,background-color,border-color] duration-200 ease-out active:scale-[0.99] focus-visible:outline-none",
-                selected
-                  ? "border-sidebar-primary/18 bg-sidebar-primary/10"
-                  : "hover:-translate-y-0.5 hover:bg-sidebar-background/54",
+                "listen-track-list-row grid min-h-14 w-full grid-cols-[2rem_minmax(0,1fr)_3.25rem] items-center gap-2 px-2 py-2",
               )}
               data-selected={selected ? "true" : undefined}
               onClick={() => props.onSelect(item)}
             >
               <span
                 className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center text-[11px] font-semibold tabular-nums",
-                  selected ? "text-sidebar-primary" : "text-sidebar-foreground/38",
+                  "listen-track-list-row__index flex h-7 w-7 shrink-0 items-center justify-center",
                 )}
               >
                 {index + 1}
@@ -1475,12 +1321,12 @@ export function ListenMuseTrackList(props: {
                 />
                 <span className="min-w-0 flex-1">
                   <ListenMuseTrackTitle item={item} />
-                  <span className="block truncate text-xs text-sidebar-foreground/58">
+                  <span className="listen-track-list-row__secondary block truncate">
                     {artistLabel}
                   </span>
                 </span>
               </span>
-              <span className="justify-self-end text-right text-[11px] font-medium tabular-nums text-sidebar-foreground/42">
+              <span className="listen-track-list-row__duration justify-self-end">
                 {item.durationLabel}
               </span>
             </button>
@@ -1492,10 +1338,7 @@ export function ListenMuseTrackList(props: {
             key={item.id}
             type="button"
             className={cn(
-              "listen-track-list-row grid min-h-14 w-full grid-cols-[minmax(0,1.45fr)_minmax(0,0.82fr)_minmax(0,0.92fr)_3.25rem] items-center gap-2 rounded-2xl border border-transparent px-2 py-2 text-left transition-[transform,background-color,border-color] duration-200 ease-out active:scale-[0.99] focus-visible:outline-none",
-              selected
-                ? "border-sidebar-primary/18 bg-sidebar-primary/10"
-                : "hover:-translate-y-0.5 hover:bg-sidebar-background/54",
+              "listen-track-list-row grid min-h-14 w-full grid-cols-[minmax(0,1.45fr)_minmax(0,0.82fr)_minmax(0,0.92fr)_3.25rem] items-center gap-2 px-2 py-2",
             )}
             data-selected={selected ? "true" : undefined}
             onClick={() => props.onSelect(item)}
@@ -1508,13 +1351,13 @@ export function ListenMuseTrackList(props: {
               />
               <ListenMuseTrackTitle item={item} />
             </span>
-            <span className="min-w-0 truncate text-xs font-medium text-sidebar-foreground/58">
+            <span className="listen-track-list-row__secondary min-w-0 truncate">
               {artistLabel}
             </span>
-            <span className="min-w-0 truncate text-xs font-medium text-sidebar-foreground/46">
+            <span className="listen-track-list-row__tertiary min-w-0 truncate">
               {albumLabel}
             </span>
-            <span className="justify-self-end text-right text-[11px] font-medium tabular-nums text-sidebar-foreground/42">
+            <span className="listen-track-list-row__duration justify-self-end">
               {item.durationLabel}
             </span>
           </button>
@@ -1532,6 +1375,8 @@ export function ListenMuseTrackListGroup(props: {
   artistFallback?: string;
   maxItems?: number;
   text: ReturnType<typeof getXiaText>;
+  onPlayAll?: () => void;
+  onShuffle?: () => void;
   onSeeAll?: () => void;
   onSelect: (item: ListenOnlineItem) => void;
 }) {
@@ -1542,20 +1387,46 @@ export function ListenMuseTrackListGroup(props: {
     props.maxItems && props.maxItems > 0
       ? props.items.slice(0, props.maxItems)
       : props.items;
+  const hasHeaderActions = Boolean(
+    props.onPlayAll || props.onShuffle || props.onSeeAll,
+  );
   return (
-    <section className="listen-muse-track-list-group min-w-0 space-y-2 overflow-hidden">
-      <div className="flex min-h-7 items-center justify-between gap-2 px-2">
-        <div className="min-w-0 truncate text-xs font-semibold text-sidebar-foreground/58">
+    <section className="listen-muse-track-list-group min-w-0 !mt-7 space-y-3 overflow-hidden first:!mt-0">
+      <div className="wails-drag flex min-h-7 items-center justify-between gap-2 px-2">
+        <div className="listen-muse-group__title min-w-0 truncate">
           {props.title}
         </div>
-        {props.onSeeAll ? (
-          <button
-            type="button"
-            className="shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold text-sidebar-primary/78 transition-[background-color,color] duration-150 ease-out hover:bg-sidebar-primary/10 hover:text-sidebar-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-            onClick={props.onSeeAll}
-          >
-            {props.text.listen.seeAll}
-          </button>
+        {hasHeaderActions ? (
+          <div className="wails-no-drag flex shrink-0 items-center gap-1">
+            {props.onPlayAll ? (
+              <ListenMuseHeaderIconButton
+                label={props.text.listen.playAll}
+                onClick={props.onPlayAll}
+              >
+                <Play className="h-3.5 w-3.5" />
+              </ListenMuseHeaderIconButton>
+            ) : null}
+            {props.onShuffle ? (
+              <ListenMuseHeaderIconButton
+                label={props.text.listen.shuffleAll}
+                onClick={props.onShuffle}
+              >
+                <Shuffle className="h-3.5 w-3.5" />
+              </ListenMuseHeaderIconButton>
+            ) : null}
+            {props.onSeeAll ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="compact"
+                shape="capsule"
+                className="listen-muse-see-all shrink-0 px-2 py-1"
+                onClick={props.onSeeAll}
+              >
+                {props.text.listen.seeAll}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
       <ListenMuseTrackList
@@ -1582,7 +1453,7 @@ export function ListenMuseVideoIndicator(props: { className?: string } = {}) {
     <Video
       aria-hidden="true"
       className={cn(
-        "h-3.5 w-3.5 shrink-0 text-sidebar-foreground/28",
+        "listen-muse-video-indicator h-3.5 w-3.5 shrink-0",
         props.className,
       )}
       strokeWidth={1.8}
@@ -1594,7 +1465,7 @@ function ListenMuseTrackTitle(props: { item: ListenOnlineItem }) {
   const hasVideo = hasListenMuseItemVideo(props.item);
   return (
     <span className="flex min-w-0 flex-1 items-center gap-1.5">
-      <span className="min-w-0 truncate text-sm font-medium text-sidebar-foreground">
+      <span className="listen-track-list-row__title min-w-0 truncate">
         {props.item.title}
       </span>
       {hasVideo ? <ListenMuseVideoIndicator /> : null}
@@ -1631,10 +1502,10 @@ function ListenMuseGroupFrame(props: {
   const headerTitle = props.hideTitle ? "" : props.title.trim();
   const hasActions = Boolean(props.onPlayAll || props.onShuffle);
   return (
-    <section className="listen-muse-group-frame min-w-0 space-y-2 overflow-hidden">
+    <section className="listen-muse-group-frame min-w-0 !mt-7 space-y-3 overflow-hidden first:!mt-0">
       {headerTitle || hasActions ? (
         <div className="wails-drag flex min-h-7 items-center justify-between gap-2 px-2">
-          <div className="min-w-0 truncate text-xs font-semibold text-sidebar-foreground/58">
+          <div className="listen-muse-group__title min-w-0 truncate">
             {headerTitle}
           </div>
           {hasActions ? (
@@ -1698,12 +1569,12 @@ function ListenMuseTrackCard(props: {
   const hasVideo = hasListenMuseItemVideo(props.item);
   return (
     <div
-      className="listen-muse-card group/muse-card relative w-[7.25rem] shrink-0 snap-start rounded-lg"
+      className="listen-muse-card group/muse-card relative w-[10rem] shrink-0 snap-start"
       data-selected={props.selected ? "true" : undefined}
     >
       <button
         type="button"
-        className="block w-full rounded-lg text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/35"
+        className="listen-muse-card__artwork-button block w-full"
         onClick={props.onSelect}
       >
         <ListenMuseCardArtwork
@@ -1713,16 +1584,16 @@ function ListenMuseTrackCard(props: {
           liftOnHover={false}
           softenOnHover
         >
-          <span className="listen-playback-hover-layer pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-black/16 opacity-0">
-            <span className="listen-playback-hover-button flex h-10 w-10 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_18px_42px_-28px_hsl(var(--sidebar-primary)/0.72)]">
-              <Play className="ml-0.5 h-4 w-4 fill-current" />
+          <span className="listen-muse-cover-overlay listen-playback-hover-layer pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <span className="listen-playback-hover-button listen-primary-play-button flex h-10 w-10 items-center justify-center">
+              <Play className="listen-playback-hover-icon ml-0.5 h-4 w-4" />
             </span>
           </span>
         </ListenMuseCardArtwork>
       </button>
       <button
         type="button"
-        className="block w-full rounded-md text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/35"
+        className="listen-muse-card__identity-button block w-full"
         onClick={props.onSelect}
       >
         <ListenMuseCardText
@@ -1743,12 +1614,12 @@ function ListenMusePlaylistCard(props: {
 }) {
   return (
     <div
-      className="listen-muse-card group/muse-card relative w-[7.25rem] shrink-0 snap-start rounded-lg"
+      className="listen-muse-card group/muse-card relative w-[10rem] shrink-0 snap-start"
       data-selected={props.selected ? "true" : undefined}
     >
       <button
         type="button"
-        className="block w-full rounded-lg text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/35"
+        className="listen-muse-card__artwork-button block w-full"
         onClick={props.onSelect}
       >
         <ListenMuseCardArtwork
@@ -1775,7 +1646,8 @@ function ListenMuseArtistCard(props: {
   return (
     <button
       type="button"
-      className="listen-muse-card group/muse-card block w-[7.25rem] shrink-0 snap-start rounded-lg text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/35"
+      className="listen-muse-card group/muse-card block w-[10rem] shrink-0 snap-start"
+      data-card-justification="middle"
       data-selected={props.selected ? "true" : undefined}
       onClick={props.onSelect}
     >
@@ -1792,6 +1664,7 @@ function ListenMuseArtistCard(props: {
       <ListenMuseCardText
         title={props.item.name}
         subtitle={props.item.subtitle || "YouTube Music"}
+        align="center"
       />
     </button>
   );
@@ -1809,22 +1682,23 @@ function ListenMuseCategoryCard(props: {
   return (
     <button
       type="button"
-      className="listen-muse-card group/muse-card block w-[7.25rem] shrink-0 snap-start rounded-lg text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/35"
+      className="listen-muse-card group/muse-card block w-[10rem] shrink-0 snap-start"
       data-selected={props.selected ? "true" : undefined}
       onClick={props.onSelect}
     >
       <span
-        className={cn(
-          "listen-muse-card-artwork relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-lg bg-sidebar-background/65 text-sidebar-foreground/68 shadow-[0_14px_30px_-24px_hsl(var(--foreground)/0.72)] ring-1 ring-[hsl(var(--foreground)/0.08)] transition-[transform,box-shadow] duration-200 ease-out group-hover/muse-card:-translate-y-0.5 group-hover/muse-card:shadow-[0_18px_38px_-28px_hsl(var(--foreground)/0.86)]",
-          props.selected && "ring-sidebar-primary/35",
-        )}
-        style={swatch ? { backgroundColor: `${swatch}20` } : undefined}
+        className="listen-muse-card-artwork listen-muse-category-artwork relative flex aspect-square w-full items-center justify-center overflow-hidden"
+        data-category-color={swatch ? "true" : undefined}
+        data-selected={props.selected ? "true" : undefined}
+        data-lift="true"
+        style={
+          swatch
+            ? ({ "--listen-category-color": swatch } as React.CSSProperties)
+            : undefined
+        }
       >
         {swatch ? (
-          <span
-            className="absolute inset-x-0 bottom-0 h-1"
-            style={{ backgroundColor: swatch }}
-          />
+          <span className="listen-category-color-strip absolute inset-x-0 bottom-0 h-1" />
         ) : null}
         <Tags className="h-7 w-7" />
       </span>
@@ -1844,59 +1718,45 @@ function ListenMuseCardArtwork(props: {
 }) {
   const candidates = React.useMemo(
     () =>
-      props.item.videoId?.trim()
-        ? buildListenTrackThumbnailCandidates(props.httpBaseURL, {
-            videoId: props.item.videoId,
-            thumbnailUrl: props.item.thumbnailUrl,
-          })
-        : buildListenImageCandidates(
+      props.shape === "circle"
+        ? buildListenImageCandidates(
             props.httpBaseURL,
             props.item.thumbnailUrl ?? "",
-          ),
-    [props.httpBaseURL, props.item.thumbnailUrl, props.item.videoId],
+          )
+        : buildListenPosterCandidates(props.httpBaseURL, {
+            videoId: props.item.videoId,
+            thumbnailUrl: props.item.thumbnailUrl,
+          }),
+    [props.httpBaseURL, props.item.thumbnailUrl, props.item.videoId, props.shape],
   );
-  const candidateKey = candidates.join("\n");
-  const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const source = candidates[candidateIndex] ?? "";
-
-  React.useEffect(() => {
-    setCandidateIndex(0);
-  }, [candidateKey]);
   const liftOnHover = props.liftOnHover !== false;
   const isCircle = props.shape === "circle";
 
   return (
     <span
-      className={cn(
-        "listen-muse-card-artwork relative block aspect-square w-full overflow-hidden bg-sidebar-background/65 shadow-[0_14px_30px_-24px_hsl(var(--foreground)/0.72)] ring-1 ring-[hsl(var(--foreground)/0.08)] duration-200 ease-out",
-        isCircle ? "rounded-full" : "rounded-lg",
-        liftOnHover
-          ? "transition-[transform,box-shadow] group-hover/muse-card:-translate-y-0.5 group-hover/muse-card:shadow-[0_18px_38px_-28px_hsl(var(--foreground)/0.86)]"
-          : "transition-[box-shadow] group-hover/muse-card:shadow-[0_18px_38px_-28px_hsl(var(--foreground)/0.86)]",
-        props.selected && "ring-sidebar-primary/35",
-      )}
+      className="listen-muse-card-artwork relative block aspect-square w-full overflow-hidden"
+      data-shape={isCircle ? "circle" : undefined}
+      data-lift={liftOnHover ? "true" : "false"}
+      data-selected={props.selected ? "true" : undefined}
     >
-      {source ? (
-        <>
-          <img
-            src={source}
-            alt=""
-            className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover/muse-card:scale-[1.045] group-focus-within/muse-card:scale-[1.045]"
-            loading="lazy"
-            onError={() => setCandidateIndex((current) => current + 1)}
-          />
-          {props.softenOnHover ? (
-            <img
-              src={source}
-              alt=""
-              aria-hidden="true"
-              className="listen-hover-soften-image pointer-events-none absolute inset-0 h-full w-full scale-[1.08] object-cover opacity-0 blur-[5px]"
-            />
-          ) : null}
-        </>
+      {candidates.length > 0 ? (
+        <ListenCoverArtwork
+          alt=""
+          candidates={candidates}
+          className="h-full w-full"
+          imageClassName="listen-muse-card-artwork__image"
+          loading="lazy"
+          softenOnHover={props.softenOnHover}
+        />
       ) : (
-        <span className="flex h-full w-full items-center justify-center text-xl font-semibold text-sidebar-foreground/58">
-          <Music2 className="h-7 w-7" />
+        <span
+          aria-hidden="true"
+          className={cn(
+            "listen-muse-card-artwork__placeholder flex h-full w-full items-center justify-center",
+          )}
+          data-shape={isCircle ? "circle" : undefined}
+        >
+          {isCircle ? <UserRound className="h-7 w-7" /> : null}
         </span>
       )}
       {props.children}
@@ -1908,17 +1768,37 @@ function ListenMuseCardText(props: {
   title: string;
   subtitle: string;
   hasVideo?: boolean;
+  align?: "start" | "center";
 }) {
+  const centered = props.align === "center";
   return (
-    <span className="block min-w-0 px-0.5 pt-1.5">
-      <span className="flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate text-xs font-semibold leading-4 text-sidebar-foreground/64">
+    <span
+      className="listen-muse-card-text block min-w-0 px-0.5 pt-2"
+      data-listen-card-align={centered ? "center" : "start"}
+    >
+      <span
+        className={cn(
+          "flex min-w-0 items-center gap-1.5",
+          centered && "justify-center",
+        )}
+      >
+        <span
+          className={cn(
+            "listen-muse-card-text__title min-w-0 truncate",
+            centered && "w-full",
+          )}
+        >
           {props.title}
         </span>
         {props.hasVideo ? <ListenMuseVideoIndicator /> : null}
       </span>
       {props.subtitle ? (
-        <span className="block truncate text-[10px] font-medium leading-4 text-sidebar-foreground/42">
+        <span
+          className={cn(
+            "listen-muse-card-text__subtitle block truncate",
+            centered && "w-full",
+          )}
+        >
           {props.subtitle}
         </span>
       ) : null}
@@ -1939,31 +1819,17 @@ function ListenMuseListArtwork(props: {
     () => buildListenPosterCandidates(props.httpBaseURL, props.item),
     [props.httpBaseURL, props.item.thumbnailUrl, props.item.videoId],
   );
-  const candidateKey = candidates.join("\n");
-  const [candidateIndex, setCandidateIndex] = React.useState(0);
-  const source =
-    candidates[
-      Math.min(candidateIndex, Math.max(candidates.length - 1, 0))
-    ] || LISTEN_DEFAULT_COVER_IMAGE_URL;
-
-  React.useEffect(() => {
-    setCandidateIndex(0);
-  }, [candidateKey]);
 
   return (
     <span
-      className={cn(
-        "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-muted ring-1 ring-border/70",
-        props.selected && "ring-primary/30",
-      )}
+      className="listen-muse-list-artwork relative flex h-10 w-10 shrink-0 overflow-hidden"
+      data-selected={props.selected ? "true" : undefined}
     >
-      <img
-        key={source}
-        src={source}
+      <ListenCoverArtwork
         alt=""
-        className="h-full w-full object-cover"
+        candidates={candidates}
+        className="h-full w-full"
         loading="lazy"
-        onError={() => setCandidateIndex((current) => current + 1)}
       />
     </span>
   );
@@ -1987,6 +1853,15 @@ function ListenLiveStatusBadge(props: {
   const live = props.status === "live";
   const checking = props.status === "checking";
   const upcoming = props.status === "upcoming";
+  const tone = live
+    ? "danger"
+    : checking
+      ? "busy"
+      : upcoming
+        ? "warning"
+        : props.status === "unavailable"
+          ? "danger"
+          : "muted";
   const label =
     props.status === "live"
       ? props.text.listen.liveStatusLive
@@ -2000,23 +1875,14 @@ function ListenLiveStatusBadge(props: {
               ? props.text.listen.liveStatusChecking
               : props.text.listen.liveStatusUnknown;
   return (
-    <span
+    <StatusBadge
       data-status={props.status}
-      className={cn(
-        "inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-semibold",
-        live && "bg-red-500/12 text-red-600 dark:text-red-300",
-        checking && "bg-sidebar-background/62 text-sidebar-foreground/50",
-        upcoming && "bg-amber-500/12 text-amber-700 dark:text-amber-300",
-        !live && !checking && !upcoming && "bg-sidebar-background/62 text-sidebar-foreground/54",
-      )}
+      tone={tone}
+      className="listen-live-status-badge shrink-0"
+      icon={checking ? <Loader2 /> : <Radio />}
     >
-      {checking ? (
-        <Loader2 className="h-3 w-3 animate-spin" />
-      ) : (
-        <Radio className={cn("h-3 w-3", live && "fill-current")} />
-      )}
-      <span className="whitespace-nowrap">{label}</span>
-    </span>
+      {label}
+    </StatusBadge>
   );
 }
 
@@ -2070,14 +1936,14 @@ export function ListenPlaylistGroup(props: {
                   selected={selected}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-sidebar-foreground">
+                  <div className="listen-list-row__title truncate">
                     {item.title}
                   </div>
-                  <div className="truncate text-xs text-sidebar-foreground/58">
+                  <div className="listen-list-row__metadata truncate">
                     {item.channel}
                   </div>
                   {item.description ? (
-                    <div className="truncate text-[11px] text-sidebar-foreground/48">
+                    <div className="listen-list-row__description truncate">
                       {item.description}
                     </div>
                   ) : null}
@@ -2091,20 +1957,18 @@ export function ListenPlaylistGroup(props: {
                         type="button"
                         variant="outline"
                         size="compactIcon"
+                        shape="circle"
                         disabled={isMutating}
                         className={cn(
-                          "h-8 w-8 shrink-0 rounded-full",
+                          "listen-playlist-library-button h-8 w-8 shrink-0",
                           LISTEN_CONTROL_ICON_BUTTON_CLASS,
-                          "hover:bg-sidebar-primary/10 hover:text-sidebar-primary",
-                          isSaved &&
-                            "bg-sidebar-primary/10 text-sidebar-primary hover:bg-sidebar-primary/12",
                         )}
                         aria-label={actionLabel}
                         title={actionLabel}
                         onClick={() => props.onToggleLibrary?.(item, "add")}
                       >
                         {isMutating ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2 className="h-4 w-4 listen-loading-spinner" />
                         ) : (
                           <Plus className="h-4 w-4" />
                         )}
@@ -2154,17 +2018,19 @@ export function ListenCategoryGroup(props: {
                 onClick={() => props.onSelect(item)}
               >
                 <span
-                  className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-sidebar-background/68 text-sidebar-foreground shadow-[inset_0_1px_0_hsl(var(--background)/0.20)] ring-1 ring-[hsl(var(--foreground)/0.08)]"
-                  style={swatch ? { backgroundColor: `${swatch}20` } : undefined}
+                  className="listen-category-swatch relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden"
+                  data-category-color={swatch ? "true" : undefined}
+                  style={
+                    swatch
+                      ? ({ "--listen-category-color": swatch } as React.CSSProperties)
+                      : undefined
+                  }
                 >
-                  <span
-                    className="absolute left-0 top-0 h-full w-1"
-                    style={swatch ? { backgroundColor: swatch } : undefined}
-                  />
+                  <span className="listen-category-color-strip absolute left-0 top-0 h-full w-1" />
                   <Tags className="relative h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-sidebar-foreground">
+                  <div className="listen-list-row__title truncate">
                     {item.title}
                   </div>
                 </div>
@@ -2213,14 +2079,14 @@ export function ListenArtistGroup(props: {
                   shape="circle"
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-sidebar-foreground">
+                  <div className="listen-list-row__title truncate">
                     {item.name}
                   </div>
-                  <div className="truncate text-xs text-sidebar-foreground/58">
+                  <div className="listen-list-row__metadata truncate">
                     {item.subtitle || "YouTube Music"}
                   </div>
                 </div>
-                <UserRound className="h-4 w-4 shrink-0 text-sidebar-foreground/48" />
+                <UserRound className="listen-list-row__trailing-icon h-4 w-4 shrink-0" />
               </SidebarMenuButton>
             </SidebarMenuItem>
           );

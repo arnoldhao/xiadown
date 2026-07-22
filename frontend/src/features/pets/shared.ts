@@ -4,10 +4,6 @@ import type { OperationListItemDTO } from "@/shared/contracts/library";
 import type { Settings } from "@/shared/contracts/settings";
 import type { Pet } from "@/shared/contracts/pets";
 import type { PetAnimation } from "@/shared/pets/animation";
-export {
-  resolvePetCardLighting,
-  type PetCardLighting,
-} from "@/shared/styles/xiadown";
 
 export interface PetPreferences {
   activePetId: string;

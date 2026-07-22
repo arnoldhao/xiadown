@@ -5,6 +5,7 @@ import type { BrowserCandidate, ProxySettings, Settings, SniffProfileInfo, Sniff
 import { normalizeColorScheme } from "@/lib/theme/color-schemes";
 import {
   GetBrowserCandidates,
+	GetSystemProxy,
   OpenLogDirectory,
   RefreshSystemProxy,
   RefreshBrowserCandidates,
@@ -22,18 +23,31 @@ import {
   SniffProfileRequest as BindingsSniffProfileRequest,
   SystemProxyInfo as BindingsSystemProxyInfo,
 } from "../../../bindings/xiadown/internal/application/settings/dto/models";
+import { createInitialRequestCoordinator } from "./initial-request-coordinator";
 
 export const SETTINGS_QUERY_KEY = ["settings"];
 export const BROWSER_CANDIDATES_QUERY_KEY = ["browser-candidates"];
 export const SNIFF_PROFILE_QUERY_KEY = ["settings", "sniff-profile"];
 
-export function useSettings() {
+const settingsRequests = createInitialRequestCoordinator(() =>
+  Call.ByName(
+    "xiadown/internal/presentation/wails.SettingsHandler.GetSettings",
+  ).then((result) => toSettings(result as Partial<Settings>)),
+);
+
+export async function preloadSettings(): Promise<void> {
+  await settingsRequests.preload();
+}
+
+function requestInitialSettings() {
+  return settingsRequests.requestInitial();
+}
+
+export function useSettings(enabled = true) {
   return useQuery({
     queryKey: SETTINGS_QUERY_KEY,
-    queryFn: async (): Promise<Settings> => {
-      const result = await Call.ByName("xiadown/internal/presentation/wails.SettingsHandler.GetSettings");
-      return toSettings(result as Partial<Settings>);
-    },
+    queryFn: requestInitialSettings,
+    enabled,
     staleTime: Infinity,
   });
 }
@@ -146,10 +160,21 @@ export function useSystemProxyInfo(enabled = true) {
   return useQuery({
     queryKey: ["system-proxy"],
     queryFn: async (): Promise<SystemProxyInfo> => {
-      return toSystemProxyInfo(await RefreshSystemProxy());
+		return toSystemProxyInfo(await GetSystemProxy());
     },
     enabled,
   });
+}
+
+export function useRefreshSystemProxyInfo() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: async (): Promise<SystemProxyInfo> =>
+			toSystemProxyInfo(await RefreshSystemProxy()),
+		onSuccess: (data) => {
+			queryClient.setQueryData(["system-proxy"], data);
+		},
+	});
 }
 
 export function useSniffProfileInfo(browser?: string) {
@@ -159,11 +184,16 @@ export function useSniffProfileInfo(browser?: string) {
     queryFn: async (): Promise<SniffProfileInfo> => {
       const result = await GetSniffProfileInfo(BindingsSniffProfileRequest.createFrom({ browser: normalizedBrowser }));
       return {
+        profileId: stringOrEmpty(result.profileId),
+        displayName: stringOrEmpty(result.displayName),
         browser: stringOrEmpty(result.browser),
+        isDefault: result.isDefault === true,
+        redundant: result.redundant === true,
         exists: result.exists === true,
         sizeBytes: Number(result.sizeBytes ?? 0),
         fileCount: Number(result.fileCount ?? 0),
         directoryCount: Number(result.directoryCount ?? 0),
+        lastUsedAt: stringOrEmpty(result.lastUsedAt),
         truncated: result.truncated === true,
         error: stringOrEmpty(result.error),
       };

@@ -1,0 +1,466 @@
+.youtube-uploader-page {
+  min-height: 100%;
+}
+
+/* The uploader owns its edge-to-edge hero instead of inheriting the browse
+ * page gutter. Keep the scroll host so long channel pages still scroll as one
+ * continuous surface. */
+.youtube-workspace-scroll.youtube-workspace-uploader-scroll {
+  padding: 0;
+  scroll-padding-bottom: 34px;
+}
+
+:root[data-platform="windows"]
+  .youtube-workspace-page[data-reserve-window-controls="true"]
+  .youtube-workspace-scroll.youtube-workspace-uploader-scroll {
+  padding-top: 0;
+}
+
+:root[data-platform="windows"]
+  .youtube-workspace-page[data-reserve-window-controls="true"]
+  .youtube-workspace-uploader-scroll
+  .youtube-uploader-back {
+  top: calc(var(--app-windows-caption-button-height) + 14px);
+}
+
+.youtube-uploader-hero {
+  position: relative;
+  padding: 0 0 28px;
+}
+
+.youtube-uploader-banner {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 5 / 1;
+  min-height: 136px;
+  max-height: 260px;
+  overflow: hidden;
+}
+
+.youtube-uploader-banner > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.youtube-uploader-banner-fallback {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.youtube-uploader-banner-fallback svg {
+  width: 44px;
+  height: 44px;
+}
+
+.youtube-uploader-back {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  left: 16px;
+}
+
+.youtube-uploader-back svg {
+  width: 17px;
+  height: 17px;
+}
+
+.youtube-uploader-identity {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  margin-top: -50px;
+  padding: 0 clamp(24px, 5cqw, 64px);
+}
+
+.youtube-uploader-avatar {
+  z-index: 1;
+  display: grid;
+  width: 104px;
+  height: 104px;
+  overflow: hidden;
+  place-items: center;
+}
+
+.youtube-uploader-avatar > img,
+.youtube-uploader-avatar > span {
+  width: 100%;
+  height: 100%;
+}
+
+.youtube-uploader-avatar > img {
+  object-fit: cover;
+}
+
+.youtube-uploader-avatar > span {
+  display: grid;
+  place-items: center;
+}
+
+.youtube-uploader-avatar svg {
+  width: 28px;
+  height: 28px;
+}
+
+.youtube-uploader-name-row {
+  display: flex;
+  min-width: 0;
+  max-width: min(100%, 780px);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.youtube-uploader-name-row h1 {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.youtube-uploader-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0;
+  margin: 8px 0 0;
+}
+
+.youtube-uploader-metadata span + span::before {
+  margin: 0 8px;
+}
+
+.youtube-uploader-description {
+  width: min(100%, 760px);
+  margin: 10px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.youtube-uploader-subscribe {
+  flex: 0 0 auto;
+}
+
+.youtube-uploader-subscribe svg {
+  width: 16px;
+  height: 16px;
+}
+
+.youtube-uploader-more {
+  margin-top: 5px;
+}
+
+.youtube-uploader-more svg {
+  width: 16px;
+  height: 16px;
+}
+
+.youtube-uploader-info-dialog {
+  display: grid;
+  width: min(42rem, calc(100vw - 2rem));
+  max-width: none;
+  height: min(44rem, calc(100vh - 2rem));
+  max-height: calc(100vh - 2rem);
+  grid-template-rows: minmax(11rem, 16rem) minmax(0, 1fr);
+  gap: 0 !important;
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+.youtube-uploader-info-dialog-hero {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.youtube-uploader-info-dialog-hero > img,
+.youtube-uploader-info-dialog-hero-fallback,
+.youtube-uploader-info-dialog-hero-veil {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.youtube-uploader-info-dialog-hero > img {
+  z-index: 1;
+  object-fit: cover;
+  object-position: center;
+}
+
+.youtube-uploader-info-dialog-hero-fallback {
+  z-index: 0;
+  display: grid;
+  place-items: center;
+}
+
+.youtube-uploader-info-dialog-hero-fallback svg {
+  width: 28%;
+  height: 28%;
+}
+
+.youtube-uploader-info-dialog-hero-veil {
+  z-index: 2;
+}
+
+.youtube-uploader-info-dialog-close {
+  position: absolute;
+  z-index: 3;
+  top: 0.85rem;
+  left: 0.85rem;
+}
+
+.youtube-uploader-info-dialog .youtube-uploader-info-dialog-scroll {
+  position: relative;
+  min-height: 0;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 1.5rem clamp(1.25rem, 4vw, 2rem) 1.75rem;
+}
+
+.youtube-uploader-info-dialog-avatar {
+  display: grid;
+  width: 76px;
+  height: 76px;
+  place-items: center;
+  overflow: hidden;
+  margin: 0 auto 12px;
+}
+
+.youtube-uploader-info-dialog-avatar > img,
+.youtube-uploader-info-dialog-avatar > span {
+  width: 100%;
+  height: 100%;
+}
+
+.youtube-uploader-info-dialog-avatar > img {
+  object-fit: cover;
+}
+
+.youtube-uploader-info-dialog-avatar > span {
+  display: grid;
+  place-items: center;
+}
+
+.youtube-uploader-info-dialog-avatar svg {
+  width: 24px;
+  height: 24px;
+}
+
+.youtube-uploader-info-dialog-identity h2 {
+  text-wrap: balance;
+}
+
+.youtube-uploader-info-dialog-identity p {
+  margin-top: 0.45rem;
+}
+
+.youtube-uploader-info-dialog-description {
+  margin-top: 1.75rem;
+}
+
+.youtube-uploader-info-dialog-description h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.youtube-uploader-info-dialog-description h2 svg {
+  width: 16px;
+  height: 16px;
+}
+
+.youtube-uploader-info-dialog-description p {
+  margin: 0.6rem 0 0;
+  white-space: pre-wrap;
+}
+
+.youtube-uploader-videos {
+  padding: 4px 46px 34px;
+}
+
+.youtube-uploader-videos h2 {
+  margin: 0 0 14px;
+}
+
+.youtube-uploader-video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 22px 16px;
+}
+
+.youtube-uploader-video-card {
+  display: grid;
+  min-width: 0;
+  padding: 0;
+}
+
+.youtube-uploader-video-thumbnail {
+  position: relative;
+  display: grid;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  place-items: center;
+}
+
+.youtube-uploader-video-thumbnail > img,
+.youtube-uploader-video-thumbnail > span:not(.youtube-uploader-video-play) {
+  width: 100%;
+  height: 100%;
+}
+
+.youtube-uploader-video-thumbnail > img {
+  object-fit: cover;
+}
+
+.youtube-uploader-video-thumbnail > span:not(.youtube-uploader-video-play) {
+  display: grid;
+  place-items: center;
+}
+
+.youtube-uploader-video-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.youtube-uploader-video-play svg {
+  width: 28px;
+  height: 28px;
+  padding: 7px;
+  box-sizing: content-box;
+}
+
+.youtube-uploader-video-thumbnail em {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  padding: 2px 5px;
+}
+
+.youtube-uploader-video-details {
+  display: grid;
+  gap: 5px;
+  padding: 9px 3px 0;
+}
+
+.youtube-uploader-video-details strong {
+  display: -webkit-box;
+  height: 40px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.youtube-uploader-video-details small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.youtube-uploader-empty,
+.youtube-uploader-page-state {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+}
+
+.youtube-uploader-page-state {
+  min-height: 100%;
+  padding: 80px 24px;
+}
+
+.youtube-uploader-page-state svg,
+.youtube-uploader-empty svg {
+  width: 25px;
+  height: 25px;
+}
+
+.youtube-uploader-page-state p,
+.youtube-uploader-empty p,
+.youtube-uploader-inline-error {
+  margin: 0;
+}
+
+.youtube-uploader-inline-error {
+  padding: 14px 0 0;
+}
+
+.youtube-uploader-infinite-sentinel {
+  grid-column: 1 / -1;
+  margin-top: 22px;
+}
+
+.youtube-uploader-pagination-state {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.youtube-uploader-pagination-state svg {
+  width: 15px;
+  height: 15px;
+}
+
+.youtube-uploader-pagination-error {
+  flex-direction: column;
+}
+
+.youtube-uploader-pagination-error p {
+  margin: 0;
+}
+
+@container youtube-workspace (max-width: 760px) {
+  .youtube-uploader-banner {
+    aspect-ratio: 4 / 1;
+    min-height: 112px;
+  }
+
+  .youtube-uploader-back {
+    top: 12px;
+    left: 12px;
+  }
+
+  .youtube-uploader-identity {
+    margin-top: -42px;
+    padding-inline: 18px;
+  }
+
+  .youtube-uploader-avatar {
+    width: 86px;
+    height: 86px;
+  }
+
+  .youtube-uploader-name-row {
+    margin-top: 10px;
+  }
+
+  .youtube-uploader-videos {
+    padding-inline: 20px;
+  }
+
+}
+
+/* The info dialog is portal-hosted, so it follows the viewport rather than
+ * the Primary pane's YouTube container. */
+@media (max-width: 760px) {
+  .youtube-uploader-info-dialog {
+    width: calc(100vw - 1rem);
+    height: calc(100vh - 1rem);
+    max-height: calc(100vh - 1rem);
+    grid-template-rows: minmax(10rem, 14rem) minmax(0, 1fr);
+  }
+}

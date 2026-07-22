@@ -83,15 +83,7 @@ func TestResolveSourceFileForTranscodeImportsManualAudioIntoNewLibrary(t *testin
 	if err := os.MkdirAll(toolDir, 0o755); err != nil {
 		t.Fatalf("mkdir tool dir: %v", err)
 	}
-	ffprobePath := filepath.Join(toolDir, ffprobeExecutableName())
-	ffprobeScript := `#!/bin/sh
-cat <<'JSON'
-{"streams":[{"index":0,"codec_type":"audio","codec_name":"aac","channels":2,"bit_rate":"192000"}],"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","duration":"12.5","size":"1234","bit_rate":"192000"}}
-JSON
-`
-	if err := os.WriteFile(ffprobePath, []byte(ffprobeScript), 0o755); err != nil {
-		t.Fatalf("write ffprobe: %v", err)
-	}
+	writeFFprobeTestFixture(t, toolDir, `{"streams":[{"index":0,"codec_type":"audio","codec_name":"aac","channels":2,"bit_rate":"192000"}],"format":{"format_name":"mov,mp4,m4a,3gp,3g2,mj2","duration":"12.5","size":"1234","bit_rate":"192000"}}`)
 
 	libraries := &deleteRuleLibraryRepo{}
 	files := &deleteRuleFileRepo{}

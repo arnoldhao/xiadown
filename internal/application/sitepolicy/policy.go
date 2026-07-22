@@ -26,6 +26,8 @@ var builtinPolicyOrder = []string{
 	"youtube",
 	"bilibili",
 	"tiktok",
+	"douyin",
+	"xiaohongshu",
 	"china_private",
 	"instagram",
 	"x",
@@ -110,6 +112,58 @@ var builtinPolicies = map[string]Policy{
 		RemoveSelectors: []string{
 			"[data-e2e=\"recommend-list-item-container\"]",
 			"[data-e2e=\"comment-list\"]",
+		},
+		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
+	},
+	"douyin": {
+		Key:     "douyin",
+		SiteKey: "douyin",
+		Domains: []string{
+			"douyin.com",
+			"iesdouyin.com",
+		},
+		ReadySelectors: []string{
+			"#douyin-web",
+			"#root",
+			"body",
+		},
+		ExtractorSelectors: []string{
+			"main",
+			"article",
+			"#douyin-web",
+			"#root",
+		},
+		RemoveSelectors: []string{
+			".recommend",
+			".comment",
+		},
+		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
+	},
+	"xiaohongshu": {
+		Key:     "xiaohongshu",
+		SiteKey: "xiaohongshu",
+		Domains: []string{
+			"xiaohongshu.com",
+			"xhs.cn",
+			"xhslink.com",
+			"xhslink.cn",
+			"xhsurl.com",
+			"rl.ink",
+		},
+		ReadySelectors: []string{
+			"#app",
+			"#exploreFeeds",
+			"main",
+			"body",
+		},
+		ExtractorSelectors: []string{
+			"main",
+			"article",
+			"#app",
+		},
+		RemoveSelectors: []string{
+			".recommend-container",
+			".comments-container",
 		},
 		Capabilities: []string{"cookies", "web_fetch", "browser", "download"},
 	},

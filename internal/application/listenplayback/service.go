@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,10 +45,13 @@ type PlayerService struct {
 	shuffleEnabled bool
 	repeatMode     RepeatMode
 
-	queue        []Track
-	queueKind    QueueKind
-	queueTitle   string
-	currentIndex int
+	queue                 []Track
+	queueKind             QueueKind
+	queueTitle            string
+	playbackLanguage      string
+	currentIndex          int
+	queueIdentity         string
+	queueIdentitySequence uint64
 
 	queueOrderBeforeShuffle []Track
 
@@ -67,6 +71,7 @@ type PlayerService struct {
 
 	songNearingEnd           bool
 	appInitiatedPlayback     bool
+	restartCurrentLoad       bool
 	suppressAutoplayAfterEnd bool
 	lastRepeatOneRecoveryAt  time.Time
 
@@ -138,6 +143,28 @@ func NewPlayerService(transport Transport, options ...Option) *PlayerService {
 	return service
 }
 
+// SetPlaybackLanguage records the App locale that owns the active Music
+// playback session. Transport loads read this session value so queue
+// navigation and automatic continuation do not fall back to the host locale.
+func (service *PlayerService) SetPlaybackLanguage(ctx context.Context, language string) bool {
+	if service == nil {
+		return false
+	}
+	normalized := stringsTrim(language)
+	service.mu.Lock()
+	if service.playbackLanguage == normalized {
+		service.mu.Unlock()
+		return false
+	}
+	service.playbackLanguage = normalized
+	hasPlaybackSession := len(service.queue) > 0
+	service.mu.Unlock()
+	if hasPlaybackSession {
+		service.saveCurrentSession(ctx)
+	}
+	return true
+}
+
 func (service *PlayerService) Subscribe(listener SnapshotListener) func() {
 	if service == nil || listener == nil {
 		return func() {}
@@ -206,6 +233,7 @@ func (service *PlayerService) snapshotLocked(ctx context.Context) Snapshot {
 	}
 	return Snapshot{
 		Version:              service.snapshotVersion,
+		QueueIdentity:        service.queueIdentity,
 		State:                service.state,
 		CurrentTrack:         current,
 		Progress:             service.progress,
@@ -227,6 +255,23 @@ func (service *PlayerService) snapshotLocked(ctx context.Context) Snapshot {
 		CurrentTimeMs:        service.currentTimeMs,
 		ObservedAudioQuality: service.observedPlaybackAudioQuality,
 	}
+}
+
+// replaceQueueIdentityLocked starts a new queue generation. Continuation
+// appends use this identity as a compare-and-swap guard, so an RPC that was
+// launched for an older playlist cannot mutate a queue that replaced it while
+// the request was in flight.
+func (service *PlayerService) replaceQueueIdentityLocked(identity string) string {
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		service.queueIdentitySequence++
+		if service.queueIdentitySequence == 0 {
+			service.queueIdentitySequence++
+		}
+		identity = "server:" + strconv.FormatUint(service.queueIdentitySequence, 10)
+	}
+	service.queueIdentity = identity
+	return service.queueIdentity
 }
 
 func (service *PlayerService) State() PlaybackState {

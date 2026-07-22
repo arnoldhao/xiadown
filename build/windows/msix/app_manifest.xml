@@ -8,9 +8,9 @@
   IgnorableNamespaces="uap3">
   
   <Identity 
-    Name="com.example.xiadown"
+    Name="com.dreamapp.xiadown"
     Publisher="CN=DreamApp"
-    Version="2.0.0.0" 
+    Version="0.0.0.0"
     ProcessorArchitecture="x64" />
   
   <Properties>
@@ -29,7 +29,7 @@
   </Resources>
   
   <Applications>
-    <Application Id="com.example.xiadown" Executable="xiadown" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="com.dreamapp.xiadown" Executable="xiadown" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="XiaDown"
         Description="A yt-dlp powered downloader and transcoder."

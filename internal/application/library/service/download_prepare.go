@@ -477,9 +477,12 @@ func appSessionSiteKeyForDomain(domain string) string {
 		return "bilibili"
 	case "tiktok.com", "tiktokv.com", "vm.tiktok.com":
 		return "tiktok"
-	case "douyin.com", "iesdouyin.com",
-		"xiaohongshu.com", "rednote.com", "xhs.cn",
+	case "douyin.com", "iesdouyin.com":
+		return "douyin"
+	case "xiaohongshu.com", "xhs.cn",
 		"xhslink.com", "xhslink.cn", "xhsurl.com", "rl.ink":
+		return "xiaohongshu"
+	case "rednote.com":
 		return "china_private"
 	case "instagram.com":
 		return "instagram"

@@ -3,8 +3,10 @@ import { createPortal } from "react-dom";
 
 import { cn } from "@/lib/utils";
 
-type TooltipSide = "top" | "bottom" | "left" | "right";
-type TooltipAlign = "start" | "center" | "end";
+export const TOOLTIP_SIDES = ["top", "bottom", "left", "right"] as const;
+export type TooltipSide = (typeof TOOLTIP_SIDES)[number];
+export const TOOLTIP_ALIGNS = ["start", "center", "end"] as const;
+export type TooltipAlign = (typeof TOOLTIP_ALIGNS)[number];
 
 type TooltipContextValue = {
   contentId: string;
@@ -14,11 +16,12 @@ type TooltipContextValue = {
 };
 
 type TooltipPosition = {
-  arrowClassName: string;
   left: number;
   top: number;
-  transform: string;
 };
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
 const TooltipContext = React.createContext<TooltipContextValue | null>(null);
 
@@ -73,13 +76,6 @@ function resolveTooltipPosition(
           : align === "end"
             ? rect.right
             : rect.left + rect.width / 2,
-      transform:
-        align === "start"
-          ? "translate(0, 0)"
-          : align === "end"
-            ? "translate(-100%, 0)"
-            : "translate(-50%, 0)",
-      arrowClassName: "left-1/2 top-0 -translate-x-1/2 -translate-y-1/2",
     };
   }
 
@@ -92,13 +88,6 @@ function resolveTooltipPosition(
             ? rect.bottom
             : rect.top + rect.height / 2,
       left: rect.left - sideOffset,
-      transform:
-        align === "start"
-          ? "translate(-100%, 0)"
-          : align === "end"
-            ? "translate(-100%, -100%)"
-            : "translate(-100%, -50%)",
-      arrowClassName: "left-full top-1/2 -translate-x-1/2 -translate-y-1/2",
     };
   }
 
@@ -111,13 +100,6 @@ function resolveTooltipPosition(
             ? rect.bottom
             : rect.top + rect.height / 2,
       left: rect.right + sideOffset,
-      transform:
-        align === "start"
-          ? "translate(0, 0)"
-          : align === "end"
-            ? "translate(0, -100%)"
-            : "translate(0, -50%)",
-      arrowClassName: "left-0 top-1/2 -translate-x-1/2 -translate-y-1/2",
     };
   }
 
@@ -129,13 +111,6 @@ function resolveTooltipPosition(
         : align === "end"
           ? rect.right
           : rect.left + rect.width / 2,
-    transform:
-      align === "start"
-        ? "translate(0, -100%)"
-        : align === "end"
-          ? "translate(-100%, -100%)"
-          : "translate(-50%, -100%)",
-    arrowClassName: "left-1/2 top-full -translate-x-1/2 -translate-y-1/2",
   };
 }
 
@@ -229,7 +204,7 @@ const TooltipContent = React.forwardRef<HTMLDivElement, TooltipContentProps>(
     const context = useTooltipContext("TooltipContent");
     const [position, setPosition] = React.useState<TooltipPosition | null>(null);
 
-    React.useLayoutEffect(() => {
+    useIsomorphicLayoutEffect(() => {
       if (!context.open || !context.triggerRef.current || typeof window === "undefined") {
         return;
       }
@@ -263,29 +238,25 @@ const TooltipContent = React.forwardRef<HTMLDivElement, TooltipContentProps>(
 
     return createPortal(
       <div
+        {...props}
         ref={ref}
         id={context.contentId}
         role="tooltip"
-        className={cn(
-          "pointer-events-none fixed z-50 select-none rounded-md bg-foreground px-2 py-1 text-[10px] font-medium text-background shadow-lg shadow-black/15",
-          "animate-in fade-in-0 zoom-in-95",
-          className,
-          multiline
-            ? "max-w-[min(22rem,calc(100vw-1rem))] whitespace-pre-line break-words"
-            : "max-w-[min(28rem,calc(100vw-1rem))] overflow-hidden text-ellipsis whitespace-nowrap",
-        )}
+        className={cn("app-dream-tooltip", className)}
+        data-align={align}
+        data-multiline={multiline ? "true" : "false"}
+        data-side={side}
         style={{
           left: position.left,
           top: position.top,
-          transform: position.transform,
           ...style,
         }}
-        {...props}
       >
         {children}
         <span
           aria-hidden="true"
-          className={cn("absolute h-2 w-2 rotate-45 bg-foreground", position.arrowClassName)}
+          className="app-dream-tooltip__arrow"
+          data-side={side}
         />
       </div>,
       document.body,

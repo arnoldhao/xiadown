@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"xiadown/internal/application/settings/dto"
 	settingsservice "xiadown/internal/application/settings/service"
 	"xiadown/internal/domain/settings"
+	"xiadown/internal/infrastructure/proxy"
 )
 
 func TestProxyNetworkConfigChangedIgnoresTestMetadata(t *testing.T) {
@@ -36,6 +38,31 @@ func TestProxyNetworkConfigChangedIgnoresTestMetadata(t *testing.T) {
 	current.Host = "127.0.0.2"
 	if !proxyNetworkConfigChanged(previous, current) {
 		t.Fatal("expected proxy host change to be detected")
+	}
+}
+
+func TestSettingsHandlerMarksMainWindowBootReady(t *testing.T) {
+	windows := &WindowManager{mainBoot: newMainWindowBootState(false)}
+	handler := &SettingsHandler{windows: windows}
+
+	handler.MarkMainWindowBootReady()
+	handler.MarkMainWindowBootReady()
+
+	if !windows.MainBootReady() {
+		t.Fatal("settings handler should complete the main-window boot handshake")
+	}
+}
+
+func TestSettingsHandlerReleasesMainWindowBootFailureFallback(t *testing.T) {
+	windows := &WindowManager{mainBoot: newMainWindowBootState(false)}
+	windows.mainHTMLSurfaceReady.Store(true)
+	handler := &SettingsHandler{windows: windows}
+
+	handler.MarkMainWindowBootFailed()
+	handler.MarkMainWindowBootFailed()
+
+	if !windows.mainBoot.isFallbackReady() {
+		t.Fatal("settings handler should expose the HTML recovery surface")
 	}
 }
 
@@ -118,6 +145,105 @@ func TestUpdateSettingsRollsBackWhenAutostartApplyFails(t *testing.T) {
 	if len(calls) != 1 || !calls[0] {
 		t.Fatalf("expected autostart manager to be called with true, got %#v", calls)
 	}
+}
+
+func TestUpdateSettingsDoesNotRepublishNetworkPolicyForUnrelatedChanges(t *testing.T) {
+	repo := &settingsMemoryRepository{}
+	manager, err := proxy.NewManager(proxy.Config{
+		Mode: settings.ProxyModeNone, Scheme: settings.ProxySchemeHTTP,
+		Timeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	handler := &SettingsHandler{
+		service: settingsservice.NewSettingsService(repo, nil, settings.DefaultSettings()),
+		proxy:   manager,
+	}
+
+	language := "en"
+	if _, err := handler.UpdateSettings(context.Background(), dto.UpdateSettingsRequest{
+		Language: &language,
+	}); err != nil {
+		t.Fatalf("UpdateSettings() error = %v", err)
+	}
+	if manager.Generation() != 1 {
+		t.Fatalf("unrelated settings change published generation %d", manager.Generation())
+	}
+}
+
+func TestRefreshSystemProxyDoesNotRepublishANonSystemPolicy(t *testing.T) {
+	repo := &settingsMemoryRepository{}
+	manager, err := proxy.NewManager(proxy.Config{
+		Mode: settings.ProxyModeNone, Scheme: settings.ProxySchemeHTTP,
+		Timeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	handler := &SettingsHandler{
+		service: settingsservice.NewSettingsService(repo, nil, settings.DefaultSettings()),
+		proxy:   manager,
+	}
+
+	if _, err := handler.RefreshSystemProxy(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if manager.Generation() != 1 {
+		t.Fatalf("system proxy discovery republished non-system generation %d", manager.Generation())
+	}
+}
+
+func TestUpdateSettingsDoesNotPublishProxyBeforeLaterValidationSucceeds(t *testing.T) {
+	repo := &settingsMemoryRepository{}
+	manager, err := proxy.NewManager(proxy.Config{
+		Mode: settings.ProxyModeNone, Scheme: settings.ProxySchemeHTTP,
+		Timeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	player := &failingSettingsPlayer{err: errors.New("player rejected quality")}
+	handler := &SettingsHandler{
+		service: settingsservice.NewSettingsService(repo, nil, settings.DefaultSettings()),
+		proxy:   manager,
+		players: []settingsOnlinePlayerResetter{player},
+	}
+
+	quality := "high"
+	_, err = handler.UpdateSettings(context.Background(), dto.UpdateSettingsRequest{
+		PlaybackAudioQuality: &quality,
+		Proxy: &dto.Proxy{
+			Mode: "manual", Scheme: "http", Host: "127.0.0.1", Port: 7890,
+			TimeoutSeconds: 5,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected playback quality synchronization failure")
+	}
+	if manager.Generation() != 1 || manager.CurrentConfig().Mode != settings.ProxyModeNone {
+		t.Fatalf("failed settings transaction changed live network policy: generation=%d mode=%s", manager.Generation(), manager.CurrentConfig().Mode.String())
+	}
+	stored, getErr := repo.Get(context.Background())
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if stored.Proxy().Mode() != settings.ProxyModeNone {
+		t.Fatalf("failed settings transaction left persisted proxy mode %s", stored.Proxy().Mode().String())
+	}
+}
+
+type failingSettingsPlayer struct {
+	err error
+}
+
+func (player *failingSettingsPlayer) Reset() error { return nil }
+
+func (player *failingSettingsPlayer) SetPlaybackAudioQuality(string) error {
+	return player.err
 }
 
 type recordingAutoStartManager struct {

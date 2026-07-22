@@ -45,10 +45,6 @@ func (handler *ListenPlaylistHandler) ServeHTTP(w http.ResponseWriter, r *http.R
 		writeListenBadRequest(w, r, "invalid_playlist_id", "Invalid YouTube Music playlist id.", "")
 		return
 	}
-	if strings.HasPrefix(playlistID, "MPSPP") {
-		writeListenBadRequest(w, r, "unsupported_playlist_id", "Podcast playlists are not supported.", "")
-		return
-	}
 	if handler.ytMusic == nil {
 		writeListenServiceUnavailable(w, r, "youtube_music_client_unavailable", "YouTube Music client unavailable.", "")
 		return
@@ -65,9 +61,14 @@ func (handler *ListenPlaylistHandler) ServeHTTP(w http.ResponseWriter, r *http.R
 	tracks := page.Tracks
 	tracks = enrichListenTrackDurations(ctx, handler.ytMusic, tracks)
 	writeListenSearchJSON(w, r, ListenSearchResponse{
-		Items:        mapYouTubeMusicTracksToListenItems(tracks, "ytmusic-playlist-track"),
-		Continuation: page.Continuation,
-		Title:        strings.TrimSpace(page.Title),
-		Author:       strings.TrimSpace(page.Author),
+		Items:           mapYouTubeMusicTracksToListenItems(tracks, "ytmusic-playlist-track"),
+		Continuation:    page.Continuation,
+		Title:           strings.TrimSpace(page.Title),
+		Author:          strings.TrimSpace(page.Author),
+		AuthorBrowseID:  strings.TrimSpace(page.AuthorBrowseID),
+		TrackCountLabel: strings.TrimSpace(page.TrackCountLabel),
+		DurationLabel:   strings.TrimSpace(page.DurationLabel),
+		Description:     strings.TrimSpace(page.Description),
+		ThumbnailURL:    strings.TrimSpace(page.ThumbnailURL),
 	})
 }

@@ -14,13 +14,7 @@ const DropdownMenuContent = React.forwardRef<
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
-      className={cn(
-        "app-menu-content z-50 min-w-[10rem] text-popover-foreground outline-none",
-        "animate-in fade-in-0 zoom-in-95",
-        "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-        "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-        className,
-      )}
+      className={cn("app-menu-content app-menu-content-base", className)}
       {...props}
     />
   </DropdownMenuPrimitive.Portal>
@@ -33,11 +27,7 @@ const DropdownMenuItem = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Item
     ref={ref}
-    className={cn(
-      "app-menu-item app-motion-color relative flex cursor-default select-none items-center gap-2 text-sm outline-none transition-colors",
-      "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-      className,
-    )}
+    className={cn("app-menu-item app-motion-color", className)}
     {...props}
   />
 ));
@@ -49,17 +39,16 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 >(({ className, children, checked, ...props }, ref) => (
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
-    className={cn(
-      "app-menu-item app-motion-color relative flex cursor-default select-none items-center gap-2 text-sm outline-none transition-colors",
-      "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-      className,
-    )}
+    className={cn("app-menu-item app-motion-color", className)}
     checked={checked}
     {...props}
   >
-    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+    <span
+      className="app-menu-indicator"
+      data-menu-indicator="true"
+    >
       <DropdownMenuPrimitive.ItemIndicator>
-        <Check className="h-3.5 w-3.5" />
+        <Check className="app-menu-indicator__icon" />
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}
@@ -67,13 +56,36 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 ));
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
+const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
+const DropdownMenuRadioItem = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
+>(({ className, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.RadioItem
+    ref={ref}
+    className={cn("app-menu-item app-motion-color", className)}
+    {...props}
+  >
+    <span
+      className="app-menu-indicator"
+      data-menu-indicator="true"
+    >
+      <DropdownMenuPrimitive.ItemIndicator>
+        <Check className="app-menu-indicator__icon" />
+      </DropdownMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </DropdownMenuPrimitive.RadioItem>
+));
+DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName;
+
 const DropdownMenuLabel = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label>
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn("app-menu-label text-xs font-semibold", className)}
+    className={cn("app-menu-label", className)}
     {...props}
   />
 ));
@@ -85,7 +97,7 @@ const DropdownMenuSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Separator
     ref={ref}
-    className={cn("app-menu-separator h-px", className)}
+    className={cn("app-menu-separator", className)}
     {...props}
   />
 ));
@@ -97,6 +109,8 @@ export {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
 };

@@ -57,29 +57,49 @@ export class WebSocketClient {
     this.shouldReconnect = true;
     this.setStatus("connecting");
 
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), this.connectTimeoutMs);
-
+    let socket: WebSocket;
     try {
-      this.socket = new WebSocket(this.url);
-      this.socket.addEventListener("open", () => {
-        window.clearTimeout(timeout);
+      socket = new WebSocket(this.url);
+      this.socket = socket;
+      const timeout = window.setTimeout(() => {
+        if (this.socket !== socket) {
+          return;
+        }
+        socket.close();
+        this.handleClose(socket);
+      }, this.connectTimeoutMs);
+      const clearConnectTimeout = () => window.clearTimeout(timeout);
+
+      socket.addEventListener("open", () => {
+        clearConnectTimeout();
+        if (this.socket !== socket) {
+          return;
+        }
         this.setStatus("connected");
         this.flushPendingSubscriptions();
       });
-      this.socket.addEventListener("message", (event) => this.handleMessage(event));
-      this.socket.addEventListener("close", () => this.handleClose());
-      this.socket.addEventListener("error", () => this.handleClose());
+      socket.addEventListener("message", (event) => {
+        if (this.socket === socket) {
+          this.handleMessage(event);
+        }
+      });
+      socket.addEventListener("close", () => {
+        clearConnectTimeout();
+        this.handleClose(socket);
+      });
+      socket.addEventListener("error", () => {
+        clearConnectTimeout();
+        if (this.socket !== socket) {
+          return;
+        }
+        socket.close();
+        this.handleClose(socket);
+      });
     } catch (error) {
       console.error("[ws] failed to connect", error);
-      window.clearTimeout(timeout);
-      this.handleClose();
-    }
-
-    controller.signal.addEventListener("abort", () => {
-      this.socket?.close();
       this.socket = null;
-    });
+      this.handleDisconnect();
+    }
   }
 
   disconnect() {
@@ -88,8 +108,9 @@ export class WebSocketClient {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    this.socket?.close();
+    const socket = this.socket;
     this.socket = null;
+    socket?.close();
     this.setStatus("disconnected");
     this.clearPending(new Error("socket disconnected"));
   }
@@ -171,7 +192,6 @@ export class WebSocketClient {
   }
 
   private scheduleReconnect() {
-    this.socket = null;
     if (this.reconnectTimer || !this.shouldReconnect) {
       return;
     }
@@ -182,7 +202,15 @@ export class WebSocketClient {
     }, this.reconnectIntervalMs);
   }
 
-  private handleClose() {
+  private handleClose(socket: WebSocket) {
+    if (this.socket !== socket) {
+      return;
+    }
+    this.socket = null;
+    this.handleDisconnect();
+  }
+
+  private handleDisconnect() {
     this.setStatus("disconnected");
     this.clearPending(new Error("socket closed"));
     this.scheduleReconnect();

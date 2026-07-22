@@ -23,6 +23,7 @@ tasks:
         vars:
           ARCH: '{{.ARCH}}'
           DEV: '{{.DEV}}'
+          EXTRA_TAGS: '{{.EXTRA_TAGS}}'
     vars:
       # Default to CGO_ENABLED=0 if not explicitly set
       CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
@@ -54,7 +55,7 @@ tasks:
       TELEMETRYDECK_APP_ID:
         sh: 'printf %s "${TELEMETRYDECK_APP_ID:-}"'
       TELEMETRY_LDFLAGS: '{{if .APP_VERSION}} -X xiadown/internal/app.AppVersion={{.APP_VERSION}}{{end}}{{if .TELEMETRYDECK_APP_ID}} -X xiadown/internal/app.TelemetryDeckAppID={{.TELEMETRYDECK_APP_ID}}{{end}}'
-      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{if or .APP_VERSION .TELEMETRYDECK_APP_ID}} -ldflags="{{.TELEMETRY_LDFLAGS}}"{{end}}{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui{{.TELEMETRY_LDFLAGS}}"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l" -ldflags="-H windowsgui{{.TELEMETRY_LDFLAGS}}"{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui{{.TELEMETRY_LDFLAGS}}"{{end}}'
     env:
       GOOS: windows
       CGO_ENABLED: '{{.CGO_ENABLED | default "0"}}'
@@ -76,7 +77,7 @@ tasks:
           Build it first: wails3 task setup:docker
     cmds:
       - task: generate:syso
-      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
+      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{.CROSS_IMAGE}} windows {{.DOCKER_ARCH}}
       - docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
       - rm -f *.syso
     vars:

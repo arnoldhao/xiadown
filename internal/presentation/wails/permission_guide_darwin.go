@@ -3,7 +3,7 @@
 package wails
 
 /*
-#cgo CFLAGS: -mmacosx-version-min=10.15 -x objective-c
+#cgo CFLAGS: -mmacosx-version-min=14.0 -x objective-c
 #cgo LDFLAGS: -framework AppKit -framework CoreGraphics -framework Foundation -framework QuartzCore
 
 #include <stdlib.h>

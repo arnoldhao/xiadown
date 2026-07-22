@@ -1,19 +1,18 @@
 <div align="center">
   <img src="./frontend/public/appicon.png" width="112" alt="Biểu tượng XiaDown" />
   <h1>XiaDown</h1>
-  <p><strong>Một công cụ tải video hai cơ chế, hỗ trợ nhạc trực tuyến.</strong></p>
-  <p>Listen Keep, Make it Yours</p>
+  <p><strong>Ứng dụng quản lý thư viện nội dung hỗ trợ tải video</strong></p>
   <p>
     <img src="https://img.shields.io/github/v/tag/arnoldhao/xiadown?label=version" alt="Phiên bản mới nhất" />
     <img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Giấy phép" />
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey" alt="Nền tảng được hỗ trợ" />
-    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Stack công nghệ" />
+    <img src="https://img.shields.io/badge/stack-Go%20%E2%80%A2%20Wails%20%E2%80%A2%20React-green" alt="Công nghệ" />
   </p>
   <p>
-    <a href="https://xiadown.app/">Trang web</a> ·
-    <a href="https://xiadown.app/vi-vn/docs/">Hướng dẫn sử dụng</a> ·
+    <a href="https://xiadown.app/">Trang chủ</a> ·
+    <a href="https://xiadown.app/docs/">Tài liệu</a> ·
     <a href="https://github.com/arnoldhao/xiadown/releases">Bản phát hành</a> ·
-    <a href="https://github.com/arnoldhao/xiadown/issues">Issues</a> ·
+    <a href="https://github.com/arnoldhao/xiadown/issues">Báo lỗi</a> ·
     <a href="https://ko-fi.com/arnoldhao">Ủng hộ</a>
   </p>
   <p>
@@ -30,103 +29,71 @@
 </div>
 
 <p align="center">
-  <img src="./images/download.webp" alt="Màn hình tác vụ tải xuống của XiaDown" width="92%" />
+  <a href="https://xiadown.app/docs/library/">
+    <img src="./images/library.webp" alt="Giao diện thư viện XiaDown" width="92%" />
+  </a>
   <br />
-  <sub>Tác vụ tải xuống và chuyển mã</sub>
+  <strong>Thư viện</strong>
 </p>
 
-## Tổng Quan
+## Giới thiệu dự án
 
-XiaDown là trình phát nhạc trực tuyến, đồng thời là công cụ tải video với hai cơ chế tải.
+XiaDown là ứng dụng quản lý thư viện ưu tiên lưu trữ cục bộ, hỗ trợ tải video và dò tìm nội dung đa phương tiện để tải xuống. XiaDown còn là ứng dụng khách dành cho YouTube, YouTube Music và RSS. Khi duyệt nội dung, bạn có thể tải nội dung mình cần chỉ với một cú nhấp.
 
-Đây là công cụ hằng ngày dành cho nhà sáng tạo nội dung: khi cần tư liệu, hãy tải bằng bắt tài nguyên và YT-DLP; khi cần tập trung, hãy để nhạc trực tuyến phát trong nền; các tùy chọn cá nhân hóa phong phú giúp việc sử dụng lâu dài vẫn nhẹ nhàng và mới mẻ.
+## Khả năng chính
 
-## Tính Năng Chính
+- 🗂️ **[Thư viện](https://xiadown.app/docs/library/)** — Tải video, chuyển mã và quản lý thư viện.
+- 🔎 **[Dò tìm](https://xiadown.app/docs/sniff/)** — Dò tìm và tải nội dung đa phương tiện trên trang web.
+- 🎵 **[Âm nhạc](https://xiadown.app/docs/music/)** — Duyệt và tải nội dung từ YouTube Music, đồng thời phát nhạc cục bộ.
+- ▶️ **[YouTube](https://xiadown.app/docs/youtube/)** — Duyệt, phát và tải video.
+- 📡 **[RSS](https://xiadown.app/docs/rss/)** — Đăng ký nguồn tin, đọc bài viết và tải nội dung đa phương tiện.
 
-### 📥 Tải Xuống và Chuyển Mã
+## Ứng dụng di động
 
-- **Tải bằng bắt tài nguyên**: quan sát video, âm thanh, live stream, manifest, hình ảnh, phụ đề và phản hồi API qua CDP; phù hợp với các site như TikTok, Douyin, Kuaishou và Xiaohongshu cần phiên trình duyệt thật.
-- **Tải bằng YT-DLP**: dán liên kết để phân tích các nền tảng phổ biến như YouTube và Bilibili, lưu video, âm thanh, phụ đề và ảnh bìa, đồng thời dùng danh tính đã đăng nhập để tải nội dung mà bạn có quyền truy cập.
-- **Chuyển mã âm thanh và video**: dựa trên FFmpeg, hỗ trợ chuyển mã sau khi tải xuống và chuyển mã file cục bộ, với các preset tích hợp như H.264, H.265, VP9, MP3, AAC, Opus, FLAC và WAV.
+📱 Ứng dụng dành cho iPhone và iPad đang được phát triển.
 
-### 🗂️ Quản Lý Tài Nguyên
+## Giao diện sản phẩm
 
-- **Quản lý tài nguyên đa chế độ xem**: chế độ xem tác vụ và chế độ xem file thống nhất tải xuống, chuyển mã, phụ đề, ảnh bìa và file đã nhập, kèm xem trước, chi tiết, chọn hàng loạt, xóa, khôi phục lỗi và dọn bản ghi cũ.
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="https://xiadown.app/docs/sniff/">
+        <img src="./images/sniff-desk.webp" alt="Giao diện dò tìm của XiaDown" width="100%" />
+      </a>
+      <br />
+      <strong>Dò tìm</strong>
+    </td>
+    <td align="center" width="50%">
+      <a href="https://xiadown.app/docs/rss/">
+        <img src="./images/rss.webp" alt="Giao diện đăng ký RSS của XiaDown" width="100%" />
+      </a>
+      <br />
+      <strong>RSS</strong>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <a href="https://xiadown.app/docs/music/">
+        <img src="./images/youtube-music.webp" alt="Giao diện âm nhạc của XiaDown" width="100%" />
+      </a>
+      <br />
+      <strong>Âm nhạc</strong>
+    </td>
+    <td align="center" width="50%">
+      <a href="https://xiadown.app/docs/youtube/">
+        <img src="./images/youtube-live.webp" alt="Giao diện duyệt video YouTube của XiaDown" width="100%" />
+      </a>
+      <br />
+      <strong>YouTube</strong>
+    </td>
+  </tr>
+</table>
 
-### 🎧 Trình Phát
-
-- **Phát nhạc cục bộ**: tự động lập chỉ mục âm thanh trong thư viện, hỗ trợ hàng đợi, ảnh bìa, lời bài hát đồng bộ, lời roman hóa/pinyin cho ngôn ngữ Đông Á, equalizer và hiển thị phổ âm.
-- **YouTube Music**: tìm bài hát, nghệ sĩ và playlist trong trải nghiệm desktop, với đề xuất trang chủ, thư viện playlist, nghệ sĩ theo dõi, nhạc đã thích, hàng đợi phát và lời bài hát.
-- **YouTube Live**: tạo nhóm và kênh live tùy chỉnh, xem trạng thái live, phát radio live và mở trực tiếp video live.
-
-### 🔐 An Toàn và Cách Ly
-
-- **Tự động quản lý phụ thuộc**: tự động cài đặt, kiểm tra và nâng cấp YT-DLP, FFmpeg, Bun cùng các công cụ liên quan; đường dẫn công cụ do ứng dụng duy trì và không làm bẩn môi trường hệ thống.
-- **Cách ly thông tin xác thực và người dùng**: dữ liệu phiên ứng dụng đến từ thao tác đăng nhập chủ động của người dùng và được lưu trữ độc lập bằng cơ chế mã hóa hệ thống trên macOS và Windows; cấu hình kết nối tách khỏi trình duyệt dùng hằng ngày.
-
-### 🎨 Tự Do Tùy Biến
-
-- **Tùy biến giao diện**: hỗ trợ gói chủ đề, chế độ sáng/tối/tự động, màu nhấn, font, cỡ chữ và kiểu sidebar; Codex Pets Gallery tích hợp có thể nhập Pets online và cục bộ.
-
-## Xem Trước Sản Phẩm
-
-<p align="center">
-  <img src="./images/sniff-desk.webp" alt="Màn hình bắt tài nguyên của XiaDown" width="92%" />
-  <br />
-  <sub>Bảng bắt tài nguyên từ trang web</sub>
-</p>
-
-<p align="center">
-  <img src="./images/youtube-music.webp" alt="Màn hình phát YouTube Music trong XiaDown" width="92%" />
-  <br />
-  <sub>Phát YouTube Music trên desktop</sub>
-</p>
-
-<p align="center">
-  <img src="./images/library.webp" alt="Màn hình thư viện của XiaDown" width="92%" />
-  <br />
-  <sub>Thư viện thống nhất cho nội dung đã tải và đã chuyển mã</sub>
-</p>
-
-<details>
-  <summary><strong>Thêm ảnh chụp giao diện</strong></summary>
-
-  <p align="center">
-    <img src="./images/youtube-live.webp" alt="Màn hình video YouTube Live trong XiaDown" width="92%" />
-    <br />
-    <sub>Xem video YouTube Live</sub>
-  </p>
-
-  <p align="center">
-    <img src="./images/app_sessions.webp" alt="Màn hình phiên ứng dụng và trạng thái đăng nhập của XiaDown" width="92%" />
-    <br />
-    <sub>Phiên ứng dụng, xác minh đăng nhập và quản lý trạng thái tài khoản</sub>
-  </p>
-
-  <p align="center">
-    <img src="./images/settings_download.webp" alt="Màn hình cài đặt tải xuống và quản lý công cụ phụ thuộc của XiaDown" width="92%" />
-    <br />
-    <sub>Thư mục tải xuống, số tác vụ đồng thời và quản lý YT-DLP, FFmpeg, Bun</sub>
-  </p>
-
-  <p align="center">
-    <img src="./images/appearance.webp" alt="Màn hình cài đặt giao diện của XiaDown" width="92%" />
-    <br />
-    <sub>Chủ đề, chế độ sáng/tối, màu nhấn, font và cỡ chữ</sub>
-  </p>
-
-  <p align="center">
-    <img src="./images/codex-pets-gallery.webp" alt="Màn hình Codex Pets Gallery trong XiaDown" width="92%" />
-    <br />
-    <sub>Codex Pets Gallery và nhập Pet cục bộ</sub>
-  </p>
-</details>
-
-## Cài Đặt
+## Cài đặt
 
 ### Homebrew
 
-Trên macOS, cài bằng Homebrew cask:
+Trên macOS, cài đặt qua Homebrew cask:
 
 ```bash
 brew install --cask arnoldhao/tap/xiadown
@@ -134,64 +101,46 @@ brew install --cask arnoldhao/tap/xiadown
 
 ### Tải bộ cài
 
-Tải trực tiếp gói mới nhất bên dưới. Các phiên bản cũ có trên [GitHub Releases](https://github.com/arnoldhao/xiadown/releases).
-
-| Nền tảng | Kiến trúc | Gói | Tải xuống |
+| Nền tảng | Kiến trúc | Định dạng | Tải xuống |
 | --- | --- | --- | --- |
 | macOS | Apple Silicon | DMG | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-arm64-latest.dmg) |
 | macOS | Intel | DMG | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-macos-x64-latest.dmg) |
 | Windows | x64 | Bộ cài | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest-installer.exe) |
 | Windows | x64 | Bản portable | [Tải xuống](https://updates.dreamapp.cc/xiadown/downloads/xiadown-windows-x64-latest.zip) |
 
-### Lần chạy đầu tiên
+> Phiên bản macOS yêu cầu macOS 14 (Sonoma) trở lên; phiên bản Windows yêu cầu Windows 10 trở lên.
 
-1. `macOS`: mở `.dmg`, kéo `XiaDown.app` vào thư mục Applications rồi mở ứng dụng.
-2. `Windows`: chạy trực tiếp bộ cài `.exe`, hoặc giải nén gói portable rồi mở ứng dụng. Nếu SmartScreen xuất hiện trong lần chạy đầu tiên, chọn `More info -> Run anyway`.
-3. XiaDown mở luồng onboarding để thiết lập ngôn ngữ, chủ đề, proxy và các phụ thuộc. Các luồng chính nằm trong onboarding và giao diện ứng dụng.
-
-### Hỗ Trợ Trình Duyệt CDP
-
-Các trình duyệt hiện được hỗ trợ:
-
-| Phổ biến | Quyền riêng tư và hiệu quả | Chuyên biệt và khu vực |
-| --- | --- | --- |
-| Chrome, Chromium, Edge | Brave, Vivaldi, Arc, Helium | Opera, Opera GX, Yandex Browser |
+Trong lần đầu khởi chạy, XiaDown sẽ hướng dẫn bạn thiết lập ngôn ngữ, giao diện, mạng và các phần phụ thuộc cần thiết để vận hành. Xem [Cài đặt và khởi chạy lần đầu](https://xiadown.app/docs/start/install/) để biết hướng dẫn chi tiết.
 
 ## Phát triển cục bộ
 
-Sau khi chuẩn bị môi trường Go và Bun, cài Wails 3 CLI rồi khởi động chế độ phát triển:
+Môi trường phát triển yêu cầu Go 1.25.12, Node.js 24, Bun 1.3.5 và Wails 3 alpha2.117:
 
 ```bash
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha.95
-wails3 dev
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.117
+wails3 task dev
 ```
 
-## Tuyên Bố Miễn Trừ Trách Nhiệm
+Các tác vụ build và kiểm tra khác có trong [Taskfile.yml](./Taskfile.yml).
 
-- XiaDown được cung cấp như một công cụ hỗ trợ quản lý phương tiện và tải xuống, phục vụ học tập, nghiên cứu và lưu nội dung mà bạn có quyền truy cập và sử dụng.
-- Bạn chịu trách nhiệm xác nhận rằng mọi việc tải xuống, lưu trữ, chuyển đổi hoặc sử dụng nội dung đã được chủ sở hữu quyền cho phép và tuân thủ pháp luật hiện hành cũng như điều khoản của website/nền tảng đích.
-- Không sử dụng XiaDown để tải xuống, phân phối, bán hoặc khai thác nội dung vi phạm, chưa được cấp phép, trả phí/bị giới hạn, riêng tư hoặc bất hợp pháp.
-- Mọi trách nhiệm pháp lý liên quan đến bản quyền, quy định nền tảng, tài khoản, mạng hoặc vấn đề khác phát sinh từ việc sử dụng XiaDown thuộc về người dùng; người duy trì dự án không chịu trách nhiệm đối với hành vi của người dùng hoặc hậu quả của hành vi đó.
+## Tuyên bố miễn trừ trách nhiệm
 
-## Lời Cảm Ơn
+- XiaDown chỉ dùng để quản lý nội dung đa phương tiện và lưu nội dung mà bạn có quyền truy cập và sử dụng.
+- Người dùng có trách nhiệm xác nhận việc tải xuống, lưu trữ, chuyển đổi và sử dụng nội dung tuân thủ pháp luật sở tại, sự cho phép của chủ sở hữu quyền và điều khoản dịch vụ của nền tảng đích.
+- Không sử dụng XiaDown để xử lý nội dung vi phạm quyền của bên khác, chưa được cấp phép, trả phí hoặc bị hạn chế, liên quan đến quyền riêng tư hay trái pháp luật.
+- Người dùng tự chịu mọi trách nhiệm về bản quyền, quy định nền tảng, tài khoản, mạng và các vấn đề khác phát sinh từ việc sử dụng XiaDown.
 
-XiaDown được xây dựng trên các dự án mã nguồn mở xuất sắc. Trải nghiệm desktop, xử lý media, lưu trữ cục bộ, kết nối trình duyệt, nhạc trực tuyến và năng lực giao diện đều dựa trên những nền tảng này.
+## Lời cảm ơn
 
-| Danh mục | Trang chủ |
-| --- | --- |
-| Framework desktop | <a href="https://go.dev/" target="_blank" rel="noreferrer">Go</a> / <a href="https://v3alpha.wails.io/" target="_blank" rel="noreferrer">Wails 3</a> / <a href="https://react.dev/" target="_blank" rel="noreferrer">React</a> |
-| Xử lý media | <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" rel="noreferrer">yt-dlp</a> / <a href="https://ffmpeg.org/" target="_blank" rel="noreferrer">FFmpeg</a> |
-| Lưu trữ cục bộ | <a href="https://www.sqlite.org/" target="_blank" rel="noreferrer">SQLite</a> / <a href="https://bun.uptrace.dev/" target="_blank" rel="noreferrer">Bun ORM</a> |
-| Kết nối trình duyệt | <a href="https://chromedevtools.github.io/devtools-protocol/" target="_blank" rel="noreferrer">Chrome DevTools Protocol</a> / <a href="https://github.com/chromedp/chromedp" target="_blank" rel="noreferrer">chromedp</a> |
-| Trải nghiệm frontend | <a href="https://bun.sh/" target="_blank" rel="noreferrer">Bun</a> / <a href="https://vite.dev/" target="_blank" rel="noreferrer">Vite</a> / <a href="https://lucide.dev/" target="_blank" rel="noreferrer">Lucide</a> / <a href="https://www.radix-ui.com/" target="_blank" rel="noreferrer">Radix UI</a> |
+XiaDown sử dụng các dự án mã nguồn mở như [Go](https://go.dev/), [Wails](https://v3alpha.wails.io/), [React](https://react.dev/), [yt-dlp](https://github.com/yt-dlp/yt-dlp), [FFmpeg](https://ffmpeg.org/) và [SQLite](https://www.sqlite.org/). Thông tin về thành phần phụ thuộc và giấy phép có trong [THIRD_PARTY_NOTICES.txt](./frontend/public/THIRD_PARTY_NOTICES.txt).
 
-## Hợp Tác
+## Cộng tác
 
-- Dự án đang được phát triển tích cực và hiện chưa nhận pull request. Phản hồi, báo lỗi và kịch bản sử dụng có thể gửi qua [GitHub Issues](https://github.com/arnoldhao/xiadown/issues) hoặc email.
-- Kho này được cấp phép theo `Apache-2.0`. Xem [LICENSE](./LICENSE).
+- Dự án hiện chưa tiếp nhận pull request. Hãy gửi báo cáo lỗi và đề xuất qua [GitHub Issues](https://github.com/arnoldhao/xiadown/issues).
+- Kho mã được cấp phép theo `Apache-2.0`. Xem [LICENSE](./LICENSE).
 
-## Liên Hệ
+## Liên hệ
 
-- Trang web: <https://xiadown.app/>
-- Hướng dẫn sử dụng: <https://xiadown.app/vi-vn/docs/>
+- Trang chủ: <https://xiadown.app/>
+- Tài liệu: <https://xiadown.app/docs/>
 - Email: <xunruhao@gmail.com>

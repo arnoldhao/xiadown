@@ -22,17 +22,18 @@ import (
 )
 
 type registeredLocalOutputParams struct {
-	LibraryID     string
-	RootFileID    string
-	Name          string
-	DisplayName   string
-	Metadata      library.FileMetadata
-	Kind          string
-	OperationID   string
-	OperationKind string
-	OutputPath    string
-	SourceMedia   *library.MediaInfo
-	OccurredAt    time.Time
+	LibraryID            string
+	RootFileID           string
+	Name                 string
+	DisplayName          string
+	Metadata             library.FileMetadata
+	Kind                 string
+	OperationID          string
+	OperationKind        string
+	OutputPath           string
+	SourceMedia          *library.MediaInfo
+	OccurredAt           time.Time
+	SkipListenLocalTrack bool
 }
 
 type ffmpegProgressReporter struct {
@@ -154,8 +155,16 @@ func (reporter *ffmpegProgressReporter) persistLocked(completed bool) {
 	if reporter.operation.Status == library.OperationStatusQueued {
 		reporter.operation.Status = library.OperationStatusRunning
 	}
-	if !reporter.service.operationCanAcceptProgress(context.Background(), reporter.operation.ID) {
-		return
+	reporter.service.operationOutputMutationMu.Lock()
+	defer reporter.service.operationOutputMutationMu.Unlock()
+	// FFmpeg progress owns a long-lived operation snapshot. Refresh the
+	// independently mutable title immediately before the full-row Save so a
+	// Companion rename cannot be overwritten by the next progress tick.
+	if latest, err := reporter.service.operations.Get(context.Background(), reporter.operation.ID); err == nil {
+		reporter.operation.DisplayName = latest.DisplayName
+		if isTerminalOperationStatus(latest.Status) {
+			return
+		}
 	}
 	if err := reporter.service.operations.Save(context.Background(), *reporter.operation); err != nil {
 		return
@@ -215,7 +224,7 @@ func (service *LibraryService) runEmbeddedTranscodeStage(
 		progressText("library.progressDetail.ffmpegRenderingOutput"),
 	)
 	operation.OutputJSON = buildTranscodeOperationOutput(request, "running", outputPath, tempOutputPath)
-	if err := service.saveAndPublishOperation(ctx, *operation); err != nil {
+	if err := service.saveAndPublishOperation(ctx, operation); err != nil {
 		return result, err
 	}
 
@@ -242,35 +251,38 @@ func (service *LibraryService) runEmbeddedTranscodeStage(
 	}
 
 	finishedAt := service.now()
+	isIOSCompatibleRepresentation := isIOSCompatibleMusicRepresentationRequest(request)
 	outputFile, err := service.registerManagedLocalOutputFile(ctx, registeredLocalOutputParams{
-		LibraryID:     sourceFile.LibraryID,
-		RootFileID:    rootFileID(sourceFile),
-		Name:          outputName,
-		DisplayName:   displayName,
-		Metadata:      buildTranscodeFileMetadata(sourceFile, strings.TrimSpace(request.Title)),
-		Kind:          string(library.FileKindTranscode),
-		OperationID:   operation.ID,
-		OperationKind: "transcode",
-		OutputPath:    outputPath,
-		SourceMedia:   sourceFile.Media,
-		OccurredAt:    finishedAt,
+		LibraryID:            sourceFile.LibraryID,
+		RootFileID:           rootFileID(sourceFile),
+		Name:                 outputName,
+		DisplayName:          displayName,
+		Metadata:             buildTranscodeFileMetadata(sourceFile, strings.TrimSpace(request.Title)),
+		Kind:                 string(library.FileKindTranscode),
+		OperationID:          operation.ID,
+		OperationKind:        "transcode",
+		OutputPath:           outputPath,
+		SourceMedia:          sourceFile.Media,
+		OccurredAt:           finishedAt,
+		SkipListenLocalTrack: isIOSCompatibleRepresentation,
 	})
 	if err != nil {
 		return result, err
 	}
-	outputFile.LatestOperationID = operation.ID
-	outputFile.UpdatedAt = finishedAt
-	if err := service.files.Save(ctx, outputFile); err != nil {
+	outputFile, err = service.updateLibraryFileLatestOperation(ctx, outputFile, operation.ID, finishedAt)
+	if err != nil {
 		return result, err
 	}
 
-	sourceFile.LatestOperationID = operation.ID
-	sourceFile.UpdatedAt = finishedAt
-	if err := service.files.Save(ctx, sourceFile); err != nil {
+	sourceFile, err = service.updateLibraryFileLatestOperation(ctx, sourceFile, operation.ID, finishedAt)
+	if err != nil {
 		return result, err
 	}
 	if request.DeleteSourceFileAfterTranscode {
 		sourceFile = service.cleanupSourceFileAfterSuccessfulTranscode(ctx, sourceFile, operation.ID)
+	}
+	if err := service.syncCatalogProjection(ctx, sourceFile.LibraryID); err != nil {
+		return result, err
 	}
 
 	result.sourceFile = sourceFile
@@ -317,7 +329,10 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		progressText("library.progressDetail.preparingFfmpegTranscode"),
 	)
 	operation.OutputJSON = buildTranscodeOperationOutput(request, "running", "")
-	if err := service.saveAndPublishOperation(ctx, operation); err != nil {
+	if err := service.saveAndPublishOperation(ctx, &operation); err != nil {
+		return
+	}
+	if err := service.syncPrimaryOperationHistory(ctx, operation, now); err != nil {
 		return
 	}
 
@@ -375,7 +390,7 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		progressText("library.progressDetail.ffmpegRenderingOutput"),
 	)
 	operation.OutputJSON = buildTranscodeOperationOutput(request, "running", outputPath, tempOutputPath)
-	if err := service.saveAndPublishOperation(ctx, operation); err != nil {
+	if err := service.saveAndPublishOperation(ctx, &operation); err != nil {
 		return
 	}
 
@@ -405,26 +420,27 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 	}
 
 	finishedAt := service.now()
+	isIOSCompatibleRepresentation := isIOSCompatibleMusicRepresentationRequest(request)
 	outputFile, err := service.registerManagedLocalOutputFile(ctx, registeredLocalOutputParams{
-		LibraryID:     sourceFile.LibraryID,
-		RootFileID:    rootFileID(sourceFile),
-		Name:          outputName,
-		DisplayName:   displayName,
-		Metadata:      buildTranscodeFileMetadata(sourceFile, strings.TrimSpace(request.Title)),
-		Kind:          string(library.FileKindTranscode),
-		OperationID:   operation.ID,
-		OperationKind: "transcode",
-		OutputPath:    outputPath,
-		SourceMedia:   sourceFile.Media,
-		OccurredAt:    finishedAt,
+		LibraryID:            sourceFile.LibraryID,
+		RootFileID:           rootFileID(sourceFile),
+		Name:                 outputName,
+		DisplayName:          displayName,
+		Metadata:             buildTranscodeFileMetadata(sourceFile, strings.TrimSpace(request.Title)),
+		Kind:                 string(library.FileKindTranscode),
+		OperationID:          operation.ID,
+		OperationKind:        "transcode",
+		OutputPath:           outputPath,
+		SourceMedia:          sourceFile.Media,
+		OccurredAt:           finishedAt,
+		SkipListenLocalTrack: isIOSCompatibleRepresentation,
 	})
 	if err != nil {
 		service.failTranscodeOperation(ctx, operation, request, err)
 		return
 	}
-	outputFile.LatestOperationID = operation.ID
-	outputFile.UpdatedAt = finishedAt
-	if err := service.files.Save(ctx, outputFile); err != nil {
+	outputFile, err = service.updateLibraryFileLatestOperation(ctx, outputFile, operation.ID, finishedAt)
+	if err != nil {
 		service.failTranscodeOperation(ctx, operation, request, err)
 		return
 	}
@@ -439,9 +455,8 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		Deleted:   outputFile.State.Deleted,
 	}}
 
-	sourceFile.LatestOperationID = operation.ID
-	sourceFile.UpdatedAt = finishedAt
-	if err := service.files.Save(ctx, sourceFile); err != nil {
+	sourceFile, err = service.updateLibraryFileLatestOperation(ctx, sourceFile, operation.ID, finishedAt)
+	if err != nil {
 		service.failTranscodeOperation(ctx, operation, request, err)
 		return
 	}
@@ -460,38 +475,11 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 		progressText("library.progressDetail.ffmpegTranscodeCompleted"),
 	)
 	operation.OutputJSON = buildTranscodeOperationOutput(request, "completed", outputPath)
-	if err := service.operations.Save(ctx, operation); err != nil {
+	if err := service.saveAndPublishOperation(ctx, &operation); err != nil {
 		service.failTranscodeOperation(ctx, operation, request, err)
 		return
 	}
 
-	history, err := library.NewHistoryRecord(library.HistoryRecordParams{
-		ID:          uuid.NewString(),
-		LibraryID:   sourceFile.LibraryID,
-		Category:    "operation",
-		Action:      "transcode",
-		DisplayName: displayName,
-		Status:      string(operation.Status),
-		Source:      library.HistoryRecordSource{Kind: resolveHistorySourceKind(request.Source), RunID: strings.TrimSpace(request.RunID)},
-		Refs: library.HistoryRecordRefs{
-			OperationID: operation.ID,
-			FileIDs:     extractLibraryFileIDs(files),
-		},
-		OccurredAt: &finishedAt,
-		CreatedAt:  &finishedAt,
-		UpdatedAt:  &finishedAt,
-	})
-	if err != nil {
-		service.failTranscodeOperation(ctx, operation, request, err)
-		return
-	}
-	history.Files = operation.OutputFiles
-	history.Metrics = operation.Metrics
-	history.OperationMeta = &library.OperationRecordMeta{Kind: "transcode"}
-	if err := service.histories.Save(ctx, history); err != nil {
-		service.failTranscodeOperation(ctx, operation, request, err)
-		return
-	}
 	if err := service.touchLibrary(ctx, sourceFile.LibraryID, finishedAt); err != nil {
 		service.failTranscodeOperation(ctx, operation, request, err)
 		return
@@ -499,12 +487,23 @@ func (service *LibraryService) runTranscodeOperation(ctx context.Context, operat
 	if request.DeleteSourceFileAfterTranscode {
 		sourceFile = service.cleanupSourceFileAfterSuccessfulTranscode(ctx, sourceFile, operation.ID)
 	}
+	if err := service.syncCatalogProjection(ctx, sourceFile.LibraryID); err != nil {
+		service.failTranscodeOperation(ctx, operation, request, err)
+		return
+	}
+	if isIOSCompatibleMusicRepresentationRequest(request) {
+		_ = service.invalidateIOSCompatibleRepresentationTrack(ctx, request.FileID)
+	}
+	if err := service.syncPrimaryOperationHistory(ctx, operation, finishedAt); err != nil {
+		service.failTranscodeOperation(ctx, operation, request, err)
+		return
+	}
 
-	service.publishOperationUpdate(toOperationDTO(operation))
-	service.publishHistoryUpdate(toHistoryDTO(history))
 	service.publishFileUpdate(service.mustBuildFileDTO(ctx, sourceFile))
 	for _, file := range files {
-		service.syncListenLocalTrackFromFile(ctx, file, nil)
+		if !isIOSCompatibleRepresentation {
+			service.syncListenLocalTrackFromFile(ctx, file, nil)
+		}
 		service.publishFileUpdate(service.mustBuildFileDTO(ctx, file))
 	}
 }
@@ -528,6 +527,7 @@ func (service *LibraryService) failTranscodeOperation(ctx context.Context, opera
 	}
 	now := service.now()
 	currentOperation.FinishedAt = &now
+	currentOperation.Metrics.DurationMs = durationMsBetween(currentOperation.StartedAt, currentOperation.FinishedAt)
 	currentOperation.Progress = buildOperationProgress(
 		now,
 		progressText(progressStageLocaleKey(string(currentOperation.Status))),
@@ -541,10 +541,58 @@ func (service *LibraryService) failTranscodeOperation(ctx context.Context, opera
 		extractTranscodeOutputPath(currentOperation.OutputJSON),
 		extractTranscodeTemporaryPaths(currentOperation.OutputJSON)...,
 	)
-	if err := service.operations.Save(ctx, currentOperation); err != nil {
+	if err := service.saveAndPublishOperation(ctx, &currentOperation); err != nil {
 		return
 	}
-	service.publishOperationUpdate(toOperationDTO(currentOperation))
+	_ = service.syncPrimaryOperationHistory(ctx, currentOperation, now)
+	if isIOSCompatibleMusicRepresentationRequest(request) {
+		_ = service.invalidateIOSCompatibleRepresentationTrack(ctx, request.FileID)
+	}
+}
+
+func (service *LibraryService) createTranscodePrimaryHistory(
+	ctx context.Context,
+	operation library.LibraryOperation,
+	request dto.CreateTranscodeJobRequest,
+	occurredAt time.Time,
+) (library.HistoryRecord, error) {
+	if service == nil || service.histories == nil {
+		return library.HistoryRecord{}, fmt.Errorf("history repository not configured")
+	}
+	if occurredAt.IsZero() {
+		occurredAt = service.now()
+	}
+	history, err := library.NewHistoryRecord(library.HistoryRecordParams{
+		ID:          uuid.NewString(),
+		LibraryID:   operation.LibraryID,
+		Category:    operationHistoryCategory,
+		Action:      operation.Kind,
+		DisplayName: operation.DisplayName,
+		Status:      string(operation.Status),
+		Source: library.HistoryRecordSource{
+			Kind:  resolveHistorySourceKind(request.Source),
+			RunID: strings.TrimSpace(request.RunID),
+		},
+		Refs: library.HistoryRecordRefs{
+			OperationID:        operation.ID,
+			SubjectOperationID: operation.ID,
+		},
+		Files:   snapshotOperationOutputFiles(operation.OutputFiles),
+		Metrics: snapshotOperationMetrics(operation.Metrics),
+		OperationMeta: &library.OperationRecordMeta{
+			Kind: operation.Kind,
+		},
+		OccurredAt: &occurredAt,
+		CreatedAt:  &occurredAt,
+		UpdatedAt:  &occurredAt,
+	})
+	if err != nil {
+		return library.HistoryRecord{}, err
+	}
+	if err := service.histories.Save(ctx, history); err != nil {
+		return library.HistoryRecord{}, err
+	}
+	return history, nil
 }
 
 func (service *LibraryService) cleanupSourceFileAfterSuccessfulTranscode(
@@ -555,20 +603,60 @@ func (service *LibraryService) cleanupSourceFileAfterSuccessfulTranscode(
 	if service == nil || service.files == nil {
 		return sourceFile
 	}
-	if sourceFile.State.Deleted {
+
+	expectedLatestOperationID := strings.TrimSpace(sourceFile.LatestOperationID)
+	nextLatestOperationID := strings.TrimSpace(transcodeOperationID)
+	updatedSource, deleted, err := service.markLibraryFileDeletedWithOptions(ctx, libraryFileDeleteOptions{
+		fileID:           sourceFile.ID,
+		deleteLocal:      true,
+		skipIfDeleted:    true,
+		eventCategory:    "transcode_cleanup",
+		eventOperationID: nextLatestOperationID,
+		latestOperationUpdate: &libraryFileLatestOperationUpdate{
+			expected: expectedLatestOperationID,
+			next:     nextLatestOperationID,
+		},
+	})
+	if err != nil {
 		return sourceFile
 	}
-
-	sourceFile.LatestOperationID = strings.TrimSpace(transcodeOperationID)
-	if err := service.markLibraryFileDeleted(ctx, sourceFile, true); err != nil {
+	sourceFile = updatedSource
+	if !deleted {
 		return sourceFile
-	}
-
-	if updated, err := service.files.Get(ctx, sourceFile.ID); err == nil {
-		sourceFile = updated
 	}
 	service.syncOperationAndHistoryForDeletedOutput(ctx, sourceFile.LibraryID, sourceFile.Origin.OperationID, sourceFile.ID)
 	return sourceFile
+}
+
+// updateLibraryFileLatestOperation merges a transcode completion into the
+// current file aggregate under the same per-file lock as Companion rename.
+// Long-running transcodes therefore cannot replay their source snapshot over a
+// newer title, relink, delete, or metadata edit.
+func (service *LibraryService) updateLibraryFileLatestOperation(
+	ctx context.Context,
+	snapshot library.LibraryFile,
+	nextOperationID string,
+	updatedAt time.Time,
+) (library.LibraryFile, error) {
+	if service == nil || service.files == nil {
+		return library.LibraryFile{}, library.ErrFileNotFound
+	}
+	unlock := service.lockListenLocalTrackMutation(snapshot.ID)
+	defer unlock()
+
+	current, err := service.files.Get(ctx, snapshot.ID)
+	if err != nil {
+		return library.LibraryFile{}, err
+	}
+	next := strings.TrimSpace(nextOperationID)
+	current.LatestOperationID = next
+	if current.UpdatedAt.Before(updatedAt) {
+		current.UpdatedAt = updatedAt
+	}
+	if err := service.saveLibraryFilePreservingDisplayName(ctx, current); err != nil {
+		return library.LibraryFile{}, err
+	}
+	return current, nil
 }
 
 func (service *LibraryService) syncOperationAndHistoryForDeletedOutput(
@@ -585,6 +673,8 @@ func (service *LibraryService) syncOperationAndHistoryForDeletedOutput(
 	if trimmedOperationID == "" || trimmedFileID == "" {
 		return
 	}
+	service.operationOutputMutationMu.Lock()
+	defer service.operationOutputMutationMu.Unlock()
 
 	if service.operations != nil {
 		operation, err := service.operations.Get(ctx, trimmedOperationID)
@@ -593,9 +683,7 @@ func (service *LibraryService) syncOperationAndHistoryForDeletedOutput(
 			if changed {
 				operation.OutputFiles = updatedOutputFiles
 				operation.Metrics = service.rebuildOperationMetricsFromOutputs(ctx, updatedOutputFiles, operation.StartedAt, operation.FinishedAt)
-				if saveErr := service.operations.Save(ctx, operation); saveErr == nil {
-					service.publishOperationUpdate(toOperationDTO(operation))
-				}
+				_ = service.saveAndPublishOperationLocked(ctx, &operation)
 			}
 		}
 	}
@@ -707,10 +795,24 @@ func (service *LibraryService) registerManagedLocalOutputFile(ctx context.Contex
 	if err != nil {
 		return library.LibraryFile{}, err
 	}
+	// Reserve the output ID in the durable Music membership policy before the
+	// file can become visible to a concurrent/full index refresh. An orphaned
+	// policy row after a later file-save failure is harmless and prevents a
+	// partial transcode from ever becoming a second Track.
+	if params.SkipListenLocalTrack {
+		if err := service.excludeIOSCompatibleRepresentationOutput(ctx, fileItem.ID); err != nil {
+			return library.LibraryFile{}, err
+		}
+	}
 	if err := service.files.Save(ctx, fileItem); err != nil {
 		return library.LibraryFile{}, err
 	}
-	service.syncListenLocalTrackFromFile(ctx, fileItem, &probedProbe)
+	if err := service.appendLibraryFileCreatedEvent(ctx, fileItem, "transcode", now); err != nil {
+		return library.LibraryFile{}, err
+	}
+	if !params.SkipListenLocalTrack {
+		service.syncListenLocalTrackFromFile(ctx, fileItem, &probedProbe)
+	}
 	return fileItem, nil
 }
 
@@ -725,7 +827,7 @@ func (service *LibraryService) runFFmpegCommandWithProgress(
 	commandArgs := withFFmpegProgressArgs(args)
 	command := exec.CommandContext(ctx, execPath, commandArgs...)
 	command.Dir = strings.TrimSpace(workDir)
-	configureProcessGroup(command)
+	configureLocalMediaToolCommand(command)
 
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -953,11 +1055,12 @@ func buildFFmpegTranscodeArgs(
 	audioOutput := outputType == library.TranscodeOutputAudio || isAudioContainer(container)
 	coverInputIndex := -1
 
-	args := []string{"-y", "-i", inputPath}
+	args := []string{"-y"}
+	args = appendLocalMediaFFmpegInput(args, inputPath)
 	if audioOutput && ffmpegAudioContainerSupportsCover(container) {
 		if coverPath := strings.TrimSpace(plan.request.CoverPath); coverPath != "" {
 			coverInputIndex = 1
-			args = append(args, "-i", coverPath)
+			args = appendLocalMediaFFmpegInput(args, coverPath)
 		}
 	}
 
@@ -976,7 +1079,7 @@ func buildFFmpegTranscodeArgs(
 		}
 		for _, subtitlePath := range sidecarSubtitlePaths {
 			subtitleInputIndices = append(subtitleInputIndices, nextInputIndex)
-			args = append(args, "-i", subtitlePath)
+			args = appendLocalMediaFFmpegInput(args, subtitlePath)
 			nextInputIndex++
 		}
 	}
@@ -1349,14 +1452,4 @@ func extractTranscodeTemporaryPaths(outputJSON string) []string {
 		}
 	}
 	return dedupePaths(paths)
-}
-
-func extractLibraryFileIDs(files []library.LibraryFile) []string {
-	result := make([]string, 0, len(files))
-	for _, file := range files {
-		if trimmed := strings.TrimSpace(file.ID); trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }

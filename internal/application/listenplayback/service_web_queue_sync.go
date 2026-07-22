@@ -191,7 +191,10 @@ func (service *PlayerService) handleAppInitiatedPlaybackMetadataLocked(observed 
 		return nil, false
 	}
 	service.appInitiatedPlayback = false
-	action, err := service.preparePlayTrackLocked(intended, VideoLoadForceFullPageWhenSameVideoID, PlayOptions{ForceReload: true})
+	action, err := service.preparePlayTrackLocked(intended, VideoLoadForceFullPageWhenSameVideoID, PlayOptions{
+		ForceReload:      true,
+		RestartFromStart: service.restartCurrentLoad,
+	})
 	if err != nil {
 		return nil, true
 	}
@@ -212,11 +215,16 @@ func (service *PlayerService) handleNearEndTrackChangeIfNeededLocked(ctx context
 			return service.nextActionsLocked(), true
 		}
 		service.currentIndex = expectedIndex
-		if service.shouldKeepQueueMetadataLocked(observed, expected) {
-			service.keepQueueTrackVisibleLocked(expected, observed)
+		// YouTube can navigate to the expected next video before its ended event
+		// reaches the service. Reassert the queue transition in-place so a late
+		// provider history restore cannot move the new song to an old position.
+		action, err := service.preparePlayTrackLocked(expected, VideoLoadPreferInPlaceWhenSameVideoID, PlayOptions{
+			RestartFromStart: true,
+		})
+		if err != nil {
 			return nil, true
 		}
-		return nil, false
+		return []transportAction{action}, true
 	}
 	if service.canAdvanceQueueAfterTrackEndLocked() {
 		if service.repeatMode == RepeatModeOne {
@@ -240,7 +248,10 @@ func (service *PlayerService) handleUnexpectedQueueDriftIfNeededLocked(observed 
 		return nil, false
 	}
 	if service.repeatMode == RepeatModeOne {
-		action, err := service.preparePlayTrackLocked(current, VideoLoadForceFullPageWhenSameVideoID, PlayOptions{ForceReload: true})
+		action, err := service.preparePlayTrackLocked(current, VideoLoadForceFullPageWhenSameVideoID, PlayOptions{
+			ForceReload:      true,
+			RestartFromStart: true,
+		})
 		if err != nil {
 			return nil, true
 		}
@@ -253,8 +264,15 @@ func (service *PlayerService) handleUnexpectedQueueDriftIfNeededLocked(observed 
 		queueIndexChanged := index != service.currentIndex
 		if queueIndexChanged {
 			service.currentIndex = index
+			action, err := service.preparePlayTrackLocked(track, VideoLoadPreferInPlaceWhenSameVideoID, PlayOptions{
+				RestartFromStart: true,
+			})
+			if err != nil {
+				return nil, true
+			}
+			return []transportAction{action}, true
 		}
-		if queueIndexChanged || service.shouldKeepQueueMetadataLocked(observed, track) {
+		if service.shouldKeepQueueMetadataLocked(observed, track) {
 			service.keepQueueTrackVisibleLocked(track, observed)
 			return nil, true
 		}
@@ -287,7 +305,10 @@ func (service *PlayerService) finalRepeatOneSafetyNetIfNeededLocked(ctx context.
 		return nil, true
 	}
 	service.lastRepeatOneRecoveryAt = now
-	action, err := service.preparePlayTrackLocked(queued, VideoLoadForceFullPageWhenSameVideoID, PlayOptions{ForceReload: true})
+	action, err := service.preparePlayTrackLocked(queued, VideoLoadForceFullPageWhenSameVideoID, PlayOptions{
+		ForceReload:      true,
+		RestartFromStart: true,
+	})
 	if err != nil {
 		return nil, true
 	}

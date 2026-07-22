@@ -102,6 +102,104 @@ func TestResolveYTDLPDownloadHeadersAppliesResourceDefaultsForSniffedStreams(t *
 	}
 }
 
+func TestMergeDownloadEmbeddedTranscodeSnapshotReplacesDeletedSource(t *testing.T) {
+	t.Parallel()
+
+	source := library.LibraryFile{
+		ID:      "source-webm",
+		Storage: library.FileStorage{LocalPath: "/library/episode.webm"},
+		State:   library.FileState{Status: "deleted", Deleted: true},
+	}
+	transcode := library.LibraryFile{
+		ID:      "output-mp4",
+		Kind:    library.FileKindTranscode,
+		Storage: library.FileStorage{LocalPath: "/library/episode.mp4"},
+		State:   library.FileState{Status: "active"},
+	}
+	subtitle := library.LibraryFile{ID: "subtitle-vtt", Kind: library.FileKindSubtitle}
+	snapshot := ytdlpOutputSnapshot{
+		files: []library.LibraryFile{source, subtitle},
+		outputFiles: []library.OperationOutputFile{
+			{FileID: source.ID, Kind: "video", Format: "webm", IsPrimary: true},
+			{FileID: subtitle.ID, Kind: "subtitle", Format: "vtt"},
+		},
+		outputPaths: []string{source.Storage.LocalPath, "/library/episode.vtt"},
+	}
+
+	merged := mergeDownloadEmbeddedTranscodeSnapshot(snapshot, embeddedTranscodeStageResult{
+		sourceFile: source,
+		outputFile: transcode,
+		outputPath: transcode.Storage.LocalPath,
+		output: library.OperationOutputFile{
+			FileID: transcode.ID,
+			Kind:   string(transcode.Kind),
+			Format: "mp4",
+		},
+	})
+
+	if len(merged.files) != 2 || merged.files[0].ID != transcode.ID || merged.files[1].ID != subtitle.ID {
+		t.Fatalf("expected final files to replace the source in place, got %#v", merged.files)
+	}
+	if len(merged.outputFiles) != 2 || merged.outputFiles[0].FileID != transcode.ID || merged.outputFiles[1].FileID != subtitle.ID {
+		t.Fatalf("expected final outputs to omit the deleted source, got %#v", merged.outputFiles)
+	}
+	primaryCount := 0
+	for _, output := range merged.outputFiles {
+		if output.Deleted {
+			t.Fatalf("replacement snapshot must not expose a deleted output: %#v", merged.outputFiles)
+		}
+		if output.IsPrimary {
+			primaryCount++
+		}
+	}
+	if primaryCount != 1 || !merged.outputFiles[0].IsPrimary {
+		t.Fatalf("expected the transcode to be the only primary output, got %#v", merged.outputFiles)
+	}
+	if len(merged.outputPaths) != 2 || merged.outputPaths[0] != transcode.Storage.LocalPath {
+		t.Fatalf("expected final paths to replace the source path, got %#v", merged.outputPaths)
+	}
+}
+
+func TestMergeDownloadEmbeddedTranscodeSnapshotKeepsRetainedSourcePrimary(t *testing.T) {
+	t.Parallel()
+
+	source := library.LibraryFile{
+		ID:      "source-webm",
+		Storage: library.FileStorage{LocalPath: "/library/episode.webm"},
+		State:   library.FileState{Status: "active"},
+	}
+	transcode := library.LibraryFile{
+		ID:      "output-mp4",
+		Kind:    library.FileKindTranscode,
+		Storage: library.FileStorage{LocalPath: "/library/episode.mp4"},
+		State:   library.FileState{Status: "active"},
+	}
+	snapshot := ytdlpOutputSnapshot{
+		files:       []library.LibraryFile{source},
+		outputFiles: []library.OperationOutputFile{{FileID: source.ID, Kind: "video", Format: "webm", IsPrimary: true}},
+		outputPaths: []string{source.Storage.LocalPath},
+	}
+
+	merged := mergeDownloadEmbeddedTranscodeSnapshot(snapshot, embeddedTranscodeStageResult{
+		sourceFile: source,
+		outputFile: transcode,
+		outputPath: transcode.Storage.LocalPath,
+		output: library.OperationOutputFile{
+			FileID:    transcode.ID,
+			Kind:      string(transcode.Kind),
+			Format:    "mp4",
+			IsPrimary: true,
+		},
+	})
+
+	if len(merged.files) != 2 || merged.files[0].ID != source.ID || merged.files[1].ID != transcode.ID {
+		t.Fatalf("expected retained source and transcode files, got %#v", merged.files)
+	}
+	if len(merged.outputFiles) != 2 || !merged.outputFiles[0].IsPrimary || merged.outputFiles[1].IsPrimary {
+		t.Fatalf("expected retained source to remain the only primary output, got %#v", merged.outputFiles)
+	}
+}
+
 func TestCreateDownloadedSubtitleFileStoresHybridSourceAndSubtitleDocument(t *testing.T) {
 	t.Parallel()
 

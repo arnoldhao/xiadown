@@ -208,6 +208,8 @@ func (reporter *ytdlpProgressReporter) persistProgress(current *int64, total *in
 	if reporter.operation.Status == library.OperationStatusQueued {
 		reporter.operation.Status = library.OperationStatusRunning
 	}
+	reporter.service.operationOutputMutationMu.Lock()
+	defer reporter.service.operationOutputMutationMu.Unlock()
 	if !reporter.mergeLatestOperationStateLocked(context.Background()) {
 		return
 	}
@@ -245,6 +247,10 @@ func (reporter *ytdlpProgressReporter) mergeLatestOperationStateLocked(ctx conte
 	if err != nil {
 		return true
 	}
+	// DisplayName is independently mutable from the desktop Companion while
+	// this reporter retains its original operation snapshot. Always carry the
+	// latest title into the full-row Save so progress cannot undo a user rename.
+	reporter.operation.DisplayName = latest.DisplayName
 	if isTerminalOperationStatus(latest.Status) {
 		reporter.operation.Status = latest.Status
 		reporter.operation.FinishedAt = latest.FinishedAt
@@ -285,6 +291,8 @@ func (reporter *ytdlpProgressReporter) publishThumbnailPreviewPath(path string) 
 	}
 	reporter.mu.Lock()
 	defer reporter.mu.Unlock()
+	reporter.service.operationOutputMutationMu.Lock()
+	defer reporter.service.operationOutputMutationMu.Unlock()
 
 	if !reporter.mergeLatestOperationStateLocked(context.Background()) {
 		return
@@ -308,6 +316,8 @@ func (reporter *ytdlpProgressReporter) publishOutputArtifactPath(path string) {
 	}
 	reporter.mu.Lock()
 	defer reporter.mu.Unlock()
+	reporter.service.operationOutputMutationMu.Lock()
+	defer reporter.service.operationOutputMutationMu.Unlock()
 
 	operation := *reporter.operation
 	if reporter.service.operations != nil {
@@ -323,6 +333,7 @@ func (reporter *ytdlpProgressReporter) publishOutputArtifactPath(path string) {
 	}
 	operation.OutputJSON = outputJSON
 	reporter.operation.OutputJSON = outputJSON
+	reporter.operation.DisplayName = operation.DisplayName
 	if reporter.service.operations != nil {
 		if err := reporter.service.operations.Save(context.Background(), operation); err != nil {
 			return

@@ -294,11 +294,10 @@ export const LISTEN_LIVE_PLAYER_EVENT = "listen:youtube-live-player";
 export const LISTEN_LIVE_PLAYER_SERVICE =
   "xiadown/internal/presentation/wails.ListenLivePlayerHandler";
 export const AUDIO_MIME_BY_EXTENSION: Partial<Record<string, string>> = {
-  "3gp": "audio/3gp",
+  "3gp": "audio/3gpp",
   aac: "audio/aac",
   aif: "audio/aiff",
   aiff: "audio/aiff",
-  alac: "audio/mp4",
   caf: "audio/x-caf",
   flac: "audio/flac",
   m4a: "audio/mp4",
@@ -314,3 +313,13 @@ export const AUDIO_MIME_BY_EXTENSION: Partial<Record<string, string>> = {
   weba: "audio/webm",
   webm: "audio/webm",
 };
+
+// Importability and WebView playback are deliberately separate capabilities.
+// APE/WMA remain valid library audio files, but the embedded HTMLMediaElement
+// cannot decode them reliably on every desktop platform XiaDown supports.
+export const LOCAL_AUDIO_FILE_EXTENSIONS = new Set([
+  ...Object.keys(AUDIO_MIME_BY_EXTENSION),
+  "alac",
+  "ape",
+  "wma",
+]);

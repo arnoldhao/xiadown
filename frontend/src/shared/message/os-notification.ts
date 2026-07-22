@@ -1,6 +1,7 @@
 import { Call, Events, System, Window } from "@wailsio/runtime";
 
 import { getLanguage, t } from "@/shared/i18n";
+import { installActiveWindowTracker } from "./active-window-tracker";
 
 const OS_NOTIFICATION_METHOD =
   "xiadown/internal/presentation/wails.OSNotificationHandler.Send";
@@ -40,7 +41,7 @@ const notificationWindowId =
     : `window_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
 let localWindowActive = false;
-let activeTrackerStarted = false;
+let activeTrackerCleanup: (() => void) | null = null;
 
 function nextOSNotificationId() {
   return `os_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
@@ -93,10 +94,6 @@ function updateLocalWindowActive(active = isDocumentActive()) {
   writeActiveWindowRecords(records);
 }
 
-function clearLocalWindowActive() {
-  updateLocalWindowActive(false);
-}
-
 function hasAnyActiveAppWindow() {
   if (isDocumentActive() || localWindowActive) {
     return true;
@@ -108,46 +105,38 @@ function hasAnyActiveAppWindow() {
 }
 
 function startAppActiveTracker() {
-  if (activeTrackerStarted || typeof window === "undefined") {
-    return;
+  if (activeTrackerCleanup) {
+    return activeTrackerCleanup;
   }
-  activeTrackerStarted = true;
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
   updateLocalWindowActive();
 
-  window.addEventListener("focus", () => updateLocalWindowActive(true));
-  window.addEventListener("blur", clearLocalWindowActive);
-  window.addEventListener("pagehide", clearLocalWindowActive);
-  window.addEventListener("beforeunload", clearLocalWindowActive);
-  document.addEventListener("visibilitychange", () => updateLocalWindowActive());
-
-  const markFocused = () => updateLocalWindowActive(true);
-  const markInactive = () => updateLocalWindowActive(false);
-  const recompute = () => updateLocalWindowActive();
-
-  try {
-    Events.On("common:WindowFocus", markFocused);
-    Events.On("common:WindowLostFocus", markInactive);
-    Events.On("common:WindowMinimise", markInactive);
-    Events.On("common:WindowHide", markInactive);
-    Events.On("common:WindowUnMinimise", recompute);
-    Events.On("common:WindowShow", recompute);
-    Events.On("mac:ApplicationDidBecomeActive", markFocused);
-    Events.On("mac:ApplicationDidResignActive", markInactive);
-    Events.On("windows:WindowActive", markFocused);
-    Events.On("windows:WindowInactive", markInactive);
-    Events.On("windows:WindowSetFocus", markFocused);
-    Events.On("windows:WindowKillFocus", markInactive);
-    Events.On("linux:WindowFocusIn", markFocused);
-    Events.On("linux:WindowFocusOut", markInactive);
-  } catch {
-    // Browser focus/visibility events still cover the web fallback path.
-  }
-
-  window.setInterval(() => {
-    if (localWindowActive || isDocumentActive()) {
-      updateLocalWindowActive(true);
+  const disposeTracker = installActiveWindowTracker({
+    addWindowListener: (name, listener) => window.addEventListener(name, listener),
+    removeWindowListener: (name, listener) => window.removeEventListener(name, listener),
+    addDocumentListener: (name, listener) => document.addEventListener(name, listener),
+    removeDocumentListener: (name, listener) => document.removeEventListener(name, listener),
+    subscribeRuntimeEvent: (name, listener) => Events.On(name, listener),
+    setHeartbeat: (listener, intervalMs) => window.setInterval(listener, intervalMs),
+    clearHeartbeat: (handle) => window.clearInterval(handle),
+    updateActive: updateLocalWindowActive,
+    shouldHeartbeat: () => localWindowActive || isDocumentActive(),
+    heartbeatMs: ACTIVE_WINDOW_HEARTBEAT_MS,
+  });
+  const cleanup = () => {
+    disposeTracker();
+    if (activeTrackerCleanup === cleanup) {
+      activeTrackerCleanup = null;
     }
-  }, ACTIVE_WINDOW_HEARTBEAT_MS);
+  };
+  activeTrackerCleanup = cleanup;
+  return cleanup;
+}
+
+function stopAppActiveTracker() {
+  activeTrackerCleanup?.();
 }
 
 async function isAppActiveForNotifications() {
@@ -331,3 +320,7 @@ export async function publishOSNotification(input: PublishOSNotificationInput) {
 }
 
 startAppActiveTracker();
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAppActiveTracker);
+}

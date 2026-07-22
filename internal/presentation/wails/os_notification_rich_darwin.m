@@ -31,7 +31,7 @@ char* xiadownSendNotificationWithAttachment(
     const char *data_json,
     const char *image_path
 ) {
-    if (@available(macOS 11.0, *)) {
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 110000
         NSString *nsIdentifier = [NSString stringWithUTF8String:identifier ?: ""];
         NSString *nsTitle = [NSString stringWithUTF8String:title ?: ""];
         NSString *nsSubtitle = [NSString stringWithUTF8String:subtitle ?: ""];
@@ -90,7 +90,7 @@ char* xiadownSendNotificationWithAttachment(
             return xiadownCopyError(requestError);
         }
         return NULL;
-    } else {
-        return xiadownCopyString(@"rich notifications require macOS 11.0 or newer");
-    }
+#else
+        return xiadownCopyString(@"rich notifications are unavailable in this build");
+#endif
 }

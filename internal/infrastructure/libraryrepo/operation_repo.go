@@ -78,29 +78,31 @@ type operationChunkRow struct {
 }
 
 type historyRow struct {
-	bun.BaseModel  `bun:"table:library_history_records"`
-	ID             string         `bun:"id,pk"`
-	LibraryID      string         `bun:"library_id"`
-	Category       string         `bun:"category"`
-	Action         string         `bun:"action"`
-	DisplayName    string         `bun:"display_name"`
-	Status         string         `bun:"status"`
-	SourceKind     string         `bun:"source_kind"`
-	SourceCaller   sql.NullString `bun:"source_caller"`
-	SourceRunID    sql.NullString `bun:"source_run_id"`
-	SourceActor    sql.NullString `bun:"source_actor"`
-	OperationID    sql.NullString `bun:"operation_id"`
-	ImportBatchID  sql.NullString `bun:"import_batch_id"`
-	FileCount      int            `bun:"file_count"`
-	TotalSizeBytes sql.NullInt64  `bun:"total_size_bytes"`
-	DurationMs     sql.NullInt64  `bun:"duration_ms"`
-	ImportPath     sql.NullString `bun:"import_path"`
-	KeepSourceFile sql.NullBool   `bun:"keep_source_file"`
-	ErrorCode      sql.NullString `bun:"error_code"`
-	ErrorMessage   sql.NullString `bun:"error_message"`
-	OccurredAt     time.Time      `bun:"occurred_at"`
-	CreatedAt      time.Time      `bun:"created_at"`
-	UpdatedAt      time.Time      `bun:"updated_at"`
+	bun.BaseModel      `bun:"table:library_history_records"`
+	ID                 string         `bun:"id,pk"`
+	LibraryID          string         `bun:"library_id"`
+	Category           string         `bun:"category"`
+	Action             string         `bun:"action"`
+	DisplayName        string         `bun:"display_name"`
+	Status             string         `bun:"status"`
+	SourceKind         string         `bun:"source_kind"`
+	SourceCaller       sql.NullString `bun:"source_caller"`
+	SourceRunID        sql.NullString `bun:"source_run_id"`
+	SourceActor        sql.NullString `bun:"source_actor"`
+	OperationID        sql.NullString `bun:"operation_id"`
+	SubjectOperationID sql.NullString `bun:"subject_operation_id"`
+	ImportBatchID      sql.NullString `bun:"import_batch_id"`
+	FileCount          int            `bun:"file_count"`
+	TotalSizeBytes     sql.NullInt64  `bun:"total_size_bytes"`
+	DurationMs         sql.NullInt64  `bun:"duration_ms"`
+	ImportPath         sql.NullString `bun:"import_path"`
+	KeepSourceFile     sql.NullBool   `bun:"keep_source_file"`
+	OperationKind      sql.NullString `bun:"operation_kind"`
+	ErrorCode          sql.NullString `bun:"error_code"`
+	ErrorMessage       sql.NullString `bun:"error_message"`
+	OccurredAt         time.Time      `bun:"occurred_at"`
+	CreatedAt          time.Time      `bun:"created_at"`
+	UpdatedAt          time.Time      `bun:"updated_at"`
 }
 
 type historyFileRow struct {
@@ -176,7 +178,7 @@ func NewSQLiteSubtitleDocumentRepository(db *bun.DB) *SQLiteSubtitleDocumentRepo
 
 func (repo *SQLiteOperationRepository) List(ctx context.Context) ([]library.LibraryOperation, error) {
 	rows := make([]operationRow, 0)
-	if err := repo.db.NewSelect().Model(&rows).Order("created_at DESC").Scan(ctx); err != nil {
+	if err := repo.db.NewSelect().Model(&rows).Order("created_at DESC").Order("id ASC").Scan(ctx); err != nil {
 		return nil, err
 	}
 	return repo.mapOperations(ctx, rows)
@@ -184,7 +186,7 @@ func (repo *SQLiteOperationRepository) List(ctx context.Context) ([]library.Libr
 
 func (repo *SQLiteOperationRepository) ListByLibraryID(ctx context.Context, libraryID string) ([]library.LibraryOperation, error) {
 	rows := make([]operationRow, 0)
-	if err := repo.db.NewSelect().Model(&rows).Where("library_id = ?", strings.TrimSpace(libraryID)).Order("created_at DESC").Scan(ctx); err != nil {
+	if err := repo.db.NewSelect().Model(&rows).Where("library_id = ?", strings.TrimSpace(libraryID)).Order("created_at DESC").Order("id ASC").Scan(ctx); err != nil {
 		return nil, err
 	}
 	return repo.mapOperations(ctx, rows)
@@ -209,21 +211,91 @@ func (repo *SQLiteOperationRepository) Get(ctx context.Context, id string) (libr
 }
 
 func (repo *SQLiteOperationRepository) Save(ctx context.Context, item library.LibraryOperation) error {
-	correlationJSON, err := json.Marshal(item.Correlation)
+	row, err := newOperationRow(item)
 	if err != nil {
 		return err
+	}
+	return repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		return saveOperationRow(ctx, tx, item, &row)
+	})
+}
+
+// SaveWithHistoryEvent is the narrow task-title mutation boundary. It updates
+// only display_name on the live operation, only display_name/updated_at on the
+// optional primary history, and appends the immutable lifecycle event in one
+// transaction. Deliberately avoiding the general Save path prevents a stale
+// rename snapshot from overwriting concurrent progress, status or outputs.
+func (repo *SQLiteOperationRepository) SaveWithHistoryEvent(
+	ctx context.Context,
+	item library.LibraryOperation,
+	primaryHistory *library.HistoryRecord,
+	event library.HistoryRecord,
+) error {
+	if event.Category != "operation_event" || event.LibraryID != item.LibraryID {
+		return library.ErrInvalidHistoryRecord
+	}
+	if primaryHistory != nil &&
+		(primaryHistory.LibraryID != item.LibraryID || primaryHistory.Category != "operation") {
+		return library.ErrInvalidHistoryRecord
+	}
+	eventRow := newHistoryRow(event)
+	return repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		result, err := tx.NewUpdate().
+			Model((*operationRow)(nil)).
+			Set("display_name = ?", item.DisplayName).
+			Where("id = ?", item.ID).
+			Where("library_id = ?", item.LibraryID).
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return library.ErrOperationNotFound
+		}
+		if primaryHistory != nil {
+			result, err := tx.NewUpdate().
+				Model((*historyRow)(nil)).
+				Set("display_name = ?", primaryHistory.DisplayName).
+				Set("updated_at = ?", primaryHistory.UpdatedAt).
+				Where("id = ?", primaryHistory.ID).
+				Where("library_id = ?", primaryHistory.LibraryID).
+				Where("category = ?", "operation").
+				Exec(ctx)
+			if err != nil {
+				return err
+			}
+			updated, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if updated != 1 {
+				return library.ErrHistoryRecordNotFound
+			}
+		}
+		return saveHistoryRow(ctx, tx, event, &eventRow)
+	})
+}
+
+func newOperationRow(item library.LibraryOperation) (operationRow, error) {
+	correlationJSON, err := json.Marshal(item.Correlation)
+	if err != nil {
+		return operationRow{}, err
 	}
 	metaJSON := sql.NullString{}
 	if payload, err := json.Marshal(item.Meta); err == nil && string(payload) != "{}" {
 		metaJSON = nullString(string(payload))
 	} else if err != nil {
-		return err
+		return operationRow{}, err
 	}
 	progressJSON := sql.NullString{}
 	if item.Progress != nil {
 		payload, err := json.Marshal(item.Progress)
 		if err != nil {
-			return err
+			return operationRow{}, err
 		}
 		progressJSON = nullString(string(payload))
 	}
@@ -234,55 +306,74 @@ func (repo *SQLiteOperationRepository) Save(ctx context.Context, item library.Li
 		FileCount: item.Metrics.FileCount, TotalSizeBytes: nullInt64Ptr(item.Metrics.TotalSizeBytes), DurationMs: nullInt64Ptr(item.Metrics.DurationMs),
 		ErrorCode: nullString(item.ErrorCode), ErrorMessage: nullString(item.ErrorMessage), CreatedAt: item.CreatedAt, StartedAt: nullTime(item.StartedAt), FinishedAt: nullTime(item.FinishedAt),
 	}
-	return repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.NewInsert().Model(&row).
-			On("CONFLICT(id) DO UPDATE").
-			Set("library_id = EXCLUDED.library_id").
-			Set("kind = EXCLUDED.kind").
-			Set("status = EXCLUDED.status").
-			Set("display_name = EXCLUDED.display_name").
-			Set("correlation_json = EXCLUDED.correlation_json").
-			Set("input_json = EXCLUDED.input_json").
-			Set("output_json = EXCLUDED.output_json").
-			Set("meta_json = EXCLUDED.meta_json").
-			Set("progress_json = EXCLUDED.progress_json").
-			Set("source_domain = EXCLUDED.source_domain").
-			Set("source_icon = EXCLUDED.source_icon").
-			Set("file_count = EXCLUDED.file_count").
-			Set("total_size_bytes = EXCLUDED.total_size_bytes").
-			Set("duration_ms = EXCLUDED.duration_ms").
-			Set("error_code = EXCLUDED.error_code").
-			Set("error_message = EXCLUDED.error_message").
-			Set("started_at = EXCLUDED.started_at").
-			Set("finished_at = EXCLUDED.finished_at").
-			Exec(ctx); err != nil {
-			return err
-		}
-		if _, err := tx.NewDelete().Model((*operationOutputRow)(nil)).Where("operation_id = ?", item.ID).Exec(ctx); err != nil {
-			return err
-		}
-		for index, output := range item.OutputFiles {
-			fileLibraryID := ""
-			if err := tx.NewSelect().Model((*fileRow)(nil)).Column("library_id").Where("id = ?", strings.TrimSpace(output.FileID)).Scan(ctx, &fileLibraryID); err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					return library.ErrInvalidOperationOutput
-				}
-				return err
-			}
-			if strings.TrimSpace(fileLibraryID) != item.LibraryID {
+	return row, nil
+}
+
+func saveOperationRow(ctx context.Context, db bun.IDB, item library.LibraryOperation, row *operationRow) error {
+	if _, err := db.NewInsert().Model(row).
+		On("CONFLICT(id) DO UPDATE").
+		Set("library_id = EXCLUDED.library_id").
+		Set("kind = EXCLUDED.kind").
+		Set("status = EXCLUDED.status").
+		Set(`display_name = CASE
+			WHEN EXISTS (
+				SELECT 1
+				FROM library_history_records AS rename_event
+				WHERE rename_event.category = 'operation_event'
+					AND rename_event.action = 'operation_renamed'
+					AND (
+						rename_event.operation_id = EXCLUDED.id
+						OR rename_event.subject_operation_id = EXCLUDED.id
+					)
+			)
+			THEN (
+				SELECT current_operation.display_name
+				FROM library_operations AS current_operation
+				WHERE current_operation.id = EXCLUDED.id
+			)
+			ELSE EXCLUDED.display_name
+		END`).
+		Set("correlation_json = EXCLUDED.correlation_json").
+		Set("input_json = EXCLUDED.input_json").
+		Set("output_json = EXCLUDED.output_json").
+		Set("meta_json = EXCLUDED.meta_json").
+		Set("progress_json = EXCLUDED.progress_json").
+		Set("source_domain = EXCLUDED.source_domain").
+		Set("source_icon = EXCLUDED.source_icon").
+		Set("file_count = EXCLUDED.file_count").
+		Set("total_size_bytes = EXCLUDED.total_size_bytes").
+		Set("duration_ms = EXCLUDED.duration_ms").
+		Set("error_code = EXCLUDED.error_code").
+		Set("error_message = EXCLUDED.error_message").
+		Set("started_at = EXCLUDED.started_at").
+		Set("finished_at = EXCLUDED.finished_at").
+		Exec(ctx); err != nil {
+		return err
+	}
+	if _, err := db.NewDelete().Model((*operationOutputRow)(nil)).Where("operation_id = ?", item.ID).Exec(ctx); err != nil {
+		return err
+	}
+	for index, output := range item.OutputFiles {
+		fileLibraryID := ""
+		if err := db.NewSelect().Model((*fileRow)(nil)).Column("library_id").Where("id = ?", strings.TrimSpace(output.FileID)).Scan(ctx, &fileLibraryID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
 				return library.ErrInvalidOperationOutput
 			}
-			isPrimary := output.IsPrimary
-			if !isPrimary && index == 0 {
-				isPrimary = true
-			}
-			outRow := operationOutputRow{ID: uuid.NewString(), OperationID: item.ID, LibraryID: item.LibraryID, FileID: output.FileID, IsPrimary: isPrimary, CreatedAt: item.CreatedAt}
-			if _, err := tx.NewInsert().Model(&outRow).Exec(ctx); err != nil {
-				return err
-			}
+			return err
 		}
-		return nil
-	})
+		if strings.TrimSpace(fileLibraryID) != item.LibraryID {
+			return library.ErrInvalidOperationOutput
+		}
+		isPrimary := output.IsPrimary
+		if !isPrimary && index == 0 {
+			isPrimary = true
+		}
+		outRow := operationOutputRow{ID: uuid.NewString(), OperationID: item.ID, LibraryID: item.LibraryID, FileID: output.FileID, IsPrimary: isPrimary, CreatedAt: item.CreatedAt}
+		if _, err := db.NewInsert().Model(&outRow).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (repo *SQLiteOperationRepository) Delete(ctx context.Context, id string) error {
@@ -474,10 +565,21 @@ func (repo *SQLiteHistoryRepository) Get(ctx context.Context, id string) (librar
 }
 
 func (repo *SQLiteHistoryRepository) Save(ctx context.Context, item library.HistoryRecord) error {
+	row := newHistoryRow(item)
+	return repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		return saveHistoryRow(ctx, tx, item, &row)
+	})
+}
+
+func newHistoryRow(item library.HistoryRecord) historyRow {
+	subjectOperationID := strings.TrimSpace(item.Refs.SubjectOperationID)
+	if subjectOperationID == "" {
+		subjectOperationID = strings.TrimSpace(item.Refs.OperationID)
+	}
 	row := historyRow{
 		ID: item.ID, LibraryID: item.LibraryID, Category: item.Category, Action: item.Action, DisplayName: item.DisplayName, Status: item.Status,
 		SourceKind: item.Source.Kind, SourceCaller: nullString(item.Source.Caller), SourceRunID: nullString(item.Source.RunID), SourceActor: nullString(item.Source.Actor),
-		OperationID: nullString(item.Refs.OperationID), ImportBatchID: nullString(item.Refs.ImportBatchID), FileCount: item.Metrics.FileCount,
+		OperationID: nullString(item.Refs.OperationID), SubjectOperationID: nullString(subjectOperationID), ImportBatchID: nullString(item.Refs.ImportBatchID), FileCount: item.Metrics.FileCount,
 		TotalSizeBytes: nullInt64Ptr(item.Metrics.TotalSizeBytes), DurationMs: nullInt64Ptr(item.Metrics.DurationMs),
 		OccurredAt: item.OccurredAt, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}
@@ -486,31 +588,71 @@ func (repo *SQLiteHistoryRepository) Save(ctx context.Context, item library.Hist
 		row.KeepSourceFile = sql.NullBool{Bool: item.ImportMeta.KeepSourceFile, Valid: true}
 	}
 	if item.OperationMeta != nil {
+		row.OperationKind = nullString(item.OperationMeta.Kind)
 		row.ErrorCode = nullString(item.OperationMeta.ErrorCode)
 		row.ErrorMessage = nullString(item.OperationMeta.ErrorMessage)
 	}
-	return repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.NewInsert().Model(&row).
+	return row
+}
+
+func saveHistoryRow(ctx context.Context, db bun.IDB, item library.HistoryRecord, row *historyRow) error {
+	if item.Category == "operation_event" {
+		result, err := db.NewInsert().Model(row).On("CONFLICT(id) DO NOTHING").Exec(ctx)
+		if err != nil {
+			return err
+		}
+		inserted, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if inserted == 0 {
+			// Lifecycle events are immutable. A producer retry with the same
+			// identifier acknowledges the first durable snapshot and must not
+			// rewrite either the row or its output-file snapshot.
+			return nil
+		}
+	} else {
+		if _, err := db.NewInsert().Model(row).
 			On("CONFLICT(id) DO UPDATE").
-			Set("library_id = EXCLUDED.library_id").Set("category = EXCLUDED.category").Set("action = EXCLUDED.action").Set("display_name = EXCLUDED.display_name").
+			Set("library_id = EXCLUDED.library_id").Set("category = EXCLUDED.category").Set("action = EXCLUDED.action").
+			Set(`display_name = CASE
+				WHEN EXCLUDED.category = 'operation' AND EXISTS (
+					SELECT 1
+					FROM library_history_records AS rename_event
+					WHERE rename_event.category = 'operation_event'
+						AND rename_event.action = 'operation_renamed'
+						AND (
+							rename_event.operation_id = EXCLUDED.operation_id
+							OR rename_event.subject_operation_id = EXCLUDED.operation_id
+							OR rename_event.operation_id = EXCLUDED.subject_operation_id
+							OR rename_event.subject_operation_id = EXCLUDED.subject_operation_id
+						)
+				)
+				THEN (
+					SELECT current_history.display_name
+					FROM library_history_records AS current_history
+					WHERE current_history.id = EXCLUDED.id
+				)
+				ELSE EXCLUDED.display_name
+			END`).
 			Set("status = EXCLUDED.status").Set("source_kind = EXCLUDED.source_kind").Set("source_caller = EXCLUDED.source_caller").Set("source_run_id = EXCLUDED.source_run_id").
-			Set("source_actor = EXCLUDED.source_actor").Set("operation_id = EXCLUDED.operation_id").Set("import_batch_id = EXCLUDED.import_batch_id").
+			Set("source_actor = EXCLUDED.source_actor").Set("operation_id = EXCLUDED.operation_id").Set("subject_operation_id = EXCLUDED.subject_operation_id").Set("import_batch_id = EXCLUDED.import_batch_id").
 			Set("file_count = EXCLUDED.file_count").Set("total_size_bytes = EXCLUDED.total_size_bytes").Set("duration_ms = EXCLUDED.duration_ms").
-			Set("import_path = EXCLUDED.import_path").Set("keep_source_file = EXCLUDED.keep_source_file").Set("error_code = EXCLUDED.error_code").Set("error_message = EXCLUDED.error_message").
+			Set("import_path = EXCLUDED.import_path").Set("keep_source_file = EXCLUDED.keep_source_file").Set("operation_kind = EXCLUDED.operation_kind").Set("error_code = EXCLUDED.error_code").Set("error_message = EXCLUDED.error_message").
 			Set("occurred_at = EXCLUDED.occurred_at").Set("updated_at = EXCLUDED.updated_at").Exec(ctx); err != nil {
 			return err
 		}
-		if _, err := tx.NewDelete().Model((*historyFileRow)(nil)).Where("history_id = ?", item.ID).Exec(ctx); err != nil {
+		if _, err := db.NewDelete().Model((*historyFileRow)(nil)).Where("history_id = ?", item.ID).Exec(ctx); err != nil {
 			return err
 		}
-		for _, file := range item.Files {
-			row := historyFileRow{ID: uuid.NewString(), HistoryID: item.ID, FileID: file.FileID, Kind: file.Kind, Format: nullString(file.Format), SizeBytes: nullInt64Ptr(file.SizeBytes), Deleted: file.Deleted, CreatedAt: item.CreatedAt}
-			if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
-				return err
-			}
+	}
+	for _, file := range item.Files {
+		row := historyFileRow{ID: uuid.NewString(), HistoryID: item.ID, FileID: file.FileID, Kind: file.Kind, Format: nullString(file.Format), SizeBytes: nullInt64Ptr(file.SizeBytes), Deleted: file.Deleted, CreatedAt: item.CreatedAt}
+		if _, err := db.NewInsert().Model(&row).Exec(ctx); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (repo *SQLiteHistoryRepository) Delete(ctx context.Context, id string) error {
@@ -542,14 +684,18 @@ func (repo *SQLiteHistoryRepository) mapHistory(ctx context.Context, rows []hist
 	result := make([]library.HistoryRecord, 0, len(rows))
 	for _, row := range rows {
 		metrics := library.OperationMetrics{FileCount: row.FileCount, TotalSizeBytes: int64Ptr(row.TotalSizeBytes), DurationMs: int64Ptr(row.DurationMs)}
-		refs := library.HistoryRecordRefs{OperationID: stringOrEmpty(row.OperationID), ImportBatchID: stringOrEmpty(row.ImportBatchID)}
+		refs := library.HistoryRecordRefs{OperationID: stringOrEmpty(row.OperationID), SubjectOperationID: stringOrEmpty(row.SubjectOperationID), ImportBatchID: stringOrEmpty(row.ImportBatchID)}
 		meta := (*library.ImportRecordMeta)(nil)
 		if row.ImportPath.Valid || row.KeepSourceFile.Valid {
 			meta = &library.ImportRecordMeta{ImportPath: stringOrEmpty(row.ImportPath), KeepSourceFile: boolOrFalse(row.KeepSourceFile)}
 		}
 		opMeta := (*library.OperationRecordMeta)(nil)
-		if row.Category == "operation" {
-			opMeta = &library.OperationRecordMeta{Kind: row.Action, ErrorCode: stringOrEmpty(row.ErrorCode), ErrorMessage: stringOrEmpty(row.ErrorMessage)}
+		if row.Category == "operation" || row.OperationKind.Valid || row.ErrorCode.Valid || row.ErrorMessage.Valid {
+			kind := stringOrEmpty(row.OperationKind)
+			if kind == "" && row.Category == "operation" {
+				kind = row.Action
+			}
+			opMeta = &library.OperationRecordMeta{Kind: kind, ErrorCode: stringOrEmpty(row.ErrorCode), ErrorMessage: stringOrEmpty(row.ErrorMessage)}
 		}
 		item, err := library.NewHistoryRecord(library.HistoryRecordParams{ID: row.ID, LibraryID: row.LibraryID, Category: row.Category, Action: row.Action, DisplayName: row.DisplayName, Status: row.Status, Source: library.HistoryRecordSource{Kind: row.SourceKind, Caller: stringOrEmpty(row.SourceCaller), RunID: stringOrEmpty(row.SourceRunID), Actor: stringOrEmpty(row.SourceActor)}, Refs: refs, Files: filesByHistory[row.ID], Metrics: metrics, ImportMeta: meta, OperationMeta: opMeta, OccurredAt: &row.OccurredAt, CreatedAt: &row.CreatedAt, UpdatedAt: &row.UpdatedAt})
 		if err != nil {
@@ -624,7 +770,9 @@ func (repo *SQLiteFileEventRepository) ListByLibraryID(ctx context.Context, libr
 
 func (repo *SQLiteFileEventRepository) Save(ctx context.Context, item library.FileEventRecord) error {
 	row := fileEventRow{ID: item.ID, LibraryID: item.LibraryID, FileID: item.FileID, OperationID: nullString(item.OperationID), EventType: item.EventType, DetailJSON: item.DetailJSON, CreatedAt: item.CreatedAt}
-	_, err := repo.db.NewInsert().Model(&row).On("CONFLICT(id) DO UPDATE").Set("detail_json = EXCLUDED.detail_json").Exec(ctx)
+	// File events are an append-only audit stream. A retried producer may reuse
+	// its deterministic ID, but it must never rewrite the first durable fact.
+	_, err := repo.db.NewInsert().Model(&row).On("CONFLICT(id) DO NOTHING").Exec(ctx)
 	return err
 }
 

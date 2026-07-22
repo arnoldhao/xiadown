@@ -10,9 +10,95 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	appytdlp "xiadown/internal/application/ytdlp"
 )
+
+func TestShouldPreflightDirectManifestWithoutCapturedHeaders(t *testing.T) {
+	t.Parallel()
+
+	if !shouldPreflightYTDLPStream(false, "https://media.example/master.m3u8") {
+		t.Fatalf("direct HLS input must be preflighted")
+	}
+	if !shouldPreflightYTDLPStream(false, "https://media.example/manifest.mpd") {
+		t.Fatalf("direct DASH input must be preflighted")
+	}
+	if shouldPreflightYTDLPStream(false, "https://www.youtube.com/watch?v=1") {
+		t.Fatalf("ordinary extractor page should not be treated as a direct manifest")
+	}
+	if !shouldPreflightYTDLPStream(true, "https://media.example/no-extension") {
+		t.Fatalf("captured resource input must retain its existing preflight policy")
+	}
+}
+
+func TestPreflightYTDLPStreamRejectsNonHTTPTopLevelManifest(t *testing.T) {
+	t.Parallel()
+
+	preflight := (&LibraryService{}).preflightYTDLPStream(
+		context.Background(),
+		"file:///tmp/master.m3u8",
+		nil,
+		nil,
+		"op-test",
+	)
+	if !preflight.IsUnsupported() || !strings.Contains(preflight.UnsupportedReason, "HTTP(S)") {
+		t.Fatalf("expected non-HTTP manifest to be rejected, got %#v", preflight)
+	}
+}
+
+func TestPreflightYTDLPStreamRejectsUnsafeManifestReference(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		_, _ = w.Write([]byte("#EXTM3U\n#EXTINF:4,\nfile:///etc/passwd\n"))
+	}))
+	defer server.Close()
+
+	rawURL := server.URL + "/master.m3u8"
+	preflight := (&LibraryService{}).preflightYTDLPStream(context.Background(), rawURL, nil, nil, "op-test")
+	if !preflight.IsUnsupported() || !strings.Contains(preflight.UnsupportedReason, "manifest contains") {
+		t.Fatalf("expected unsafe manifest reference to be rejected, got %#v", preflight)
+	}
+}
+
+func TestPreflightYTDLPStreamFailsClosedWhenManifestCannotBeValidated(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	rawURL := server.URL + "/master.m3u8"
+	preflight := (&LibraryService{}).preflightYTDLPStream(context.Background(), rawURL, nil, nil, "op-test")
+	if !preflight.IsUnsupported() || preflight.FetchError == "" {
+		t.Fatalf("expected failed manifest validation to block helper execution, got %#v", preflight)
+	}
+}
+
+func TestPreflightFetchRejectsRedirectToNonHTTPURL(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "file:///etc/passwd")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer server.Close()
+
+	_, _, err := (&LibraryService{}).fetchYTDLPPreflightURL(
+		context.Background(),
+		server.URL+"/master.m3u8",
+		nil,
+		1024,
+		time.Second,
+		"manifest",
+	)
+	if err == nil || !strings.Contains(err.Error(), "HTTP(S)") {
+		t.Fatalf("expected redirect to non-HTTP URL to be rejected, got %v", err)
+	}
+}
 
 func TestPreflightYTDLPStreamReadsMediaPlaylistAndKey(t *testing.T) {
 	t.Parallel()

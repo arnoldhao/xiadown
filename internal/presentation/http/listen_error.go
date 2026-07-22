@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"strings"
 
@@ -73,10 +75,14 @@ func listenYouTubeMusicErrorCode(err error) string {
 		return "youtube_cookies_missing"
 	case errors.Is(err, youtubemusic.ErrAuthExpired):
 		return "youtube_auth_expired"
+	case errors.Is(err, youtubemusic.ErrRegionUnavailable):
+		return "youtube_region_unavailable"
 	case isListenTimeoutError(err):
 		return "youtube_timeout"
 	case isListenNetworkError(err):
 		return "youtube_network_unavailable"
+	case errors.Is(err, youtubemusic.ErrBrowseUnavailable):
+		return "youtube_transient_unavailable"
 	case isListenTransientStatusError(err):
 		return "youtube_transient_unavailable"
 	default:
@@ -88,6 +94,8 @@ func listenYouTubeMusicErrorHTTPStatus(err error) int {
 	switch {
 	case isListenMissingCookiesError(err), errors.Is(err, youtubemusic.ErrAuthExpired):
 		return http.StatusUnauthorized
+	case errors.Is(err, youtubemusic.ErrRegionUnavailable):
+		return http.StatusUnavailableForLegalReasons
 	case isListenTimeoutError(err):
 		return http.StatusGatewayTimeout
 	default:
@@ -101,10 +109,14 @@ func listenYouTubeMusicErrorMessage(err error, fallback string) string {
 		return "YouTube Music cookies are missing."
 	case errors.Is(err, youtubemusic.ErrAuthExpired):
 		return "YouTube Music authentication expired."
+	case errors.Is(err, youtubemusic.ErrRegionUnavailable):
+		return "YouTube Music is unavailable in your region."
 	case isListenTimeoutError(err):
 		return "YouTube Music request timed out."
 	case isListenNetworkError(err):
 		return "YouTube Music network unavailable."
+	case errors.Is(err, youtubemusic.ErrBrowseUnavailable):
+		return "YouTube Music recommendations are temporarily unavailable."
 	default:
 		if trimmed := strings.TrimSpace(fallback); trimmed != "" {
 			return trimmed
@@ -114,7 +126,8 @@ func listenYouTubeMusicErrorMessage(err error, fallback string) string {
 }
 
 func listenYouTubeMusicErrorRetryable(err error) bool {
-	return isListenTimeoutError(err) || isListenNetworkError(err) || isListenTransientStatusError(err)
+	return isListenTimeoutError(err) || isListenNetworkError(err) ||
+		errors.Is(err, youtubemusic.ErrBrowseUnavailable) || isListenTransientStatusError(err)
 }
 
 func listenYouTubeMusicErrorRetryableFromCode(code string) bool {
@@ -155,6 +168,17 @@ func isListenNetworkError(err error) bool {
 	if errors.Is(err, youtubemusic.ErrNetworkUnavailable) {
 		return true
 	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var operationErr *net.OpError
+	if errors.As(err, &operationErr) {
+		return true
+	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	if lower == "eof" || strings.Contains(lower, ": eof") || strings.Contains(lower, " eof") {
 		return true
@@ -165,9 +189,22 @@ func isListenNetworkError(err error) bool {
 		"connection refused",
 		"connection reset",
 		"connection closed",
+		"connection aborted",
+		"connection terminated",
+		"broken pipe",
+		"use of closed network connection",
 		"temporary failure",
 		"dial tcp",
 		"unexpected eof",
+		"proxyconnect tcp",
+		"server misbehaving",
+		"transport connection broken",
+		"http2: client connection lost",
+		"remote error: tls",
+		"tls: handshake failure",
+		"tls: internal error",
+		"tls: bad record mac",
+		"first record does not look like a tls handshake",
 	} {
 		if strings.Contains(lower, marker) {
 			return true

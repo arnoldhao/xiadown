@@ -11,8 +11,11 @@ import type {
 Dependency,
 DependencyUpdateInfo,
 } from "@/shared/contracts/dependencies";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import {
+  StatusBadge,
+  type DreamStatusTone,
+} from "@/shared/ui/status-badge";
 
 export function dependencyStatusLabel(
   text: ReturnType<typeof getXiaText>,
@@ -72,14 +75,14 @@ export function clampProgress(value: number | undefined) {
   return Math.min(Math.max(value, 0), 100);
 }
 
-export function resolveDependencyTone(status?: string) {
+export function resolveDependencyTone(status?: string): DreamStatusTone {
   switch ((status ?? "").trim().toLowerCase()) {
     case "installed":
-      return "app-dependency-status-badge-installed";
+      return "success";
     case "invalid":
-      return "app-dependency-status-badge-invalid";
+      return "warning";
     default:
-      return "app-dependency-status-badge-missing";
+      return "danger";
   }
 }
 
@@ -129,26 +132,23 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
               <Wrench className="h-3.5 w-3.5" />
             </div>
             <div className="min-w-0 space-y-1.5">
-              <div className="text-base font-semibold text-foreground">
+              <div className="app-dependency-repair-title">
                 {props.title}
               </div>
-              <div className="max-w-2xl text-sm leading-6 text-muted-foreground">
+              <div className="app-dependency-repair-description max-w-2xl">
                 {props.description}
               </div>
             </div>
           </div>
-          <Badge
-            className={cn(
-              "w-fit shrink-0",
-              hasMissingDependencies
-                ? "app-dream-status-badge-primary"
-                : "app-dream-status-badge-success",
-            )}
+          <StatusBadge
+            className="w-fit shrink-0"
+            marker
+            tone={hasMissingDependencies ? "warning" : "success"}
           >
             {hasMissingDependencies
               ? props.text.dependencies.missing
               : props.text.dependencies.installed}
-          </Badge>
+          </StatusBadge>
         </div>
 
         <div className="space-y-3">
@@ -168,15 +168,15 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
               >
                 <div className="flex min-w-0 items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-bold tracking-[0.08em] text-foreground">
+                    <div className="app-dependency-item-title truncate">
                       {formatDependencyDisplayName(item.name)}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <div className="app-dependency-item-meta mt-1 flex flex-wrap items-center gap-2">
                       <span>
                         {props.text.dependencies.currentVersion}:{" "}
                         {item.tool?.version || "-"}
                       </span>
-                      <span className="text-border">/</span>
+                      <span className="app-dependency-item-separator">/</span>
                       <span>
                         {props.text.dependencies.latestVersion}:{" "}
                         {item.update?.latestVersion ||
@@ -184,11 +184,13 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
                       </span>
                     </div>
                   </div>
-                  <Badge
-                    className={cn("shrink-0", resolveDependencyTone(status))}
+                  <StatusBadge
+                    className="shrink-0"
+                    marker
+                    tone={resolveDependencyTone(status)}
                   >
                     {dependencyStatusLabel(props.text, status)}
-                  </Badge>
+                  </StatusBadge>
                 </div>
 
                 {isInstalling ? (
@@ -199,11 +201,11 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
                         style={{ width: `${installProgress}%` }}
                       />
                     </div>
-                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <div className="app-dependency-item-progress-meta flex items-center justify-between gap-3">
                       <span className="truncate">
                         {formatDependencyInstallStage(props.text, installStage)}
                       </span>
-                      <span className="shrink-0 tabular-nums">
+                      <span className="app-dependency-progress-value shrink-0">
                         {Math.round(installProgress)}%
                       </span>
                     </div>
@@ -222,7 +224,7 @@ export function DependencyRepairCard(props: DependencyRepairCardProps) {
               disabled={installActive}
             >
               {installActive ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 app-motion-spin" />
               ) : (
                 <Wrench className="h-4 w-4" />
               )}

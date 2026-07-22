@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +23,7 @@ var (
 )
 
 type resourceSubtitle struct {
+	captureID      resourceRequestCaptureID
 	URL            string
 	Data           string
 	PageURL        string
@@ -66,198 +66,6 @@ func resourceSubtitleFromResponse(rawURL string, pageURL string, mimeType string
 		SeenAt:         firstNonZeroTime(seenAt, time.Now()),
 	}, true
 }
-
-func resourceSubtitlesFromAPIResponse(response resourceAPIResponse) []resourceSubtitle {
-	if len(response.Body) == 0 {
-		return nil
-	}
-	var root any
-	if err := json.Unmarshal(response.Body, &root); err != nil {
-		return nil
-	}
-	result := make([]resourceSubtitle, 0, 2)
-	visited := 0
-	resourceCollectSubtitlesFromJSON(root, response, "", false, &result, &visited)
-	return dedupeResourceSubtitles(result)
-}
-
-func resourceCollectSubtitlesFromJSON(value any, response resourceAPIResponse, keyPath string, subtitleContext bool, result *[]resourceSubtitle, visited *int) {
-	if value == nil || visited == nil || *visited > 1600 {
-		return
-	}
-	*visited++
-	switch typed := value.(type) {
-	case []any:
-		for _, item := range typed {
-			resourceCollectSubtitlesFromJSON(item, response, keyPath, subtitleContext, result, visited)
-		}
-	case map[string]any:
-		currentSubtitleContext := subtitleContext || resourceKeySuggestsSubtitle(keyPath) || resourceMapSuggestsSubtitle(typed)
-		if subtitle, ok := resourceSubtitleFromJSONObject(typed, response, currentSubtitleContext); ok {
-			*result = append(*result, subtitle)
-		}
-		for key, child := range typed {
-			switch child.(type) {
-			case map[string]any, []any:
-				nextKeyPath := key
-				if keyPath != "" {
-					nextKeyPath = keyPath + "." + key
-				}
-				resourceCollectSubtitlesFromJSON(child, response, nextKeyPath, currentSubtitleContext || resourceKeySuggestsSubtitle(key), result, visited)
-			}
-		}
-	}
-}
-
-func resourceSubtitleFromJSONObject(object map[string]any, response resourceAPIResponse, subtitleContext bool) (resourceSubtitle, bool) {
-	rawURL := firstNonEmpty(
-		resourceFirstAddressURL(resourceAnyValue(object, "subtitle_url", "subtitleUrl", "caption_url", "captionUrl", "captionsUrl", "closedCaptionUrl", "timedTextUrl")),
-		resourceFirstAddressURL(resourceAnyValue(object, "file", "src", "url", "link", "href", "webvtt", "vtt", "srt")),
-	)
-	rawURL = resourceResolveURL(rawURL, firstNonEmpty(response.PageURL, response.URL))
-	if rawURL == "" {
-		return resourceSubtitle{}, false
-	}
-	formatHint := firstNonEmpty(
-		resourceStringValue(object, "ext", "format", "type", "mimeType", "mime_type"),
-		resourceStringValue(object, "subtitleType", "captionType"),
-	)
-	ext := resourceSubtitleExt(rawURL, "", "", formatHint)
-	if ext == "" && subtitleContext {
-		ext = "vtt"
-	}
-	if ext == "" {
-		return resourceSubtitle{}, false
-	}
-	language := firstNonEmpty(
-		resourceStringValue(object, "lang", "language", "languageCode", "language_code", "srclang", "locale", "code"),
-		resourceSubtitleLanguageFromURL(rawURL),
-		"und",
-	)
-	name := firstNonEmpty(
-		resourceStringValue(object, "name", "label", "title", "displayName", "display_name"),
-		resourceSubtitleDisplayName(language, ""),
-	)
-	kind := strings.ToLower(firstNonEmpty(
-		resourceStringValue(object, "kind", "type", "captionType", "subtitleType"),
-		formatHint,
-	))
-	return resourceSubtitle{
-		URL:            rawURL,
-		PageURL:        strings.TrimSpace(response.PageURL),
-		Language:       resourceNormalizeSubtitleLanguage(language),
-		Name:           strings.TrimSpace(name),
-		IsAuto:         resourceSubtitleLooksAutomatic(rawURL, kind),
-		Ext:            ext,
-		ContentType:    strings.TrimSpace(formatHint),
-		SourceURL:      strings.TrimSpace(response.URL),
-		RequestHeaders: normalizeResourceDownloadHeaders(response.RequestHeaders, firstNonEmpty(response.PageURL, response.URL, rawURL)),
-		SeenAt:         firstNonZeroTime(response.SeenAt, time.Now()),
-	}, true
-}
-
-func resourceSubtitlesForPage(pageURL string, pageMeta map[string]string, captured []resourceSubtitle, structuredMedia []resourceStructuredMedia, since time.Time) []resourceSubtitle {
-	result := make([]resourceSubtitle, 0, len(captured)+4)
-	result = append(result, resourceSubtitlesFromPageMeta(pageMeta, pageURL)...)
-	for _, media := range structuredMedia {
-		if !resourceStructuredMediaMatchesPage(media, pageMeta, pageURL) {
-			continue
-		}
-		result = append(result, media.Subtitles...)
-	}
-	for _, subtitle := range captured {
-		if resourceSubtitleMatchesPage(subtitle, pageURL, since) {
-			result = append(result, subtitle)
-		}
-	}
-	return dedupeResourceSubtitles(result)
-}
-
-func resourceStructuredMediaMatchesPage(media resourceStructuredMedia, pageMeta map[string]string, pageURL string) bool {
-	if strings.TrimSpace(media.VideoURL) == "" && len(media.Subtitles) == 0 {
-		return false
-	}
-	pageID := firstNonEmpty(
-		strings.TrimSpace(pageMeta["awemeID"]),
-		strings.TrimSpace(pageMeta["photoID"]),
-		strings.TrimSpace(pageMeta["noteID"]),
-	)
-	if pageID != "" && strings.EqualFold(strings.TrimSpace(media.ID), pageID) {
-		return true
-	}
-	return resourceSamePageURL(media.PageURL, firstNonEmpty(pageURL, pageMeta["location"]))
-}
-
-func resourceSubtitlesFromPageMeta(pageMeta map[string]string, pageURL string) []resourceSubtitle {
-	raw := strings.TrimSpace(pageMeta["subtitleItems"])
-	if raw == "" {
-		return nil
-	}
-	type pageSubtitleItem struct {
-		Src      string `json:"src"`
-		URL      string `json:"url"`
-		Language string `json:"language"`
-		Srclang  string `json:"srclang"`
-		Label    string `json:"label"`
-		Kind     string `json:"kind"`
-		Ext      string `json:"ext"`
-		IsAuto   bool   `json:"isAuto"`
-	}
-	var items []pageSubtitleItem
-	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return nil
-	}
-	result := make([]resourceSubtitle, 0, len(items))
-	for _, item := range items {
-		rawURL := resourceResolveURL(firstNonEmpty(item.Src, item.URL), pageURL)
-		if rawURL == "" {
-			continue
-		}
-		ext := resourceSubtitleExt(rawURL, "", "", item.Ext)
-		if ext == "" {
-			continue
-		}
-		language := firstNonEmpty(item.Srclang, item.Language, resourceSubtitleLanguageFromURL(rawURL), "und")
-		result = append(result, resourceSubtitle{
-			URL:      rawURL,
-			PageURL:  strings.TrimSpace(pageURL),
-			Language: resourceNormalizeSubtitleLanguage(language),
-			Name:     firstNonEmpty(strings.TrimSpace(item.Label), resourceSubtitleDisplayName(language, "")),
-			IsAuto:   item.IsAuto || resourceSubtitleLooksAutomatic(rawURL, item.Kind),
-			Ext:      ext,
-			SeenAt:   time.Now(),
-		})
-	}
-	return dedupeResourceSubtitles(result)
-}
-
-func resourceSubtitleMatchesPage(subtitle resourceSubtitle, pageURL string, since time.Time) bool {
-	if !subtitle.Valid() {
-		return false
-	}
-	if resourceSamePageURL(subtitle.PageURL, pageURL) {
-		return true
-	}
-	if since.IsZero() {
-		return false
-	}
-	if !subtitle.SeenAt.IsZero() && subtitle.SeenAt.After(since.Add(-250*time.Millisecond)) {
-		return true
-	}
-	return false
-}
-
-func attachResourceSubtitlesToMediaOptions(mediaOptions []resourceMedia, subtitles []resourceSubtitle) []resourceMedia {
-	if len(mediaOptions) == 0 || len(subtitles) == 0 {
-		return mediaOptions
-	}
-	result := append([]resourceMedia(nil), mediaOptions...)
-	for index := range result {
-		result[index].Subtitles = dedupeResourceSubtitles(append(result[index].Subtitles, subtitles...))
-	}
-	return result
-}
-
 func resourceSubtitleOptions(subtitles []resourceSubtitle) []dto.YTDLPSubtitleOption {
 	if len(subtitles) == 0 {
 		return nil
@@ -635,52 +443,6 @@ func resourceSubtitleLooksAutomatic(values ...string) bool {
 	return false
 }
 
-func resourceKeySuggestsSubtitle(key string) bool {
-	lower := strings.ToLower(strings.TrimSpace(key))
-	return strings.Contains(lower, "subtitle") ||
-		strings.Contains(lower, "caption") ||
-		strings.Contains(lower, "timedtext") ||
-		strings.Contains(lower, "closedcaption") ||
-		lower == "cc"
-}
-
-func resourceMapSuggestsSubtitle(object map[string]any) bool {
-	if len(object) == 0 {
-		return false
-	}
-	for _, key := range []string{"kind", "type", "format", "captionType", "subtitleType"} {
-		if resourceKeySuggestsSubtitle(resourceStringValue(object, key)) {
-			return true
-		}
-	}
-	for key := range object {
-		if resourceKeySuggestsSubtitle(key) {
-			return true
-		}
-	}
-	return false
-}
-
-func resourceResolveURL(rawURL string, baseURL string) string {
-	trimmed := strings.TrimSpace(rawURL)
-	if trimmed == "" {
-		return ""
-	}
-	parsed, err := url.Parse(trimmed)
-	if err == nil && parsed.Scheme != "" && parsed.Host != "" {
-		return parsed.String()
-	}
-	base, baseErr := url.Parse(strings.TrimSpace(baseURL))
-	if baseErr != nil || base.Scheme == "" || base.Host == "" {
-		return trimmed
-	}
-	resolved, err := base.Parse(trimmed)
-	if err != nil {
-		return trimmed
-	}
-	return resolved.String()
-}
-
 func resourceSubtitleAlreadySeen(existing []resourceSubtitle, subtitle resourceSubtitle) bool {
 	key := resourceSubtitleKey(subtitle)
 	if key == "" {
@@ -735,45 +497,4 @@ func resourceSubtitleKey(subtitle resourceSubtitle) string {
 		normalizeSubtitleFormat(subtitle.Ext),
 		fmt.Sprint(subtitle.IsAuto),
 	}, "\x00")
-}
-
-func resourcePageSubtitleMetaScript() string {
-	return `(() => {
-		const clean = (value) => String(value || "").replace(/\s+/g, " ").trim();
-		const absoluteURL = (value) => {
-			const cleaned = clean(value);
-			if (!cleaned) return "";
-			try {
-				return new URL(cleaned, document.baseURI || window.location.href).href;
-			} catch (_) {
-				return cleaned;
-			}
-		};
-		const extension = (value) => {
-			try {
-				const pathname = new URL(value, window.location.href).pathname || "";
-				const match = pathname.match(/\.([a-z0-9]+)$/i);
-				return match ? match[1].toLowerCase() : "";
-			} catch (_) {
-				const match = String(value || "").match(/\.([a-z0-9]+)(?:[?#]|$)/i);
-				return match ? match[1].toLowerCase() : "";
-			}
-		};
-		const items = [];
-		for (const track of Array.from(document.querySelectorAll("track"))) {
-			const kind = clean(track.kind || track.getAttribute("kind"));
-			if (kind && !/^(subtitles|captions|metadata)$/i.test(kind)) continue;
-			const src = absoluteURL(track.src || track.getAttribute("src"));
-			if (!src) continue;
-			items.push({
-				src,
-				srclang: clean(track.srclang || track.getAttribute("srclang")),
-				label: clean(track.label || track.getAttribute("label")),
-				kind,
-				ext: extension(src),
-				isAuto: /auto|asr|generated/i.test([kind, track.label, src].join(" "))
-			});
-		}
-		return { subtitleItems: JSON.stringify(items.slice(0, 20)) };
-	})()`
 }

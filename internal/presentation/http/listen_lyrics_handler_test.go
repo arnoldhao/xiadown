@@ -12,6 +12,26 @@ import (
 	"xiadown/internal/application/youtubemusic"
 )
 
+type fakeLyricsCandidateHTTPClient struct {
+	fakeListenMusicClient
+	candidates      []youtubemusic.LyricsCandidate
+	candidateLyrics youtubemusic.LyricsResult
+	searchInfo      youtubemusic.LyricsSearchInfo
+	providerID      string
+	providerTrackID string
+}
+
+func (client *fakeLyricsCandidateHTTPClient) SearchLyricsCandidates(_ context.Context, info youtubemusic.LyricsSearchInfo) ([]youtubemusic.LyricsCandidate, error) {
+	client.searchInfo = info
+	return client.candidates, nil
+}
+
+func (client *fakeLyricsCandidateHTTPClient) TrackLyricsCandidate(_ context.Context, providerID string, providerTrackID string, _ bool) (youtubemusic.LyricsResult, error) {
+	client.providerID = providerID
+	client.providerTrackID = providerTrackID
+	return client.candidateLyrics, nil
+}
+
 func TestListenLyricsHandlerReturnsSyncedLyrics(t *testing.T) {
 	handler := NewListenLyricsHandler(fakeListenMusicClient{
 		trackLyrics: youtubemusic.LyricsResult{
@@ -150,5 +170,52 @@ func TestListenLyricsHandlerWrapsRetryableNetworkErrorCode(t *testing.T) {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected response body to contain %s, got %s", expected, body)
 		}
+	}
+}
+
+func TestListenLyricsHandlerSearchesAndPreviewsCandidates(t *testing.T) {
+	client := &fakeLyricsCandidateHTTPClient{
+		candidates: []youtubemusic.LyricsCandidate{{
+			ProviderID:      "lrclib",
+			ProviderTrackID: "42",
+			Title:           "Track",
+			Confidence:      98,
+			Accepted:        true,
+		}},
+		candidateLyrics: youtubemusic.LyricsResult{
+			Kind:            "synced",
+			Source:          "LRCLib",
+			ProviderID:      "lrclib",
+			ProviderTrackID: "42",
+			Attribution:     "LRCLIB contributors",
+			TimingQuality:   "line",
+			Lines:           []youtubemusic.LyricLine{{StartMs: 1000, Text: "chosen"}},
+		},
+	}
+	handler := NewListenLyricsHandler(client)
+
+	searchRequest := httptest.NewRequest("GET", "/api/listen/track/lyrics/candidates?title=Track&artist=Artist&album=Album&duration=213", nil)
+	searchRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(searchRecorder, searchRequest)
+	if searchRecorder.Code != http.StatusOK || !strings.Contains(searchRecorder.Body.String(), `"providerTrackId":"42"`) {
+		t.Fatalf("unexpected candidate search response: %d %s", searchRecorder.Code, searchRecorder.Body.String())
+	}
+	if client.searchInfo.Album != "Album" || client.searchInfo.DurationSeconds != 213 {
+		t.Fatalf("candidate identity fields were not forwarded: %#v", client.searchInfo)
+	}
+
+	previewRequest := httptest.NewRequest("GET", "/api/listen/track/lyrics/candidate?provider=lrclib&providerTrackId=42&key=local%3Aone", nil)
+	previewRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(previewRecorder, previewRequest)
+	if previewRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected candidate preview status: %d %s", previewRecorder.Code, previewRecorder.Body.String())
+	}
+	for _, expected := range []string{`"videoId":"local:one"`, `"timingQuality":"line"`, `"text":"chosen"`} {
+		if !strings.Contains(previewRecorder.Body.String(), expected) {
+			t.Fatalf("expected preview to contain %s, got %s", expected, previewRecorder.Body.String())
+		}
+	}
+	if client.providerID != "lrclib" || client.providerTrackID != "42" {
+		t.Fatalf("candidate identity not forwarded: %q %q", client.providerID, client.providerTrackID)
 	}
 }

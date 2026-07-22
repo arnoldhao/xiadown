@@ -5,6 +5,12 @@ import { fileURLToPath } from "node:url";
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const projectRoot = path.resolve(frontendRoot, "..");
 const packageJsonPath = path.join(frontendRoot, "package.json");
+const buildConfigPath = path.join(projectRoot, "build", "config.yml");
+const windowsIdentityPaths = [
+  path.join(projectRoot, "build", "windows", "msix", "app_manifest.xml"),
+  path.join(projectRoot, "build", "windows", "msix", "template.xml"),
+  path.join(projectRoot, "build", "windows", "wails.exe.manifest"),
+];
 const taskfilePaths = [
   path.join(projectRoot, "Taskfile.yml"),
   path.join(projectRoot, "build", "Taskfile.yml"),
@@ -142,12 +148,32 @@ async function collectTestFixtureFindings(sourceFiles) {
   return findings;
 }
 
+async function collectWindowsIdentityFindings() {
+  const findings = [];
+  const buildConfig = await readFile(buildConfigPath, "utf8");
+  const productIdentifier = buildConfig.match(/^\s*productIdentifier:\s*["']?([^\s"']+)/m)?.[1] || "";
+  if (!productIdentifier) {
+    return [`${relative(buildConfigPath)}: info.productIdentifier is missing`];
+  }
+  for (const filePath of windowsIdentityPaths) {
+    const content = await readFile(filePath, "utf8");
+    if (content.includes("com.example.")) {
+      findings.push(`${relative(filePath)}: placeholder application identifier remains`);
+    }
+    if (!content.includes(productIdentifier)) {
+      findings.push(`${relative(filePath)}: application identifier does not match ${productIdentifier}`);
+    }
+  }
+  return findings;
+}
+
 async function main() {
   const sourceFiles = await collectSourceFiles();
   const findings = [
     ...(await collectScriptReferenceFindings()),
     ...(await collectStaleNameFindings(sourceFiles)),
     ...(await collectTestFixtureFindings(sourceFiles)),
+    ...(await collectWindowsIdentityFindings()),
   ];
 
   if (findings.length > 0) {
@@ -159,7 +185,7 @@ async function main() {
     return;
   }
 
-  console.log("Release audit passed: referenced frontend scripts exist in Taskfile/workflow gates, stale project env prefixes are absent, and known real fixture tokens are not used in tests.");
+  console.log("Release audit passed: referenced frontend scripts exist, stale project env prefixes and real test fixture tokens are absent, and Windows identities match build/config.yml.");
 }
 
 await main();

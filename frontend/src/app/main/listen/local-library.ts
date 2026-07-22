@@ -12,20 +12,36 @@ getPathBaseName,
 stripPathExtension,
 } from "@/shared/utils/resourceHelpers";
 
-import { AUDIO_MIME_BY_EXTENSION } from "@/app/main/listen/catalog";
+import {
+AUDIO_MIME_BY_EXTENSION,
+LOCAL_AUDIO_FILE_EXTENSIONS,
+} from "@/app/main/listen/catalog";
+import { resolveListenLocalPlaybackCapability } from "@/app/main/listen/local-format";
 import type { ListenLocalItem,ListenOnlineItem } from "@/app/main/listen/types";
 
-type ListenLocalTrackDTO = {
+export type ListenLocalTrackDTO = {
   id?: string;
   fileId?: string;
   libraryId?: string;
   title?: string;
   author?: string;
+  album?: string;
+  albumArtist?: string;
+  genre?: string;
+  trackNumber?: number;
+  discNumber?: number;
+  year?: number;
   localPath?: string;
   coverLocalPath?: string;
   durationMs?: number;
+  sizeBytes?: number;
+  format?: string;
+  audioCodec?: string;
   modTimeUnix?: number;
   availability?: string;
+  probeError?: string;
+  createdAt?: string;
+  metadataWritable?: boolean;
 };
 
 type ListenLocalTrackResponseDTO = {
@@ -37,6 +53,8 @@ export type ListenLocalTrackIndexState = {
   loading: boolean;
   refreshing: boolean;
   clearingMissing: boolean;
+  error: string;
+  retry: () => Promise<void>;
   refresh: () => Promise<void>;
   clearMissing: () => Promise<number>;
 };
@@ -49,6 +67,8 @@ export function useListenLocalTracks(
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [clearingMissing, setClearingMissing] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const tracksRef = React.useRef<ListenLocalItem[]>([]);
   const libraryVersion = React.useMemo(
     () => libraries.map((library) => `${library.id}:${library.updatedAt}`).join("|"),
     [libraries],
@@ -58,47 +78,72 @@ export function useListenLocalTracks(
     async (signal?: AbortSignal) => {
       const baseURL = normalizeListenHTTPBaseURL(httpBaseURL);
       if (!baseURL) {
-        setTracks([]);
+        const cause = new Error(
+          "listen local unavailable: missing HTTP base URL",
+        );
+        setError(cause.message);
         setLoading(false);
-        return;
+        throw cause;
       }
-      const response = await fetch(`${baseURL}/api/listen/local`, {
-        method: "GET",
-        signal,
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
-        throw new Error(`listen local failed: ${response.status}`);
-      }
-      const payload = (await response.json()) as ListenLocalTrackResponseDTO;
-      setTracks(
-        (payload.items ?? [])
+      try {
+        const response = await fetch(`${baseURL}/api/listen/local`, {
+          method: "GET",
+          signal,
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) {
+          throw new Error(`listen local failed: HTTP ${response.status}`);
+        }
+        const payload = (await response.json()) as ListenLocalTrackResponseDTO;
+        const nextTracks = (payload.items ?? [])
           .filter((item) => (item.availability ?? "available") === "available")
-          .map((item) => mapListenLocalTrackDTO(item, baseURL)),
-      );
-      setLoading(false);
+          .map((item) => mapListenLocalTrackDTO(item, baseURL));
+        tracksRef.current = nextTracks;
+        setTracks(nextTracks);
+        setError("");
+      } catch (cause) {
+        if (!signal?.aborted) {
+          setError(
+            preserveListenLocalTracksAfterLoadFailure(
+              tracksRef.current,
+              cause,
+            ).error,
+          );
+        }
+        throw cause;
+      } finally {
+        if (!signal?.aborted) {
+          setLoading(false);
+        }
+      }
     },
     [httpBaseURL],
   );
 
   React.useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
-    loadTracks(controller.signal).catch(() => {
-      if (!controller.signal.aborted) {
-        setTracks([]);
-        setLoading(false);
-      }
-    });
+    setLoading(tracksRef.current.length === 0);
+    setError("");
+    void loadTracks(controller.signal).catch(() => undefined);
     return () => controller.abort();
   }, [libraryVersion, loadTracks]);
+
+  const retry = React.useCallback(async () => {
+    setLoading(tracksRef.current.length === 0);
+    setError("");
+    await loadTracks().catch(() => undefined);
+  }, [loadTracks]);
 
   const refresh = React.useCallback(async () => {
     const baseURL = normalizeListenHTTPBaseURL(httpBaseURL);
     if (!baseURL || refreshing) {
+      if (!baseURL) {
+        setError("listen local unavailable: missing HTTP base URL");
+      }
       return;
     }
     setRefreshing(true);
+    setError("");
     try {
       const response = await fetch(`${baseURL}/api/listen/local/refresh`, {
         method: "POST",
@@ -108,6 +153,13 @@ export function useListenLocalTracks(
         throw new Error(`listen local refresh failed: ${response.status}`);
       }
       await loadTracks();
+    } catch (cause) {
+      setError(
+        preserveListenLocalTracksAfterLoadFailure(
+          tracksRef.current,
+          cause,
+        ).error,
+      );
     } finally {
       setRefreshing(false);
     }
@@ -135,14 +187,40 @@ export function useListenLocalTracks(
     }
   }, [clearingMissing, httpBaseURL, loadTracks]);
 
-  return { tracks, loading, refreshing, clearingMissing, refresh, clearMissing };
+  return {
+    tracks,
+    loading,
+    refreshing,
+    clearingMissing,
+    error,
+    retry,
+    refresh,
+    clearMissing,
+  };
 }
 
-function normalizeListenHTTPBaseURL(value: string) {
+export function preserveListenLocalTracksAfterLoadFailure<T>(
+  tracks: readonly T[],
+  cause: unknown,
+) {
+  return {
+    tracks,
+    error: resolveListenLocalTrackIndexError(cause),
+  };
+}
+
+function resolveListenLocalTrackIndexError(cause: unknown) {
+  if (cause instanceof Error && cause.message.trim()) {
+    return cause.message.trim();
+  }
+  return "listen local unavailable";
+}
+
+export function normalizeListenHTTPBaseURL(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
 
-function mapListenLocalTrackDTO(item: ListenLocalTrackDTO, baseURL: string): ListenLocalItem {
+export function mapListenLocalTrackDTO(item: ListenLocalTrackDTO, baseURL: string): ListenLocalItem {
   const path = item.localPath?.trim() ?? "";
   const fileTitle = stripPathExtension(firstTrimmedValue(getPathBaseName(path), path)).trim();
   const title = cleanListenLocalTrackTitle(
@@ -153,21 +231,60 @@ function mapListenLocalTrackDTO(item: ListenLocalTrackDTO, baseURL: string): Lis
   const coverURL =
     buildAssetPreviewURL(baseURL, item.coverLocalPath?.trim() ?? "") ||
     LISTEN_DEFAULT_COVER_IMAGE_URL;
+  const playback = resolveListenLocalPlaybackCapability({
+    path,
+    format: item.format,
+    audioCodec: item.audioCodec,
+  });
   return {
     id: firstTrimmedValue(item.id, item.fileId, path),
     title,
     author,
+    album: firstTrimmedValue(item.album),
+    albumArtist: firstTrimmedValue(item.albumArtist),
+    genre: firstTrimmedValue(item.genre),
+    trackNumber: positiveInteger(item.trackNumber),
+    discNumber: positiveInteger(item.discNumber),
+    year: positiveInteger(item.year),
     lyricsTitle: lyricsFields.title,
     lyricsArtist: lyricsFields.artist,
     path,
     previewURL: buildAssetPreviewURL(baseURL, path),
     durationLabel: formatDurationMs(item.durationMs),
+    durationSeconds:
+      typeof item.durationMs === "number" && Number.isFinite(item.durationMs)
+        ? Math.max(0, item.durationMs / 1000)
+        : 0,
     coverURL,
+    format: firstTrimmedValue(item.format),
+    audioCodec: firstTrimmedValue(item.audioCodec),
+    sizeBytes:
+      typeof item.sizeBytes === "number" && Number.isFinite(item.sizeBytes)
+        ? Math.max(0, item.sizeBytes)
+        : 0,
+    metadataWritable: item.metadataWritable === true,
+    playbackSupported: playback.supported,
+    playbackUnsupportedReason: playback.unsupportedReason,
+    probeError: firstTrimmedValue(item.probeError),
     modTimeUnix:
       typeof item.modTimeUnix === "number" && Number.isFinite(item.modTimeUnix)
         ? Math.max(0, item.modTimeUnix)
         : 0,
+    createdAtUnix: parseTimestampSeconds(item.createdAt),
   };
+}
+
+function positiveInteger(value?: number) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : 0;
+}
+
+function parseTimestampSeconds(value?: string) {
+  const milliseconds = Date.parse(value?.trim() ?? "");
+  return Number.isFinite(milliseconds) && milliseconds > 0
+    ? Math.floor(milliseconds / 1000)
+    : 0;
 }
 
 function cleanListenLocalTrackTitle(value: string) {
@@ -176,7 +293,7 @@ function cleanListenLocalTrackTitle(value: string) {
     return "";
   }
   const extension = extractExtensionFromPath(trimmed);
-  if (extension && AUDIO_MIME_BY_EXTENSION[extension]) {
+  if (extension && LOCAL_AUDIO_FILE_EXTENSIONS.has(extension)) {
     return stripPathExtension(trimmed).trim() || trimmed;
   }
   return trimmed;

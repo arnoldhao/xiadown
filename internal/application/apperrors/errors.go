@@ -24,14 +24,19 @@ const (
 	CodeDownloadBatchEmpty     Code = "download_batch_empty"
 	CodeDownloadBatchTooLarge  Code = "download_batch_too_large"
 
-	CodeResourceUnsupportedDomain    Code = "resource_unsupported_domain"
-	CodeResourceBrowserUnavailable   Code = "resource_browser_unavailable"
-	CodeResourceBrowserLaunchFailed  Code = "resource_browser_launch_failed"
-	CodeResourceResolveFailed        Code = "resource_resolve_failed"
-	CodeResourceVerificationRequired Code = "resource_verification_required"
-	CodeResourceNoMediaDetected      Code = "resource_no_media_detected"
-	CodeResourceDownloadFailed       Code = "resource_download_failed"
-	CodeResourceOutputFailed         Code = "resource_output_failed"
+	CodeResourceUnsupportedDomain                 Code = "resource_unsupported_domain"
+	CodeResourceBrowserUnavailable                Code = "resource_browser_unavailable"
+	CodeResourceBrowserLaunchFailed               Code = "resource_browser_launch_failed"
+	CodeResourceCurrentBrowserUnsupported         Code = "resource_current_browser_unsupported"
+	CodeResourceCurrentBrowserNotRunning          Code = "resource_current_browser_not_running"
+	CodeResourceCurrentBrowserRemoteDebugging     Code = "resource_current_browser_remote_debugging_required"
+	CodeResourceCurrentBrowserPermission          Code = "resource_current_browser_permission_required"
+	CodeResourceCurrentBrowserEndpointUnavailable Code = "resource_current_browser_endpoint_unavailable"
+	CodeResourceResolveFailed                     Code = "resource_resolve_failed"
+	CodeResourceVerificationRequired              Code = "resource_verification_required"
+	CodeResourceNoMediaDetected                   Code = "resource_no_media_detected"
+	CodeResourceDownloadFailed                    Code = "resource_download_failed"
+	CodeResourceOutputFailed                      Code = "resource_output_failed"
 )
 
 type Error struct {
