@@ -8,9 +8,9 @@ import (
 )
 
 // registerWebViewRemoteCapabilityPolicy restricts browser-only network
-// features which can create a direct UDP/DNS path outside the HTTP gateway.
-// MediaSource and HTMLMediaElement playback remain available; WebRTC and
-// MediaStream are not required for XiaDown's YouTube/Bilibili players.
+// capabilities XiaDown's players do not need. This is independent of proxy
+// routing: MediaSource and HTMLMediaElement keep the native WebView network,
+// while WebRTC and MediaStream remain unavailable.
 func registerWebViewRemoteCapabilityPolicy(window *application.WebviewWindow) {
 	if window == nil {
 		return

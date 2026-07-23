@@ -23,7 +23,7 @@ const (
 )
 
 // webViewRemoteNavigationPolicy governs top-level documents, not subresources.
-// Subresources remain on the platform WebView's app-owned network route. A
+// Subresources follow the native WebView's platform/runtime network policy. A
 // blank document is always safe because it carries no remote page capability.
 type webViewRemoteNavigationPolicy struct {
 	kind            webViewRemoteNavigationPolicyKind

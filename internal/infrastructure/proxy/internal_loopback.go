@@ -10,9 +10,9 @@ import (
 )
 
 // internalLoopbackRegistry contains only process-owned loopback listeners.
-// WebViews enter the gateway even for loopback URLs so a remote page cannot
-// use XiaDown as an unrestricted localhost proxy. Product code must register
-// an exact listener authority before exposing its URL to a WebView.
+// App-managed gateway consumers must not use XiaDown as an unrestricted
+// localhost proxy. Product code must register an exact listener authority
+// before exposing its URL through the gateway.
 type internalLoopbackRegistry struct {
 	mu      sync.RWMutex
 	targets map[string]struct{}

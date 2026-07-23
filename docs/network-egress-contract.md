@@ -2,34 +2,43 @@
 
 Status: implementation contract
 
-This document defines the network-routing invariants for every XiaDown desktop
-surface. It applies to macOS, Windows, Linux, backend HTTP clients, embedded web
-content, helper processes, and future integrations.
+This document defines the network-routing invariants for XiaDown-managed
+network consumers on macOS, Windows, and Linux: backend HTTP clients, managed
+Chromium, helper processes, and future integrations. Embedded native WebViews
+are inventoried here as an explicit compatibility boundary, but XiaDown does
+not inject its internal egress gateway or App proxy policy into them.
 
-“Network consumer” is intentionally broad. It includes backend/API requests;
-WebView navigation, redirects and subresources; audio/video streams and range
-requests; artwork, avatars and other images; lyrics and metadata lookup; RSS
-feeds, articles and media; App Session login; yt-dlp and its descendants;
-managed Chromium/CDP; notifications, updates and dependencies; and every child
-process which can inherit or create a network connection. A request does not
-leave this contract merely because it is initiated by a browser runtime, media
-engine, plugin, connector or subprocess rather than Go code.
+“App-managed network consumer” is intentionally broad. It includes backend/API
+requests; audio/video streams and range requests made by managed clients;
+artwork, avatars and other images; lyrics and metadata lookup; RSS feeds,
+articles and media; yt-dlp and its descendants; managed Chromium/CDP;
+notifications, updates and dependencies; and every managed child process which
+can inherit or create a network connection.
+
+WKWebView, WebView2, and WebKitGTK content is the deliberate exception. Those
+runtimes select their own system, enterprise, VPN, PAC/WPAD, and proxy routes.
+XiaDown still owns their navigation, popup, permission, cookie, and player
+policies, but does not own their network route. App `none` and `manual` proxy
+modes therefore apply only to App-managed consumers, not embedded WebViews.
 
 ## 1. Product invariant
 
-Every public-Internet request initiated by XiaDown MUST be attributable to one
-active `NetworkPolicy` generation and MUST use the route selected by that
-generation.
+Every public-Internet request initiated by an App-managed network consumer MUST
+be attributable to one active `NetworkPolicy` generation and MUST use the route
+selected by that generation.
 
-No component may silently fall back to the operating-system route, a default
-HTTP client, a browser-specific proxy decision, or a direct socket after the
-App has selected another route. A fallback is permitted only when the policy
-explicitly enables it and the UI describes the resulting privacy behavior.
+No App-managed component may silently fall back to the operating-system route,
+a default HTTP client, or a direct socket after the App has selected another
+route. A fallback is permitted only when the policy explicitly enables it and
+the UI describes the resulting privacy behavior. Native WebViews are not a
+fallback: their platform route is an explicit, permanent compatibility
+boundary.
 
-The invariant covers the complete request, including redirects, images,
-lyrics, subresources, media ranges, WebSocket reconnects, service workers,
-authentication pages, RSS resources, helper descendants, and requests created
-after a page was initially loaded.
+For App-managed consumers, the invariant covers the complete request,
+including redirects, images, lyrics, media ranges, WebSocket reconnects, RSS
+resources, helper descendants, and later requests. Native WebView redirects,
+subresources, service workers, authentication pages, and browser media follow
+the runtime's own route instead.
 
 ## 2. Canonical policy
 
@@ -48,9 +57,10 @@ NetworkPolicy {
 }
 ```
 
-All consumers receive either the snapshot itself or a stable local gateway
-whose routing engine consumes the snapshot. Consumers MUST NOT reinterpret the
-Settings DTO independently.
+All App-managed consumers receive either the snapshot itself or a stable local
+gateway whose routing engine consumes the snapshot. They MUST NOT reinterpret
+the Settings DTO independently. Native WebViews do not receive this snapshot
+or gateway.
 
 ### 2.1 Mode semantics
 
@@ -65,14 +75,14 @@ Settings DTO independently.
 
 ### 2.2 Bypass semantics
 
-Bypass decisions are made in the routing engine, never in a WebView command
-line or individual caller. Rules MUST use canonical exact-host, domain-suffix,
-IP/CIDR, and optional port matching. Substring matching is forbidden. A match
-means “the gateway selects a direct upstream route”; it never authorizes a
-consumer to bypass the loopback gateway itself.
+Bypass decisions for App-managed consumers are made in the routing engine,
+never in an individual caller. Rules MUST use canonical exact-host,
+domain-suffix, IP/CIDR, and optional port matching. Substring matching is
+forbidden. A match means “the gateway selects a direct upstream route”; it
+never authorizes a managed consumer to bypass the loopback gateway itself.
 
-SOCKS5, HTTP CONNECT, backend HTTP, WebViews, and helper processes MUST all
-apply the same decision to the same destination. App `NoProxy` remains
+SOCKS5, HTTP CONNECT, backend HTTP, managed Chromium, and helper processes MUST
+all apply the same decision to the same destination. App `NoProxy` remains
 authority-scoped: it evaluates the normalized lowercase/IDNA logical hostname
 and effective port, never path/query, before native system resolution.
 URL-owning callers retain their logical URL through validation, redirect
@@ -101,9 +111,10 @@ falls back to direct.
 
 ### 2.3 Canonical-origin system PAC semantics
 
-Every `system`-mode surface asks the native resolver about the same canonical
-origin, not its resource URL. Canonicalization is normative and occurs before
-CFNetwork, WinHTTP, GIO or an environment fallback sees the input:
+Every App-managed `system`-mode surface asks the native resolver about the same
+canonical origin, not its resource URL. Canonicalization is normative and
+occurs before CFNetwork, WinHTTP, GIO or an environment fallback sees the
+input:
 
 - `ws` maps to its protocol-equivalent `http` origin and `wss` maps to `https`;
 - the scheme is lowercase and the hostname is lowercase IDNA ASCII (or a
@@ -117,20 +128,21 @@ For example, `wss://Music.Example:443/socket?id=secret` and every other WSS URL
 at that authority resolve policy as `https://music.example/`; an HTTP or WS
 origin on port `8080` remains `http://music.example:8080/`.
 
-This is a deliberate cross-surface security/consistency choice. Without TLS
-MITM, an HTTPS/WSS WebView or managed browser reveals only CONNECT authority,
-not the encrypted resource path. Giving an API, RSS or yt-dlp request a more
-specific PAC input would let API browsing and WebView/media listening select
-different networks for the same origin. XiaDown therefore uses canonical
-origin PAC inputs for API clients, WebViews, media/images/lyrics/RSS,
-yt-dlp/descendants, managed Chromium and Settings probes alike.
+This is a deliberate consistency choice for App-managed consumers. Without TLS
+MITM, an HTTPS/WSS managed browser reveals only CONNECT authority, not the
+encrypted resource path. XiaDown therefore uses canonical-origin PAC inputs
+for API clients, managed media/images/lyrics/RSS, yt-dlp/descendants, managed
+Chromium, and Settings probes alike. Native WebViews may supply different PAC
+inputs according to the platform runtime; that behavior is intentionally
+outside the App policy.
 
 Path-sensitive PAC routing is unsupported and XiaDown cannot automatically
 detect that a PAC script intended to distinguish paths: the same script may
 legitimately return a route for the canonical root. A managed environment that
-depends on path-specific routing must use `manual` mode or have its
-administrator provide an origin-scoped PAC policy. XiaDown does not inspect
-TLS, guess a path route, or allow different surfaces to diverge silently.
+depends on path-specific routing for App-managed traffic must use `manual`
+mode or have its administrator provide an origin-scoped PAC policy. XiaDown
+does not inspect TLS or guess a path route. Native WebViews remain
+independently governed.
 
 ## 3. Route classes and explicit exceptions
 
@@ -146,6 +158,7 @@ Every outbound surface declares one of these route classes:
 | `library-peer-discovery` | Direct, local-scope discovery such as mDNS. It may advertise or discover paired-library endpoints only and must never transport public content. |
 | `external-playback-target` | Explicit user-selected LAN playback target such as AirPlay. Discovery and media delivery remain outside an HTTP proxy and require a visible device boundary. |
 | `external-user-agent` | Opens the user's independent browser or OS application. XiaDown cannot control its route and must make that boundary explicit. |
+| `native-webview-system` | Embedded WKWebView, WebView2, or WebKitGTK content uses the platform/runtime network and proxy policy; XiaDown does not inject its internal gateway. |
 | `platform-control-plane` | OS/runtime traffic XiaDown cannot configure, such as WebView runtime updates or certificate-control traffic. It must be documented and cannot carry XiaDown content payloads. |
 | `proxy-policy-control-plane` | Native PAC/WPAD, VPN and desktop proxy resolution. It may discover a route, but must never fetch XiaDown content or become an implicit content fallback. |
 
@@ -162,18 +175,20 @@ Settings
    -> NetworkPolicy generation
       -> route engine
          <- API, image, lyrics, RSS and media Go HTTP clients
-         <- WKWebView / WebView2 / WebKitGTK
          <- yt-dlp, ffmpeg and helper processes
          <- managed Chromium/CDP sessions
+
+WKWebView / WebView2 / WebKitGTK
+   -> platform/runtime system and enterprise network policy
 ```
 
 The gateway endpoint remains stable for the App process. A settings change
 atomically swaps the route engine generation and synchronously cancels the old
 generation before `Apply` returns. It closes direct/proxy sockets, incomplete
 DNS/CONNECT/auth/TLS work, active tunnels and idle transports owned by that
-generation. WebViews and helpers therefore do not need to replace their
-profile, cookie store, or proxy endpoint when the upstream changes, and an old
-connection cannot silently continue on a retired policy.
+generation. Helpers and managed Chromium keep a stable proxy endpoint while an
+old connection cannot silently continue on a retired policy. Native WebView
+profiles and connections are unaffected by App proxy changes.
 
 The gateway MUST:
 
@@ -203,17 +218,17 @@ The gateway MUST:
   public navigation, with the final secret exposed only to CDP response
   metadata and never page CORS;
 - cap concurrent connections and header sizes and protect against slow clients;
-- disable or contain non-proxied UDP transports such as QUIC/WebTransport and
-  WebRTC unless a platform adapter can prove they use the selected policy;
+- require managed browser consumers to disable or contain non-proxied UDP
+  transports such as QUIC/WebTransport and WebRTC;
 - attach surface, generation, destination host, route kind, stage, and a
   redacted error to diagnostics without recording cookies, authorization,
   query strings, or media signatures.
 
-A random port is not authentication. Platform adapters SHOULD authenticate to
-the loopback gateway where the WebView API can supply ephemeral proxy
-credentials. Until every adapter supports that, the public-destination guard,
-loopback-only binding, short lifetime, and resource limits are mandatory and
-the residual same-user-process threat must remain documented.
+A random port is not authentication. Managed consumers SHOULD authenticate to
+the loopback gateway where their API can supply ephemeral proxy credentials.
+The public-destination guard, loopback-only binding, short lifetime, and
+resource limits remain mandatory, and the residual same-user-process threat
+must remain documented.
 
 The two-channel managed-Chromium proof has a deliberately narrow meaning: it
 proves that both the browser's HTTP request and its HTTPS CONNECT attempt
@@ -228,39 +243,28 @@ a valid route proof must never be presented as “Internet/proxy works”.
 
 ### 5.1 macOS
 
-On macOS 14 and later, every XiaDown `WKWebsiteDataStore` that may load remote
-content MUST receive the stable gateway through
-`WKWebsiteDataStore.proxyConfigurations` before its first remote navigation.
-The gateway, not an empty configuration, expresses `none`, because clearing
-`proxyConfigurations` resumes the system route.
+XiaDown does not set `WKWebsiteDataStore.proxyConfigurations`. The main window,
+Settings, App Session, Music, Live, RSS, and future WKWebViews use WebKit's
+default persistent data store and native system network policy. This preserves
+system/enterprise proxy, PAC, VPN, authentication, failover, cookie, and cache
+behavior without an App-owned CONNECT hop. App `none` and `manual` modes do not
+override those WebViews.
 
-The main window, Settings, App Session login, YouTube Music, YouTube Live, RSS
-video, and any future remote WebView must be covered. Wails App assets use an
-in-process custom-scheme handler and require no hostname or loopback network
-bypass. Cookie/data stores remain stable across policy changes.
-
-XiaDown's strict-routing desktop build, native objects, and application bundle
-all have a macOS 14.0 minimum deployment target. The WebKit proxy API is
-therefore an unconditional part of the supported macOS runtime contract.
-
-In `system` mode, the macOS route resolver passes the canonical origin from
-section 2.3 to public CFNetwork APIs. `CFNetworkCopySystemProxySettings` and
-`CFNetworkCopyProxiesForURL` cover global/scoped settings, exceptions, PAC URLs
-and inline PAC JavaScript; PAC execution also receives that same origin. A
-native resolution error is an App route error, not permission to use Go's or
-WebKit's ambient system route.
+For App-managed `system` mode, the backend route resolver still passes the
+canonical origin from section 2.3 to public CFNetwork APIs.
+`CFNetworkCopySystemProxySettings` and `CFNetworkCopyProxiesForURL` cover
+global/scoped settings, exceptions, PAC URLs, and inline PAC JavaScript. A
+native resolution error is an App-managed route error; it has no effect on
+WebKit's independent native route.
 
 ### 5.2 Windows
 
-The gateway starts before the first WebView2 environment. Wails configures the
-shared environment with a fixed `--proxy-server` argument and
-`--proxy-bypass-list=<-loopback>`, which subtracts Chromium's implicit direct
-loopback bypass. Wails assets are served in-process and need no network
-exception. User bypass rules are not copied to Chromium; the gateway evaluates
-them per request. The shared environment also disables QUIC, non-proxied WebRTC
-UDP and speculative DNS prefetch. The proxy endpoint is a literal loopback
-address, so resolving page-owned names outside the gateway is neither required
-nor accepted as a compatibility fallback.
+XiaDown does not pass proxy-related `AdditionalBrowserArgs`, write
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, inspect Loader policy registry keys, or
+otherwise try to make its gateway authoritative for WebView2. The shared
+WebView2 environment uses its native Windows/runtime/enterprise network policy.
+App `none` and `manual` modes do not override it, and WebView2 traffic is not a
+startup dependency of the internal gateway.
 
 Every Windows WebView2 which can host a remote document or iframe installs a
 persistent native `NewWindowRequested` handler; this includes the local main,
@@ -273,37 +277,13 @@ interactive RSS site fallback is locked to the URL-derived Site Policy domain
 group, or to the initial eTLD+1 for an unknown site; and App Session allows
 HTTPS top-level redirects needed by authentication but rejects credentials,
 non-default ports and non-HTTPS schemes. The fallback's initial hostname is
-also resolved through the public-address policy before navigation, while the
-global gateway resolves and pins every subsequent connection. Every popup is
-synchronously marked handled without supplying a new WebView. Failure to
-install either required handler leaves a remote window on its local blank
-document.
+also resolved through the public-address policy before navigation. Subsequent
+connections use native WebView2 networking. Every popup is synchronously
+marked handled without supplying a new WebView. Failure to install either
+required handler leaves a remote window on its local blank document.
 
-Proxy changes do not change browser arguments or the User Data Folder. This
-preserves cookies and avoids rebuilding all shared WebView2 environments.
-
-Before `application.New`, the adapter checks both the current
-`Software\Policies\Microsoft\Edge\WebView2` Loader policy layout and the legacy
-`Software\Policies\Microsoft\EmbeddedBrowserWebView\LoaderOverride\{AppId}`
-layout under HKLM and HKCU. Each follows its documented AUMID,
-executable-name, then wildcard precedence; the legacy layout resolves that
-precedence for the whole AppId key. Any applicable non-empty runtime-folder,
-non-default release-channel, browser-argument, or user-data-folder override
-fails startup instead of being silently masked. It then publishes XiaDown's
-exact arguments in `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, and Wails publishes
-the same programmatic value again while creating the shared environment. The
-adapter also rejects host-command `--edge-webview-switches` and proxy switches,
-because WebView2 processes those late and duplicate switches use the last
-value.
-
-The current Wails WebView2 loader replaces inherited `WEBVIEW2_*` environment
-variables from package initialization, before XiaDown application code can
-record their original values. XiaDown therefore cannot claim detection of an
-inherited value with this dependency version. Registry policy is inspected
-directly before it is masked, host command-line overrides are rejected, and the
-programmatic proxy arguments remain authoritative. A Wails upgrade must expose
-a pre-initialization inspection hook before this inherited-environment boundary
-can be removed; the source contract keeps this limitation explicit.
+App proxy changes do not change WebView2 browser arguments or the User Data
+Folder. Cookies and the shared profile remain stable.
 
 The Windows `system` resolver uses WinHTTP plus the current-user Internet proxy
 configuration per canonical origin and covers manual proxy, ProxyOverride,
@@ -324,27 +304,23 @@ does not retry directly.
 
 ### 5.3 Linux
 
-Every WebKitGTK network session/context that can load remote content MUST be
-configured with the stable gateway before its first remote request. The
-adapter must use the public API available in the packaged WebKitGTK version and
-keep the WebsiteDataManager/profile stable across policy changes.
+XiaDown does not set a custom WebKitGTK proxy on the default network session,
+context, or WebsiteDataManager. Embedded content uses the native desktop,
+portal, enterprise, and runtime proxy policy with its persistent profile.
 
-The `system` resolver passes the canonical origin from section 2.3 to GIO's
-default `GProxyResolver`, which selects the desktop implementation (for example
-GNOME or libproxy/PAC) and the Flatpak portal resolver when sandboxed. It
-commits to the resolver's first ordered proxy/direct result; it does not skip a
-malformed or unsupported first result to infer DIRECT. If no supported decision
-is returned, it fails closed. If the runtime lacks the required WebKitGTK API,
-remote WebViews use the same fail-closed/visible-unsupported rule as legacy
-macOS.
+The App-managed `system` resolver separately passes the canonical origin from
+section 2.3 to GIO's default `GProxyResolver`, which selects the desktop
+implementation (for example GNOME or libproxy/PAC) and the Flatpak portal
+resolver when sandboxed. It commits to the resolver's first ordered
+proxy/direct result and fails closed when no supported decision is returned.
 
 ### 5.4 Cross-platform capability matrix
 
 | Capability | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Embedded HTTP/HTTPS/WS/WSS | Stable gateway through `WKWebsiteDataStore` | Stable gateway through shared WebView2 environment | Stable gateway through the default WebKit network session/context |
-| QUIC/HTTP3 | Apple exposes no public WKWebView-wide QUIC/WebTransport kill switch; every script-capable remote WKWebView remains an explicit residual, with RSS separately constrained to the exact optimized video or URL-derived fallback site scope | Disabled with `--disable-quic` | HTTP(S) remains on the custom WebKit network session; a future page-owned UDP transport must be disabled or fail closed |
-| WebRTC direct UDP | No public WebKit-wide disable API; RSS, App Session and Music/Live remote documents remain reviewed script-capable residuals | `disable_non_proxied_udp` | WebRTC and MediaStream are disabled on the discovered Wails shell WebView through public WebKit settings; any future or separately constructed remote WebView must apply the same settings or remain a documented residual |
+| Embedded HTTP/HTTPS/WS/WSS | Native WebKit system/runtime policy | Native WebView2 Windows/runtime/enterprise policy | Native WebKitGTK desktop/portal/runtime policy |
+| QUIC/HTTP3 | Native WebKit behavior; not overridden by XiaDown | Native WebView2 behavior; XiaDown adds no egress flags | Native WebKitGTK behavior; not overridden by XiaDown |
+| WebRTC direct UDP | Native WebKit behavior; navigation and permissions remain constrained | Native WebView2 behavior; navigation and permissions remain constrained | MediaStream capability remains restricted by the WebView security policy, independently of proxy routing |
 | Automatic popups | Disabled on the App shell and both RSS playback surfaces; other script-capable remote WKWebViews remain documented residuals | Every remote WebView2 synchronously handles and denies `NewWindowRequested`; player top-level navigation is allowlisted | Disabled on the App shell through public WebKit settings |
 | Remote page permissions | Media capture is denied by a forwarding `WKUIDelegate`; geolocation is also denied where the public SDK/runtime callback exists. Other future WebKit capabilities remain part of the explicit residual | Camera, microphone, geolocation, notifications, clipboard-read, sensors and unknown permission kinds are denied before creation | Camera and microphone are denied explicitly; every other unhandled WebKitGTK permission request retains its native deny behavior |
 | Managed Chromium | Gateway required; route-attested at launch, before controlled public navigation and every 10 seconds; extensions, QUIC and non-proxied WebRTC disabled | Same | Same |
@@ -368,10 +344,13 @@ proxy variables because their route class forbids network entirely.
 
 ### 5.5 Proxy authentication and DNS
 
+This table applies only to App-managed consumers. Native WebViews use the
+authentication and DNS behavior selected by their platform/runtime.
+
 | Policy | Route and authentication behavior | Destination resolution and socket target |
 | --- | --- | --- |
 | `none` | Forced direct; it never means “inherit ambient system proxy” | Resolve locally, reject loopback aliases, pin up to eight validated IPs and dial only those literals |
-| manual HTTP/HTTPS | TLS is used to an HTTPS proxy. Every destination uses CONNECT, including HTTP port 80. Explicit Basic proxy credentials are sent on CONNECT when configured and never enter WebView arguments or logs | Trusted/general hostnames pass a local loopback-alias check, then the proxy resolves the canonical logical hostname. Literal and `public-untrusted` targets stay locally validated and pinned. |
+| manual HTTP/HTTPS | TLS is used to an HTTPS proxy. Every destination uses CONNECT, including HTTP port 80. Explicit Basic proxy credentials are sent on CONNECT when configured and never enter child arguments or logs | Trusted/general hostnames pass a local loopback-alias check, then the proxy resolves the canonical logical hostname. Literal and `public-untrusted` targets stay locally validated and pinned. |
 | manual SOCKS5 (and a normalized system `socks5h` candidate) | With credentials, advertise only SOCKS5 username/password and reject an unauthenticated downgrade; without credentials, use no-auth. Never fall back directly | Trusted/general hostnames use SOCKS domain-name addressing after the local loopback-alias check. Literal and `public-untrusted` targets use a locally validated pinned IP. |
 | `system` | CFNetwork (macOS), WinHTTP/current-user Internet settings (Windows), or GIO (Linux) selects DIRECT/HTTP(S)/SOCKS per canonical origin. Native credentials are used only when explicitly returned; unsupported integrated challenges and Windows SOCKS4/4a fail closed | After native route selection, apply the same route-class DNS behavior as manual routes: proxy DNS for trusted/general hostnames and local public-IP pinning for `public-untrusted`. |
 | `public-untrusted` modifier | Uses the same active `none`/`system`/`manual` policy and authentication | Resolve and pin up to eight **public** addresses locally; reject private, loopback, link-local, metadata, special-use, NAT64, Teredo and 6to4 targets before either direct or proxied connect, then race only validated candidates |
@@ -411,7 +390,8 @@ The implementation inventory and tests MUST include at least:
 
 - YouTube and YouTube Music browse/search/library/lyrics APIs;
 - main-window avatars, artwork, thumbnails and other remote DOM resources;
-- YouTube Music, YouTube Live and RSS/Bilibili playback WebViews;
+- YouTube Music, YouTube Live and RSS/Bilibili playback WebViews as
+  `native-webview-system` compatibility boundaries;
 - App Session login, cookie hydration and account probes;
 - RSS discovery, feed fetch, article resources and media previews;
 - image cache, favicon, notifications, online pets, telemetry and updates;
@@ -430,9 +410,9 @@ an embedded App Session.
 
 The executable registry is maintained by
 `internal/app/network_egress_registry_test.go`. It records every production
-use of a default HTTP transport, embedded WebView constructor and managed
+use of a default HTTP transport, embedded WebView constructor, and managed
 Chromium launcher. Counts are intentional: adding one of these low-level APIs
-fails CI until its route class and wiring are reviewed.
+fails CI until its route class or explicit native boundary is reviewed.
 
 | Surface | Route class | Authoritative wiring |
 | --- | --- | --- |
@@ -440,7 +420,7 @@ fails CI until its route class and wiring are reviewed.
 | App Session account and avatar probes | `public-internet` | account fetcher receives `proxyManager` |
 | live catalog/status/preview, telemetry, notifications, dependencies and updates | `public-internet` | each production constructor receives `proxyManager` |
 | RSS feeds, remote images/media and paired-device resource relay | `public-untrusted` | `PublicDialURLContext` managed route plus redirect, DNS-rebinding and destination guards; system PAC still receives only the canonical origin |
-| main UI DOM artwork/media, App Session, Music/Live/RSS players | `public-internet` | one global WKWebView/WebView2/WebKitGTK gateway route |
+| main UI DOM artwork/media, App Session, Music/Live/RSS players | `native-webview-system` | platform/runtime proxy, VPN, PAC/WPAD, enterprise policy, authentication, DNS, and failover; no XiaDown gateway injection |
 | resource sniff and online-pet Chromium | `public-internet` | centrally owned loopback gateway arguments; caller overrides rejected; process-random route attestation required before public navigation; extensions, QUIC and non-proxied WebRTC disabled |
 | current-Chrome App Session sync | `loopback-internal` only | explicit Chrome consent bridge; one approved BrowserContext, existing-tab detach-only attachment and allowlisted `Network.getCookies` URLs; it never navigates or launches a public-network child browser |
 | yt-dlp, subtitles, thumbnails and spawned helpers | `public-internet` or `public-untrusted` | gateway/restricted gateway in both command arguments and inherited proxy environment; user configs, plugin directories, Python injection and `--exec` are disabled |
@@ -451,6 +431,7 @@ The following are the only reviewed non-gateway boundaries:
 
 | Exception | Route class | Scope |
 | --- | --- | --- |
+| Embedded WKWebView, WebView2 and WebKitGTK content | `native-webview-system` | compatibility-first native runtime networking; App `none`/`manual` proxy settings do not apply |
 | Wails asset host, realtime server, local-media asset server and CDP control endpoint | `loopback-internal` | exact loopback endpoints only; never a user `NoProxy` expansion |
 | Library LAN HTTPS listeners | inbound, not egress | selected physical-interface listeners serving paired clients |
 | Tailscale Serve backend and CLI | `library-peer` / `platform-control-plane` | loopback backend plus an explicit managed route; it does not transport arbitrary App public requests |
@@ -467,8 +448,8 @@ remain visible in Library Access status and require an explicit user action
 instead of being retried continuously in the background.
 
 Frontend `fetch` calls are limited to XiaDown-owned local HTTP origins. Dynamic
-remote `<img>`, `<audio>` and `<video>` sources are permitted only inside a
-registered managed WebView; literal remote DOM sources fail the source guard.
+remote `<img>`, `<audio>` and `<video>` sources are permitted only inside an
+inventoried native WebView; literal remote DOM sources fail the source guard.
 
 ### 6.2 RSS public transport
 
@@ -476,8 +457,9 @@ RSS remote resources retain each validated logical URL through redirects and
 pass it to `PublicDialURLContext`. This preserves the authority match, SSRF
 validation, logical `Host`/SNI and pinned-socket relationship; it does not make
 path/query data part of PAC. In `system` mode the manager still reduces that
-logical URL to the same canonical origin used by WebViews, yt-dlp, API clients
-and Settings probes.
+logical URL to the same canonical origin used by yt-dlp, API clients, managed
+Chromium, and Settings probes. Native WebViews independently follow their
+runtime's PAC semantics.
 
 RSS owns stricter phase and header limits even when the managed App route is
 the dialer: dial is capped at 10 seconds, TLS handshake at 10 seconds, response
@@ -502,13 +484,13 @@ A successful settings update follows this order:
    state/HTTP clients without mutating the active generation;
 2. atomically publish the new generation and replace the manager's client
    handles;
-3. keep every WebView and child-process template pointed at the same stable
-   gateway URL, whose active state now resolves the new policy;
+3. keep every managed-browser and child-process template pointed at the same
+   stable gateway URL, whose active state now resolves the new policy;
 4. synchronously cancel the old generation, close every tracked direct/proxy
    socket (including incomplete CONNECT/auth/TLS handshakes), then close idle
    transports and active tunnels;
-5. retry or reload affected playback surfaces without replacing persistent
-   cookie/profile storage;
+5. notify affected services and playback coordinators without changing native
+   WebView proxy configuration or persistent cookie/profile storage;
 6. publish one redacted route-change event.
 
 Candidate construction validates configuration and native resolver setup; it
@@ -532,10 +514,11 @@ changes only after explicit refresh or another network-settings update.
 ## 8. Diagnostics and UI
 
 Settings exposes the effective policy source and generation, not only the
-configured host. Diagnostics provide separate probes for backend HTTP and each
-embedded-browser platform through the same gateway. A green status requires
-both route agreement and a destination relevant to the feature being tested;
-`gstatic generate_204` alone is insufficient for YouTube playback.
+configured host. Diagnostics probe App-managed backend/helper traffic through
+the gateway. Embedded-browser readiness is a separate native-runtime probe and
+does not claim the same generation or route. A green status requires a
+destination relevant to the feature being tested; `gstatic generate_204` alone
+is insufficient for YouTube playback.
 
 Managed-Chromium HTTP/CONNECT attestation is reported separately as
 “gateway route observed”. It is not an upstream connectivity result and cannot
@@ -574,13 +557,15 @@ CI must contain:
   Settings inputs at one origin;
 - gateway tests for HTTP, CONNECT, WS/WSS, media ranges, cancellation, limits,
   credential redaction and generation changes;
-- bootstrap wiring tests proving every production HTTP provider, WebView and
-  helper receives the gateway/policy;
-- source guards for new uses of `http.DefaultClient`, naked remote WebViews,
-  unmanaged remote DOM URLs, and child processes without an egress class;
-- macOS, Windows and Linux compile gates plus platform adapter source tests;
-- end-to-end probes which observe the same generation and route for Go,
-  embedded WebView and helper-process requests;
+- bootstrap wiring tests proving every production HTTP provider and helper
+  receives the gateway/policy while native WebViews receive no XiaDown proxy
+  arguments, environment mutation, data-store proxy, or startup service;
+- source guards for new uses of `http.DefaultClient`, uninventoried remote
+  WebViews, unmanaged remote DOM URLs, and child processes without an egress
+  class;
+- macOS, Windows and Linux compile gates plus native WebView startup tests;
+- end-to-end probes which verify the managed generation for Go/helper traffic
+  and independently verify native WebView navigation and playback;
 - cookie/profile persistence tests across policy changes;
 - negative tests proving a failed proxy does not silently reach the
   destination directly;
@@ -599,27 +584,28 @@ version string is not sufficient evidence of freshness.
 Interactive validation on every platform must use the freshly generated
 workspace artifact rather than a system-installed or previously built copy.
 Compile, source-guard and unit-test success on one operating system is not
-runtime parity: native evidence must cover CFNetwork/WKWebView on macOS,
-WinHTTP/WebView2 on Windows, and GIO/WebKitGTK on Linux, including real policy
-changes and failure paths.
+runtime parity: native evidence must separately cover App-managed
+CFNetwork/WinHTTP/GIO resolution and native WKWebView/WebView2/WebKitGTK
+startup, navigation, proxy compatibility, and failure paths.
 
 ## 10. Explicit residual boundaries
 
 The following limitations are visible and fail closed where applicable; none
 may be described as fully proxy-controlled:
 
-- the ephemeral loopback gateway has no per-client authentication because the
-  three WebView adapters cannot all attach proxy credentials; loopback-only
-  binding, an exact app-owned target registry, DNS-to-loopback rejection,
-  destination guards, connection limits and process lifetime reduce but do not
-  remove the same-user local-process threat;
+- the ephemeral loopback gateway has no universal per-client authentication
+  across every helper and managed consumer; loopback-only binding, an exact
+  app-owned target registry, DNS-to-loopback rejection, destination guards,
+  connection limits and process lifetime reduce but do not remove the
+  same-user local-process threat;
 - proxy secrets are still persisted by the existing Settings repository and
   require a separate secure-storage migration; they are already excluded from
   browser arguments, child command lines, diagnostics and frontend system-
   proxy DTOs;
-- Windows integrated NTLM/Negotiate proxy authentication is unsupported and
-  returns `proxy-auth` rather than silently enabling automatic logon or direct
-  fallback;
+- Windows integrated NTLM/Negotiate proxy authentication is unsupported for
+  the App-managed gateway and returns `proxy-auth` rather than silently
+  enabling automatic logon or direct fallback. Native WebView2 may use the
+  runtime's own enterprise authentication behavior;
 - `public-untrusted` locally pinned destination IPs and CONNECT for HTTP port
   80 are intentional security choices. They can reject a remote-only DNS name
   or a proxy which forbids CONNECT-to-80; compatibility fallback to proxy DNS,
@@ -629,11 +615,14 @@ may be described as fully proxy-controlled:
   attacker-controlled URL as trusted/general. The selected proxy can still see
   a different DNS answer after that check; this is an explicit residual for the
   trusted/general route class, not a relaxation of `public-untrusted`;
-- system PAC is deliberately origin-scoped on every surface because encrypted
-  WebView/Chromium traffic cannot expose a resource path without TLS MITM.
-  Path-sensitive PAC is unsupported and cannot be detected reliably; managed
-  deployments which require it need `manual` mode or an administrator-provided
-  origin-scoped PAC;
+- system PAC is deliberately origin-scoped for App-managed surfaces because an
+  encrypted managed Chromium connection cannot expose a resource path without
+  TLS MITM. Path-sensitive PAC is unsupported for those consumers and cannot
+  be detected reliably. Native WebViews independently use runtime PAC
+  semantics;
+- embedded native WebViews are not controlled by App `none`, `manual`,
+  `NoProxy`, gateway generations, or gateway diagnostics. This is an explicit
+  compatibility tradeoff, not a claim of cross-surface route unification;
 - Apple exposes no public WKWebView-wide WebRTC/WebTransport kill switch. RSS
   playback pages are script-capable even though top-level navigation is locked
   to the exact optimized video or URL-derived fallback site scope and popups
@@ -650,21 +639,22 @@ may be described as fully proxy-controlled:
   mismatch. This proves gateway entry only. A browser policy can still change
   between probes; eliminating that final interval requires OS-level
   per-process egress enforcement on each platform;
-- external browsers, AirPlay/receiver protocols, mDNS/Tailscale discovery and
-  operating-system control-plane requests are explicitly outside the App HTTP
-  proxy and cannot be used as hidden content-fetch fallbacks.
+- native WebViews, external browsers, AirPlay/receiver protocols,
+  mDNS/Tailscale discovery, and operating-system control-plane requests are
+  explicitly outside the App HTTP proxy.
 
 ## 11. Completion criteria
 
 The network-unification goal is complete only when:
 
 1. the inventory contains no undeclared production egress;
-2. all supported desktop platforms satisfy this contract or visibly fail
-   closed where the native runtime cannot;
-3. all route modes pass the cross-surface matrix;
+2. all supported desktop platforms satisfy the App-managed contract while
+   keeping native WebViews free of XiaDown egress injection;
+3. all route modes pass across App-managed surfaces;
 4. changing a policy does not lose App Session cookies or require an App
    restart;
 5. the latest source build passes unit, integration and platform compile gates;
-6. fresh native macOS, Windows and Linux artifacts verify their WebView,
-   system-policy, browse, artwork, login, playback, RSS media, helper-download
-   and failure paths before cross-platform runtime parity is claimed.
+6. fresh native macOS, Windows and Linux artifacts separately verify native
+   WebView startup/playback and App-managed system-policy, browse, artwork,
+   login, RSS media, helper-download, and failure paths before cross-platform
+   runtime parity is claimed.

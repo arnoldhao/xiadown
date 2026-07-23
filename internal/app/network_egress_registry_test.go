@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// egressRegistryEntry is the review record for a low-level API which could
-// otherwise bypass the process-lifetime gateway. A new occurrence must be
-// classified here and wired in TestProductionEgressProvidersAreInjected.
+// egressRegistryEntry is the review record for a low-level network-capable API.
+// A new occurrence must be classified here as either app-managed egress or an
+// explicit boundary such as the native WebView network.
 type egressRegistryEntry struct {
 	count      int
 	routeClass string
@@ -68,18 +68,18 @@ var constructedHTTPClientRegistry = map[string]egressRegistryEntry{
 }
 
 var embeddedWebViewRegistry = map[string]egressRegistryEntry{
-	"internal/presentation/wails/connector_app_session.go":         {count: 1, routeClass: "public-internet", reason: "interactive authenticated site session"},
-	"internal/presentation/wails/connector_app_session_windows.go": {count: 1, routeClass: "loopback-internal", reason: "shared-profile cookie and storage cleanup window"},
-	"internal/presentation/wails/listen_live_player_handler.go":    {count: 1, routeClass: "public-internet", reason: "YouTube live playback and subresources"},
-	"internal/presentation/wails/listen_player_handler.go":         {count: 1, routeClass: "public-internet", reason: "YouTube Music playback and subresources"},
-	"internal/presentation/wails/local_media_transport.go":         {count: 1, routeClass: "public-internet-or-loopback", reason: "local assets use loopback; remote HTMLMediaElement sources use the global gateway"},
-	"internal/presentation/wails/rss_video_player_handler.go":      {count: 1, routeClass: "public-internet", reason: "RSS/Bilibili playback and subresources"},
-	"internal/presentation/wails/rss_site_player_handler.go":       {count: 1, routeClass: "public-internet", reason: "interactive RSS site playback and subresources through the global gateway"},
-	"internal/presentation/wails/window_manager.go":                {count: 1, routeClass: "public-internet-or-loopback", reason: "the startup main UI is local, while all remote DOM resources use the global WebView route"},
+	"internal/presentation/wails/connector_app_session.go":         {count: 1, routeClass: "native-webview-system", reason: "interactive authenticated site session uses the platform/runtime proxy policy"},
+	"internal/presentation/wails/connector_app_session_windows.go": {count: 1, routeClass: "native-webview-system-or-loopback", reason: "shared-profile cleanup window uses the native WebView environment"},
+	"internal/presentation/wails/listen_live_player_handler.go":    {count: 1, routeClass: "native-webview-system", reason: "YouTube live playback and subresources use the platform/runtime proxy policy"},
+	"internal/presentation/wails/listen_player_handler.go":         {count: 1, routeClass: "native-webview-system", reason: "YouTube Music playback and subresources use the platform/runtime proxy policy"},
+	"internal/presentation/wails/local_media_transport.go":         {count: 1, routeClass: "native-webview-system-or-loopback", reason: "the native WebView resolves local assets and remote HTMLMediaElement sources"},
+	"internal/presentation/wails/rss_video_player_handler.go":      {count: 1, routeClass: "native-webview-system", reason: "RSS/Bilibili playback and subresources use the platform/runtime proxy policy"},
+	"internal/presentation/wails/rss_site_player_handler.go":       {count: 1, routeClass: "native-webview-system", reason: "interactive RSS site playback and subresources use the platform/runtime proxy policy"},
+	"internal/presentation/wails/window_manager.go":                {count: 1, routeClass: "native-webview-system-or-loopback", reason: "the main Wails WebView uses native networking for all DOM resources"},
 }
 
 var preparedEmbeddedWebViewRegistry = map[string]egressRegistryEntry{
-	"internal/presentation/wails/window_manager.go": {count: 2, routeClass: "public-internet-or-loopback", reason: "lazy settings and tray UI are secured before being added to the running Wails application"},
+	"internal/presentation/wails/window_manager.go": {count: 2, routeClass: "native-webview-system-or-loopback", reason: "lazy settings and tray WebViews use native networking after their security policies are installed"},
 }
 
 var managedChildBrowserRegistry = map[string]egressRegistryEntry{
@@ -113,7 +113,7 @@ var defaultResolverRegistry = map[string]egressRegistryEntry{
 	"internal/application/library/service/public_network_proxy.go": {count: 1, routeClass: "public-untrusted", reason: "DNS rebinding defense immediately before a restricted proxy dial"},
 	"internal/application/networkpolicy/public.go":                 {count: 1, routeClass: "public-untrusted", reason: "shared public-address validation fallback"},
 	"internal/application/rss/public_http.go":                      {count: 2, routeClass: "public-untrusted", reason: "RSS SSRF validation and dial-time rebinding defense"},
-	"internal/application/rss/site_player.go":                      {count: 1, routeClass: "public-untrusted", reason: "pre-navigation DNS validation for interactive RSS site playback; subsequent requests use the pinned global gateway"},
+	"internal/application/rss/site_player.go":                      {count: 1, routeClass: "public-untrusted", reason: "pre-navigation DNS validation for interactive RSS site playback; subsequent requests use the native WebView network"},
 	"internal/application/rss/service.go":                          {count: 1, routeClass: "public-untrusted", reason: "RSS service resolver used by the same SSRF policy"},
 	"internal/infrastructure/proxy/public_route.go":                {count: 1, routeClass: "public-untrusted", reason: "gateway public-route validation before any public dial"},
 	"internal/infrastructure/proxy/direct_route.go":                {count: 1, routeClass: "route-engine", reason: "resolve-once and IP-pinned direct route with pre-connect loopback rejection"},
@@ -197,13 +197,10 @@ var directRouteExceptionRegistry = []directRouteException{
 		markers: []string{`host = "127.0.0.1"`, "ip.IsLoopback()", `/json/version`},
 	},
 	{
-		name: "Wails realtime and local-media origin", routeClass: "loopback-internal",
+		name: "Wails realtime origin", routeClass: "loopback-internal",
 		path: "internal/app/bootstrap.go",
 		markers: []string{
 			`ws.NewServer("127.0.0.1:0", eventBus)`,
-			"proxyManager.RegisterInternalLoopbackURL(realtimeServer.HTTPURL())",
-			`os.Getenv("FRONTEND_DEVSERVER_URL")`,
-			"proxyManager.RegisterInternalLoopbackURL(devServerURL)",
 		},
 	},
 	{
@@ -343,27 +340,26 @@ func TestProductionDefaultHTTPClientsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestEveryEmbeddedWebViewIsRegisteredBehindGlobalRoute(t *testing.T) {
+func TestEveryEmbeddedWebViewIsInventoriedAndUsesNativeNetwork(t *testing.T) {
 	t.Parallel()
 
 	assertProductionTokenRegistry(t, "Window.NewWithOptions(", embeddedWebViewRegistry)
 	assertProductionTokenRegistry(t, "application.NewWindow(", preparedEmbeddedWebViewRegistry)
 	assertProductionTokenRegistry(t, "application.New(application.Options{", map[string]egressRegistryEntry{
-		"internal/app/bootstrap.go": {count: 1, routeClass: "global-webview-route", reason: "the only Wails application/browser environment"},
+		"internal/app/bootstrap.go": {count: 1, routeClass: "native-webview-system", reason: "the sole Wails application leaves proxy selection to each platform runtime"},
 	})
 
 	bootstrap := readRepoSource(t, "internal/app/bootstrap.go")
-	manager := strings.Index(bootstrap, "proxy.NewManager(")
-	applicationNew := strings.Index(bootstrap, "application.New(application.Options{")
-	if manager < 0 || applicationNew < 0 || manager >= applicationNew {
-		t.Fatalf("the managed gateway must be created before the sole Wails application: manager=%d application=%d", manager, applicationNew)
-	}
-	for _, marker := range []string{
+	for _, forbidden := range []string{
+		"NewWebViewNetworkRoute",
+		"WebView2BrowserArguments",
 		"application.NewService(webViewNetworkRoute)",
-		"AdditionalBrowserArgs: webView2BrowserArguments",
+		"AdditionalBrowserArgs",
+		"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+		"RegisterInternalLoopbackURL",
 	} {
-		if !strings.Contains(bootstrap, marker) {
-			t.Fatalf("bootstrap is missing global WebView route marker %q", marker)
+		if strings.Contains(bootstrap, forbidden) {
+			t.Fatalf("bootstrap must not inject the internal egress route into native WebViews: %q", forbidden)
 		}
 	}
 }
@@ -645,9 +641,9 @@ func TestRemoteDOMResourceSurfacesRemainInsideManagedWebViews(t *testing.T) {
 	t.Parallel()
 
 	// Dynamic media/artwork URLs are intentionally rendered by the main Wails
-	// WebView. The global native route covers their redirects and subresources;
-	// this list makes adding another remote-capable DOM surface an explicit
-	// egress review rather than a silent browser-network decision.
+	// WebView. Its platform/runtime network stack owns redirects, subresources,
+	// and proxy selection; this list keeps every remote-capable DOM surface
+	// explicit even though it is outside XiaDown's internal egress gateway.
 	for path, markers := range map[string][]string{
 		"frontend/src/app/media/MediaPreviewSurface.tsx": {"src={mediaUrl}"},
 		"frontend/src/app/media/VidstackPreview.tsx":     {"src={playerSource}"},

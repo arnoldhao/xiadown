@@ -268,8 +268,9 @@ func (m *Manager) GatewayURL() string {
 	return m.gateway.URL()
 }
 
-// ConsumerProxyURL is the proxy URL that non-Go consumers (WebView, yt-dlp,
-// media engines, and child processes) should use to share the active policy.
+// ConsumerProxyURL is the proxy URL that app-managed non-Go consumers such as
+// yt-dlp, managed browsers, media engines, and child processes use to share the
+// active policy. Native WebViews intentionally use their platform network.
 func (m *Manager) ConsumerProxyURL() string {
 	return m.GatewayURL()
 }
@@ -289,7 +290,8 @@ func (m *Manager) ConsumerProxyAttestation() (string, string) {
 
 // RegisterInternalLoopbackURL permits one exact, app-owned loopback listener
 // through the shared gateway. It is intentionally authority-scoped: user
-// NoProxy rules must not turn a remote WebView into a general localhost proxy.
+// NoProxy rules must not turn a managed consumer into a general localhost
+// proxy.
 func (m *Manager) RegisterInternalLoopbackURL(rawURL string) error {
 	m.mu.RLock()
 	if m.closed || m.gateway == nil {

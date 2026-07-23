@@ -77,7 +77,7 @@ type windowsSystemProxyResolver struct {
 // windowsAutomaticProxySession owns one WinHTTP session for one XiaDown
 // network-policy generation. WinHTTP attaches PAC script, PAC URL, and WPAD
 // discovery caches to this handle, so closing it after every destination would
-// repeat discovery and downloads for every WebView subresource.
+// repeat discovery and downloads for every app-managed request.
 type windowsAutomaticProxySession struct {
 	state windowsAutomaticProxySessionState
 }

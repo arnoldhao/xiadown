@@ -126,10 +126,9 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	var startLibraryAccessReconciler func()
 	var waitLibraryAccessReconciler func(context.Context) error
 
-	// The gateway endpoint must exist before application.New: WebView2 fixes
-	// browser proxy arguments when its shared environment is created. Start on
-	// an explicit direct policy, then apply the persisted policy before any
-	// pending Wails window is allowed to run.
+	// Backend clients, managed browsers, yt-dlp, and helper processes share this
+	// process-lifetime gateway. Native WebViews are deliberately excluded: they
+	// retain the platform/runtime proxy behavior for maximum compatibility.
 	proxyManager, err := proxy.NewManager(proxy.Config{
 		Mode:    settings.ProxyModeNone,
 		Scheme:  settings.ProxySchemeHTTP,
@@ -139,31 +138,18 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	if devServerURL := strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL")); devServerURL != "" {
-		if err := proxyManager.RegisterInternalLoopbackURL(devServerURL); err != nil {
-			return nil, fmt.Errorf("register frontend development endpoint: %w", err)
-		}
-	}
 	proxyManagerOwnedByApp := false
 	defer func() {
 		if !proxyManagerOwnedByApp {
 			_ = proxyManager.Close()
 		}
 	}()
-	webViewNetworkRoute := wails.NewWebViewNetworkRoute(proxyManager)
-	webView2BrowserArguments, err := webViewNetworkRoute.WebView2BrowserArguments()
-	if err != nil {
-		return nil, err
-	}
 
 	app := application.New(application.Options{
 		Name:        AppName,
 		Description: AppDescription,
 		Icon:        appIcon,
-		Services: []application.Service{
-			application.NewService(webViewNetworkRoute),
-		},
-		Logger: logging.NewSlogLogger(),
+		Logger:      logging.NewSlogLogger(),
 		ErrorHandler: func(err error) {
 			zap.L().Error("wails runtime error",
 				safeStationErrorLogFields("wails_runtime_error", err)...,
@@ -179,9 +165,6 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
-		},
-		Windows: application.WindowsOptions{
-			AdditionalBrowserArgs: webView2BrowserArguments,
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: singleInstanceUniqueID(appVersion),
@@ -389,11 +372,6 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	if err := realtimeServer.Start(serverCtx); err != nil {
 		serverCancel()
 		return nil, err
-	}
-	if err := proxyManager.RegisterInternalLoopbackURL(realtimeServer.HTTPURL()); err != nil {
-		serverCancel()
-		_ = realtimeServer.Shutdown(context.Background())
-		return nil, fmt.Errorf("register realtime network endpoint: %w", err)
 	}
 	app.OnShutdown(func() {
 		serverCancel()

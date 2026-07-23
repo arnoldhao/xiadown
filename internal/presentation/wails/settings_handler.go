@@ -303,9 +303,10 @@ func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.
 	}
 
 	// Publishing a network generation is the final fallible settings side
-	// effect. A non-network settings save must not tear down active WebView
-	// CONNECT tunnels, and a later failure must never leave the persisted DTO
-	// on the old proxy while the live gateway uses the new one.
+	// effect. A non-network settings save must not tear down app-managed
+	// connections, and a later failure must never leave the persisted DTO on the
+	// old proxy while the live backend/helper gateway uses the new one. Native
+	// WebViews keep their independent platform/runtime network policy.
 	if handler.proxy != nil && proxyChanged {
 		config, err := proxyConfigFromDTO(updated.Proxy)
 		if err != nil {
