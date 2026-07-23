@@ -500,9 +500,17 @@ async function assertFileMatches(filename, expected, label) {
   } catch (error) {
     throw new Error(`${label} is missing (${filename}): ${error.message}`);
   }
-  if (actual !== expected) {
+  if (!thirdPartyNoticesTextMatches(actual, expected)) {
     throw new Error(`${label} is stale; run \`bun run notices:update\` from frontend/ and commit the result`);
   }
+}
+
+export function normalizeThirdPartyNoticesText(value) {
+  return value.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
+export function thirdPartyNoticesTextMatches(actual, expected) {
+  return normalizeThirdPartyNoticesText(actual) === normalizeThirdPartyNoticesText(expected);
 }
 
 export async function auditThirdPartyNotices({ checkDist = false } = {}) {

@@ -8,10 +8,7 @@ import (
 
 func TestLibraryAccessMigrationContainsOnlyNonSecretConfiguration(t *testing.T) {
 	ctx := context.Background()
-	db, err := OpenSQLite(ctx, SQLiteConfig{Path: ":memory:"})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	db := openLatestSQLiteTestDatabase(t)
 	defer db.Close()
 
 	if _, err := db.SQL.ExecContext(ctx, `

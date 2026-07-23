@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,17 +33,18 @@ type backupFixture struct {
 	now          *time.Time
 }
 
-func newBackupFixture(t *testing.T, retention domainbackup.RetentionPolicy) *backupFixture {
-	t.Helper()
-	ctx := context.Background()
-	directory := t.TempDir()
-	databasePath := filepath.Join(directory, "data.db")
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: databasePath})
-	if err != nil {
-		t.Fatalf("OpenSQLite: %v", err)
-	}
-	t.Cleanup(func() { _ = database.Close() })
-	_, err = database.SQL.ExecContext(ctx, `
+var (
+	backupFixtureTemplateOnce sync.Once
+	backupFixtureTemplateDir  string
+	backupFixtureTemplatePath string
+	backupFixtureTemplateErr  error
+)
+
+// Common manager fixtures start from the same current-schema data. Build that
+// state once, then copy it only after its WAL is checkpointed and the database
+// is closed. Restore candidates and migration-specific tests still create and
+// open their own databases through the production paths below.
+const backupFixtureSeedSQL = `
 INSERT INTO library_libraries (id, name, created_by_json, created_at, updated_at)
 VALUES ('legacy-bundle', 'Legacy bundle', '{}', '2026-07-13T00:00:00Z', '2026-07-13T00:00:00Z');
 INSERT INTO library_files (
@@ -85,10 +87,118 @@ INSERT INTO library_device_grants (
   'public-key-hash-must-not-leak', '["library.read"]', 'active',
   '2026-07-13T00:00:00Z', '2026-07-13T00:00:00Z', 1
 );
-`)
-	if err != nil {
-		t.Fatalf("seed catalog: %v", err)
+`
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if backupFixtureTemplateDir != "" {
+		if err := os.RemoveAll(backupFixtureTemplateDir); err != nil && code == 0 {
+			_, _ = fmt.Fprintf(os.Stderr, "remove backup fixture template: %v\n", err)
+			code = 1
+		}
 	}
+	os.Exit(code)
+}
+
+func currentBackupFixtureTemplate() (string, error) {
+	backupFixtureTemplateOnce.Do(func() {
+		directory, err := os.MkdirTemp("", "xiadown-librarybackup-template-")
+		if err != nil {
+			backupFixtureTemplateErr = fmt.Errorf("create backup fixture template directory: %w", err)
+			return
+		}
+		backupFixtureTemplateDir = directory
+
+		path := filepath.Join(directory, "data.db")
+		ctx := context.Background()
+		database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: path})
+		if err != nil {
+			backupFixtureTemplateErr = fmt.Errorf("open backup fixture template: %w", err)
+			return
+		}
+		closeWithError := func(operationErr error) {
+			if closeErr := database.Close(); closeErr != nil {
+				operationErr = errors.Join(operationErr, fmt.Errorf("close backup fixture template: %w", closeErr))
+			}
+			backupFixtureTemplateErr = operationErr
+		}
+
+		if _, err := database.SQL.ExecContext(ctx, backupFixtureSeedSQL); err != nil {
+			closeWithError(fmt.Errorf("seed backup fixture template: %w", err))
+			return
+		}
+		var busy, logFrames, checkpointedFrames int
+		if err := database.SQL.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(
+			&busy, &logFrames, &checkpointedFrames,
+		); err != nil {
+			closeWithError(fmt.Errorf("checkpoint backup fixture template: %w", err))
+			return
+		}
+		if busy != 0 {
+			closeWithError(fmt.Errorf(
+				"checkpoint backup fixture template remained busy (log=%d checkpointed=%d)",
+				logFrames, checkpointedFrames,
+			))
+			return
+		}
+		if err := database.Close(); err != nil {
+			backupFixtureTemplateErr = fmt.Errorf("close backup fixture template: %w", err)
+			return
+		}
+		backupFixtureTemplatePath = path
+	})
+	return backupFixtureTemplatePath, backupFixtureTemplateErr
+}
+
+func copyBackupFixtureTemplate(sourcePath string, targetPath string) (err error) {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("open backup fixture template: %w", err)
+	}
+	defer func() {
+		if closeErr := source.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close backup fixture template: %w", closeErr)
+		}
+	}()
+
+	target, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create backup fixture database: %w", err)
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			_ = os.Remove(targetPath)
+		}
+	}()
+	if _, err := io.Copy(target, source); err != nil {
+		_ = target.Close()
+		return fmt.Errorf("copy backup fixture template: %w", err)
+	}
+	if err := target.Close(); err != nil {
+		return fmt.Errorf("close backup fixture database: %w", err)
+	}
+	complete = true
+	return nil
+}
+
+func newBackupFixture(t *testing.T, retention domainbackup.RetentionPolicy) *backupFixture {
+	t.Helper()
+	ctx := context.Background()
+	directory := t.TempDir()
+	databasePath := filepath.Join(directory, "data.db")
+	templatePath, err := currentBackupFixtureTemplate()
+	if err != nil {
+		t.Fatalf("prepare backup fixture template: %v", err)
+	}
+	if err := copyBackupFixtureTemplate(templatePath, databasePath); err != nil {
+		t.Fatalf("copy backup fixture template: %v", err)
+	}
+	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: databasePath})
+	if err != nil {
+		t.Fatalf("OpenSQLite: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
 	now := time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC)
 	backupDir := filepath.Join(directory, "backups")
 	markerPath := filepath.Join(directory, "restore-marker.json")

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -215,14 +217,7 @@ func TestSQLiteRepositoryCollectionItemLimitCoversDuplicatesBatchesAndDirectWrit
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.SQL.ExecContext(ctx, `
-INSERT INTO rss_collection_subscriptions (collection_id, subscription_id, sort_order, added_at)
-SELECT ?, id, CAST(substr(id, 11) AS INTEGER) - 1, ?
-FROM rss_subscriptions
-WHERE id BETWEEN 'limit-sub-00001' AND 'limit-sub-09999'
-`, collection.ID, now); err != nil {
-		t.Fatal(err)
-	}
+	seedCollectionLimitMemberships(t, ctx, database, collection.ID, 9_999, now)
 
 	collection, err = repo.AddCollectionItems(ctx, collection.ID, collection.Kind,
 		[]string{"limit-sub-00001", "limit-sub-10000"}, now.Add(time.Minute))
@@ -300,6 +295,27 @@ SELECT COUNT(*) FROM rss_collection_subscriptions WHERE collection_id = ?
 	}
 }
 
+func TestCollectionItemIDCountExceedsLimitCountsDistinctIDs(t *testing.T) {
+	unique := make([]string, maxRSSRepositoryCollectionItems+1)
+	for index := range unique {
+		unique[index] = fmt.Sprintf("item-%05d", index)
+	}
+	if !collectionItemIDCountExceedsLimit(unique) {
+		t.Fatal("distinct over-limit IDs were accepted")
+	}
+	if collectionItemIDCountExceedsLimit(unique[:maxRSSRepositoryCollectionItems]) {
+		t.Fatal("exactly-at-limit IDs were rejected")
+	}
+
+	crossBatchDuplicates := make([]string, maxRSSRepositoryCollectionItems+1)
+	for index := range crossBatchDuplicates {
+		crossBatchDuplicates[index] = fmt.Sprintf("item-%03d", index%400)
+	}
+	if collectionItemIDCountExceedsLimit(crossBatchDuplicates) {
+		t.Fatal("raw over-limit input with at-limit distinct IDs was rejected")
+	}
+}
+
 func TestSQLiteRepositoryConcurrentCollectionAddsCannotExceedLimit(t *testing.T) {
 	ctx, database, repo := openTestRSSRepository(t, "collection-item-limit-concurrent.db")
 	now := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
@@ -312,14 +328,7 @@ func TestSQLiteRepositoryConcurrentCollectionAddsCannotExceedLimit(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.SQL.ExecContext(ctx, `
-INSERT INTO rss_collection_subscriptions (collection_id, subscription_id, sort_order, added_at)
-SELECT ?, id, CAST(substr(id, 11) AS INTEGER) - 1, ?
-FROM rss_subscriptions
-WHERE id BETWEEN 'limit-sub-00001' AND 'limit-sub-09999'
-`, collection.ID, now); err != nil {
-		t.Fatal(err)
-	}
+	seedCollectionLimitMemberships(t, ctx, database, collection.ID, 9_999, now)
 
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -359,19 +368,14 @@ func seedCollectionLimitSubscriptions(
 	count int,
 ) {
 	t.Helper()
-	if count < 1 || count > 100_000 {
+	if count < 1 || count > 10_002 {
 		t.Fatalf("invalid collection-limit fixture count: %d", count)
 	}
 	_, err := database.SQL.ExecContext(ctx, `
-WITH digits(value) AS (
-  VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)
-), numbers(value) AS (
-	SELECT ten_thousands.value * 10000 + thousands.value * 1000 + hundreds.value * 100 + tens.value * 10 + ones.value + 1
-	FROM digits AS ten_thousands
-	CROSS JOIN digits AS thousands
-  CROSS JOIN digits AS hundreds
-  CROSS JOIN digits AS tens
-  CROSS JOIN digits AS ones
+WITH RECURSIVE numbers(value) AS (
+  VALUES (1)
+  UNION ALL
+  SELECT value + 1 FROM numbers WHERE value < ?
 )
 INSERT INTO rss_subscriptions (
   id, workspace_id, feed_url, title, enabled, created_at, updated_at, revision
@@ -380,10 +384,73 @@ SELECT printf('limit-sub-%05d', value), 'rss-default',
        printf('https://example.com/limit/%d.xml', value),
        printf('Limit %d', value), 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1
 FROM numbers
-WHERE value <= ?
 `, count)
 	if err != nil {
 		t.Fatalf("seed collection-limit subscriptions: %v", err)
+	}
+}
+
+func seedCollectionLimitMemberships(
+	t *testing.T,
+	ctx context.Context,
+	database *persistence.Database,
+	collectionID string,
+	count int,
+	addedAt time.Time,
+) {
+	t.Helper()
+	if count < 1 || count > 10_000 {
+		t.Fatalf("invalid collection membership fixture count: %d", count)
+	}
+
+	// The production trigger deliberately counts the collection before every
+	// insert. Preserve its exact installed SQL, remove it only inside this fixture
+	// transaction, and restore it before commit. The assertions following this
+	// helper therefore exercise the real trigger without paying its quadratic
+	// setup cost for 9,999 already-valid rows.
+	tx, err := database.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin collection membership fixture: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var triggerSQL string
+	if err := tx.QueryRowContext(ctx, `
+SELECT sql FROM sqlite_schema
+WHERE type = 'trigger' AND name = 'rss_collection_subscriptions_max_items'
+`).Scan(&triggerSQL); err != nil {
+		t.Fatalf("read collection limit trigger: %v", err)
+	}
+	if strings.TrimSpace(triggerSQL) == "" {
+		t.Fatal("collection limit trigger has empty schema SQL")
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TRIGGER rss_collection_subscriptions_max_items`); err != nil {
+		t.Fatalf("temporarily remove collection limit trigger: %v", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO rss_collection_subscriptions (collection_id, subscription_id, sort_order, added_at)
+SELECT ?, id, CAST(substr(id, 11) AS INTEGER) - 1, ?
+FROM rss_subscriptions
+WHERE id LIKE 'limit-sub-%'
+ORDER BY id
+LIMIT ?
+`, collectionID, addedAt, count); err != nil {
+		t.Fatalf("seed collection memberships: %v", err)
+	}
+	var seeded int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM rss_collection_subscriptions WHERE collection_id = ?
+`, collectionID).Scan(&seeded); err != nil {
+		t.Fatalf("count seeded collection memberships: %v", err)
+	}
+	if seeded != count {
+		t.Fatalf("seeded collection memberships = %d, want %d", seeded, count)
+	}
+	if _, err := tx.ExecContext(ctx, triggerSQL); err != nil {
+		t.Fatalf("restore collection limit trigger: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit collection membership fixture: %v", err)
 	}
 }
 
@@ -1248,7 +1315,14 @@ INSERT INTO rss_entries (
 	}
 	for index := 0; index < 500; index++ {
 		id := fmt.Sprintf("entry-large-%03d", index)
-		if _, err := statement.ExecContext(ctx, id, subscription.ID, id, "Large entry", largeBody, id+"-hash", now, now); err != nil {
+		body := "<p>small non-empty body</p>"
+		if index == 0 {
+			// One heavy sentinel is sufficient to prove that list and snapshot
+			// projections do not fetch large article bodies. Keeping the other
+			// bodies non-empty still catches accidental hydration for every row.
+			body = largeBody
+		}
+		if _, err := statement.ExecContext(ctx, id, subscription.ID, id, "Large entry", body, id+"-hash", now, now); err != nil {
 			_ = statement.Close()
 			_ = tx.Rollback()
 			t.Fatal(err)
@@ -1334,6 +1408,16 @@ func TestSQLiteRepositorySyncEntryQueriesNeverSelectOrDecodeRemoteSourceArrays(t
 	if err != nil {
 		t.Fatal(err)
 	}
+	lightImagesJSON, err := json.Marshal([]string{"https://cdn.example/images/light.jpg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lightMediaJSON, err := json.Marshal([]domainrss.Media{{
+		URL: "https://cdn.example/media/light.mp4", MIMEType: "video/mp4", Kind: "video",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tx, err := database.SQL.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1351,11 +1435,28 @@ INSERT INTO rss_entries (
 	}
 	for index := 0; index < 500; index++ {
 		id := fmt.Sprintf("entry-sync-large-%03d", index)
+		sourceURL := "https://source.example/light"
+		contentHTML := "<p>light remote body</p>"
+		storedImagesJSON := lightImagesJSON
+		storedMediaJSON := lightMediaJSON
+		mediaURL := "https://cdn.example/media/light.mp4"
+		thumbnailURL := "https://cdn.example/images/light.jpg"
+		if index == 0 {
+			// Keep one full-size source-only sentinel. All 500 rows remain
+			// populated, while only the sentinel carries the expensive arrays
+			// whose accidental selection or decoding this test guards against.
+			sourceURL = "https://source.example/" + marker
+			contentHTML = "<p>" + marker + "</p>"
+			storedImagesJSON = imagesJSON
+			storedMediaJSON = mediaJSON
+			mediaURL = "https://cdn.example/" + marker
+			thumbnailURL = images[0]
+		}
 		if _, err := statement.ExecContext(
-			ctx, id, subscription.ID, id, "https://source.example/"+marker,
+			ctx, id, subscription.ID, id, sourceURL,
 			"Needle video", "Author", "Summary", string(domainrss.EntryKindVideo),
-			"<p>"+marker+"</p>", string(imagesJSON), string(mediaJSON), "https://cdn.example/"+marker,
-			"video/mp4", images[0], "generic", "video-id", id+"-hash", now, now,
+			contentHTML, string(storedImagesJSON), string(storedMediaJSON), mediaURL,
+			"video/mp4", thumbnailURL, "generic", "video-id", id+"-hash", now, now,
 		); err != nil {
 			_ = statement.Close()
 			_ = tx.Rollback()
@@ -2322,17 +2423,59 @@ func TestSQLiteRepositoryStateV2UsesPerFieldClocksAndPayloadBoundIdempotency(t *
 	}
 }
 
+var rssRepositoryTestDatabaseTemplate struct {
+	sync.Once
+	contents []byte
+	err      error
+}
+
 func openTestRSSRepository(t *testing.T, name string) (context.Context, *persistence.Database, *SQLiteRepository) {
 	t.Helper()
 	ctx := context.Background()
+	contents, err := latestRSSRepositoryTestDatabase()
+	if err != nil {
+		t.Fatalf("prepare sqlite test template: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("copy sqlite test template: %v", err)
+	}
 	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), name),
+		Path: path, SkipPreMigrationSnapshot: true,
 	})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	return ctx, database, NewSQLiteRepository(database.Bun)
+}
+
+func latestRSSRepositoryTestDatabase() ([]byte, error) {
+	rssRepositoryTestDatabaseTemplate.Do(func() {
+		directory, err := os.MkdirTemp("", "xiadown-rssrepo-test-template-")
+		if err != nil {
+			rssRepositoryTestDatabaseTemplate.err = err
+			return
+		}
+		defer func() { _ = os.RemoveAll(directory) }()
+
+		ctx := context.Background()
+		path := filepath.Join(directory, "latest.db")
+		database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: path})
+		if err != nil {
+			rssRepositoryTestDatabaseTemplate.err = err
+			return
+		}
+		if err := database.Close(); err != nil {
+			rssRepositoryTestDatabaseTemplate.err = err
+			return
+		}
+		rssRepositoryTestDatabaseTemplate.contents, rssRepositoryTestDatabaseTemplate.err = os.ReadFile(path)
+	})
+	if rssRepositoryTestDatabaseTemplate.err != nil {
+		return nil, rssRepositoryTestDatabaseTemplate.err
+	}
+	return rssRepositoryTestDatabaseTemplate.contents, nil
 }
 
 func testSubscription(id, feedURL string, now time.Time) domainrss.Subscription {

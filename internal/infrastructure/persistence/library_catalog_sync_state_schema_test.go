@@ -73,10 +73,7 @@ SELECT epoch FROM library_catalog_sync_state WHERE catalog_id = 'catalog-sync'
 
 func TestLibraryCatalogSyncStateTriggerCreatesEpochForNewCatalog(t *testing.T) {
 	ctx := context.Background()
-	database, err := OpenSQLite(ctx, SQLiteConfig{Path: ":memory:"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	database := openLatestSQLiteTestDatabase(t)
 	defer database.Close()
 	if _, err := database.SQL.ExecContext(ctx, `
 INSERT INTO library_catalogs (

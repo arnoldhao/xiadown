@@ -136,10 +136,7 @@ func TestLibraryTailscaleRouteMigrationChecksumIncludesBackendOwnershipSchema(t 
 	}
 
 	ctx := context.Background()
-	database, err := OpenSQLite(ctx, SQLiteConfig{Path: ":memory:"})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	database := openLatestSQLiteTestDatabase(t)
 	defer database.Close()
 	var checksum string
 	if err := database.SQL.QueryRowContext(ctx,

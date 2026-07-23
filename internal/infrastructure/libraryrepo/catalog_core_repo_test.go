@@ -11,14 +11,11 @@ import (
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteCatalogSnapshotPageUsesStablePartialKeysetIndex(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "catalog-snapshot.db"),
-	})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-snapshot.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -100,7 +97,7 @@ ORDER BY id ASC LIMIT ?
 
 func TestSQLiteCatalogCoreRepositoriesRoundTripAndAtomicReplace(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-core.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-core.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -384,7 +381,7 @@ func TestSQLiteCatalogCoreRepositoriesRoundTripAndAtomicReplace(t *testing.T) {
 
 func TestSQLiteCatalogCoreReplaceRejectsInvalidInputBeforeDeleting(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-validation.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-validation.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

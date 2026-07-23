@@ -7,15 +7,12 @@ import (
 
 func TestLibraryImportSchemaIsAdditiveAndEnforcesCopyRoot(t *testing.T) {
 	ctx := context.Background()
-	database, err := OpenSQLite(ctx, SQLiteConfig{Path: t.TempDir() + "/library-import.db"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	database := openLatestSQLiteTestDatabase(t)
 	defer database.Close()
 	if err := ApplyLibraryImportSchema(ctx, database.SQL); err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.SQL.ExecContext(ctx, `
+	_, err := database.SQL.ExecContext(ctx, `
 INSERT INTO library_import_batches (
   id, request_key, library_id, mode, managed_root, hidden_policy, symlink_policy,
   status, created_at, updated_at

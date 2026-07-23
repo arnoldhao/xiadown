@@ -1235,14 +1235,7 @@ WHERE migration_id = ? AND phase = 'backfill' AND status = 'completed'
 
 func openCatalogBackfillTestDatabase(t *testing.T) *persistence.Database {
 	t.Helper()
-	db, err := persistence.OpenSQLite(context.Background(), persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "catalog-backfill.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return openLibraryServiceTestDatabase(t, "catalog-backfill.db")
 }
 
 func seedCatalogBackfillLibrary(t *testing.T, ctx context.Context, db *persistence.Database, id string, at time.Time) {

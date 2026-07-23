@@ -340,10 +340,13 @@ func TestSharedPublicFetchLeaseIsExclusiveRenewableAndExpires(t *testing.T) {
 }
 
 func TestSharedPublicFetchLeaseConcurrentContendersHaveSingleWinner(t *testing.T) {
-	ctx, _, repo := openTestRSSRepository(t, "shared-public-lease-concurrent.db")
+	ctx, database, repo := openTestRSSRepository(t, "shared-public-lease-concurrent.db")
 	now := time.Date(2026, 7, 21, 10, 30, 0, 0, time.UTC)
 	subscriptionID := "d0934639-e680-4181-83e8-997a3062e44e"
 	seedSharedPublicSubscription(t, ctx, repo, subscriptionID, now)
+	// Separate repository instances ensure the database transaction provides the
+	// exclusion; an instance-local mutex must not make this test pass by accident.
+	contenders := [2]*SQLiteRepository{repo, NewSQLiteRepository(database.Bun)}
 
 	start := make(chan struct{})
 	type outcome struct {
@@ -354,6 +357,7 @@ func TestSharedPublicFetchLeaseConcurrentContendersHaveSingleWinner(t *testing.T
 	var ready sync.WaitGroup
 	ready.Add(2)
 	for index := range 2 {
+		contender := contenders[index]
 		deviceID := "device-a"
 		leaseID := "lease-a"
 		if index == 1 {
@@ -363,7 +367,7 @@ func TestSharedPublicFetchLeaseConcurrentContendersHaveSingleWinner(t *testing.T
 		go func() {
 			ready.Done()
 			<-start
-			result, err := repo.AcquireFetchLease(ctx, domainrss.FetchLeaseRequest{
+			result, err := contender.AcquireFetchLease(ctx, domainrss.FetchLeaseRequest{
 				DeviceID: deviceID, SubscriptionID: subscriptionID, LeaseID: leaseID,
 				RequestedTTL: time.Minute, RequestedAt: now.Add(time.Minute),
 			})

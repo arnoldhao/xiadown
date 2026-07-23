@@ -251,9 +251,7 @@ func TestSQLiteCatalogAuditorRejectsBlankScope(t *testing.T) {
 
 func openCatalogAuditTestDB(t *testing.T, ctx context.Context) *persistence.Database {
 	t.Helper()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "catalog-audit.db"),
-	})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-audit.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

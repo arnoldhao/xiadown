@@ -12,7 +12,6 @@ import (
 	settingsdto "xiadown/internal/application/settings/dto"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 	ydlpinfr "xiadown/internal/infrastructure/ytdlp"
 )
 
@@ -270,15 +269,7 @@ func TestCreateDownloadedSubtitleFilePersistsWithSQLiteStorageConstraint(t *test
 		t.Fatalf("write subtitle: %v", err)
 	}
 
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(tempDir, "library-ytdlp-subtitle.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer func() {
-		_ = db.Close()
-	}()
+	db := openLibraryServiceTestDatabase(t, "library-ytdlp-subtitle.db")
 
 	libraries := libraryrepo.NewSQLiteLibraryRepository(db.Bun)
 	files := libraryrepo.NewSQLiteFileRepository(db.Bun)

@@ -7,16 +7,11 @@ import (
 	"testing"
 
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestProfessionalImportUsesFileHistoryAndEventRegistrationIdempotently(t *testing.T) {
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "professional-import.db")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
+	database := openLibraryServiceTestDatabase(t, "professional-import.db")
 	source := filepath.Join(t.TempDir(), "source.pdf")
 	storage := filepath.Join(t.TempDir(), "managed.pdf")
 	if err := os.WriteFile(source, []byte("source"), 0o600); err != nil {

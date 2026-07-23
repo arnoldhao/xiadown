@@ -3,18 +3,16 @@ package libraryrepo
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteListenLocalMusicRepositoriesRevisionTombstoneAndDuplicateItemFoundation(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "music-sync.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "music-sync.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +181,7 @@ WHERE entity_type = 'track' AND entity_id = ?
 
 func TestSQLiteListenLocalTrackContentSignatureSeparatesTimelineFromMetadataResources(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "music-content-identity.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "music-content-identity.db")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -297,9 +297,7 @@ func newListenLocalMusicWriteFixture(
 	ctx context.Context,
 ) (*persistence.Database, string, int64) {
 	t.Helper()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "music-write.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "music-write.db")
 	if err != nil {
 		t.Fatal(err)
 	}

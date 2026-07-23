@@ -2,18 +2,12 @@ package persistence
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 )
 
 func TestLibraryCatalogSnapshotIndexMigrationIsIdempotent(t *testing.T) {
 	ctx := context.Background()
-	database, err := OpenSQLite(ctx, SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "library-snapshot-index.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	database := openLatestSQLiteTestDatabase(t)
 	defer database.Close()
 
 	if err := applyLibraryCatalogSnapshotIndexSchema(ctx, database.SQL); err != nil {

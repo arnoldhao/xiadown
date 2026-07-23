@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -18,6 +19,18 @@ type egressRegistryEntry struct {
 	routeClass string
 	reason     string
 }
+
+type productionSourceCorpus struct {
+	goSources       map[string]string
+	frontendSources map[string]string
+	frontendFiles   []string
+	err             error
+}
+
+var (
+	productionSourcesOnce sync.Once
+	productionSources     productionSourceCorpus
+)
 
 var defaultHTTPClientRegistry = map[string]egressRegistryEntry{
 	"internal/app/app_session_account_social.go":                 {count: 4, routeClass: "public-internet", reason: "test seam; production account fetcher receives proxyManager"},
@@ -132,7 +145,7 @@ var commandRegistry = map[string]egressRegistryEntry{
 
 var commandContextRegistry = map[string]egressRegistryEntry{
 	"internal/application/dependencies/service/service.go":                   {count: 2, routeClass: "local-tool", reason: "installed dependency version probes only"},
-	"internal/application/library/service/catalog_video_thumbnail.go":       {count: 1, routeClass: "local-file-tool", reason: "bounded ffmpeg local video thumbnail generation with network protocols denied"},
+	"internal/application/library/service/catalog_video_thumbnail.go":        {count: 1, routeClass: "local-file-tool", reason: "bounded ffmpeg local video thumbnail generation with network protocols denied"},
 	"internal/application/library/service/listen_local_content_identity.go":  {count: 1, routeClass: "local-file-tool", reason: "bounded ffprobe audio-packet identity sampling with network protocols denied"},
 	"internal/application/library/service/listen_local_metadata.go":          {count: 1, routeClass: "local-file-tool", reason: "ffmpeg local metadata rewrite with network protocols denied"},
 	"internal/application/library/service/listen_local_metadata_manifest.go": {count: 1, routeClass: "local-file-tool", reason: "ffprobe local metadata read with network protocols denied"},
@@ -684,39 +697,11 @@ func assertProductionTokenRegistry(t *testing.T, token string, registry map[stri
 
 func productionGoTokenOccurrences(t *testing.T, token string) map[string]int {
 	t.Helper()
-	root := repoRoot(t)
 	result := make(map[string]int)
-	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	for path, source := range cachedProductionSources(t).goSources {
+		if count := strings.Count(source, token); count > 0 {
+			result[path] = count
 		}
-		if entry.IsDir() {
-			if isNonProductionSourceDirectory(entry.Name()) {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || isGeneratedSourceName(path) {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if hasGeneratedSourceHeader(data) {
-			return nil
-		}
-		if count := strings.Count(string(data), token); count > 0 {
-			relative, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			result[filepath.ToSlash(relative)] = count
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	return result
 }
@@ -724,8 +709,8 @@ func productionGoTokenOccurrences(t *testing.T, token string) map[string]int {
 func productionFrontendTokenOccurrences(t *testing.T, token string) map[string]int {
 	t.Helper()
 	result := make(map[string]int)
-	for _, path := range productionFrontendFiles(t) {
-		if count := strings.Count(readRepoSource(t, path), token); count > 0 {
+	for path, source := range cachedProductionSources(t).frontendSources {
+		if count := strings.Count(source, token); count > 0 {
 			result[path] = count
 		}
 	}
@@ -757,9 +742,57 @@ func assertProductionFrontendTokenRegistry(t *testing.T, token string, registry 
 
 func productionFrontendFiles(t *testing.T) []string {
 	t.Helper()
+	return append([]string(nil), cachedProductionSources(t).frontendFiles...)
+}
+
+func cachedProductionSources(t *testing.T) *productionSourceCorpus {
+	t.Helper()
 	root := repoRoot(t)
-	var result []string
-	err := filepath.WalkDir(filepath.Join(root, "frontend", "src"), func(path string, entry fs.DirEntry, walkErr error) error {
+	productionSourcesOnce.Do(func() {
+		productionSources.goSources, productionSources.err = loadProductionSources(
+			root,
+			filepath.Join(root, "internal"),
+			func(path string) bool {
+				return strings.HasSuffix(path, ".go") &&
+					!strings.HasSuffix(path, "_test.go") &&
+					!isGeneratedSourceName(path)
+			},
+		)
+		if productionSources.err != nil {
+			return
+		}
+		productionSources.frontendSources, productionSources.err = loadProductionSources(
+			root,
+			filepath.Join(root, "frontend", "src"),
+			func(path string) bool {
+				return (strings.HasSuffix(path, ".ts") || strings.HasSuffix(path, ".tsx")) &&
+					!strings.Contains(path, ".test.") &&
+					!strings.Contains(path, ".spec.") &&
+					!isGeneratedSourceName(path)
+			},
+		)
+		if productionSources.err != nil {
+			return
+		}
+		productionSources.frontendFiles = make([]string, 0, len(productionSources.frontendSources))
+		for path := range productionSources.frontendSources {
+			productionSources.frontendFiles = append(productionSources.frontendFiles, path)
+		}
+		sort.Strings(productionSources.frontendFiles)
+	})
+	if productionSources.err != nil {
+		t.Fatal(productionSources.err)
+	}
+	return &productionSources
+}
+
+func loadProductionSources(
+	root string,
+	directory string,
+	include func(string) bool,
+) (map[string]string, error) {
+	result := make(map[string]string)
+	err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -769,8 +802,7 @@ func productionFrontendFiles(t *testing.T) []string {
 			}
 			return nil
 		}
-		if (!strings.HasSuffix(path, ".ts") && !strings.HasSuffix(path, ".tsx")) ||
-			strings.Contains(path, ".test.") || strings.Contains(path, ".spec.") || isGeneratedSourceName(path) {
+		if !include(path) {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -784,14 +816,10 @@ func productionFrontendFiles(t *testing.T) []string {
 		if err != nil {
 			return err
 		}
-		result = append(result, filepath.ToSlash(relative))
+		result[filepath.ToSlash(relative)] = string(data)
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(result)
-	return result
+	return result, err
 }
 
 func isNonProductionSourceDirectory(name string) bool {
@@ -829,6 +857,14 @@ func assertSourceMarkers(t *testing.T, path string, markers []string) {
 
 func readRepoSource(t *testing.T, path string) string {
 	t.Helper()
+	path = filepath.ToSlash(path)
+	sources := cachedProductionSources(t)
+	if source, ok := sources.goSources[path]; ok {
+		return source
+	}
+	if source, ok := sources.frontendSources[path]; ok {
+		return source
+	}
 	data, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(path)))
 	if err != nil {
 		t.Fatal(err)

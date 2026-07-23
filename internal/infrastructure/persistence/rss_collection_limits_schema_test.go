@@ -78,16 +78,10 @@ INSERT INTO rss_collections (
   'subscriptions', 'auto', 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1
 );
 
-WITH digits(value) AS (
-  VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)
-), numbers(value) AS (
-  SELECT ten_thousands.value * 10000 + thousands.value * 1000 +
-         hundreds.value * 100 + tens.value * 10 + ones.value + 1
-  FROM digits AS ten_thousands
-  CROSS JOIN digits AS thousands
-  CROSS JOIN digits AS hundreds
-  CROSS JOIN digits AS tens
-  CROSS JOIN digits AS ones
+WITH RECURSIVE numbers(value) AS (
+  SELECT 1
+  UNION ALL
+  SELECT value + 1 FROM numbers WHERE value < 10001
 )
 INSERT INTO rss_subscriptions (
   id, workspace_id, feed_url, title, enabled, created_at, updated_at, revision
@@ -95,8 +89,7 @@ INSERT INTO rss_subscriptions (
 SELECT printf('oversized-sub-%05d', value), 'rss-default',
        printf('https://example.com/oversized/%d.xml', value),
        printf('Oversized %d', value), 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1
-FROM numbers
-WHERE value <= 10001;
+FROM numbers;
 
 INSERT INTO rss_collection_subscriptions (collection_id, subscription_id, sort_order, added_at)
 SELECT 'oversized-legacy-collection', id,

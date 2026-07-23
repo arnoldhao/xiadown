@@ -3,14 +3,12 @@ package service
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 type actionFailHistoryRepository struct {
@@ -39,13 +37,7 @@ func TestDeleteOperationCompletionHistoryFailureStillAppearsInDeleted(t *testing
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "operation-delete-intent.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer database.Close()
+	database := openLibraryServiceTestDatabase(t, "operation-delete-intent.db")
 
 	now := time.Date(2026, 7, 20, 18, 0, 0, 0, time.UTC)
 	libraryItem := mustNewLibrary(t, "lib-delete-intent", now)
@@ -116,13 +108,7 @@ func TestDeleteOperationRequestIsNotListedWhileOperationStillExists(t *testing.T
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "operation-delete-request-live.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer database.Close()
+	database := openLibraryServiceTestDatabase(t, "operation-delete-request-live.db")
 
 	now := time.Date(2026, 7, 20, 18, 5, 0, 0, time.UTC)
 	libraryItem := mustNewLibrary(t, "lib-delete-request-live", now)

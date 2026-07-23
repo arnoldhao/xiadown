@@ -2,7 +2,6 @@ package persistence
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 )
 
@@ -10,10 +9,7 @@ func TestLibraryHistoryOperationEventSchemaPreservesExistingHistoryAndFiles(t *t
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := OpenSQLite(ctx, SQLiteConfig{Path: filepath.Join(t.TempDir(), "history-operation-events.db")})
-	if err != nil {
-		t.Fatalf("OpenSQLite: %v", err)
-	}
+	database := openLatestSQLiteTestDatabase(t)
 	defer database.Close()
 
 	if _, err := database.SQL.ExecContext(ctx, `

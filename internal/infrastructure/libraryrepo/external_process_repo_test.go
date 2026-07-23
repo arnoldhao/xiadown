@@ -2,19 +2,15 @@ package libraryrepo
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteExternalProcessRepositoryRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "library-processes.db"),
-	})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "library-processes.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

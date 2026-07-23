@@ -10,20 +10,13 @@ import (
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestDeletedLibraryItemsListTaskAndRestoreFileWithoutLosingAudit(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "deleted-library-items.db"),
-	})
-	if err != nil {
-		t.Fatalf("OpenSQLite: %v", err)
-	}
-	defer database.Close()
+	database := openLibraryServiceTestDatabase(t, "deleted-library-items.db")
 
 	libraryRepo := libraryrepo.NewSQLiteLibraryRepository(database.Bun)
 	fileRepo := libraryrepo.NewSQLiteFileRepository(database.Bun)

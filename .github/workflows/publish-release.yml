@@ -134,7 +134,7 @@ jobs:
         run: |
           go mod verify
           go vet ./...
-          go test ./... -count=1
+          go test -vet=off ./... -count=1
 
   macos:
     needs:

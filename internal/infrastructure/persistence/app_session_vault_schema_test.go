@@ -9,13 +9,7 @@ import (
 
 func TestFreshAppSessionStorageDoesNotCreateLegacyTable(t *testing.T) {
 	ctx := context.Background()
-	database, err := OpenSQLite(ctx, SQLiteConfig{
-		Path:                     filepath.Join(t.TempDir(), "fresh.db"),
-		SkipPreMigrationSnapshot: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	database := openLatestSQLiteTestDatabase(t)
 	defer database.Close()
 
 	var legacyTables, currentTables int

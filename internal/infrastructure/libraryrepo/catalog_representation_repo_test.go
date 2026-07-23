@@ -226,7 +226,7 @@ BEGIN SELECT RAISE(ABORT, 'change feed unavailable'); END
 
 func openCatalogRepresentationTestDB(t *testing.T, ctx context.Context) (*persistence.Database, time.Time) {
 	t.Helper()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-professional.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-professional.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
