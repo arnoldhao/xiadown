@@ -10,18 +10,27 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"xiadown/internal/domain/libraryaccess"
 )
 
-const execCommandRunnerHelperMode = "XIADOWN_TEST_TAILSCALE_COMMAND_MODE"
+const (
+	execCommandRunnerHelperMode      = "XIADOWN_TEST_TAILSCALE_COMMAND_MODE"
+	execCommandRunnerHelperReadyPath = "XIADOWN_TEST_TAILSCALE_COMMAND_READY_PATH"
+)
 
 func TestExecCommandRunnerHelperProcess(t *testing.T) {
 	switch os.Getenv(execCommandRunnerHelperMode) {
 	case "hang":
 		_, _ = os.Stdout.WriteString("partial output before hang\n")
+		if readyPath := os.Getenv(execCommandRunnerHelperReadyPath); readyPath != "" {
+			if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
+				t.Fatalf("publish helper readiness: %v", err)
+			}
+		}
 		time.Sleep(30 * time.Second)
 	case "success":
 		_, _ = os.Stdout.WriteString("command completed\n")
@@ -37,20 +46,96 @@ func runExecCommandRunnerHelper(t *testing.T, runner ExecCommandRunner, ctx cont
 func TestExecCommandRunnerEnforcesHardTimeoutAndPreservesCause(t *testing.T) {
 	runner := ExecCommandRunner{commandTimeout: 40 * time.Millisecond, waitDelay: 40 * time.Millisecond}
 	started := time.Now()
-	output, err := runExecCommandRunnerHelper(t, runner, context.Background(), "hang")
+	_, err := runExecCommandRunnerHelper(t, runner, context.Background(), "hang")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("timeout error = %v", err)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("hard timeout returned after %s", elapsed)
 	}
-	if !strings.Contains(string(output), "partial output before hang") {
-		t.Fatalf("partial output = %q", output)
-	}
-	message := cleanCommandError(err, output)
-	if !strings.Contains(message, "timed out") || !strings.Contains(message, "output: partial output") ||
-		strings.Index(message, "timed out") > strings.Index(message, "partial output") {
+	if message := cleanCommandError(err, nil); !strings.Contains(message, "timed out") {
 		t.Fatalf("clean timeout error = %q", message)
+	}
+}
+
+func TestExecCommandRunnerPreservesPartialOutputAfterStartedDeadline(t *testing.T) {
+	readyPath := filepath.Join(t.TempDir(), "helper.ready")
+	t.Setenv(execCommandRunnerHelperMode, "hang")
+	t.Setenv(execCommandRunnerHelperReadyPath, readyPath)
+
+	ctx := newTriggeredDeadlineContext()
+	defer ctx.expire()
+	type commandResult struct {
+		output []byte
+		err    error
+	}
+	result := make(chan commandResult, 1)
+	runner := ExecCommandRunner{commandTimeout: 10 * time.Second, waitDelay: 40 * time.Millisecond}
+	go func() {
+		output, err := runner.Run(ctx, os.Args[0], "-test.run=^TestExecCommandRunnerHelperProcess$")
+		result <- commandResult{output: output, err: err}
+	}()
+
+	waitForExecCommandRunnerHelperReady(t, readyPath)
+	ctx.expire()
+	select {
+	case completed := <-result:
+		if !errors.Is(completed.err, context.DeadlineExceeded) {
+			t.Fatalf("triggered deadline error = %v", completed.err)
+		}
+		if !strings.Contains(string(completed.output), "partial output before hang") {
+			t.Fatalf("partial output = %q", completed.output)
+		}
+		message := cleanCommandError(completed.err, completed.output)
+		if !strings.Contains(message, "deadline exceeded") || !strings.Contains(message, "output: partial output") ||
+			strings.Index(message, "deadline exceeded") > strings.Index(message, "partial output") {
+			t.Fatalf("clean deadline error = %q", message)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("helper did not stop after the triggered deadline")
+	}
+}
+
+type triggeredDeadlineContext struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func newTriggeredDeadlineContext() *triggeredDeadlineContext {
+	return &triggeredDeadlineContext{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (ctx *triggeredDeadlineContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *triggeredDeadlineContext) Err() error {
+	select {
+	case <-ctx.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (ctx *triggeredDeadlineContext) expire() {
+	ctx.once.Do(func() { close(ctx.done) })
+}
+
+func waitForExecCommandRunnerHelperReady(t *testing.T, readyPath string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(readyPath); err == nil {
+			return
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("inspect helper readiness: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for helper readiness")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

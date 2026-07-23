@@ -355,7 +355,11 @@ func (repo *SQLiteRepository) AcquireFetchLease(
 		return domainrss.FetchLeaseResult{}, errors.New("rss repository unavailable")
 	}
 	var result domainrss.FetchLeaseResult
-	err := repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	// Acquire the SQLite writer reservation before reading the current lease.
+	// With a deferred transaction, concurrent contenders can both establish a
+	// read snapshot and one will then fail its read-to-write upgrade with
+	// SQLITE_BUSY instead of observing the winner's committed lease.
+	err := repo.db.RunInTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable}, func(ctx context.Context, tx bun.Tx) error {
 		var sourceAccess string
 		if err := tx.NewSelect().Model((*subscriptionRow)(nil)).Column("source_access").
 			Where("id = ?", request.SubscriptionID).Scan(ctx, &sourceAccess); err != nil {

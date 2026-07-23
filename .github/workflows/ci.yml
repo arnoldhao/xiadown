@@ -18,6 +18,13 @@ env:
 permissions:
   contents: read
 
+concurrency:
+  # Every event for the same pull request shares one validation slot. A label
+  # change still runs the complete CI, while an overlapping run is replaced
+  # instead of executing the same SHA twice in parallel.
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     if: github.event_name != 'schedule'
@@ -122,16 +129,32 @@ jobs:
         shell: bash
         run: mkdir -p frontend/dist && touch frontend/dist/.ci-placeholder
 
-      - name: macOS tests and production compile
+      - name: macOS vet
+        if: matrix.runner == 'macos-26'
+        env:
+          CGO_ENABLED: "1"
+          CGO_CFLAGS: "-mmacosx-version-min=14.0"
+          CGO_LDFLAGS: "-mmacosx-version-min=14.0 -Wl,-no_warn_duplicate_libraries"
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: go vet ./...
+
+      - name: macOS tests
         if: matrix.platform == 'macos'
         env:
           CGO_ENABLED: "1"
           CGO_CFLAGS: "-mmacosx-version-min=14.0"
           CGO_LDFLAGS: "-mmacosx-version-min=14.0 -Wl,-no_warn_duplicate_libraries"
           MACOSX_DEPLOYMENT_TARGET: "14.0"
-        run: |
-          go test ./... -count=1
-          go build -tags production -trimpath ./...
+        run: go test -vet=off ./... -count=1
+
+      - name: macOS production compile
+        if: matrix.platform == 'macos'
+        env:
+          CGO_ENABLED: "1"
+          CGO_CFLAGS: "-mmacosx-version-min=14.0"
+          CGO_LDFLAGS: "-mmacosx-version-min=14.0 -Wl,-no_warn_duplicate_libraries"
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
+        run: go build -tags production -trimpath -o "${RUNNER_TEMP}/xiadown-platform-gate" .
 
       - name: Windows test compile and platform-specific tests
         if: matrix.platform == 'windows'
@@ -186,7 +209,11 @@ jobs:
         run: go build -tags production -trimpath ./...
 
   package-preview:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(toJson(github.event.pull_request.labels), 'preview-binaries')
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(toJson(github.event.pull_request.labels), 'preview-binaries') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'preview-binaries')
     needs: [ci, platform-gates]
     strategy:
       fail-fast: false
