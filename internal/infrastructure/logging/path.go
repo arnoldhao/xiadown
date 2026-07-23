@@ -9,22 +9,29 @@ import (
 )
 
 func DefaultLogDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("get home directory: %w", err)
-	}
-
 	switch runtime.GOOS {
 	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("get home directory: %w", err)
+		}
 		return filepath.Join(home, "Library", "Logs", "xiadown"), nil
 	case "windows":
 		if base := os.Getenv("LOCALAPPDATA"); base != "" {
 			return filepath.Join(base, "xiadown", "logs"), nil
 		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("get home directory: %w", err)
+		}
 		return filepath.Join(home, "AppData", "Local", "xiadown", "logs"), nil
 	default:
 		dataHome := os.Getenv("XDG_DATA_HOME")
 		if dataHome == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("get home directory: %w", err)
+			}
 			dataHome = filepath.Join(home, ".local", "share")
 		}
 		return filepath.Join(dataHome, "xiadown", "logs"), nil

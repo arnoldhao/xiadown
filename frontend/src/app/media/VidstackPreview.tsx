@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Events, Window } from "@wailsio/runtime";
+import "@vidstack/react/player/styles/base.css";
 import {
   MediaPlayer,
   MediaProvider,
@@ -20,7 +21,6 @@ import {
   VolumeX,
 } from "lucide-react";
 
-import { cn } from "@/lib/utils";
 import { Button } from "@/shared/ui/button";
 import {
   VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS,
@@ -51,6 +51,7 @@ export type VidstackPreviewProps = {
   labels: VidstackPreviewLabels;
   mediaUrl: string;
   title: string;
+  chrome?: "full" | "transport";
   persistKey?: string;
   posterUrl?: string;
   durationMs?: number;
@@ -1441,30 +1442,23 @@ export function VidstackPreview(props: VidstackPreviewProps) {
   const screenFullscreenLabel = screenFullscreen
     ? props.labels.previewExitFullscreen
     : props.labels.previewEnterFullscreen;
+  const showFullscreenControls = props.chrome !== "transport";
 
   return (
     <div
       ref={shellRef}
-      className={cn(
-        VIDSTACK_PREVIEW_SHELL_CLASS,
-        windowedFullscreen &&
-          "fixed inset-0 z-[200] rounded-none border-0 shadow-none",
-        screenFullscreen && "rounded-none border-0 shadow-none",
-      )}
+      className={VIDSTACK_PREVIEW_SHELL_CLASS}
       data-preview-presentation={presentationModeActive ? "true" : undefined}
+      data-preview-chrome={props.chrome ?? "full"}
+      data-windowed-fullscreen={windowedFullscreen ? "true" : undefined}
+      data-screen-fullscreen={screenFullscreen ? "true" : undefined}
     >
         <div
-          className={cn(
-            "app-completed-preview-stage relative min-h-0 flex-1",
-            (windowedFullscreen || screenFullscreen) && "rounded-none",
-          )}
+          className="app-completed-preview-stage relative min-h-0 flex-1"
         >
           {props.mediaUrl ? (
             <div
-              className={cn(
-                "app-completed-preview-media-frame relative h-full w-full overflow-hidden",
-                (windowedFullscreen || screenFullscreen) && "rounded-none",
-              )}
+              className="app-completed-preview-media-frame relative h-full w-full overflow-hidden"
             >
               <MediaPlayer
                 key={props.mediaUrl}
@@ -1479,11 +1473,8 @@ export function VidstackPreview(props: VidstackPreviewProps) {
                 controls={false}
                 playsInline
                 preload="auto"
-                style={{ aspectRatio: "auto" }}
-                className={cn(
-                  "app-completed-preview-player h-full w-full transition-opacity duration-200",
-                  !previewReady && "opacity-0",
-                )}
+                className="app-completed-preview-player h-full w-full"
+                data-ready={previewReady ? "true" : "false"}
               >
                 <MediaProvider
                   className="app-completed-preview-provider h-full w-full overflow-hidden"
@@ -1497,22 +1488,22 @@ export function VidstackPreview(props: VidstackPreviewProps) {
                 />
               </MediaPlayer>
               {previewLoading ? (
-                <div className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-8 text-center">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <div className="app-completed-preview-state-text text-sm font-medium">
+                <div className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-8">
+                  <Loader2 className="h-6 w-6 app-completed-loading-spinner" />
+                  <div className="app-completed-preview-state-text">
                     {loadingLabel}
                   </div>
                 </div>
               ) : null}
               {previewUnavailable ? (
                 <div
-                  className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-8 text-center"
+                  className="app-completed-preview-state pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-8"
                   aria-label={playbackError || props.labels.noPreview}
                   role="status"
                   title={playbackError || props.labels.noPreview}
                 >
                   <VideoOff className="app-completed-preview-state-icon h-10 w-10" />
-                  <div className="app-completed-preview-state-text text-sm font-medium">
+                  <div className="app-completed-preview-state-text">
                     {props.labels.noPreview}
                   </div>
                 </div>
@@ -1520,12 +1511,9 @@ export function VidstackPreview(props: VidstackPreviewProps) {
             </div>
           ) : (
             <div
-              className={cn(
-                "app-completed-preview-empty flex h-full items-center justify-center px-8 text-center",
-                (windowedFullscreen || screenFullscreen) && "rounded-none",
-              )}
+              className="app-completed-preview-empty flex h-full items-center justify-center px-8"
             >
-              <div className="app-completed-preview-empty-text text-sm">
+              <div className="app-completed-preview-empty-text">
                 {props.labels.noPreview}
               </div>
             </div>
@@ -1548,7 +1536,7 @@ export function VidstackPreview(props: VidstackPreviewProps) {
             disabled={previewControlsDisabled}
           >
             {playPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 className="h-3 w-3 app-completed-loading-spinner" />
             ) : isPlaying ? (
               <Pause className="h-3 w-3" />
             ) : (
@@ -1556,7 +1544,7 @@ export function VidstackPreview(props: VidstackPreviewProps) {
             )}
           </Button>
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span className="app-completed-preview-time w-[3.25rem] shrink-0 text-right font-mono text-[11px] tabular-nums">
+            <span className="app-completed-preview-time app-completed-preview-time--current">
               {currentTimeLabel}
             </span>
             <input
@@ -1576,11 +1564,11 @@ export function VidstackPreview(props: VidstackPreviewProps) {
                 } as React.CSSProperties
               }
             />
-            <span className="app-completed-preview-time w-[3.25rem] shrink-0 text-left font-mono text-[11px] tabular-nums">
+            <span className="app-completed-preview-time app-completed-preview-time--duration">
               {durationLabel}
             </span>
           </div>
-          <div className="group/volume relative flex shrink-0 items-center">
+          <div className="app-completed-preview-volume-control group/volume relative flex shrink-0 items-center">
             <Button
               type="button"
               variant="ghost"
@@ -1597,7 +1585,7 @@ export function VidstackPreview(props: VidstackPreviewProps) {
                 <Volume2 className="h-3 w-3" />
               )}
             </Button>
-            <div className="app-completed-preview-volume-popover pointer-events-none absolute bottom-full left-1/2 z-30 flex h-28 w-8 -translate-x-1/2 translate-y-1 items-center justify-center rounded-full opacity-0 transition-[opacity,transform] duration-150 ease-out group-hover/volume:pointer-events-auto group-hover/volume:translate-y-0 group-hover/volume:opacity-100 group-focus-within/volume:pointer-events-auto group-focus-within/volume:translate-y-0 group-focus-within/volume:opacity-100">
+            <div className="app-completed-preview-volume-popover pointer-events-none absolute bottom-full left-1/2 z-30 flex h-28 w-8 items-center justify-center">
               <input
                 type="range"
                 min={0}
@@ -1619,40 +1607,42 @@ export function VidstackPreview(props: VidstackPreviewProps) {
               />
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="compactIcon"
-              className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
-              onClick={toggleWindowedFullscreen}
-              aria-label={windowedFullscreenLabel}
-              title={windowedFullscreenLabel}
-              disabled={previewControlsDisabled || screenFullscreen}
-            >
-              {windowedFullscreen ? (
-                <Minimize2 className="h-3 w-3" />
-              ) : (
-                <Maximize2 className="h-3 w-3" />
-              )}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="compactIcon"
-              className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
-              onClick={toggleScreenFullscreen}
-              aria-label={screenFullscreenLabel}
-              title={screenFullscreenLabel}
-              disabled={previewControlsDisabled}
-            >
-              {screenFullscreen ? (
-                <Minimize className="h-3 w-3" />
-              ) : (
-                <Maximize className="h-3 w-3" />
-              )}
-            </Button>
-          </div>
+          {showFullscreenControls ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="compactIcon"
+                className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
+                onClick={toggleWindowedFullscreen}
+                aria-label={windowedFullscreenLabel}
+                title={windowedFullscreenLabel}
+                disabled={previewControlsDisabled || screenFullscreen}
+              >
+                {windowedFullscreen ? (
+                  <Minimize2 className="h-3 w-3" />
+                ) : (
+                  <Maximize2 className="h-3 w-3" />
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="compactIcon"
+                className={VIDSTACK_PREVIEW_CONTROL_BUTTON_CLASS}
+                onClick={toggleScreenFullscreen}
+                aria-label={screenFullscreenLabel}
+                title={screenFullscreenLabel}
+                disabled={previewControlsDisabled}
+              >
+                {screenFullscreen ? (
+                  <Minimize className="h-3 w-3" />
+                ) : (
+                  <Maximize className="h-3 w-3" />
+                )}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

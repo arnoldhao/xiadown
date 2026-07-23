@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -517,23 +516,6 @@ func (progress *resourceDownloadProgress) Publish(downloaded int64, total int64)
 	publishResourceDownloadProgress(progress.callback, downloaded, total, speed)
 }
 
-func newResourceHTTPClient(proxyURL string) (*http.Client, error) {
-	transport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-	}
-	if trimmed := strings.TrimSpace(proxyURL); trimmed != "" {
-		parsed, err := url.Parse(trimmed)
-		if err != nil {
-			return nil, err
-		}
-		transport.Proxy = http.ProxyURL(parsed)
-	}
-	return &http.Client{Transport: transport}, nil
-}
-
 func applyResourceRequestHeaders(req *http.Request, headers map[string]string) {
 	if req == nil {
 		return
@@ -542,6 +524,9 @@ func applyResourceRequestHeaders(req *http.Request, headers map[string]string) {
 		trimmedKey := strings.TrimSpace(key)
 		trimmedValue := strings.TrimSpace(value)
 		if trimmedKey == "" || trimmedValue == "" || strings.HasPrefix(trimmedKey, ":") {
+			continue
+		}
+		if isProxyCredentialHeader(trimmedKey) {
 			continue
 		}
 		if _, forbidden := resourceForbiddenDownloadHeaders[strings.ToLower(trimmedKey)]; forbidden {

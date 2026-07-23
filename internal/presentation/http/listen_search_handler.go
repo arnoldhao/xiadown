@@ -36,12 +36,17 @@ type ListenSearchHandler struct {
 }
 
 type ListenSearchResponse struct {
-	Items        []ListenSearchItem   `json:"items"`
-	Artists      []ListenArtistItem   `json:"artists,omitempty"`
-	Playlists    []ListenPlaylistItem `json:"playlists,omitempty"`
-	Continuation string               `json:"continuation,omitempty"`
-	Title        string               `json:"title,omitempty"`
-	Author       string               `json:"author,omitempty"`
+	Items           []ListenSearchItem   `json:"items"`
+	Artists         []ListenArtistItem   `json:"artists,omitempty"`
+	Playlists       []ListenPlaylistItem `json:"playlists,omitempty"`
+	Continuation    string               `json:"continuation,omitempty"`
+	Title           string               `json:"title,omitempty"`
+	Author          string               `json:"author,omitempty"`
+	AuthorBrowseID  string               `json:"authorBrowseId,omitempty"`
+	TrackCountLabel string               `json:"trackCountLabel,omitempty"`
+	DurationLabel   string               `json:"durationLabel,omitempty"`
+	Description     string               `json:"description,omitempty"`
+	ThumbnailURL    string               `json:"thumbnailUrl,omitempty"`
 }
 
 type ListenSearchItem struct {

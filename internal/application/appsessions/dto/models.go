@@ -19,6 +19,20 @@ type AppSession struct {
 	AccountVerificationError     string             `json:"accountVerificationError,omitempty"`
 	AccountVerificationStartedAt string             `json:"accountVerificationStartedAt,omitempty"`
 	LastVerifiedAt               string             `json:"lastVerifiedAt"`
+	SourceType                   string             `json:"sourceType,omitempty"`
+	SourceBrowser                string             `json:"sourceBrowser,omitempty"`
+	SourceProfile                string             `json:"sourceProfile,omitempty"`
+	LastSyncedAt                 string             `json:"lastSyncedAt,omitempty"`
+	Source                       *AppSessionSource  `json:"source,omitempty"`
+}
+
+type AppSessionSource struct {
+	Mode         string `json:"mode,omitempty"`
+	BrowserID    string `json:"browserId,omitempty"`
+	BrowserLabel string `json:"browserLabel,omitempty"`
+	ProfileID    string `json:"profileId,omitempty"`
+	ProfileLabel string `json:"profileLabel,omitempty"`
+	SyncedAt     string `json:"syncedAt,omitempty"`
 }
 
 type AppSessionAccount struct {
@@ -105,4 +119,51 @@ type AppSessionConnectSession struct {
 type OpenAppSessionSiteRequest struct {
 	ID        string `json:"id"`
 	TargetURL string `json:"targetUrl,omitempty"`
+}
+
+// VerifyAppSessionRequest starts a read-only account verification using the
+// credential snapshot already stored for the App Session. It never imports or
+// replaces browser cookies.
+type VerifyAppSessionRequest struct {
+	ID string `json:"id"`
+}
+
+type BrowserProfileSelection struct {
+	Mode      string `json:"mode,omitempty"`
+	BrowserID string `json:"browserId"`
+	ProfileID string `json:"profileId"`
+}
+
+type BrowserProfileDiscoveryRequest struct {
+	BrowserID string `json:"browserId"`
+}
+
+type AppSessionBrowserScanItem struct {
+	AppSessionID string `json:"appSessionId"`
+	SiteKey      string `json:"siteKey"`
+	Label        string `json:"label"`
+	AccountLabel string `json:"accountLabel,omitempty"`
+	Status       string `json:"status"`
+	Selectable   bool   `json:"selectable"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+type AppSessionBrowserScanResult struct {
+	BrowserID     string                      `json:"browserId"`
+	ProfileID     string                      `json:"profileId"`
+	SnapshotToken string                      `json:"snapshotToken"`
+	Items         []AppSessionBrowserScanItem `json:"items"`
+}
+
+type AppSessionBrowserImportRequest struct {
+	Mode          string   `json:"mode,omitempty"`
+	BrowserID     string   `json:"browserId"`
+	ProfileID     string   `json:"profileId"`
+	SnapshotToken string   `json:"snapshotToken"`
+	AppSessionIDs []string `json:"appSessionIds"`
+}
+
+type AppSessionBrowserImportResult struct {
+	ImportedIDs []string `json:"importedIds"`
+	SkippedIDs  []string `json:"skippedIds"`
 }

@@ -1,9 +1,15 @@
 import * as React from "react";
 import { FileText, ImageIcon, Loader2, Music, Radio, Video } from "lucide-react";
 
-import { FlvPreview } from "@/app/media/FlvPreview";
-import { VidstackPreview, type VidstackPreviewLabels, type VidstackPreviewProps } from "@/app/media/VidstackPreview";
+import type { VidstackPreviewLabels, VidstackPreviewProps } from "@/app/media/VidstackPreview";
 import { cn } from "@/lib/utils";
+
+const FlvPreview = React.lazy(() =>
+  import("@/app/media/FlvPreview").then(({ FlvPreview: Component }) => ({ default: Component })),
+);
+const VidstackPreview = React.lazy(() =>
+  import("@/app/media/VidstackPreview").then(({ VidstackPreview: Component }) => ({ default: Component })),
+);
 
 export type MediaPreviewKind =
   | "audio"
@@ -30,6 +36,7 @@ export type MediaPreviewSurfaceProps = {
   imageClassName?: string;
   loading?: boolean;
   loaded?: boolean;
+  chrome?: VidstackPreviewProps["chrome"];
   posterUrl?: string;
   durationMs?: number;
   persistKey?: string;
@@ -61,9 +68,9 @@ function MediaPreviewPlaceholder(props: {
             : ImageIcon;
 
   return (
-    <div className="flex flex-col items-center gap-2 text-xs font-medium text-muted-foreground">
+    <div className="app-media-preview-placeholder flex flex-col items-center gap-2">
       {props.loading ? (
-        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+        <Loader2 className="app-media-preview-placeholder__spinner h-5 w-5 app-completed-loading-spinner" />
       ) : (
         <Icon className="h-5 w-5" />
       )}
@@ -107,14 +114,18 @@ export function MediaPreviewSurface(props: MediaPreviewSurfaceProps) {
           props.videoClassName,
         )}
       >
-        <FlvPreview
-          labels={props.labels}
-          mediaUrl={mediaUrl}
-          title={title}
-          posterUrl={props.posterUrl}
-          streamType={props.streamType === "live" ? "live" : "on-demand"}
-          onPresentationModeChange={props.onPresentationModeChange}
-        />
+        <React.Suspense
+          fallback={<MediaPreviewPlaceholder kind="flv" label={props.labels.loading || props.labels.noPreview} loading />}
+        >
+          <FlvPreview
+            labels={props.labels}
+            mediaUrl={mediaUrl}
+            title={title}
+            posterUrl={props.posterUrl}
+            streamType={props.streamType === "live" ? "live" : "on-demand"}
+            onPresentationModeChange={props.onPresentationModeChange}
+          />
+        </React.Suspense>
       </div>
     );
   } else if ((props.kind === "video" || props.kind === "live") && mediaUrl) {
@@ -125,18 +136,23 @@ export function MediaPreviewSurface(props: MediaPreviewSurfaceProps) {
           props.videoClassName,
         )}
       >
-        <VidstackPreview
-          labels={props.labels}
-          mediaUrl={mediaUrl}
-          title={title}
-          persistKey={props.persistKey}
-          posterUrl={props.posterUrl}
-          durationMs={props.durationMs}
-          streamType={props.streamType ?? (isLive ? "live" : "on-demand")}
-          sourceType={props.sourceType}
-          persistProgress={props.persistProgress ?? (isLive ? false : undefined)}
-          onPresentationModeChange={props.onPresentationModeChange}
-        />
+        <React.Suspense
+          fallback={<MediaPreviewPlaceholder kind={props.kind} label={props.labels.loading || props.labels.noPreview} loading />}
+        >
+          <VidstackPreview
+            labels={props.labels}
+            mediaUrl={mediaUrl}
+            title={title}
+            chrome={props.chrome}
+            persistKey={props.persistKey}
+            posterUrl={props.posterUrl}
+            durationMs={props.durationMs}
+            streamType={props.streamType ?? (isLive ? "live" : "on-demand")}
+            sourceType={props.sourceType}
+            persistProgress={props.persistProgress ?? (isLive ? false : undefined)}
+            onPresentationModeChange={props.onPresentationModeChange}
+          />
+        </React.Suspense>
       </div>
     );
   } else if (props.kind === "image" && mediaUrl) {

@@ -6,13 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/library"
 )
 
-const listenLocalProbeTimeout = 20 * time.Second
+const (
+	listenLocalProbeTimeout       = 20 * time.Second
+	listenLocalRefreshWorkerCount = 4
+)
 
 type listenLocalCoverLookup struct {
 	byOperationID map[string]string
@@ -25,6 +29,9 @@ func (service *LibraryService) ListListenLocalTracks(ctx context.Context, reques
 	}
 	items, err := service.localTracks.List(ctx, library.ListenLocalTrackListOptions{
 		Query:              request.Query,
+		Artist:             request.Artist,
+		Album:              request.Album,
+		Sort:               request.Sort,
 		IncludeUnavailable: request.IncludeUnavailable,
 		Limit:              request.Limit,
 		Offset:             request.Offset,
@@ -71,16 +78,74 @@ func (service *LibraryService) RefreshListenLocalIndex(ctx context.Context, requ
 	}
 	lookups := make(map[string]listenLocalCoverLookup)
 	for _, item := range files {
+		if err := ctx.Err(); err != nil {
+			return response, err
+		}
 		if _, exists := lookups[item.LibraryID]; exists {
 			continue
 		}
 		libraryFiles, _ := service.files.ListByLibraryID(ctx, item.LibraryID)
 		lookups[item.LibraryID] = buildListenLocalCoverLookup(libraryFiles)
 	}
+	if len(files) == 0 {
+		return response, nil
+	}
+
+	workerCount := min(listenLocalRefreshWorkerCount, len(files))
+	jobs := make(chan library.LibraryFile)
+	var responseMu sync.Mutex
+	var workers sync.WaitGroup
+	workers.Add(workerCount)
+	for range workerCount {
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case item, ok := <-jobs:
+					if !ok {
+						return
+					}
+					if ctx.Err() != nil {
+						return
+					}
+					itemResponse := dto.ListenLocalIndexRefreshResponse{}
+					service.refreshListenLocalTrack(ctx, item, nil, lookups[item.LibraryID], &itemResponse)
+					responseMu.Lock()
+					mergeListenLocalIndexRefreshResponse(&response, itemResponse)
+					responseMu.Unlock()
+				}
+			}
+		}()
+	}
+
+dispatch:
 	for _, item := range files {
-		service.refreshListenLocalTrack(ctx, item, nil, lookups[item.LibraryID], &response)
+		select {
+		case <-ctx.Done():
+			break dispatch
+		case jobs <- item:
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	if err := ctx.Err(); err != nil {
+		return response, err
 	}
 	return response, nil
+}
+
+func mergeListenLocalIndexRefreshResponse(target *dto.ListenLocalIndexRefreshResponse, item dto.ListenLocalIndexRefreshResponse) {
+	if target == nil {
+		return
+	}
+	target.Scanned += item.Scanned
+	target.Added += item.Added
+	target.Updated += item.Updated
+	target.Removed += item.Removed
+	target.Missing += item.Missing
+	target.Failed += item.Failed
 }
 
 func (service *LibraryService) RemoveListenLocalTrack(ctx context.Context, request dto.RemoveListenLocalTrackRequest) error {
@@ -91,6 +156,21 @@ func (service *LibraryService) RemoveListenLocalTrack(ctx context.Context, reque
 	if fileID == "" {
 		return library.ErrFileNotFound
 	}
+	unlock := service.lockListenLocalTrackMutation(fileID)
+	defer unlock()
+	if service.localMusicMemberships != nil {
+		now := service.now()
+		membership, err := library.NewListenLocalMusicMembership(library.ListenLocalMusicMembershipParams{
+			FileID: fileID, State: string(library.ListenLocalMusicMembershipExcluded), Reason: "user",
+			CreatedAt: &now, UpdatedAt: &now,
+		})
+		if err != nil {
+			return err
+		}
+		if err := service.localMusicMemberships.Save(ctx, membership); err != nil {
+			return err
+		}
+	}
 	return service.localTracks.Delete(ctx, fileID)
 }
 
@@ -98,6 +178,8 @@ func (service *LibraryService) ClearMissingListenLocalTracks(ctx context.Context
 	if service == nil || service.localTracks == nil {
 		return dto.ClearMissingListenLocalTracksResponse{}, nil
 	}
+	unlock := service.lockAllListenLocalTrackMutations()
+	defer unlock()
 	removed, err := service.localTracks.DeleteUnavailable(ctx)
 	if err != nil {
 		return dto.ClearMissingListenLocalTracksResponse{}, err
@@ -124,6 +206,44 @@ func (service *LibraryService) refreshListenLocalTrack(ctx context.Context, file
 	if service == nil || service.localTracks == nil {
 		return
 	}
+	unlock := service.lockListenLocalTrackMutation(fileItem.ID)
+	defer unlock()
+	providedProbeMatchesCurrentPath := true
+	if service.files != nil {
+		// Refresh jobs are queued from a snapshot. A relink may have committed a
+		// newer path while this job waited for the same-file mutation lock.
+		if current, err := service.files.Get(ctx, fileItem.ID); err == nil {
+			providedProbeMatchesCurrentPath = sameListenLocalPath(
+				fileItem.Storage.LocalPath,
+				current.Storage.LocalPath,
+			)
+			fileItem = current
+		}
+	}
+	track, exists := service.currentListenLocalTrack(ctx, fileItem.ID)
+	if service.localMusicMemberships != nil {
+		membership, membershipErr := service.localMusicMemberships.Get(ctx, fileItem.ID)
+		switch {
+		case membershipErr == nil && membership.IsExcluded():
+			if exists {
+				if err := service.localTracks.Delete(ctx, fileItem.ID); err != nil {
+					if response != nil {
+						response.Failed++
+					}
+					return
+				}
+				if response != nil {
+					response.Removed++
+				}
+			}
+			return
+		case membershipErr != nil && !errors.Is(membershipErr, library.ErrListenLocalMusicMembershipNotFound):
+			if response != nil {
+				response.Failed++
+			}
+			return
+		}
+	}
 	if !isListenLocalMediaCandidate(fileItem) {
 		if service.localTracks.Delete(ctx, fileItem.ID) == nil && response != nil {
 			response.Removed++
@@ -132,11 +252,26 @@ func (service *LibraryService) refreshListenLocalTrack(ctx context.Context, file
 	}
 
 	now := service.now()
-	track, exists := service.currentListenLocalTrack(ctx, fileItem.ID)
 	stat, statErr := os.Stat(strings.TrimSpace(fileItem.Storage.LocalPath))
 	if statErr != nil || stat == nil || stat.IsDir() {
 		if shouldKeepMissingListenLocalTrack(fileItem, exists) {
-			item, buildErr := service.buildMissingListenLocalTrack(fileItem, coverLookup, now, statErr)
+			item := track
+			buildErr := error(nil)
+			if exists {
+				// Losing the file must not erase metadata that was successfully
+				// probed earlier. This data still powers missing-track repair and
+				// playlist presentation while the file is unavailable.
+				item.LocalPath = strings.TrimSpace(fileItem.Storage.LocalPath)
+				item.Availability = library.ListenLocalTrackMissing
+				item.LastCheckedAt = now
+				item.UpdatedAt = now
+				item.ProbeError = listenLocalMissingMessage(statErr)
+				if cover := resolveListenLocalCoverPath(fileItem, coverLookup); cover != "" {
+					item.CoverLocalPath = cover
+				}
+			} else {
+				item, buildErr = service.buildMissingListenLocalTrack(fileItem, coverLookup, now, statErr)
+			}
 			if buildErr == nil && service.localTracks.Save(ctx, item) == nil && response != nil {
 				response.Missing++
 			}
@@ -149,21 +284,28 @@ func (service *LibraryService) refreshListenLocalTrack(ctx context.Context, file
 	}
 
 	var probe mediaProbe
-	if providedProbe != nil {
+	if providedProbe != nil && !exists && providedProbeMatchesCurrentPath {
 		probe = *providedProbe
 	} else {
+		// A supplied probe may have been captured before a concurrent metadata
+		// replacement. Re-probe existing rows while holding the same-file lock so
+		// stale tags can never become the final repository write.
 		probeCtx, cancel := context.WithTimeout(ctx, listenLocalProbeTimeout)
 		defer cancel()
 		probed, err := service.probeRequiredMedia(probeCtx, fileItem.Storage.LocalPath)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			if response != nil {
 				response.Failed++
 			}
 			if exists {
-				track.Availability = library.ListenLocalTrackMissing
+				// The file is still present, so a transient decoder/tool failure must
+				// not hide a previously indexed song or erase its known-good tags.
+				track.Availability = library.ListenLocalTrackAvailable
 				track.LastCheckedAt = now
 				track.ProbeError = strings.TrimSpace(err.Error())
-				track.UpdatedAt = now
 				_ = service.localTracks.Save(ctx, track)
 			}
 			return
@@ -179,6 +321,14 @@ func (service *LibraryService) refreshListenLocalTrack(ctx context.Context, file
 		}
 		return
 	}
+	probe.ContentIdentitySignature = stabilizeListenLocalContentIdentitySignature(
+		track.ContentIdentitySignature,
+		service.listenLocalContentIdentitySignature(
+			ctx,
+			fileItem.Storage.LocalPath,
+			probe,
+		),
+	)
 
 	item, err := service.buildAvailableListenLocalTrack(fileItem, probe, coverLookup, stat, now)
 	if err != nil {
@@ -213,29 +363,32 @@ func (service *LibraryService) currentListenLocalTrack(ctx context.Context, file
 func (service *LibraryService) buildAvailableListenLocalTrack(fileItem library.LibraryFile, probe mediaProbe, coverLookup listenLocalCoverLookup, stat os.FileInfo, now time.Time) (library.ListenLocalTrack, error) {
 	media := probe.toMediaInfo()
 	return library.NewListenLocalTrack(library.ListenLocalTrackParams{
-		FileID:         fileItem.ID,
-		LibraryID:      fileItem.LibraryID,
-		LocalPath:      fileItem.Storage.LocalPath,
-		Title:          resolveListenLocalTrackTitle(fileItem),
-		Author:         fileItem.Metadata.Author,
-		CoverLocalPath: resolveListenLocalCoverPath(fileItem, coverLookup),
-		Format:         media.Format,
-		AudioCodec:     media.AudioCodec,
-		DurationMs:     media.DurationMs,
-		SizeBytes:      resolveListenLocalSize(&media, stat),
-		ModTimeUnix:    stat.ModTime().Unix(),
-		Availability:   library.ListenLocalTrackAvailable,
-		LastCheckedAt:  &now,
-		CreatedAt:      &fileItem.CreatedAt,
-		UpdatedAt:      &now,
+		FileID:                   fileItem.ID,
+		LibraryID:                fileItem.LibraryID,
+		ContentIdentitySignature: probe.ContentIdentitySignature,
+		LocalPath:                fileItem.Storage.LocalPath,
+		Title:                    firstNonEmpty(probe.Title, resolveListenLocalTrackTitle(fileItem)),
+		Author:                   firstNonEmpty(probe.Artist, fileItem.Metadata.Author),
+		Album:                    probe.Album,
+		AlbumArtist:              probe.AlbumArtist,
+		Genre:                    probe.Genre,
+		TrackNumber:              probe.TrackNumber,
+		DiscNumber:               probe.DiscNumber,
+		Year:                     probe.Year,
+		CoverLocalPath:           resolveListenLocalCoverPath(fileItem, coverLookup),
+		Format:                   media.Format,
+		AudioCodec:               media.AudioCodec,
+		DurationMs:               media.DurationMs,
+		SizeBytes:                resolveListenLocalSize(&media, stat),
+		ModTimeUnix:              stat.ModTime().Unix(),
+		Availability:             library.ListenLocalTrackAvailable,
+		LastCheckedAt:            &now,
+		CreatedAt:                &fileItem.CreatedAt,
+		UpdatedAt:                &now,
 	})
 }
 
 func (service *LibraryService) buildMissingListenLocalTrack(fileItem library.LibraryFile, coverLookup listenLocalCoverLookup, now time.Time, statErr error) (library.ListenLocalTrack, error) {
-	message := "missing local file"
-	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		message = statErr.Error()
-	}
 	return library.NewListenLocalTrack(library.ListenLocalTrackParams{
 		FileID:         fileItem.ID,
 		LibraryID:      fileItem.LibraryID,
@@ -247,10 +400,17 @@ func (service *LibraryService) buildMissingListenLocalTrack(fileItem library.Lib
 		AudioCodec:     "",
 		Availability:   library.ListenLocalTrackMissing,
 		LastCheckedAt:  &now,
-		ProbeError:     message,
+		ProbeError:     listenLocalMissingMessage(statErr),
 		CreatedAt:      &fileItem.CreatedAt,
 		UpdatedAt:      &now,
 	})
+}
+
+func listenLocalMissingMessage(statErr error) string {
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return statErr.Error()
+	}
+	return "missing local file"
 }
 
 func isListenLocalMediaCandidate(fileItem library.LibraryFile) bool {
@@ -352,21 +512,29 @@ func resolveListenLocalCoverPath(fileItem library.LibraryFile, lookup listenLoca
 
 func toListenLocalTrackDTO(item library.ListenLocalTrack) dto.ListenLocalTrackDTO {
 	return dto.ListenLocalTrackDTO{
-		ID:             item.FileID,
-		FileID:         item.FileID,
-		LibraryID:      item.LibraryID,
-		Title:          item.Title,
-		Author:         item.Author,
-		LocalPath:      item.LocalPath,
-		CoverLocalPath: item.CoverLocalPath,
-		Format:         item.Format,
-		AudioCodec:     item.AudioCodec,
-		DurationMs:     item.DurationMs,
-		SizeBytes:      item.SizeBytes,
-		ModTimeUnix:    item.ModTimeUnix,
-		Availability:   item.Availability,
-		LastCheckedAt:  item.LastCheckedAt.Format(time.RFC3339),
-		ProbeError:     item.ProbeError,
-		UpdatedAt:      item.UpdatedAt.Format(time.RFC3339),
+		ID:               item.FileID,
+		FileID:           item.FileID,
+		LibraryID:        item.LibraryID,
+		Title:            item.Title,
+		Author:           item.Author,
+		Album:            item.Album,
+		AlbumArtist:      item.AlbumArtist,
+		Genre:            item.Genre,
+		TrackNumber:      item.TrackNumber,
+		DiscNumber:       item.DiscNumber,
+		Year:             item.Year,
+		LocalPath:        item.LocalPath,
+		CoverLocalPath:   item.CoverLocalPath,
+		Format:           item.Format,
+		AudioCodec:       item.AudioCodec,
+		DurationMs:       item.DurationMs,
+		SizeBytes:        item.SizeBytes,
+		ModTimeUnix:      item.ModTimeUnix,
+		Availability:     item.Availability,
+		LastCheckedAt:    item.LastCheckedAt.Format(time.RFC3339),
+		ProbeError:       item.ProbeError,
+		CreatedAt:        item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:        item.UpdatedAt.Format(time.RFC3339),
+		MetadataWritable: listenLocalMetadataWritable(item.LocalPath),
 	}
 }

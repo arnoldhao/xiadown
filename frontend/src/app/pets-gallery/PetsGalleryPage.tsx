@@ -1,5 +1,4 @@
 import * as React from "react";
-import { System } from "@wailsio/runtime";
 import {
   AlertCircle,
   ArrowLeft,
@@ -17,7 +16,6 @@ import {
   X,
 } from "lucide-react";
 
-import { WindowControls } from "@/components/layout/WindowControls";
 import { LocalPetGalleryCard } from "@/features/pets/card";
 import { mergePetPreferences, resolveActivePet } from "@/features/pets/shared";
 import { getXiaText } from "@/features/xiadown/shared";
@@ -64,7 +62,14 @@ import {
 } from "@/shared/ui/fun-button-effect";
 import { Select } from "@/shared/ui/select";
 import { PetDisplay } from "@/shared/ui/pet-player";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { WorkspacePrimaryHeaderAction } from "@/shared/ui/workspace-primary-header-action";
+import {
+  WorkspacePage,
+  WorkspacePageContent,
+  WorkspacePageFooter,
+  WorkspacePageTopBar,
+  defineWorkspacePageContract,
+} from "@/shared/ui/workspace-page";
 import { openFileDialog } from "@/shared/utils/dialogHelpers";
 import {
   buildAssetPreviewURL,
@@ -81,7 +86,10 @@ import {
   PET_GALLERY_CONTEXT_MENU_ITEM_CLASS_NAME,
 } from "@/shared/styles/xiadown";
 import type { Settings } from "@/shared/contracts/settings";
-import type { OnlinePetImportSession, PetImportDraft } from "@/shared/contracts/pets";
+import type {
+  OnlinePetImportSession,
+  PetImportDraft,
+} from "@/shared/contracts/pets";
 
 export type PetsGalleryNavigation = {
   action: "gallery" | "detail";
@@ -104,10 +112,10 @@ export function PetsGalleryPage(props: {
   text: XiaText;
   settings: Settings | null;
   navigation: PetsGalleryNavigation | null;
+  reserveWindowControls?: boolean;
   onOpenDocumentation?: (path?: string) => void;
 }) {
   const { text, settings, navigation } = props;
-  const isWindows = System.IsWindows();
   const petsQuery = usePets();
   const { data: httpBaseURL = "" } = useHttpBaseURL();
   const updateSettings = useUpdateSettings();
@@ -115,17 +123,28 @@ export function PetsGalleryPage(props: {
   const deletePet = useDeletePet();
   const [selectedPetId, setSelectedPetId] = React.useState("");
   const [importOpen, setImportOpen] = React.useState(false);
-  const [contextMenuTarget, setContextMenuTarget] = React.useState<PetContextMenuTarget | null>(null);
-  const [deleteConfirmPet, setDeleteConfirmPet] = React.useState<Pet | null>(null);
+  const [contextMenuTarget, setContextMenuTarget] =
+    React.useState<PetContextMenuTarget | null>(null);
+  const [deleteConfirmPet, setDeleteConfirmPet] = React.useState<Pet | null>(
+    null,
+  );
   const [deleteConfirmError, setDeleteConfirmError] = React.useState("");
-  const [galleryLimit, setGalleryLimit] = React.useState(PET_GALLERY_INITIAL_LIMIT);
+  const [galleryLimit, setGalleryLimit] = React.useState(
+    PET_GALLERY_INITIAL_LIMIT,
+  );
   const [animation, setAnimation] = React.useState<PetAnimation>("running");
   const [importEffect] = React.useState<FunButtonEffect>(() =>
     pickFunButtonEffect(),
   );
   const pets = petsQuery.data ?? [];
-  const readyPets = React.useMemo(() => pets.filter((pet) => pet.status === "ready"), [pets]);
-  const activePet = React.useMemo(() => resolveActivePet(readyPets, settings), [readyPets, settings]);
+  const readyPets = React.useMemo(
+    () => pets.filter((pet) => pet.status === "ready"),
+    [pets],
+  );
+  const activePet = React.useMemo(
+    () => resolveActivePet(readyPets, settings),
+    [readyPets, settings],
+  );
   const galleryPets = React.useMemo(
     () => sortGalleryPets(readyPets, activePet?.id ?? ""),
     [activePet?.id, readyPets],
@@ -145,6 +164,32 @@ export function PetsGalleryPage(props: {
   );
   const mode = selectedPet ? "detail" : "gallery";
   const documentationLabel = `${text.petGallery.title} ${text.sidebar.documentation}`;
+  const pageContract =
+    mode === "detail" && selectedPet
+      ? defineWorkspacePageContract({
+          presentation: "primary",
+          recipe: "detail",
+          routeLabel: `${text.petGallery.title} / ${selectedPet.displayName}`,
+          topBar: "navigation",
+          heading: "assistive",
+          contentLayout: "card-grid",
+          footer: "none",
+          scroll: "content",
+          density: "regular",
+          immersion: "standard",
+        })
+      : defineWorkspacePageContract({
+          presentation: "primary",
+          recipe: "browse",
+          routeLabel: text.petGallery.title,
+          topBar: "drag",
+          heading: "display",
+          contentLayout: "card-grid",
+          footer: "overlay",
+          scroll: "content",
+          density: "comfortable",
+          immersion: "standard",
+        });
 
   React.useEffect(() => {
     if (!navigation) {
@@ -167,7 +212,12 @@ export function PetsGalleryPage(props: {
   }, [pets, petsQuery.isFetched, selectedPetId]);
 
   React.useEffect(() => {
-    setGalleryLimit((current) => Math.min(Math.max(current, PET_GALLERY_INITIAL_LIMIT), Math.max(galleryPets.length, PET_GALLERY_INITIAL_LIMIT)));
+    setGalleryLimit((current) =>
+      Math.min(
+        Math.max(current, PET_GALLERY_INITIAL_LIMIT),
+        Math.max(galleryPets.length, PET_GALLERY_INITIAL_LIMIT),
+      ),
+    );
   }, [galleryPets.length]);
 
   const setActivePet = React.useCallback(
@@ -215,15 +265,18 @@ export function PetsGalleryPage(props: {
     [exportPet, text, text.petGallery],
   );
 
-  const openPetContextMenu = React.useCallback((event: React.MouseEvent, pet: Pet) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setContextMenuTarget({
-      petId: pet.id,
-      x: event.clientX,
-      y: event.clientY,
-    });
-  }, []);
+  const openPetContextMenu = React.useCallback(
+    (event: React.MouseEvent, pet: Pet) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setContextMenuTarget({
+        petId: pet.id,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    },
+    [],
+  );
 
   const handleViewContextMenuPet = React.useCallback(() => {
     if (!contextMenuPet) {
@@ -286,7 +339,7 @@ export function PetsGalleryPage(props: {
             type="button"
             aria-hidden="true"
             tabIndex={-1}
-            className="fixed z-50 h-px w-px opacity-0 outline-none"
+            className="app-pets-context-menu-anchor"
             style={{
               left: contextMenuTarget.x,
               top: contextMenuTarget.y,
@@ -303,14 +356,20 @@ export function PetsGalleryPage(props: {
         <div className="grid">
           <DropdownMenuItem
             className={PET_GALLERY_CONTEXT_MENU_ITEM_CLASS_NAME}
-            disabled={!contextMenuPet || contextMenuPet.id === activePet?.id || updateSettings.isPending}
+            disabled={
+              !contextMenuPet ||
+              contextMenuPet.id === activePet?.id ||
+              updateSettings.isPending
+            }
             onSelect={handleSetDefaultContextMenuPet}
           >
             <div className={PET_GALLERY_CONTEXT_MENU_ICON_SLOT_CLASS_NAME}>
               <PawPrint className="h-4 w-4" />
             </div>
-            <span className="truncate font-medium">
-              {contextMenuPet?.id === activePet?.id ? text.petGallery.activePet : text.petGallery.setActive}
+            <span className="truncate">
+              {contextMenuPet?.id === activePet?.id
+                ? text.petGallery.activePet
+                : text.petGallery.setActive}
             </span>
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -321,7 +380,7 @@ export function PetsGalleryPage(props: {
             <div className={PET_GALLERY_CONTEXT_MENU_ICON_SLOT_CLASS_NAME}>
               <Eye className="h-4 w-4" />
             </div>
-            <span className="truncate font-medium">{text.actions.view}</span>
+            <span className="truncate">{text.actions.view}</span>
           </DropdownMenuItem>
           <DropdownMenuItem
             className={PET_GALLERY_CONTEXT_MENU_ITEM_CLASS_NAME}
@@ -331,7 +390,9 @@ export function PetsGalleryPage(props: {
             <div className={PET_GALLERY_CONTEXT_MENU_ICON_SLOT_CLASS_NAME}>
               <Trash2 className="h-4 w-4" />
             </div>
-            <span className="truncate font-medium">{text.actions.deleteItem}</span>
+            <span className="truncate">
+              {text.actions.deleteItem}
+            </span>
           </DropdownMenuItem>
         </div>
       </DropdownMenuContent>
@@ -351,12 +412,12 @@ export function PetsGalleryPage(props: {
         }
       }}
     >
-      <DialogContent className="grid max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
+      <DialogContent className="app-pets-delete-dialog">
         <DialogHeader className="min-w-0">
-          <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          <DialogTitle className="app-pets-delete-dialog__title">
             {text.petGallery.deleteTitle}
           </DialogTitle>
-          <DialogDescription className="overflow-hidden break-words text-left leading-5 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+          <DialogDescription className="app-pets-delete-dialog__description">
             {deleteConfirmPet
               ? formatPetTemplate(text.petGallery.deleteMessage, {
                   name: deleteConfirmPet.displayName || deleteConfirmPet.id,
@@ -366,14 +427,18 @@ export function PetsGalleryPage(props: {
         </DialogHeader>
         <div className="min-h-0 overflow-hidden">
           {deleteConfirmError ? (
-            <div className="overflow-hidden break-words text-xs leading-5 text-destructive [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            <div className="app-pets-delete-dialog__error">
               {deleteConfirmError}
             </div>
           ) : null}
         </div>
         <div className="app-dialog-footer flex flex-nowrap items-center justify-between gap-2">
           <DialogClose asChild>
-            <Button type="button" variant="outline" disabled={deletePet.isPending}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletePet.isPending}
+            >
               {text.actions.cancelDialog}
             </Button>
           </DialogClose>
@@ -383,7 +448,9 @@ export function PetsGalleryPage(props: {
             disabled={!deleteConfirmPet || deletePet.isPending}
             onClick={() => void executeDeletePet()}
           >
-            {deletePet.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {deletePet.isPending ? (
+              <Loader2 className="h-4 w-4 app-motion-spin" />
+            ) : null}
             {text.actions.deleteItem}
           </Button>
         </div>
@@ -392,138 +459,125 @@ export function PetsGalleryPage(props: {
   );
 
   return (
-    <div className="app-main-page app-main-pets-page relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      <div
-        className={cn(
-          "app-pets-page-toolbar wails-drag flex min-h-[var(--app-page-top-drag-height)] items-center justify-between gap-4 px-5",
-          isWindows
-            ? "min-h-[var(--app-page-top-drag-height)] pb-3 pt-4"
-            : "pb-3 pt-4",
-        )}
+    <WorkspacePage
+      contract={pageContract}
+      className="app-main-page app-main-pets-page"
+    >
+      <WorkspacePageTopBar
+        actionsLabel={pageContract.routeLabel}
+        className="app-pets-page-toolbar"
+        reserveWindowControls={props.reserveWindowControls}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          {mode === "detail" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="wails-no-drag h-8 w-8 rounded-full"
-              onClick={() => setSelectedPetId("")}
-              aria-label={text.actions.back}
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          ) : null}
-          <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-            <PawPrint className="h-4 w-4 shrink-0 text-primary" />
-            <span className="truncate">
-              {mode === "detail" && selectedPet
-                ? `${text.petGallery.title} / ${selectedPet.displayName}`
-                : text.petGallery.title}
-            </span>
-            {mode === "gallery" ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    className="wails-no-drag inline-flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45"
-                    onClick={() => props.onOpenDocumentation?.("pets")}
-                    aria-label={documentationLabel}
-                  >
-                    <HelpCircle className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {documentationLabel}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
-          </div>
-        </div>
-        <div
-          className={cn(
-            "flex min-w-0 items-center justify-end gap-2",
-            isWindows && "min-w-[var(--app-windows-caption-control-width)]",
-          )}
-        >
-          {isWindows ? <WindowControls platform="windows" /> : null}
-        </div>
-      </div>
+        {mode === "detail" ? (
+          <WorkspacePrimaryHeaderAction
+            label={text.actions.back}
+            onClick={() => setSelectedPetId("")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </WorkspacePrimaryHeaderAction>
+        ) : null}
+      </WorkspacePageTopBar>
 
-      {mode === "detail" && selectedPet ? (
-        <PetDetailView
-          text={text}
-          pet={selectedPet}
-          imageUrl={buildPetImageURL(httpBaseURL, selectedPet)}
-          active={activePet?.id === selectedPet.id}
-          animation={animation}
-          onAnimationChange={setAnimation}
-          onSetActive={() => void setActivePet(selectedPet)}
-          onExport={() => void handleExportPet(selectedPet)}
-          onDelete={() => {
-            setDeleteConfirmError("");
-            setDeleteConfirmPet(selectedPet);
-          }}
-          exporting={exportPet.isPending}
-          deleting={deletePet.isPending && deleteConfirmPet?.id === selectedPet.id}
-          canDelete={selectedPet.scope === "imported"}
-        />
-      ) : (
-        <div className="app-pets-gallery-content min-h-0 flex-1 overflow-y-auto px-6 pb-24 pt-5">
-          {petsQuery.isLoading ? (
-            <div className="app-pets-loading flex h-56 items-center justify-center">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
-          ) : galleryPets.length > 0 ? (
-            <>
-              <div className="flex flex-wrap gap-4">
-                {visibleGalleryPets.map((pet) => (
-                  <LocalPetGalleryCard
-                    key={pet.id}
-                    pet={pet}
-                    imageUrl={buildPetImageURL(httpBaseURL, pet)}
-                    isDefault={activePet?.id === pet.id}
-                    onClick={() => setSelectedPetId(pet.id)}
-                    onContextMenu={(event) => openPetContextMenu(event, pet)}
-                  />
-                ))}
-              </div>
-              {hasMoreGalleryPets ? (
-                <div className="mt-5 flex justify-center">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="compact"
-                    onClick={() =>
-                      setGalleryLimit((current) =>
-                        Math.min(current + PET_GALLERY_PAGE_SIZE, galleryPets.length),
-                      )
-                    }
-                  >
-                    {text.petGallery.showMore}
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="app-pets-empty-state flex h-56 items-center justify-center text-sm">
-              {text.petGallery.empty}
-            </div>
-          )}
-          <div className="pointer-events-none absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2">
-            <Button
-              type="button"
-              variant="default"
-              className="app-running-new-download-button pointer-events-auto h-10 px-4 text-sm font-semibold"
-              data-effect={importEffect}
-              onClick={() => setImportOpen(true)}
+      <WorkspacePageContent
+        className={cn("app-pets-gallery-content", mode === "detail" && "pb-5")}
+        headingClassName={
+          mode === "gallery" ? "app-pets-gallery-heading" : undefined
+        }
+        headingActions={
+          mode === "gallery" ? (
+            <WorkspacePrimaryHeaderAction
+              className="app-pets-gallery-heading-help"
+              label={documentationLabel}
+              onClick={() => props.onOpenDocumentation?.("pets")}
             >
-              <Upload className="h-4 w-4" />
-              {text.petGallery.importAction}
-            </Button>
-          </div>
-        </div>
-      )}
+              <HelpCircle className="h-4 w-4" />
+            </WorkspacePrimaryHeaderAction>
+          ) : undefined
+        }
+      >
+        {mode === "detail" && selectedPet ? (
+          <PetDetailView
+            text={text}
+            pet={selectedPet}
+            imageUrl={buildPetImageURL(httpBaseURL, selectedPet)}
+            active={activePet?.id === selectedPet.id}
+            animation={animation}
+            onAnimationChange={setAnimation}
+            onSetActive={() => void setActivePet(selectedPet)}
+            onExport={() => void handleExportPet(selectedPet)}
+            onDelete={() => {
+              setDeleteConfirmError("");
+              setDeleteConfirmPet(selectedPet);
+            }}
+            exporting={exportPet.isPending}
+            deleting={
+              deletePet.isPending && deleteConfirmPet?.id === selectedPet.id
+            }
+            canDelete={selectedPet.scope === "imported"}
+          />
+        ) : (
+          <>
+            {petsQuery.isLoading ? (
+              <div className="app-pets-loading flex h-56 items-center justify-center">
+                <Loader2 className="h-5 w-5 app-motion-spin" />
+              </div>
+            ) : galleryPets.length > 0 ? (
+              <>
+                <div className="app-pets-gallery-grid">
+                  {visibleGalleryPets.map((pet) => (
+                    <LocalPetGalleryCard
+                      key={pet.id}
+                      pet={pet}
+                      imageUrl={buildPetImageURL(httpBaseURL, pet)}
+                      isDefault={activePet?.id === pet.id}
+                      onClick={() => setSelectedPetId(pet.id)}
+                      onContextMenu={(event) => openPetContextMenu(event, pet)}
+                    />
+                  ))}
+                </div>
+                {hasMoreGalleryPets ? (
+                  <div className="mt-5 flex justify-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="compact"
+                      onClick={() =>
+                        setGalleryLimit((current) =>
+                          Math.min(
+                            current + PET_GALLERY_PAGE_SIZE,
+                            galleryPets.length,
+                          ),
+                        )
+                      }
+                    >
+                      {text.petGallery.showMore}
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="app-pets-empty-state flex h-56 items-center justify-center">
+                {text.petGallery.empty}
+              </div>
+            )}
+          </>
+        )}
+      </WorkspacePageContent>
+
+      {mode === "gallery" ? (
+        <WorkspacePageFooter className="app-pets-gallery-import-footer">
+          <Button
+            type="button"
+            variant="default"
+            className="app-running-new-download-button"
+            data-effect={importEffect}
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload className="h-4 w-4" />
+            {text.petGallery.importAction}
+          </Button>
+        </WorkspacePageFooter>
+      ) : null}
 
       <PetImportDialog
         text={text}
@@ -532,7 +586,7 @@ export function PetsGalleryPage(props: {
       />
       {petContextMenu}
       {petDeleteDialog}
-    </div>
+    </WorkspacePage>
   );
 }
 
@@ -554,71 +608,86 @@ function PetDetailView(props: {
   const sourceLabel = resolvePetSourceLabel(text, pet);
 
   return (
-    <div className="app-pets-gallery-content min-h-0 flex-1 overflow-y-auto px-6 py-5">
-      <div className="mx-auto flex max-w-6xl flex-col gap-5">
-        <section className="app-pets-detail-grid grid gap-5">
-          <div className="app-pets-detail-card flex min-h-[16.75rem] items-center justify-center p-5">
-            <PetDisplay
-              pet={pet}
-              imageUrl={imageUrl}
-              animation={animation}
-              alt={pet.displayName}
-              size={218}
-              glowClassName="h-[18rem] w-[23rem] blur-2xl"
-            />
+    <div className="mx-auto flex max-w-6xl flex-col gap-5">
+      <section className="app-pets-detail-grid grid gap-5">
+        <div className="app-pets-detail-card app-pets-detail-card--preview flex items-center justify-center p-5">
+          <PetDisplay
+            pet={pet}
+            imageUrl={imageUrl}
+            animation={animation}
+            alt={pet.displayName}
+            size={218}
+            glowClassName="app-pets-detail-pet-glow"
+          />
+        </div>
+        <div className="app-pets-detail-card app-pets-detail-card--summary flex flex-col p-4">
+          <div className="app-pets-detail-title shrink-0">
+            {pet.displayName}
           </div>
-          <div className="app-pets-detail-card flex min-h-[16.75rem] flex-col p-4">
-            <div className="shrink-0 text-base font-semibold text-foreground">{pet.displayName}</div>
-            <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
-              {pet.description ? (
-                <div className="text-sm leading-6 text-muted-foreground">{pet.description}</div>
-              ) : null}
-              <PetMetric label={text.petGallery.scopeLabel} value={sourceLabel} />
-            </div>
-            <div className="app-dream-button-group app-pets-detail-actions mt-4 grid shrink-0 grid-cols-3">
-              <Button
-                type="button"
-                variant="ghost"
-                className="app-pets-detail-action"
-                data-active={props.active ? "true" : undefined}
-                onClick={props.onSetActive}
-                disabled={props.active}
-              >
-                <PawPrint className="h-4 w-4" />
-                <span className="truncate">{props.active ? text.petGallery.activePet : text.petGallery.setActive}</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="app-pets-detail-action"
-                onClick={props.onExport}
-                disabled={props.exporting}
-              >
-                {props.exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                <span className="truncate">{text.petGallery.exportAction}</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="app-pets-detail-action text-destructive"
-                onClick={props.onDelete}
-                disabled={!props.canDelete || props.deleting}
-              >
-                {props.deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                <span className="truncate">{text.actions.deleteItem}</span>
-              </Button>
-            </div>
+          <div className="mt-3 min-h-0 flex-1 pr-1">
+            {pet.description ? (
+              <div className="app-pets-detail-description">
+                {pet.description}
+              </div>
+            ) : null}
+            <PetMetric label={text.petGallery.scopeLabel} value={sourceLabel} />
           </div>
-        </section>
+          <div className="app-dream-button-group app-dream-button-group--segmented app-pets-detail-actions mt-4 shrink-0">
+            <Button
+              type="button"
+              variant="ghost"
+              className="app-pets-detail-action"
+              data-active={props.active ? "true" : undefined}
+              onClick={props.onSetActive}
+              disabled={props.active}
+            >
+              <PawPrint className="h-4 w-4" />
+              <span className="truncate">
+                {props.active
+                  ? text.petGallery.activePet
+                  : text.petGallery.setActive}
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="app-pets-detail-action"
+              onClick={props.onExport}
+              disabled={props.exporting}
+            >
+              {props.exporting ? (
+                <Loader2 className="h-4 w-4 app-motion-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              <span className="truncate">{text.petGallery.exportAction}</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="app-pets-detail-action"
+              tone="destructive"
+              onClick={props.onDelete}
+              disabled={!props.canDelete || props.deleting}
+            >
+              {props.deleting ? (
+                <Loader2 className="h-4 w-4 app-motion-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              <span className="truncate">{text.actions.deleteItem}</span>
+            </Button>
+          </div>
+        </div>
+      </section>
 
-        <PetAnimationPreviewGrid
-          text={text}
-          pet={pet}
-          imageUrl={imageUrl}
-          activeAnimation={animation}
-          onAnimationChange={props.onAnimationChange}
-        />
-      </div>
+      <PetAnimationPreviewGrid
+        text={text}
+        pet={pet}
+        imageUrl={imageUrl}
+        activeAnimation={animation}
+        onAnimationChange={props.onAnimationChange}
+      />
     </div>
   );
 }
@@ -637,7 +706,7 @@ function PetAnimationPreviewGrid(props: {
           key={name}
           type="button"
           className={cn(
-            "app-pets-animation-card flex h-36 w-32 flex-col items-center justify-center p-3 text-center",
+            "app-pets-animation-card flex h-36 w-32 flex-col items-center justify-center p-3",
             props.activeAnimation === name && "is-active",
           )}
           data-active={props.activeAnimation === name ? "true" : undefined}
@@ -649,9 +718,9 @@ function PetAnimationPreviewGrid(props: {
             animation={name}
             alt={props.text.petGallery.animations[name]}
             size={78}
-            glowClassName="h-24 w-28 blur-lg opacity-65"
+            glowClassName="app-pets-animation-card__glow"
           />
-          <span className="mt-2 w-full truncate text-xs font-medium text-foreground">
+          <span className="app-pets-animation-card__label mt-2 w-full truncate">
             {props.text.petGallery.animations[name]}
           </span>
         </button>
@@ -662,9 +731,11 @@ function PetAnimationPreviewGrid(props: {
 
 function PetMetric(props: { label: string; value: string }) {
   return (
-    <div className="app-pets-metric mt-3 flex min-w-0 items-center justify-between gap-3 text-xs">
+    <div className="app-pets-metric mt-3 flex min-w-0 items-center justify-between gap-3">
       <div className="app-pets-metric-label shrink-0">{props.label}</div>
-      <div className="app-pets-metric-value min-w-0 truncate font-medium">{props.value}</div>
+      <div className="app-pets-metric-value min-w-0 truncate">
+        {props.value}
+      </div>
     </div>
   );
 }
@@ -697,14 +768,18 @@ function PetImportDialog(props: {
   const [mode, setMode] = React.useState<PetImportMode>("online");
   const [siteId, setSiteId] = React.useState("codex-pets-net");
   const [sessionId, setSessionId] = React.useState("");
-  const [sessionSnapshot, setSessionSnapshot] = React.useState<OnlinePetImportSession | null>(null);
+  const [sessionSnapshot, setSessionSnapshot] =
+    React.useState<OnlinePetImportSession | null>(null);
   const [localPath, setLocalPath] = React.useState("");
-  const [localDraft, setLocalDraft] = React.useState<PetImportDraft | null>(null);
+  const [localDraft, setLocalDraft] = React.useState<PetImportDraft | null>(
+    null,
+  );
   const [localError, setLocalError] = React.useState("");
   const [importedLocalPets, setImportedLocalPets] = React.useState<Pet[]>([]);
   const [closingImport, setClosingImport] = React.useState(false);
   const onlineSessionIdRef = React.useRef("");
-  const onlineStartPromiseRef = React.useRef<Promise<OnlinePetImportSession | null> | null>(null);
+  const onlineStartPromiseRef =
+    React.useRef<Promise<OnlinePetImportSession | null> | null>(null);
 
   const sessionQuery = useOnlinePetImportSession(
     { sessionId },
@@ -712,7 +787,8 @@ function PetImportDialog(props: {
   );
   const onlineSession = sessionQuery.data ?? sessionSnapshot;
   const importedPets = React.useMemo(
-    () => mergeImportedPets(importedLocalPets, onlineSession?.importedPets ?? []),
+    () =>
+      mergeImportedPets(importedLocalPets, onlineSession?.importedPets ?? []),
     [importedLocalPets, onlineSession?.importedPets],
   );
   const browserStatus = startOnlineImport.isPending
@@ -755,7 +831,9 @@ function PetImportDialog(props: {
       AllowsOtherFiletypes: false,
       CanChooseDirectories: false,
       CanChooseFiles: true,
-      Filters: [{ DisplayName: text.petGallery.petPackageFilter, Pattern: "*.zip" }],
+      Filters: [
+        { DisplayName: text.petGallery.petPackageFilter, Pattern: "*.zip" },
+      ],
     });
     const path = resolveDialogPath(selection);
     if (!path) {
@@ -780,7 +858,10 @@ function PetImportDialog(props: {
     }
     setLocalError("");
     try {
-      const pet = await importPet.mutateAsync({ path: localDraft.path, origin: "local" });
+      const pet = await importPet.mutateAsync({
+        path: localDraft.path,
+        origin: "local",
+      });
       setImportedLocalPets((current) => mergeImportedPets(current, [pet]));
       setLocalPath("");
       setLocalDraft(null);
@@ -882,17 +963,28 @@ function PetImportDialog(props: {
     inspectPet.isPending ||
     importPet.isPending;
   const finishBusyIcon =
-    closingImport || finishOnlineImport.isPending || startOnlineImport.isPending;
+    closingImport ||
+    finishOnlineImport.isPending ||
+    startOnlineImport.isPending;
   const hasOnlineBrowserSession =
     mode === "online" &&
-    (closingImport || startOnlineImport.isPending || sessionId.trim().length > 0);
+    (closingImport ||
+      startOnlineImport.isPending ||
+      sessionId.trim().length > 0);
 
   return (
     <Dialog open={props.open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-[min(92vw,34rem)] gap-4 overflow-hidden" showCloseButton={false}>
-        <DialogHeader className="space-y-0 text-left">
-          <DialogTitle className="sr-only">{text.petGallery.importTitle}</DialogTitle>
-          <DialogDescription className="sr-only">{dialogText.description}</DialogDescription>
+      <DialogContent
+        className="app-pets-import-dialog gap-4 overflow-hidden"
+        showCloseButton={false}
+      >
+        <DialogHeader className="app-pets-import-dialog__header space-y-0">
+          <DialogTitle className="sr-only">
+            {text.petGallery.importTitle}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {dialogText.description}
+          </DialogDescription>
           <DreamSegmentSwitch
             value={mode}
             className="mr-auto"
@@ -912,10 +1004,12 @@ function PetImportDialog(props: {
           />
         </DialogHeader>
 
-        <DialogScrollArea className="max-h-[min(68vh,34rem)] space-y-4">
+        <DialogScrollArea className="app-pets-import-dialog__scroll space-y-4">
           {mode === "online" ? (
             <div className="app-pets-import-section space-y-3 p-4">
-              <div className="text-xs leading-5 text-muted-foreground">{dialogText.onlineDescription}</div>
+              <div className="app-pets-import-description">
+                {dialogText.onlineDescription}
+              </div>
               <div className="flex gap-2">
                 <Select
                   className="min-w-0 flex-1"
@@ -937,7 +1031,7 @@ function PetImportDialog(props: {
                   disabled={Boolean(sessionId) || startOnlineImport.isPending}
                 >
                   {startOnlineImport.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 app-motion-spin" />
                   ) : (
                     <ExternalLink className="h-4 w-4" />
                   )}
@@ -945,16 +1039,25 @@ function PetImportDialog(props: {
                 </Button>
               </div>
               <DialogListCard className="app-pets-info-box">
-                <DialogListCardContent className="text-xs">
-                  <ImportInfoRow label={dialogText.onlineSite} value={selectedSiteLabel} />
+                <DialogListCardContent className="app-pets-info-box__content">
+                  <ImportInfoRow
+                    label={dialogText.onlineSite}
+                    value={selectedSiteLabel}
+                  />
                   <ImportInfoRow
                     label={dialogText.browserStatus}
-                    value={resolvePetImportBrowserStatusLabel(text, browserStatus)}
+                    value={resolvePetImportBrowserStatusLabel(
+                      text,
+                      browserStatus,
+                    )}
                   />
                 </DialogListCardContent>
               </DialogListCard>
               {onlineError ? (
-                <ImportStatusMessage intent="danger" icon={<AlertCircle className="h-4 w-4" />}>
+                <ImportStatusMessage
+                  intent="danger"
+                  icon={<AlertCircle className="h-4 w-4" />}
+                >
                   {onlineError}
                 </ImportStatusMessage>
               ) : null}
@@ -970,21 +1073,37 @@ function PetImportDialog(props: {
                   onClick={() => void handleChooseLocalFile()}
                   disabled={inspectPet.isPending || importPet.isPending}
                 >
-                  {inspectPet.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileArchive className="h-4 w-4" />}
+                  {inspectPet.isPending ? (
+                    <Loader2 className="h-4 w-4 app-motion-spin" />
+                  ) : (
+                    <FileArchive className="h-4 w-4" />
+                  )}
                   {text.actions.chooseFile}
                 </Button>
               </div>
             ) : (
               <div className="app-pets-import-section space-y-3 p-4">
                 <DialogListCard className="app-pets-info-box">
-                  <DialogListCardContent className="text-xs">
-                    <ImportInfoRow label={dialogText.fileName} value={getPathBaseName(localPath)} />
+                  <DialogListCardContent className="app-pets-info-box__content">
+                    <ImportInfoRow
+                      label={dialogText.fileName}
+                      value={getPathBaseName(localPath)}
+                    />
                     <ImportInfoRow label={dialogText.path} value={localPath} />
                     {localDraft ? (
                       <>
-                        <ImportInfoRow label={dialogText.petName} value={localDraft.displayName || "-"} />
-                        <ImportInfoRow label={text.petGallery.sizeLabel} value={`${localDraft.imageWidth} x ${localDraft.imageHeight}`} />
-                        <ImportInfoRow label={text.petGallery.gridLabel} value={`${localDraft.columns} x ${localDraft.rows}`} />
+                        <ImportInfoRow
+                          label={dialogText.petName}
+                          value={localDraft.displayName || "-"}
+                        />
+                        <ImportInfoRow
+                          label={text.petGallery.sizeLabel}
+                          value={`${localDraft.imageWidth} x ${localDraft.imageHeight}`}
+                        />
+                        <ImportInfoRow
+                          label={text.petGallery.gridLabel}
+                          value={`${localDraft.columns} x ${localDraft.rows}`}
+                        />
                       </>
                     ) : null}
                   </DialogListCardContent>
@@ -992,13 +1111,24 @@ function PetImportDialog(props: {
                 {localDraft ? (
                   <ImportStatusMessage
                     intent={localReady ? "success" : "danger"}
-                    icon={localReady ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                    icon={
+                      localReady ? (
+                        <CheckCircle2 className="h-4 w-4" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4" />
+                      )
+                    }
                   >
-                    {localReady ? dialogText.validationReady : resolvePetValidationError(localDraft, text)}
+                    {localReady
+                      ? dialogText.validationReady
+                      : resolvePetValidationError(localDraft, text)}
                   </ImportStatusMessage>
                 ) : null}
                 {localError && !localDraft ? (
-                  <ImportStatusMessage intent="danger" icon={<AlertCircle className="h-4 w-4" />}>
+                  <ImportStatusMessage
+                    intent="danger"
+                    icon={<AlertCircle className="h-4 w-4" />}
+                  >
                     {localError}
                   </ImportStatusMessage>
                 ) : null}
@@ -1018,7 +1148,11 @@ function PetImportDialog(props: {
                     onClick={() => void handleImportLocalFile()}
                     disabled={!localReady || importPet.isPending}
                   >
-                    {importPet.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    {importPet.isPending ? (
+                      <Loader2 className="h-4 w-4 app-motion-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
                     {dialogText.importSelected}
                   </Button>
                 </div>
@@ -1028,33 +1162,53 @@ function PetImportDialog(props: {
 
           <div className="app-pets-import-section p-4">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-foreground">{dialogText.importedPets}</div>
-              <Badge variant="outline">{formatImportedCount(dialogText.importedCount, importedPets.length)}</Badge>
+              <div className="app-pets-import-heading">
+                {dialogText.importedPets}
+              </div>
+              <Badge variant="outline">
+                {formatImportedCount(
+                  dialogText.importedCount,
+                  importedPets.length,
+                )}
+              </Badge>
             </div>
             {importedPets.length > 0 ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {importedPets.map((pet) => (
-                  <Badge key={pet.id} variant="secondary" className="max-w-full truncate">
+                  <Badge
+                    key={pet.id}
+                    variant="secondary"
+                    className="max-w-full truncate"
+                  >
                     {pet.displayName}
                   </Badge>
                 ))}
               </div>
             ) : (
-              <div className="mt-3 text-xs text-muted-foreground">{dialogText.importedEmpty}</div>
+              <div className="app-pets-import-empty mt-3">
+                {dialogText.importedEmpty}
+              </div>
             )}
           </div>
         </DialogScrollArea>
 
         <DialogFooter>
-          <Button type="button" variant="default" onClick={() => void handleCompleteImport()} disabled={finishPending}>
+          <Button
+            type="button"
+            variant="default"
+            onClick={() => void handleCompleteImport()}
+            disabled={finishPending}
+          >
             {finishBusyIcon ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 app-motion-spin" />
             ) : hasOnlineBrowserSession ? (
               <X className="h-4 w-4" />
             ) : (
               <CheckCircle2 className="h-4 w-4" />
             )}
-            {hasOnlineBrowserSession ? text.actions.closeBrowser : dialogText.finish}
+            {hasOnlineBrowserSession
+              ? text.actions.closeBrowser
+              : dialogText.finish}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1066,7 +1220,9 @@ function ImportInfoRow(props: { label: string; value: string }) {
   return (
     <DialogRow className="app-pets-info-row flex min-w-0 items-center justify-between gap-3 px-3 py-2">
       <span className="shrink-0">{props.label}</span>
-      <span className="min-w-0 truncate text-right font-medium">{props.value}</span>
+      <span className="app-pets-info-row__value min-w-0 truncate">
+        {props.value}
+      </span>
     </DialogRow>
   );
 }
@@ -1078,7 +1234,7 @@ function ImportStatusMessage(props: {
 }) {
   return (
     <div
-      className="app-pets-status-message flex items-start gap-2 px-3 py-2 text-xs leading-5"
+      className="app-pets-status-message flex items-start gap-2 px-3 py-2"
       data-intent={props.intent}
     >
       <span className="mt-0.5 shrink-0">{props.icon}</span>
@@ -1171,7 +1327,9 @@ function buildPetImageURL(httpBaseURL: string, pet: Pet | null) {
 }
 
 function buildPetArchivePath(directory: string, name: string) {
-  const baseName = sanitizeArchiveName(stripPathExtension(getPathBaseName(name)) || name || "pet");
+  const baseName = sanitizeArchiveName(
+    stripPathExtension(getPathBaseName(name)) || name || "pet",
+  );
   return `${directory.replace(/[\\/]+$/, "")}/${baseName}.zip`;
 }
 
@@ -1193,18 +1351,29 @@ function resolvePetSourceLabel(text: XiaText, pet: Pet) {
 }
 
 function sanitizeArchiveName(value: string) {
-  return value.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-") || "pet";
+  return (
+    value
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, "-") || "pet"
+  );
 }
 
 function resolvePetError(error: unknown, text?: XiaText) {
   return resolvePetErrorDetails(parsePetError(error), text);
 }
 
-function resolvePetSessionError(session: OnlinePetImportSession | null | undefined, text: XiaText) {
+function resolvePetSessionError(
+  session: OnlinePetImportSession | null | undefined,
+  text: XiaText,
+) {
   if (!session) {
     return "";
   }
-  return resolvePetErrorDetails({ code: session.errorCode, message: session.error }, text);
+  return resolvePetErrorDetails(
+    { code: session.errorCode, message: session.error },
+    text,
+  );
 }
 
 function resolvePetValidationError(draft: PetImportDraft, text: XiaText) {
@@ -1266,6 +1435,8 @@ function translatePetErrorCode(code: string | undefined, text?: XiaText) {
       return errors.onlineSessionNotFound;
     case "pet_online_unsupported_site":
       return errors.onlineUnsupportedSite;
+    case "pet_online_network_unavailable":
+      return errors.onlineNetworkUnavailable;
     default:
       return "";
   }
@@ -1305,8 +1476,12 @@ function parsePetErrorFromString(value: string): PetErrorDetails {
   if (!parsed) {
     return { message: value.trim() };
   }
-  const code = stringFromPetErrorField(parsed.code) || stringFromPetErrorField(parsed.errorCode);
-  const message = stringFromPetErrorField(parsed.message) || stringFromPetErrorField(parsed.error);
+  const code =
+    stringFromPetErrorField(parsed.code) ||
+    stringFromPetErrorField(parsed.errorCode);
+  const message =
+    stringFromPetErrorField(parsed.message) ||
+    stringFromPetErrorField(parsed.error);
   if (message) {
     const nested = parsePetErrorFromString(message);
     return {

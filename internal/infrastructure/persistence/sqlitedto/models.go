@@ -7,8 +7,8 @@ import (
 	"github.com/uptrace/bun"
 )
 
-type SiteAppSessionRow struct {
-	bun.BaseModel `bun:"table:site_app_sessions"`
+type AppSessionRow struct {
+	bun.BaseModel `bun:"table:app_sessions"`
 
 	ID                           string         `bun:"id,pk"`
 	SiteKey                      string         `bun:"site_key,unique"`
@@ -24,25 +24,36 @@ type SiteAppSessionRow struct {
 	AccountVerificationError     sql.NullString `bun:"account_verification_error"`
 	AccountVerificationStartedAt sql.NullTime   `bun:"account_verification_started_at"`
 	LastVerifiedAt               sql.NullTime   `bun:"last_verified_at"`
+	SourceType                   sql.NullString `bun:"source_type"`
+	SourceBrowser                sql.NullString `bun:"source_browser"`
+	SourceProfile                sql.NullString `bun:"source_profile"`
+	LastSyncedAt                 sql.NullTime   `bun:"last_synced_at"`
 	CreatedAt                    time.Time      `bun:"created_at"`
 	UpdatedAt                    time.Time      `bun:"updated_at"`
+}
+
+type AppSessionSecretRow struct {
+	bun.BaseModel `bun:"table:app_session_secrets"`
+
+	SiteKey       string    `bun:"site_key,pk"`
+	KeyID         string    `bun:"key_id"`
+	FormatVersion int       `bun:"format_version"`
+	Nonce         []byte    `bun:"nonce"`
+	Ciphertext    []byte    `bun:"ciphertext"`
+	CreatedAt     time.Time `bun:"created_at"`
+	UpdatedAt     time.Time `bun:"updated_at"`
 }
 
 type TelemetryStateRow struct {
 	bun.BaseModel `bun:"table:telemetry_state"`
 
-	ID                        int             `bun:"id,pk"`
-	InstallID                 string          `bun:"install_id"`
-	InstallCreatedAt          time.Time       `bun:"install_created_at"`
-	LaunchCount               int             `bun:"launch_count"`
-	DistinctDaysUsed          int             `bun:"distinct_days_used"`
-	DistinctDaysUsedLastMonth int             `bun:"distinct_days_used_last_month"`
-	CompletedSessionCount     int             `bun:"completed_session_count"`
-	TotalSessionSeconds       float64         `bun:"total_session_seconds"`
-	PreviousSessionSeconds    sql.NullFloat64 `bun:"previous_session_seconds"`
-	FirstChatCompletedAt      sql.NullTime    `bun:"first_chat_completed_at"`
-	FirstLibraryCompletedAt   sql.NullTime    `bun:"first_library_completed_at"`
-	UpdatedAt                 time.Time       `bun:"updated_at"`
+	ID                        int       `bun:"id,pk"`
+	InstallID                 string    `bun:"install_id"`
+	InstallCreatedAt          time.Time `bun:"install_created_at"`
+	LaunchCount               int       `bun:"launch_count"`
+	DistinctDaysUsed          int       `bun:"distinct_days_used"`
+	DistinctDaysUsedLastMonth int       `bun:"distinct_days_used_last_month"`
+	UpdatedAt                 time.Time `bun:"updated_at"`
 }
 
 type DependencyRow struct {

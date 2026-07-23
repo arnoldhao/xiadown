@@ -183,7 +183,7 @@ export function CompletedFileMaintenanceControls(props: {
             onClick={() => void handleOpenRelinkDialog()}
           >
             {action === "verify" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 app-completed-loading-spinner" />
             ) : (
               <Wrench className="h-4 w-4" />
             )}

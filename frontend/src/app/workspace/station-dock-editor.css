@@ -1,0 +1,52 @@
+.app-station-dock-editor__form {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.app-station-dock-editor__list {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 6px;
+  scrollbar-gutter: stable;
+}
+
+.app-station-dock-editor__item {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 9px;
+}
+
+.app-station-dock-editor__station-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+}
+
+.app-station-dock-editor__station-icon > svg {
+  width: 17px;
+  height: 17px;
+}
+
+.app-station-dock-editor__station-name {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-station-dock-editor__order-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.app-station-dock-editor__order-actions svg {
+  width: 14px;
+  height: 14px;
+}

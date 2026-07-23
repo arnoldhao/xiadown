@@ -1,0 +1,807 @@
+/*
+ * YouTube appearance contract.
+ *
+ * YouTube feature styles own composition, responsive geometry and domain
+ * behavior. This Dream module owns their palette, typography, material,
+ * focus, status, media chrome and shared interaction recipes.
+ */
+
+:root {
+  --app-youtube-brand: rgb(255 0 51);
+}
+
+.youtube-workspace-page {
+  background: var(--app-workspace-primary-subpane-surface);
+}
+
+.youtube-workspace-video-card {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 14px;
+  outline: none;
+}
+
+.youtube-workspace-video-card__open:focus-visible {
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.42);
+}
+
+.youtube-workspace-video-card__open {
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  border: 0;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+}
+
+.youtube-workspace-video-card__open:disabled,
+.youtube-workspace-video-card__uploader:disabled {
+  cursor: wait;
+}
+
+.youtube-workspace-video-card__metadata,
+.youtube-workspace-pagination-state,
+.youtube-workspace-pagination-error,
+.youtube-workspace-pagination-retry {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.youtube-workspace-video-card__metadata,
+.youtube-workspace-pagination-state,
+.youtube-workspace-placeholder-icon {
+  color: hsl(var(--muted-foreground));
+}
+
+.youtube-workspace-video-card__metadata {
+  text-align: start;
+}
+
+.youtube-workspace-pagination-error {
+  color: var(--app-status-tone-error);
+}
+
+.youtube-workspace-video-card__uploader {
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  border: 0;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+  transition: color var(--app-motion-duration-base) var(--app-motion-ease-standard);
+}
+
+.youtube-workspace-video-card__uploader:hover {
+  color: hsl(var(--foreground));
+}
+
+.youtube-workspace-video-card__uploader:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
+.youtube-workspace-video-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.youtube-workspace-thumbnail {
+  border-radius: 14px;
+  background: hsl(var(--muted));
+  box-shadow: inset 0 0 0 1px hsl(var(--border) / 0.58);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.youtube-workspace-video-card:hover .youtube-workspace-thumbnail,
+.youtube-workspace-video-card[data-selected="true"] .youtube-workspace-thumbnail {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px hsl(var(--foreground) / 0.13);
+}
+
+.youtube-workspace-duration {
+  color: var(--app-media-chrome-foreground);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.35;
+  border-radius: 5px;
+  background: var(--app-media-chrome-scrim-hover);
+}
+
+.youtube-workspace-watch-page {
+  background: var(--app-workspace-primary-subpane-surface);
+}
+
+.youtube-workspace-watch-info > h1 {
+  color: hsl(var(--foreground));
+  font-size: clamp(13px, 1.2cqw, 15px);
+  font-weight: 700;
+  line-height: 18px;
+  letter-spacing: -0.018em;
+}
+
+.youtube-workspace-watch-byline {
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  line-height: 14px;
+}
+
+/* Subscription status is a quiet icon affordance beside creator identity.
+   Pressed state changes tone only; it never becomes an outlined mini CTA. */
+:root .app-dream-button.youtube-subscription-icon-button[data-app-button][data-variant="ghost"][data-tone][data-size] {
+  --app-button-border: 0;
+
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root .app-dream-button.youtube-subscription-icon-button[data-app-button][data-variant="ghost"][data-tone][data-size][aria-pressed="true"] {
+  border-color: transparent;
+  background: transparent;
+  color: hsl(var(--app-accent-text, var(--primary)));
+}
+
+:root .app-dream-button.youtube-subscription-icon-button[data-app-button][data-variant="ghost"][data-tone][data-size]:hover {
+  border-color: transparent;
+  background: var(--dream-surface-pressed);
+}
+
+.youtube-workspace-watch-uploader {
+  color: hsl(var(--foreground) / 0.78);
+  font: inherit;
+  border: 0;
+  background: transparent;
+}
+
+.youtube-workspace-watch-uploader-avatar {
+  color: hsl(var(--muted-foreground));
+  border-radius: 999px;
+  background: hsl(var(--muted));
+}
+
+button.youtube-workspace-watch-uploader {
+  transition: color 140ms ease;
+}
+
+button.youtube-workspace-watch-uploader:hover {
+  color: hsl(var(--primary));
+}
+
+button.youtube-workspace-watch-uploader:focus-visible {
+  border-radius: var(--app-radius-sm);
+  outline: 2px solid hsl(var(--ring) / 0.62);
+  outline-offset: 2px;
+}
+
+.youtube-workspace-watch-rating-icon[data-active="true"] {
+  fill: currentcolor;
+}
+
+.youtube-workspace-watch-uploader strong {
+  font-weight: 620;
+}
+
+.youtube-workspace-watch-stats svg {
+  opacity: 0.78;
+}
+
+.youtube-workspace-watch-player-shell {
+  border: 1px solid color-mix(
+    in srgb,
+    var(--app-media-chrome-foreground) 8%,
+    transparent
+  );
+  border-radius: var(--app-radius-control);
+  background: var(--app-media-chrome-canvas);
+  box-shadow:
+    0 18px 48px color-mix(
+      in srgb,
+      var(--app-media-chrome-shadow) 28%,
+      transparent
+    ),
+    0 0 0 1px hsl(var(--foreground) / 0.025);
+}
+
+.youtube-workspace-player-card {
+  border-radius: inherit;
+  background: var(--app-media-chrome-canvas);
+}
+
+.youtube-workspace-video-surface {
+  color: var(--app-media-chrome-foreground-muted);
+  border-radius: inherit;
+  background: var(--app-media-chrome-canvas);
+}
+
+.youtube-workspace-video-surface > img,
+.youtube-workspace-watch-player-placeholder > img {
+  opacity: 0.52;
+  filter: blur(8px) saturate(0.7);
+}
+
+.youtube-workspace-watch-player-placeholder {
+  background: var(--app-media-chrome-canvas);
+}
+
+.youtube-workspace-transport-speed {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.youtube-workspace-transport-timeline {
+  outline: none;
+}
+
+.youtube-workspace-transport-timeline-input {
+  opacity: 0;
+}
+
+.youtube-workspace-transport-timeline:has(
+    .youtube-workspace-transport-timeline-input:focus-visible
+  ) {
+  border-radius: var(--app-radius-sm);
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.youtube-workspace-transport-progress {
+  border-radius: var(--app-radius-capsule);
+  background: hsl(var(--foreground) / 0.13);
+  transition: height 160ms ease;
+}
+
+.youtube-workspace-transport-progress > span {
+  border-radius: inherit;
+  background: hsl(var(--primary));
+}
+
+.youtube-workspace-transport-times {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 12px;
+}
+
+.youtube-workspace-transport-right-actions,
+.youtube-workspace-volume-editor {
+  transition:
+    opacity 160ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.youtube-workspace-volume-editor {
+  opacity: 0;
+}
+
+.youtube-workspace-transport-right[data-volume-expanded="true"]
+  .youtube-workspace-transport-right-actions {
+  opacity: 0;
+}
+
+.youtube-workspace-transport-right[data-volume-expanded="true"]
+  .youtube-workspace-volume-editor {
+  opacity: 1;
+}
+
+.youtube-workspace-volume-editor > input[type="range"] {
+  accent-color: hsl(var(--primary));
+}
+
+.youtube-video-info-dialog-hero {
+  background:
+    radial-gradient(
+      circle at 72% 18%,
+      color-mix(in srgb, var(--app-youtube-brand) 16%, transparent),
+      transparent 40%
+    ),
+    linear-gradient(145deg, hsl(var(--muted)), hsl(var(--background)));
+}
+
+.youtube-video-info-dialog-hero > img {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.youtube-video-info-dialog-hero > img[data-loaded="true"] {
+  opacity: 1;
+}
+
+.youtube-video-info-dialog-hero-fallback {
+  color: color-mix(in srgb, var(--app-youtube-brand) 50%, transparent);
+}
+
+.youtube-video-info-dialog-hero-veil {
+  background:
+    linear-gradient(180deg, transparent 45%, hsl(var(--background) / 0.8)),
+    linear-gradient(90deg, hsl(var(--background) / 0.12), transparent 60%);
+}
+
+.youtube-video-info-dialog-header {
+  border-bottom: 1px solid hsl(var(--border) / 0.36);
+  background: hsl(var(--background) / 0.82);
+}
+
+.youtube-video-info-dialog-header > h2 {
+  line-height: 1.25;
+}
+
+.youtube-video-info-dialog-channel > svg {
+  color: var(--app-youtube-brand);
+}
+
+.youtube-video-info-dialog-stats > div {
+  border: 1px solid hsl(var(--border) / 0.5);
+  border-radius: var(--app-radius-control);
+  background: hsl(var(--foreground) / 0.035);
+}
+
+.youtube-video-info-dialog-stats dt {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 620;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.youtube-video-info-dialog-stats dd {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.youtube-video-info-dialog-description h3 {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.youtube-video-info-dialog-description p {
+  color: hsl(var(--foreground) / 0.8);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.youtube-up-next-companion {
+  color: hsl(var(--foreground));
+  background: transparent;
+}
+
+.youtube-up-next-row {
+  color: inherit;
+  border: 0;
+  border-radius: var(--app-radius-control);
+  background: transparent;
+  outline: none;
+  transition: background-color 140ms ease, transform 110ms ease;
+}
+
+.youtube-up-next-row:hover {
+  background: hsl(var(--accent) / 0.7);
+}
+
+.youtube-up-next-row:active {
+  transform: scale(0.99);
+}
+
+.youtube-up-next-row:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.58);
+}
+
+.youtube-up-next-row:disabled {
+  opacity: 0.64;
+}
+
+.youtube-up-next-row-index {
+  color: hsl(var(--muted-foreground) / 0.72);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.youtube-up-next-row-thumbnail {
+  color: hsl(var(--muted-foreground));
+  border-radius: var(--app-radius-control-inner);
+  background: hsl(var(--muted));
+}
+
+.youtube-up-next-row-thumbnail > em {
+  color: var(--app-media-chrome-foreground);
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 650;
+  border-radius: 4px;
+  background: var(--app-media-chrome-scrim-hover);
+}
+
+.youtube-up-next-row-play {
+  color: var(--app-media-chrome-foreground);
+  background: color-mix(
+    in srgb,
+    var(--app-media-chrome-shadow) 48%,
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.youtube-up-next-row:hover .youtube-up-next-row-play,
+.youtube-up-next-row:focus-visible .youtube-up-next-row-play,
+.youtube-up-next-row:disabled .youtube-up-next-row-play {
+  opacity: 1;
+}
+
+.youtube-up-next-row-play > svg {
+  fill: currentcolor;
+}
+
+.youtube-up-next-row strong {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.youtube-up-next-row small {
+  color: hsl(var(--muted-foreground));
+  font-size: 9px;
+  line-height: 1.25;
+}
+
+.youtube-up-next-companion-empty {
+  color: hsl(var(--muted-foreground));
+}
+
+.youtube-up-next-companion-empty > span {
+  border-radius: var(--app-radius-card);
+  background: hsl(var(--muted));
+}
+
+.youtube-up-next-companion-empty p {
+  font-size: 12px;
+}
+
+
+.youtube-workspace-notice {
+  border: 1px dashed hsl(var(--border));
+  border-radius: 24px;
+  background: hsl(var(--card) / 0.38);
+}
+
+.youtube-workspace-notice-icon {
+  color: hsl(var(--muted-foreground));
+  border-radius: 16px;
+  background: hsl(var(--muted));
+}
+
+.youtube-workspace-notice__title {
+  color: hsl(var(--foreground));
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+.youtube-workspace-notice__detail {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.youtube-workspace-skeleton > div,
+.youtube-workspace-skeleton > span {
+  border-radius: 8px;
+  background: linear-gradient(
+    100deg,
+    hsl(var(--muted)) 20%,
+    hsl(var(--accent)) 45%,
+    hsl(var(--muted)) 70%
+  );
+  background-size: 240% 100%;
+  animation: youtube-workspace-shimmer 1.45s ease-in-out infinite;
+}
+
+.youtube-workspace-skeleton > div {
+  border-radius: 14px;
+}
+
+/* The native WebView is a child surface below the main WebView. Only the
+ * active YouTube player path becomes transparent, avoiding shell-wide holes
+ * while browse cards are visible. */
+:root[data-listen-native-video-underlay="true"][data-youtube-workspace-video-active="true"]
+  :is(
+    .app-workspace-shell,
+    .app-workspace-stage,
+    .app-workspace-primary-pane,
+    .youtube-workspace-page,
+    .youtube-workspace-scroll,
+    .youtube-workspace-watch-page,
+    .youtube-workspace-watch-video-region,
+    .youtube-workspace-watch-player-shell,
+    .youtube-workspace-player-card,
+    .youtube-workspace-video-surface
+) {
+  background: transparent !important;
+}
+
+@keyframes youtube-workspace-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .youtube-workspace-skeleton > div,
+  .youtube-workspace-skeleton > span {
+    animation: none;
+  }
+
+  .youtube-workspace-transport *,
+  .youtube-workspace-transport *::before,
+  .youtube-workspace-transport *::after,
+  .youtube-up-next-companion * {
+    transition: none !important;
+  }
+}
+
+.youtube-uploader-page {
+  color: hsl(var(--foreground));
+  background: transparent;
+}
+
+.youtube-uploader-banner {
+  background: color-mix(in srgb, hsl(var(--muted)) 78%, transparent);
+  box-shadow: 0 18px 44px color-mix(
+    in srgb,
+    var(--app-media-chrome-shadow) 15%,
+    transparent
+  );
+}
+
+.youtube-uploader-banner-fallback {
+  color: color-mix(in srgb, hsl(var(--foreground)) 38%, transparent);
+  background:
+    radial-gradient(circle at 22% 12%, color-mix(in srgb, hsl(var(--primary)) 32%, transparent), transparent 44%),
+    linear-gradient(135deg, color-mix(in srgb, hsl(var(--muted)) 92%, transparent), color-mix(in srgb, hsl(var(--primary)) 14%, hsl(var(--muted))));
+}
+
+.youtube-uploader-avatar {
+  border: 4px solid hsl(var(--background));
+  border-radius: 999px;
+  color: color-mix(in srgb, hsl(var(--foreground)) 46%, transparent);
+  background: color-mix(in srgb, hsl(var(--muted)) 88%, hsl(var(--background)));
+  box-shadow: 0 12px 30px color-mix(
+    in srgb,
+    var(--app-media-chrome-shadow) 28%,
+    transparent
+  );
+}
+
+.youtube-uploader-name-row h1 {
+  font-size: clamp(1.45rem, 2.6cqw, 2rem);
+  font-weight: 760;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+}
+
+.youtube-uploader-metadata {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.82rem;
+}
+
+.youtube-uploader-metadata span + span::before {
+  content: "•";
+  opacity: 0.58;
+}
+
+.youtube-uploader-description {
+  color: color-mix(in srgb, hsl(var(--foreground)) 78%, hsl(var(--muted-foreground)));
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.youtube-uploader-info-dialog-hero {
+  background:
+    radial-gradient(
+      circle at 30% 20%,
+      hsl(var(--primary) / 0.2),
+      transparent 52%
+    ),
+    hsl(var(--muted));
+}
+
+.youtube-uploader-info-dialog-hero-fallback {
+  color: hsl(var(--muted-foreground) / 0.38);
+}
+
+.youtube-uploader-info-dialog-hero-veil {
+  background: linear-gradient(
+    180deg,
+    hsl(var(--background) / 0.04) 0%,
+    transparent 38%,
+    hsl(var(--background) / 0.54) 72%,
+    hsl(var(--background)) 100%
+  );
+}
+
+.youtube-uploader-info-dialog-avatar {
+  border: 3px solid hsl(var(--background));
+  border-radius: 999px;
+  color: hsl(var(--muted-foreground) / 0.46);
+  background: hsl(var(--muted));
+  box-shadow: 0 10px 26px hsl(var(--foreground) / 0.14);
+}
+
+.youtube-uploader-info-dialog-identity h2 {
+  color: hsl(var(--foreground));
+  font-size: clamp(1.65rem, 4vw, 2.35rem);
+  font-weight: 720;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.youtube-uploader-info-dialog-identity p {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.youtube-uploader-info-dialog-description h2 {
+  color: hsl(var(--foreground));
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.youtube-uploader-info-dialog-description p {
+  color: hsl(var(--foreground) / 0.72);
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.youtube-uploader-videos h2 {
+  font-size: 1.05rem;
+  font-weight: 720;
+  letter-spacing: -0.016em;
+}
+
+.youtube-uploader-video-card {
+  border: 0;
+  color: inherit;
+  background: transparent;
+}
+
+.youtube-uploader-video-thumbnail {
+  border-radius: 13px;
+  color: color-mix(in srgb, hsl(var(--foreground)) 38%, transparent);
+  background: color-mix(in srgb, hsl(var(--muted)) 84%, transparent);
+}
+
+.youtube-uploader-video-thumbnail > img {
+  transition: transform 180ms ease, filter 180ms ease;
+}
+
+.youtube-uploader-video-play {
+  color: var(--app-media-chrome-foreground);
+  background: color-mix(
+    in srgb,
+    var(--app-media-chrome-shadow) 25%,
+    transparent
+  );
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.youtube-uploader-video-play svg {
+  border-radius: 999px;
+  fill: currentColor;
+  background: color-mix(
+    in srgb,
+    var(--app-media-chrome-shadow) 80%,
+    transparent
+  );
+}
+
+.youtube-uploader-video-thumbnail em {
+  border-radius: 5px;
+  color: var(--app-media-chrome-foreground);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 650;
+  background: var(--app-media-chrome-scrim-hover);
+}
+
+.youtube-uploader-video-card:hover .youtube-uploader-video-thumbnail > img {
+  transform: scale(1.025);
+  filter: saturate(1.06);
+}
+
+.youtube-uploader-video-card:hover .youtube-uploader-video-play,
+.youtube-uploader-video-card:focus-visible .youtube-uploader-video-play {
+  opacity: 1;
+}
+
+.youtube-uploader-video-details strong {
+  font-size: 0.88rem;
+  font-weight: 660;
+  line-height: 20px;
+}
+
+.youtube-uploader-video-details small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.73rem;
+  line-height: 1.35;
+}
+
+.youtube-uploader-empty,
+.youtube-uploader-page-state {
+  color: hsl(var(--muted-foreground));
+}
+
+.youtube-uploader-inline-error {
+  color: var(--app-status-tone-error);
+  font-size: 0.82rem;
+}
+
+.youtube-uploader-pagination-state {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.78rem;
+}
+
+.youtube-uploader-pagination-error {
+  color: var(--app-status-tone-error);
+}
+
+@container youtube-workspace (max-width: 760px) {
+
+  .youtube-uploader-name-row h1 {
+    font-size: 1.4rem;
+  }
+
+  .youtube-uploader-metadata {
+    font-size: 0.76rem;
+  }
+
+}
+@media (forced-colors: active) {
+  :root {
+    --app-youtube-brand: Highlight;
+  }
+}
+/* YouTube publishes content geometry in feature CSS. Dream owns reading
+   alignment and pointer intent so those states remain visible in Appearance. */
+.youtube-workspace-video-card,
+.youtube-workspace-video-title,
+.youtube-workspace-watch-uploader,
+.youtube-up-next-row,
+.youtube-uploader-video-card {
+  text-align: start;
+}
+
+.youtube-up-next-row-index,
+.youtube-up-next-companion-empty,
+.youtube-workspace-notice,
+.youtube-uploader-identity,
+.youtube-uploader-info-dialog-identity,
+.youtube-uploader-empty,
+.youtube-uploader-page-state,
+.youtube-uploader-inline-error {
+  text-align: center;
+}
+
+button.youtube-workspace-watch-uploader,
+.youtube-workspace-transport-timeline-input,
+.youtube-workspace-volume-editor > input[type="range"],
+.youtube-up-next-row,
+.youtube-uploader-video-card {
+  cursor: pointer;
+}
+
+.youtube-up-next-row:disabled {
+  cursor: wait;
+}

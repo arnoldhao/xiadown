@@ -1,10 +1,11 @@
 import { useEffect, type PropsWithChildren } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Call, Events } from "@wailsio/runtime";
+import { Events } from "@wailsio/runtime";
 
 import { createQueryClient } from "./query-client";
 import {
   LIBRARY_DETAIL_QUERY_KEY,
+  LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
   LIBRARY_FILE_EVENTS_QUERY_KEY,
   LIBRARY_HISTORY_QUERY_KEY,
   LIBRARY_LIST_QUERY_KEY,
@@ -12,19 +13,35 @@ import {
   LIBRARY_WORKSPACE_PROJECT_QUERY_KEY,
   LIBRARY_WORKSPACE_QUERY_KEY,
 } from "@/shared/query/library";
+import { shouldRefreshCompleteOperations } from "@/shared/query/complete-operations";
 import { DEPENDENCIES_QUERY_KEY } from "@/shared/query/dependencies";
+import { catalogKeys } from "@/shared/query/catalog";
 import { PETS_QUERY_KEY } from "@/shared/query/pets";
 import {
   APP_SESSIONS_CHANGED_EVENT,
   APP_SESSIONS_QUERY_KEY,
 } from "@/shared/query/appSessions";
-import { REALTIME_TOPICS, registerTopic, startRealtime } from "@/shared/realtime";
+import {
+  REALTIME_TOPICS,
+  onRealtimeConnected,
+  registerTopic,
+  startRealtime,
+} from "@/shared/realtime";
 import { messageBus } from "@/shared/message";
-import { TelemetryManager } from "@/shared/telemetry/manager";
-import { normalizeUpdateInfo, type UpdateInfo, useUpdateStore } from "@/shared/store/update";
 import { t } from "@/shared/i18n";
+import { installInputModalityTracking } from "@/shared/ui/input-modality";
+import { STARTUP_READY_EVENT } from "@/startup-presentation";
 
 const queryClient = createQueryClient();
+
+function useInputModality() {
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    return installInputModalityTracking(document);
+  }, []);
+}
 
 function useSuppressNativeTooltips() {
   useEffect(() => {
@@ -140,6 +157,7 @@ function useSuppressNativeTooltips() {
 }
 
 function invalidateLibraryQueries(libraryId?: string) {
+	queryClient.invalidateQueries({ queryKey: catalogKeys.all, refetchType: "active" });
   queryClient.invalidateQueries({ queryKey: LIBRARY_LIST_QUERY_KEY, refetchType: "active" });
   queryClient.invalidateQueries({ queryKey: LIBRARY_OPERATIONS_QUERY_KEY, refetchType: "active" });
   queryClient.invalidateQueries({ queryKey: LIBRARY_HISTORY_QUERY_KEY, refetchType: "active" });
@@ -163,36 +181,115 @@ function resolveLibraryID(payload: unknown) {
   return typeof record.libraryId === "string" ? record.libraryId.trim() : "";
 }
 
-export function AppProviders({ children }: PropsWithChildren) {
-  const setUpdateInfo = useUpdateStore((state) => state.setInfo);
-
+export function AppProviders({
+  children,
+  runtimeEnabled = true,
+  telemetryEnabled = false,
+}: PropsWithChildren<{
+  runtimeEnabled?: boolean;
+  telemetryEnabled?: boolean;
+}>) {
+  useInputModality();
   useSuppressNativeTooltips();
 
   useEffect(() => {
-    const telemetry = new TelemetryManager();
-    void telemetry.start();
-    return () => {
-      telemetry.stop();
+    if (!telemetryEnabled) {
+      return;
+    }
+    let disposed = false;
+    let startTimer: number | undefined;
+    let telemetry: { start: () => Promise<void>; stop: () => void } | undefined;
+    const loadTelemetry = () => {
+      void import("@/shared/telemetry/manager")
+        .then(({ TelemetryManager }) => {
+          if (disposed) return;
+          telemetry = new TelemetryManager();
+          return telemetry.start();
+        })
+        .catch(() => undefined);
     };
-  }, []);
+    const scheduleTelemetry = () => {
+      if (disposed || startTimer !== undefined) return;
+      startTimer = window.setTimeout(loadTelemetry, 250);
+    };
+    if (document.documentElement.dataset.startupState === "ready") {
+      scheduleTelemetry();
+    } else {
+      window.addEventListener("xiadown:startup-ready", scheduleTelemetry, {
+        once: true,
+      });
+    }
+    return () => {
+      disposed = true;
+      window.removeEventListener("xiadown:startup-ready", scheduleTelemetry);
+      if (startTimer !== undefined) window.clearTimeout(startTimer);
+      telemetry?.stop();
+    };
+  }, [telemetryEnabled]);
 
   useEffect(() => {
-    startRealtime().catch((error) => {
-      console.warn("[realtime] failed to start", error);
-      messageBus.publishToast({
-        intent: "warning",
-        title: t("common.realtimeUnavailableTitle"),
-        description: t("common.realtimeUnavailableDescription"),
-      });
-    });
+    if (!runtimeEnabled) {
+      return;
+    }
+    let disposed = false;
+    let completeOperationsRefreshTimer: number | undefined;
+    let completeOperationsRefreshScheduledAt = 0;
+    let realtimeStartTimer: number | undefined;
+    let realtimeRetryTimer: number | undefined;
+    let realtimeStartAttempts = 0;
+    const realtimeRetryDelays = [500, 1_500, 4_000] as const;
+    const scheduleCompleteOperationsRefresh = () => {
+      completeOperationsRefreshScheduledAt = Date.now();
+      if (completeOperationsRefreshTimer !== undefined) {
+        window.clearTimeout(completeOperationsRefreshTimer);
+      }
+      completeOperationsRefreshTimer = window.setTimeout(() => {
+        const state = queryClient.getQueryState(LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY);
+        if (state?.fetchStatus === "fetching") {
+          scheduleCompleteOperationsRefresh();
+          return;
+        }
+        if ((state?.dataUpdatedAt ?? 0) > completeOperationsRefreshScheduledAt) {
+          return;
+        }
+        void queryClient.invalidateQueries({
+          queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
+          refetchType: "active",
+        });
+      }, 750);
+    };
 
-    Call.ByName("xiadown/internal/presentation/wails.UpdateHandler.GetState")
-      .then((result) => {
-        setUpdateInfo(normalizeUpdateInfo(result as Partial<UpdateInfo>));
-      })
-      .catch((error) => {
-        console.warn("[update] get state failed", error);
+    const startRealtimeAfterStartup = () => {
+      if (realtimeStartTimer !== undefined) return;
+      realtimeStartTimer = window.setTimeout(() => {
+        const connect = () => {
+          if (disposed) return;
+          realtimeStartAttempts += 1;
+          startRealtime().catch((error) => {
+            if (disposed) return;
+            const retryDelay = realtimeRetryDelays[realtimeStartAttempts - 1];
+            if (retryDelay !== undefined) {
+              realtimeRetryTimer = window.setTimeout(connect, retryDelay);
+              return;
+            }
+            console.warn("[realtime] failed to start", error);
+            messageBus.publishToast({
+              intent: "warning",
+              title: t("common.realtimeUnavailableTitle"),
+              description: t("common.realtimeUnavailableDescription"),
+            });
+          });
+        };
+        connect();
+      }, 300);
+    };
+    if (document.documentElement.dataset.startupState === "ready") {
+      startRealtimeAfterStartup();
+    } else {
+      window.addEventListener(STARTUP_READY_EVENT, startRealtimeAfterStartup, {
+        once: true,
       });
+    }
 
     const offDependenciesUpdated = Events.On("dependencies:updated", () => {
       queryClient.invalidateQueries({ queryKey: DEPENDENCIES_QUERY_KEY, refetchType: "all" });
@@ -204,9 +301,22 @@ export function AppProviders({ children }: PropsWithChildren) {
     const offAppSessionsChanged = Events.On(APP_SESSIONS_CHANGED_EVENT, () => {
       queryClient.invalidateQueries({ queryKey: APP_SESSIONS_QUERY_KEY, refetchType: "all" });
     });
+    const offRealtimeConnected = onRealtimeConnected(() => {
+      // The server intentionally does not replay from sequence zero. Reconcile
+      // after the socket is actually open so events emitted during the short
+      // post-paint delay cannot leave initial Library queries stale.
+      invalidateLibraryQueries();
+      void queryClient.invalidateQueries({
+        queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
+        refetchType: "active",
+      });
+    });
 
     const unsubscribeLibraryOperation = registerTopic(REALTIME_TOPICS.library.operation, (event) => {
       invalidateLibraryQueries(resolveLibraryID(event?.payload));
+      if (shouldRefreshCompleteOperations(event)) {
+        scheduleCompleteOperationsRefresh();
+      }
     });
     const unsubscribeLibraryFile = registerTopic(REALTIME_TOPICS.library.file, (event) => {
       invalidateLibraryQueries(resolveLibraryID(event?.payload));
@@ -222,16 +332,28 @@ export function AppProviders({ children }: PropsWithChildren) {
     });
 
     return () => {
+      disposed = true;
+      window.removeEventListener(STARTUP_READY_EVENT, startRealtimeAfterStartup);
       offDependenciesUpdated();
       offPetsUpdated();
       offAppSessionsChanged();
+      offRealtimeConnected();
       unsubscribeLibraryOperation();
       unsubscribeLibraryFile();
       unsubscribeLibraryHistory();
       unsubscribeLibraryWorkspace();
       unsubscribeLibraryWorkspaceProject();
+      if (completeOperationsRefreshTimer !== undefined) {
+        window.clearTimeout(completeOperationsRefreshTimer);
+      }
+      if (realtimeStartTimer !== undefined) {
+        window.clearTimeout(realtimeStartTimer);
+      }
+      if (realtimeRetryTimer !== undefined) {
+        window.clearTimeout(realtimeRetryTimer);
+      }
     };
-  }, [setUpdateInfo]);
+  }, [runtimeEnabled]);
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }

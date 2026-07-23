@@ -2,6 +2,20 @@ package settings
 
 import "testing"
 
+func TestMainWindowUsesFullscreenSurfaceBaseline(t *testing.T) {
+	if MinMainWindowWidth != 1024 {
+		t.Fatalf("expected main window minimum width 1024, got %d", MinMainWindowWidth)
+	}
+	if MinMainWindowHeight != 768 {
+		t.Fatalf("expected main window minimum height 768, got %d", MinMainWindowHeight)
+	}
+
+	bounds := DefaultSettings().MainBounds()
+	if bounds.Width() != 1024 || bounds.Height() != 768 {
+		t.Fatalf("expected first-launch main window size 1024x768, got %+v", bounds)
+	}
+}
+
 func TestParseLanguageAcceptsTraditionalChinese(t *testing.T) {
 	language, err := ParseLanguage("zh-TW")
 	if err != nil {
@@ -9,6 +23,16 @@ func TestParseLanguageAcceptsTraditionalChinese(t *testing.T) {
 	}
 	if language != LanguageChineseTraditional {
 		t.Fatalf("expected %q, got %q", LanguageChineseTraditional, language)
+	}
+}
+
+func TestDefaultSettingsWindowUsesSevenTabWidth(t *testing.T) {
+	bounds := DefaultSettings().SettingsBounds()
+	if bounds.Width() != DefaultSettingsWidth || bounds.Width() != MinSettingsWindowWidth {
+		t.Fatalf("expected default settings width %d, got %+v", DefaultSettingsWidth, bounds)
+	}
+	if bounds.Width() < 640 {
+		t.Fatalf("expected settings window to fit seven tabs, got width %d", bounds.Width())
 	}
 }
 

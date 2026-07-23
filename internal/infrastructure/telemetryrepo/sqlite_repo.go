@@ -64,65 +64,6 @@ func (repo *SQLiteStateRepository) IncrementLaunchCount(ctx context.Context, at 
 	return state, err
 }
 
-func (repo *SQLiteStateRepository) RecordSessionSummary(ctx context.Context, endedAt time.Time, durationSeconds float64) (apptelemetry.State, error) {
-	var state apptelemetry.State
-	if durationSeconds < 0 {
-		durationSeconds = 0
-	}
-	err := repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		row, err := repo.ensureRow(ctx, tx)
-		if err != nil {
-			return err
-		}
-		row.CompletedSessionCount++
-		row.TotalSessionSeconds += durationSeconds
-		row.PreviousSessionSeconds = sql.NullFloat64{Float64: durationSeconds, Valid: true}
-		row.UpdatedAt = endedAt.UTC()
-		if err := repo.saveRow(ctx, tx, row); err != nil {
-			return err
-		}
-		state = toState(row)
-		return nil
-	})
-	return state, err
-}
-
-func (repo *SQLiteStateRepository) MarkFirstLibraryCompleted(ctx context.Context, at time.Time) (apptelemetry.State, bool, error) {
-	return repo.markFirstTime(ctx, at, func(row *telemetryStateRow) *sql.NullTime {
-		return &row.FirstLibraryCompletedAt
-	})
-}
-
-func (repo *SQLiteStateRepository) markFirstTime(
-	ctx context.Context,
-	at time.Time,
-	field func(row *telemetryStateRow) *sql.NullTime,
-) (apptelemetry.State, bool, error) {
-	var (
-		state apptelemetry.State
-		first bool
-	)
-	err := repo.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		row, err := repo.ensureRow(ctx, tx)
-		if err != nil {
-			return err
-		}
-		target := field(&row)
-		if target != nil && !target.Valid {
-			target.Valid = true
-			target.Time = at.UTC()
-			row.UpdatedAt = at.UTC()
-			if err := repo.saveRow(ctx, tx, row); err != nil {
-				return err
-			}
-			first = true
-		}
-		state = toState(row)
-		return nil
-	})
-	return state, first, err
-}
-
 func (repo *SQLiteStateRepository) ensureRow(ctx context.Context, tx bun.Tx) (telemetryStateRow, error) {
 	row := telemetryStateRow{}
 	if err := tx.NewSelect().Model(&row).Where("id = 1").Scan(ctx); err == nil {
@@ -139,8 +80,6 @@ func (repo *SQLiteStateRepository) ensureRow(ctx context.Context, tx bun.Tx) (te
 		LaunchCount:               0,
 		DistinctDaysUsed:          0,
 		DistinctDaysUsedLastMonth: 0,
-		CompletedSessionCount:     0,
-		TotalSessionSeconds:       0,
 		UpdatedAt:                 now,
 	}
 	if err := repo.saveRow(ctx, tx, row); err != nil {
@@ -157,11 +96,6 @@ func (repo *SQLiteStateRepository) saveRow(ctx context.Context, tx bun.Tx, row t
 		Set("launch_count = EXCLUDED.launch_count").
 		Set("distinct_days_used = EXCLUDED.distinct_days_used").
 		Set("distinct_days_used_last_month = EXCLUDED.distinct_days_used_last_month").
-		Set("completed_session_count = EXCLUDED.completed_session_count").
-		Set("total_session_seconds = EXCLUDED.total_session_seconds").
-		Set("previous_session_seconds = EXCLUDED.previous_session_seconds").
-		Set("first_chat_completed_at = EXCLUDED.first_chat_completed_at").
-		Set("first_library_completed_at = EXCLUDED.first_library_completed_at").
 		Set("updated_at = EXCLUDED.updated_at").
 		Exec(ctx)
 	return err
@@ -174,10 +108,6 @@ func toState(row telemetryStateRow) apptelemetry.State {
 		LaunchCount:               row.LaunchCount,
 		DistinctDaysUsed:          row.DistinctDaysUsed,
 		DistinctDaysUsedLastMonth: row.DistinctDaysUsedLastMonth,
-		CompletedSessionCount:     row.CompletedSessionCount,
-		TotalSessionSeconds:       row.TotalSessionSeconds,
-		PreviousSessionSeconds:    nullFloatPtr(row.PreviousSessionSeconds),
-		FirstLibraryCompletedAt:   nullTimePtr(row.FirstLibraryCompletedAt),
 	}
 }
 
@@ -219,20 +149,4 @@ func sessionDay(at time.Time) string {
 		return ""
 	}
 	return at.Format("2006-01-02")
-}
-
-func nullTimePtr(value sql.NullTime) *time.Time {
-	if !value.Valid {
-		return nil
-	}
-	timestamp := value.Time
-	return &timestamp
-}
-
-func nullFloatPtr(value sql.NullFloat64) *float64 {
-	if !value.Valid {
-		return nil
-	}
-	number := value.Float64
-	return &number
 }

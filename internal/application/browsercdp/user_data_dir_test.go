@@ -73,3 +73,24 @@ func TestNormalizeSessionOptionsUsesEncodedProfileDir(t *testing.T) {
 		t.Fatalf("unexpected encoded user data dir: got %q want %q", options.UserDataDir, want)
 	}
 }
+
+func TestSessionOptionsCloneAndPassManagedNetworkRoute(t *testing.T) {
+	t.Parallel()
+	route := testManagedNetworkRoute()
+	options := normalizeSessionOptions(SessionOptions{
+		SessionKey:   "route-session",
+		ProfileName:  "xiadown",
+		NetworkRoute: route,
+	})
+	if options.NetworkRoute == nil || options.NetworkRoute == route {
+		t.Fatalf("normalized route was not cloned: %#v", options.NetworkRoute)
+	}
+	route.AttestationToken = "mutated-after-normalize"
+	if options.NetworkRoute.AttestationToken == route.AttestationToken {
+		t.Fatal("normalized session route retained caller-owned mutable state")
+	}
+	launch := sessionLaunchOptions(options)
+	if launch.NetworkRoute != options.NetworkRoute || launch.NetworkRoute.AttestationToken != "different-secret" {
+		t.Fatalf("session launch route = %#v", launch.NetworkRoute)
+	}
+}

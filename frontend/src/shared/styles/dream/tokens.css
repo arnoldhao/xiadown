@@ -1,7 +1,7 @@
 /*
  * Dream style system.
  * shadcn primitives with a light iOS-style surface treatment.
- * Welcome pixel-art scene styles intentionally live in app/main/welcome.css.
+ * Welcome's pixel-art scene is a Dream workflow in dream/welcome.css.
  */
 
 @property --app-dialog-scroll-fade-top {
@@ -21,9 +21,12 @@
   :root {
     --radius: 8px; /* Base radius for most components (sidebar uses --app-sidebar-radius) */
 
-    --app-font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    --app-font-system: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
       "PingFang SC", "Microsoft YaHei", sans-serif;
+    --app-font-body: var(--app-font-system);
     --app-font-display: var(--app-font-body);
+    --app-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", monospace;
     --app-font-size: 15px;
     --app-font-size-sm: calc(var(--app-font-size) - 1px);
     --app-font-size-xs: calc(var(--app-font-size) - 2px);
@@ -33,6 +36,9 @@
     --app-titlebar-height-default: 54px;
     --app-titlebar-height-windows: 32px;
     --app-titlebar-height: var(--app-titlebar-height-default);
+    /* Fullscreen media needs a touch-safe close strip independent of the
+       compact Windows caption-button rail. */
+    --app-player-fullscreen-titlebar-height: 48px;
     --app-page-top-drag-height: 3.75rem;
     --app-titlebar-leading-icon-size-default: 16px;
     --app-titlebar-leading-icon-size-windows: 18px;
@@ -58,10 +64,30 @@
     --app-windows-caption-control-width: calc(
       var(--app-windows-caption-button-width) * 3
     );
+    /* Shared portal/layer contract. Fullscreen media must remain below any
+       modal opened by a shortcut, while popovers and tooltips stay above it. */
+    --app-layer-floating-controls: 70;
+    --app-layer-fullscreen: 85;
+    --app-layer-window-controls: 87;
+    --app-layer-modal-overlay: 100;
+    --app-layer-modal: 101;
+    --app-layer-popover: 110;
+    --app-layer-notification: 115;
+    --app-layer-tooltip: 120;
+    /* Shared media transport anatomy. Keep Music and YouTube controls aligned. */
+    --app-control-bar-height: 56px;
     /* Compact control sizing for debug/settings. */
     --app-control-height-compact: 2.125rem;
     --app-control-padding-compact-x: 0.75rem;
     --app-control-padding-compact-y: 0;
+
+    /* Comfortable product actions intentionally sit above the compact
+       utility-control tier. Choice tiles keep their slightly roomier legacy
+       rhythm while still publishing geometry through the Button contract. */
+    --app-button-block-size-comfortable: 2.5rem;
+    --app-button-block-size-choice: 2.75rem;
+    --app-settings-tab-inline-size: 4.75rem;
+    --app-settings-tab-block-size: 3.25rem;
   }
   :root[data-platform="windows"] {
     --app-titlebar-leading-icon-size: var(--app-titlebar-leading-icon-size-windows);
@@ -71,8 +97,11 @@
 /* Dream component system */
 @layer base {
   :root {
+    --app-space-0-5: 0.125rem;
     --app-space-1: 0.25rem;
+    --app-space-1-5: 0.375rem;
     --app-space-2: 0.5rem;
+    --app-space-2-5: 0.625rem;
     --app-space-3: 0.75rem;
     --app-space-4: 1rem;
     --app-space-5: 1.25rem;
@@ -82,6 +111,20 @@
     --app-radius-md: var(--radius);
     --app-radius-lg: calc(var(--radius) + 4px);
     --app-radius-xl: calc(var(--radius) + 12px);
+
+    /*
+     * Role-based geometry. Component code should prefer these names over
+     * Tailwind's size-like rounded-* scale so nested shapes stay concentric.
+     */
+    --app-radius-none: 0px;
+    --app-radius-control-compact: 10px;
+    --app-radius-control: 12px;
+    --app-radius-control-inner: 8px;
+    --app-radius-card: 14px;
+    --app-radius-panel: 20px;
+    --app-radius-panel-inner: 14px;
+    --app-radius-media: 16px;
+    --app-radius-capsule: 999px;
 
     --app-settings-card-padding: var(--app-space-3);
     --app-settings-row-padding-x: 0.875rem;
@@ -98,6 +141,30 @@
     --app-menu-radius: calc(var(--radius) + 2px);
     --app-menu-side-offset: 0.375rem;
     --app-menu-item-min-height: 2rem;
+    --app-menu-action-height: 2.25rem;
+
+    /* Shared interaction geometry. Feature CSS may place these roles, but it
+       must not fork their anatomy or sizing. */
+    --app-workspace-search-height: 3rem;
+    --app-workspace-search-gap: 0.5625rem;
+    --app-workspace-search-padding-block: 0.25rem;
+    --app-workspace-search-padding-start: 0.875rem;
+    --app-workspace-search-padding-end: 0.375rem;
+    --app-workspace-search-icon-size: 1.0625rem;
+    --app-workspace-search-clear-size: 1.75rem;
+    --app-selection-list-inset: var(--app-space-1);
+    --app-workspace-header-action-gap: 0.4rem;
+    --app-workspace-header-group-gap: var(--app-space-2);
+    --app-page-gutter: clamp(1.25rem, 3cqw, 2.25rem);
+    /* Shared page anatomy. Station CSS arranges domain content inside these
+       rails but never forks their chrome, heading, or footer geometry. */
+    --app-workspace-page-topbar-height: 3.25rem;
+    --app-workspace-page-drag-region-min-width: 2.5rem;
+    --app-workspace-page-footer-min-height: 3.25rem;
+    --app-workspace-page-content-padding-block: var(--app-space-5);
+    --app-workspace-page-heading-gap: var(--app-space-6);
+    --app-workspace-page-display-heading-size: clamp(1.75rem, 2.2cqw, 2.25rem);
+    --app-workspace-page-hero-heading-size: clamp(2rem, 3cqw, 2.75rem);
 
     --dream-shell-top: var(--background);
     --dream-shell-mid: var(--sidebar-background);
@@ -105,7 +172,10 @@
     --dream-control-top: var(--sidebar-background);
     --dream-control-bottom: var(--primary);
     --app-main-shell-surface-gradient-direction: 0deg;
-    --app-main-shell-aba-surface:
+    /* The Settings window established this theme-tinted canvas. Keep the
+       recipe in one neutral token so Settings Contrast and every persistent
+       Main Contrast pane resolve the exact same background value. */
+    --app-surface-window-canvas:
       linear-gradient(
         var(--app-main-shell-surface-gradient-direction),
         hsl(var(--dream-shell-top)),
@@ -113,6 +183,20 @@
         hsl(var(--dream-shell-bottom) / 0.10)
       ),
       hsl(var(--dream-shell-mid) / 0.54);
+    /* Native Liquid Glass/Acrylic follows the OS appearance, which may differ
+       from an explicit in-App Light/Dark choice. This translucent wash keeps
+       Settings on the App theme while leaving the native material visible. */
+    --app-surface-window-glass-wash:
+      linear-gradient(
+        var(--app-main-shell-surface-gradient-direction),
+        hsl(var(--dream-shell-top) / 0.22),
+        hsl(var(--dream-shell-mid) / 0.15) 62%,
+        hsl(var(--dream-shell-bottom) / 0.04)
+      ),
+      hsl(var(--background) / 0.72);
+    /* Legacy page roots still consume the ABA name. It is an alias, not a
+       second recipe, and Glass may locally remap it to transparent. */
+    --app-main-shell-aba-surface: var(--app-surface-window-canvas);
     --dream-space-1: var(--app-space-1);
     --dream-space-2: var(--app-space-2);
     --dream-space-3: var(--app-space-3);
@@ -121,7 +205,111 @@
     --dream-radius-md: var(--app-radius-md);
     --dream-radius-lg: var(--app-radius-lg);
     --dream-radius-xl: var(--app-radius-xl);
-    --dream-primary-text: hsl(var(--primary));
+    --app-text-primary: hsl(var(--foreground));
+    --app-text-secondary: hsl(var(--foreground) / 0.78);
+    --app-text-tertiary: hsl(var(--foreground) / 0.68);
+    --app-text-disabled: hsl(var(--foreground) / 0.46);
+
+    /* Semantic state tones are product-wide. Feature CSS may select a tone,
+       but must not redefine its hue, contrast, or surface opacity. */
+    --app-status-tone-idle: var(--app-text-tertiary);
+    --app-status-tone-busy: hsl(var(--app-accent-text, var(--primary)));
+    --app-status-tone-success: hsl(142 58% 36%);
+    --app-status-tone-error: hsl(var(--destructive));
+    --app-status-tone-orphan: hsl(38 84% 42%);
+    --app-status-tone-neutral: hsl(var(--muted-foreground));
+    --app-status-surface-idle: hsl(var(--foreground) / 0.045);
+    --app-status-surface-busy: hsl(var(--app-accent-brand, var(--primary)) / 0.09);
+    --app-status-surface-success: color-mix(
+      in srgb,
+      var(--app-status-tone-success) 11%,
+      transparent
+    );
+    --app-status-surface-error: hsl(var(--destructive) / 0.11);
+    --app-status-surface-orphan: color-mix(
+      in srgb,
+      var(--app-status-tone-orphan) 11%,
+      transparent
+    );
+    --app-status-surface-neutral: hsl(var(--foreground) / 0.045);
+
+    /* Media metadata and playback affordances intentionally remain legible
+       over artwork. Features consume these semantic foregrounds instead of
+       pinning active icons and labels to literal white. */
+    --app-media-chrome-foreground: rgb(255 255 255 / 94%);
+    --app-media-chrome-foreground-muted: rgb(255 255 255 / 82%);
+    --app-media-chrome-canvas: rgb(12 13 18);
+    --app-media-chrome-scrim-soft: rgb(0 0 0 / 28%);
+    --app-media-chrome-scrim: rgb(0 0 0 / 55%);
+    --app-media-chrome-scrim-hover: rgb(0 0 0 / 75%);
+    --app-media-chrome-scrim-strong: rgb(0 0 0 / 70%);
+    --app-media-chrome-shadow: rgb(0 0 0 / 80%);
+
+    /* Native caption controls keep platform identity behind semantic names so
+       component code never embeds platform palette recipes. */
+    --app-window-control-macos-close: #ff5f57;
+    --app-window-control-macos-close-hover: #e0443e;
+    --app-window-control-macos-minimize: #febc2e;
+    --app-window-control-macos-minimize-hover: #dea123;
+    --app-window-control-macos-maximize: #28c840;
+    --app-window-control-macos-maximize-hover: #1aab29;
+    --app-window-control-hover-surface: hsl(var(--foreground) / 0.1);
+    --app-window-control-pressed-surface: hsl(var(--foreground) / 0.15);
+    --app-window-control-danger: #e81123;
+    --app-window-control-danger-pressed: #c50f1f;
+    --app-window-control-danger-foreground: rgb(255 255 255);
+
+    /*
+     * Surface Contract
+     * ----------------
+     * Layout and feature code consume these functional roles instead of
+     * choosing theme colours or inventing a blur recipe. Surface Style may
+     * remap a role, but the role names and their relationships stay stable.
+     * In particular, Contrast owns one opaque canvas for every persistent
+     * pane, while status and overlay remain distinct, reusable layers.
+     */
+    --app-surface-canvas: hsl(var(--background));
+    --app-surface-separator: hsl(var(--foreground) / 0.08);
+    /* Persistent workspace geometry is a single-canvas contract. Sidebar,
+       Primary split panes, and docked Companion all consume one divider; a
+       Primary subpane never paints another canvas or changes opacity. */
+    --app-workspace-divider-width: 1px;
+    --app-workspace-divider-color: var(--app-surface-separator);
+    --app-workspace-primary-glass-opacity: 0.88;
+    --app-workspace-primary-glass-surface:
+      hsl(var(--background) / var(--app-workspace-primary-glass-opacity));
+    --app-workspace-primary-surface: var(--app-surface-canvas);
+    --app-workspace-primary-subpane-surface: transparent;
+    /* Sidebar status cards share the same translucent regular material as the
+       floating player. The semantic status role remains stable so Contrast
+       and reduced-transparency modes can still remap it independently. */
+    --app-surface-status-fill: var(--app-glass-regular-surface);
+    --app-surface-status-filter: var(--app-glass-regular-filter);
+    --app-surface-status-line: var(--app-glass-regular-line);
+    --app-surface-status-shadow: var(--app-glass-regular-shadow);
+    --app-surface-status-specular: var(--app-glass-specular);
+    --app-surface-status-specular-opacity: var(--app-glass-specular-opacity);
+    /* Decorative artwork is allowed to tint a status card, but never remains
+       legible behind its controls. Features consume this shared optical veil
+       instead of inventing image blur or opacity recipes. */
+    --app-surface-status-artwork-opacity: 0.12;
+    --app-surface-status-artwork-filter:
+      blur(18px) saturate(0.82) contrast(0.86);
+    --app-surface-status-artwork-veil:
+      linear-gradient(
+        180deg,
+        hsl(var(--background) / 0.10) 0%,
+        hsl(var(--background) / 0.18) 48%,
+        hsl(var(--background) / 0.28) 100%
+      );
+    --app-surface-card-fill: hsl(var(--card) / 0.6);
+    --app-surface-card-line: var(--app-surface-separator);
+    --app-surface-overlay-fill: var(--app-glass-panel-surface);
+    --app-surface-overlay-line: var(--app-glass-panel-line);
+    --app-surface-overlay-shadow: var(--app-glass-panel-shadow);
+    --app-surface-inset-fill: hsl(var(--foreground) / 0.035);
+    --app-surface-control-fill: hsl(var(--foreground) / 0.06);
+    --dream-primary-text: hsl(var(--app-accent-text, var(--primary)));
     --dream-primary-surface: hsl(var(--primary) / 0.13);
     --dream-primary-surface-hover: hsl(var(--primary) / 0.17);
     --dream-primary-surface-muted: hsl(var(--primary) / 0.065);
@@ -146,12 +334,12 @@
     --dream-settings-card-surface:
       linear-gradient(
         180deg,
-        hsl(var(--background) / 0.52),
-        hsl(var(--background) / 0.34)
-      ),
-      hsl(var(--card) / 0.42);
+        hsl(var(--card) / 0.84),
+        hsl(var(--card) / 0.70)
+      );
     --dream-settings-card-shadow:
-      inset 0 0 0 1px hsl(var(--foreground) / 0.045);
+      inset 0 0 0 1px hsl(var(--foreground) / 0.065),
+      0 14px 36px -34px hsl(var(--foreground) / 0.30);
     --dream-surface-panel: hsl(var(--background) / 0.82);
     --dream-surface-muted: var(--dream-secondary-surface-muted);
     --dream-surface-soft: var(--dream-secondary-surface);
@@ -160,21 +348,84 @@
     --dream-line-muted: var(--dream-divider-muted);
     --dream-line-soft: var(--dream-divider-subtle);
     --dream-line-focus: var(--dream-primary-line-strong);
-    --dream-text-muted: hsl(var(--foreground) / 0.62);
-    --dream-text-soft: hsl(var(--foreground) / 0.50);
-    --dream-text-strong: hsl(var(--foreground));
+    --dream-text-muted: var(--app-text-secondary);
+    --dream-text-soft: var(--app-text-tertiary);
+    --dream-text-strong: var(--app-text-primary);
+    /*
+     * Liquid Glass is a single adaptive functional layer. Keep the surfaces
+     * neutral and let backdrop sampling provide color instead of painting a
+     * permanent top-to-bottom highlight or bevel into the material.
+     */
+    --app-glass-regular-surface: hsl(var(--card) / 0.52);
+    --app-glass-regular-line: hsl(var(--foreground) / 0.10);
+    --app-glass-regular-shadow:
+      0 12px 34px -24px hsl(var(--foreground) / 0.30);
+    --app-glass-regular-filter: blur(30px) saturate(1.28);
+    --app-glass-panel-surface: hsl(var(--popover) / 0.74);
+    --app-glass-panel-line: hsl(var(--foreground) / 0.12);
+    --app-glass-panel-shadow:
+      0 18px 46px -26px hsl(var(--foreground) / 0.36);
+    --app-glass-panel-filter: blur(32px) saturate(1.24);
+    --app-glass-clear-surface: hsl(var(--background) / 0.16);
+    --app-glass-clear-line: rgb(255 255 255 / 30%);
+    --app-glass-clear-shadow:
+      0 10px 30px -24px rgb(0 0 0 / 28%);
+    --app-glass-clear-filter: blur(18px) saturate(1.18);
+    /*
+     * Xia Prism structural chrome. These lower-cost samples are reserved for
+     * persistent, full-height navigation and inspector surfaces. The role
+     * recipe adds only a restrained theme wash; ambient color should still
+     * come primarily from the backdrop rather than this fill.
+     */
+    --app-glass-chrome-surface: hsl(var(--card) / 0.58);
+    --app-glass-chrome-dense-surface: hsl(var(--popover) / 0.66);
+    --app-glass-chrome-line: hsl(var(--foreground) / 0.085);
+    --app-glass-chrome-shadow:
+      0 18px 42px -38px hsl(var(--foreground) / 0.34);
+    --app-glass-chrome-embedded-shadow:
+      inset 0 0 0 1px hsl(var(--foreground) / 0.025);
+    --app-glass-chrome-filter: blur(20px) saturate(1.16);
+    --app-glass-chrome-dense-filter: blur(22px) saturate(1.14);
+    --app-glass-chrome-tint-alpha: 0.06;
+    --app-glass-chrome-tint-soft-alpha: 0.025;
+    --app-glass-chrome-specular-opacity: 0.46;
+    --app-glass-interactive-fill: hsl(var(--foreground) / 0.075);
+    --app-glass-interactive-fill-hover: hsl(var(--foreground) / 0.105);
+    --app-glass-interactive-fill-pressed: hsl(var(--foreground) / 0.14);
+    --app-glass-interactive-fill-selected: hsl(var(--primary) / 0.14);
+    --app-glass-solid-surface: hsl(var(--popover));
+    --app-glass-rim-highlight: rgb(255 255 255 / 58%);
+    --app-glass-rim-lowlight: hsl(var(--foreground) / 0.075);
+    --app-glass-specular-opacity: 0.72;
+    --app-glass-specular:
+      linear-gradient(
+        135deg,
+        rgb(255 255 255 / 24%) 0%,
+        rgb(255 255 255 / 8%) 22%,
+        transparent 46%,
+        transparent 72%,
+        hsl(var(--foreground) / 0.045) 100%
+      );
+
+    /* Compatibility aliases for surfaces that haven't migrated yet. */
     --dream-dialog-overlay-scrim: rgb(0 0 0 / 18%);
-    --dream-dialog-overlay-glow: rgb(255 255 255 / 12%);
-    --dream-dialog-surface: hsl(var(--card) / 0.78);
-    --dream-dialog-line: hsl(var(--foreground) / 0.08);
-    --dream-dialog-line-highlight: rgb(255 255 255 / 24%);
-    --dream-dialog-sheen-top: rgb(255 255 255 / 22%);
-    --dream-dialog-sheen-bottom: rgb(255 255 255 / 8%);
-    --dream-menu-surface: var(--dream-dialog-surface);
-    --dream-menu-line: var(--dream-dialog-line);
-    --dream-menu-line-highlight: var(--dream-dialog-line-highlight);
-    --dream-menu-sheen-top: var(--dream-dialog-sheen-top);
-    --dream-menu-sheen-bottom: var(--dream-dialog-sheen-bottom);
+    --dream-dialog-overlay-glow: transparent;
+    --dream-dialog-surface: var(--app-glass-panel-surface);
+    --dream-dialog-line: var(--app-glass-panel-line);
+    --dream-dialog-line-highlight: var(--app-glass-panel-line);
+    --dream-dialog-sheen-top: transparent;
+    --dream-dialog-sheen-bottom: transparent;
+    --dream-glass-surface: var(--app-glass-regular-surface);
+    --dream-glass-surface-strong: var(--app-glass-panel-surface);
+    --dream-glass-line: var(--app-glass-regular-line);
+    --dream-glass-highlight: var(--app-glass-regular-line);
+    --dream-glass-shadow: var(--app-glass-regular-shadow);
+    --dream-glass-filter: var(--app-glass-regular-filter);
+    --dream-menu-surface: var(--app-glass-panel-surface);
+    --dream-menu-line: var(--app-glass-panel-line);
+    --dream-menu-line-highlight: var(--app-glass-panel-line);
+    --dream-menu-sheen-top: transparent;
+    --dream-menu-sheen-bottom: transparent;
     --dream-control-height: 2rem;
     --dream-control-height-compact: var(--app-control-height-compact);
     --dream-control-radius: var(--app-radius-lg);
@@ -195,18 +446,393 @@
   }
 
   :root.dark {
+    --app-workspace-primary-glass-opacity: 0.90;
+    --app-surface-window-glass-wash:
+      linear-gradient(
+        var(--app-main-shell-surface-gradient-direction),
+        hsl(var(--dream-shell-top) / 0.38),
+        hsl(var(--dream-shell-mid) / 0.28) 62%,
+        hsl(var(--dream-shell-bottom) / 0.08)
+      ),
+      hsl(var(--background) / 0.72);
+    --app-text-secondary: hsl(var(--foreground) / 0.78);
+    --app-text-tertiary: hsl(var(--foreground) / 0.66);
+    --app-text-disabled: hsl(var(--foreground) / 0.42);
+    --app-status-tone-success: hsl(142 62% 68%);
+    --app-status-tone-orphan: hsl(42 88% 70%);
     --dream-dialog-overlay-scrim: rgb(0 0 0 / 32%);
-    --dream-dialog-overlay-glow: rgb(255 255 255 / 4%);
-    --dream-dialog-surface: hsl(var(--card) / 0.58);
-    --dream-dialog-line: hsl(var(--foreground) / 0.07);
-    --dream-dialog-line-highlight: rgb(255 255 255 / 8%);
-    --dream-dialog-sheen-top: rgb(255 255 255 / 7%);
-    --dream-dialog-sheen-bottom: rgb(255 255 255 / 2%);
-    --dream-menu-surface: hsl(var(--card) / 0.54);
-    --dream-menu-line: hsl(var(--foreground) / 0.065);
-    --dream-menu-line-highlight: rgb(255 255 255 / 7%);
-    --dream-menu-sheen-top: rgb(255 255 255 / 6%);
-    --dream-menu-sheen-bottom: rgb(255 255 255 / 2%);
+    --app-glass-regular-surface: color-mix(
+      in srgb,
+      hsl(var(--popover) / 0.58) 88%,
+      hsl(var(--foreground) / 0.18)
+    );
+    --app-glass-regular-line: rgb(255 255 255 / 14%);
+    --app-glass-regular-shadow:
+      0 14px 38px -22px rgb(0 0 0 / 54%);
+    --app-glass-regular-filter: blur(30px) saturate(1.25);
+    --app-glass-panel-surface: color-mix(
+      in srgb,
+      hsl(var(--popover) / 0.72) 92%,
+      hsl(var(--foreground) / 0.15)
+    );
+    --app-glass-panel-line: rgb(255 255 255 / 16%);
+    --app-glass-panel-shadow:
+      0 20px 52px -26px rgb(0 0 0 / 62%);
+    --app-glass-panel-filter: blur(32px) saturate(1.22);
+    --app-glass-clear-surface: hsl(var(--background) / 0.18);
+    --app-glass-clear-line: rgb(255 255 255 / 18%);
+    --app-glass-clear-shadow:
+      0 12px 34px -24px rgb(0 0 0 / 58%);
+    --app-glass-clear-filter: blur(18px) saturate(1.14);
+    --app-glass-chrome-surface: color-mix(
+      in srgb,
+      hsl(var(--popover) / 0.62) 92%,
+      hsl(var(--foreground) / 0.12)
+    );
+    --app-glass-chrome-dense-surface: color-mix(
+      in srgb,
+      hsl(var(--popover) / 0.70) 94%,
+      hsl(var(--foreground) / 0.10)
+    );
+    --app-glass-chrome-line: rgb(255 255 255 / 13%);
+    --app-glass-chrome-shadow:
+      0 20px 46px -36px rgb(0 0 0 / 58%);
+    --app-glass-chrome-embedded-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 5%);
+    --app-glass-chrome-filter: blur(20px) saturate(1.13);
+    --app-glass-chrome-dense-filter: blur(22px) saturate(1.11);
+    --app-glass-chrome-tint-alpha: 0.05;
+    --app-glass-chrome-tint-soft-alpha: 0.02;
+    --app-glass-chrome-specular-opacity: 0.36;
+    --app-glass-interactive-fill: hsl(var(--foreground) / 0.10);
+    --app-glass-interactive-fill-hover: hsl(var(--foreground) / 0.14);
+    --app-glass-interactive-fill-pressed: hsl(var(--foreground) / 0.18);
+    --app-glass-interactive-fill-selected: hsl(var(--primary) / 0.18);
+    --app-glass-solid-surface: hsl(var(--popover));
+    --app-glass-rim-highlight: rgb(255 255 255 / 19%);
+    --app-glass-rim-lowlight: rgb(0 0 0 / 42%);
+    --app-glass-specular-opacity: 0.58;
+    --app-glass-specular:
+      linear-gradient(
+        135deg,
+        rgb(255 255 255 / 11%) 0%,
+        rgb(255 255 255 / 4%) 24%,
+        transparent 48%,
+        transparent 72%,
+        rgb(0 0 0 / 16%) 100%
+      );
+    --dream-settings-card-surface:
+      linear-gradient(
+        180deg,
+        hsl(var(--card) / 0.76),
+        hsl(var(--card) / 0.64)
+      );
+    --dream-settings-card-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 7%),
+      0 16px 40px -34px rgb(0 0 0 / 52%);
+  }
+
+  /* Acrylic already supplies the Windows tint and blur. A second near-opaque
+     Primary veil made the native material indistinguishable from a solid
+     window, so Windows keeps a lighter content wash while native mode is
+     active. Solid/reduced-transparency mode intentionally does not match. */
+  :root[data-platform="windows"][data-window-material="native"] {
+    --app-workspace-primary-glass-opacity: 0.68;
+  }
+
+  :root.dark[data-platform="windows"][data-window-material="native"] {
+    --app-workspace-primary-glass-opacity: 0.74;
+  }
+
+  :root[data-xiadown-theme-pack="pixel"] {
+    --app-workspace-divider-width: 2px;
+  }
+
+  /* Surface Style remaps live beside the tokens so every host—including
+     portals, developer fixtures and future windows—gets the same role recipe. */
+  :root[data-xiadown-surface-style="glass"],
+  :where([data-surface-style="glass"]) {
+    --app-workspace-primary-surface:
+      var(--app-workspace-primary-glass-surface);
+  }
+
+  :root[data-xiadown-surface-style="contrast"],
+  :where([data-surface-style="contrast"]) {
+    --app-surface-canvas: var(--app-surface-window-canvas);
+    --app-surface-status-fill: hsl(var(--card));
+    --app-surface-status-filter: none;
+    --app-surface-status-line: hsl(var(--foreground) / 0.14);
+    --app-surface-status-shadow:
+      inset 0 0 0 1px hsl(var(--foreground) / 0.025),
+      0 12px 28px -28px hsl(var(--foreground) / 0.30);
+    --app-surface-status-specular: none;
+    --app-surface-status-specular-opacity: 0;
+    --app-surface-status-artwork-opacity: 0;
+    --app-surface-status-artwork-filter: none;
+    --app-surface-status-artwork-veil: none;
+  }
+
+  :root[data-reduce-transparency="true"] {
+    --app-surface-status-fill: var(--app-glass-solid-surface);
+    --app-surface-status-filter: none;
+    --app-surface-status-line: hsl(var(--foreground) / 0.16);
+    --app-surface-status-shadow: none;
+    --app-surface-status-specular: none;
+    --app-surface-status-specular-opacity: 0;
+    --app-surface-status-artwork-opacity: 0;
+    --app-surface-status-artwork-filter: none;
+    --app-surface-status-artwork-veil: none;
+    --app-glass-regular-surface: var(--app-glass-solid-surface);
+    --app-glass-regular-filter: none;
+    --app-glass-panel-surface: var(--app-glass-solid-surface);
+    --app-glass-panel-filter: none;
+    --app-glass-clear-surface: var(--app-glass-solid-surface);
+    --app-glass-clear-filter: none;
+    --app-glass-chrome-surface: var(--app-glass-solid-surface);
+    --app-glass-chrome-dense-surface: var(--app-glass-solid-surface);
+    --app-glass-chrome-filter: none;
+    --app-glass-chrome-dense-filter: none;
+    --app-glass-chrome-tint-alpha: 0;
+    --app-glass-chrome-tint-soft-alpha: 0;
+    --app-glass-chrome-specular-opacity: 0;
+    --app-glass-interactive-fill: hsl(var(--foreground) / 0.12);
+    --app-glass-interactive-fill-hover: hsl(var(--foreground) / 0.16);
+    --app-glass-interactive-fill-pressed: hsl(var(--foreground) / 0.20);
+    --app-glass-specular-opacity: 0;
+  }
+
+  @supports not (color: color-mix(in srgb, white, black)) {
+    :root.dark {
+      --app-glass-regular-surface: hsl(var(--popover) / 0.66);
+      --app-glass-panel-surface: hsl(var(--popover) / 0.82);
+      --app-glass-chrome-surface: hsl(var(--popover) / 0.68);
+      --app-glass-chrome-dense-surface: hsl(var(--popover) / 0.76);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    :root {
+      --app-surface-status-fill: var(--app-glass-solid-surface);
+      --app-surface-status-filter: none;
+      --app-surface-status-line: hsl(var(--foreground) / 0.16);
+      --app-surface-status-shadow: none;
+      --app-surface-status-specular: none;
+      --app-surface-status-specular-opacity: 0;
+      --app-surface-status-artwork-opacity: 0;
+      --app-surface-status-artwork-filter: none;
+      --app-surface-status-artwork-veil: none;
+      --app-glass-regular-surface: var(--app-glass-solid-surface);
+      --app-glass-regular-filter: none;
+      --app-glass-panel-surface: var(--app-glass-solid-surface);
+      --app-glass-panel-filter: none;
+      --app-glass-clear-surface: var(--app-glass-solid-surface);
+      --app-glass-clear-filter: none;
+      --app-glass-chrome-surface: var(--app-glass-solid-surface);
+      --app-glass-chrome-dense-surface: var(--app-glass-solid-surface);
+      --app-glass-chrome-filter: none;
+      --app-glass-chrome-dense-filter: none;
+      --app-glass-chrome-tint-alpha: 0;
+      --app-glass-chrome-tint-soft-alpha: 0;
+      --app-glass-chrome-specular-opacity: 0;
+      --app-glass-interactive-fill: hsl(var(--foreground) / 0.12);
+      --app-glass-interactive-fill-hover: hsl(var(--foreground) / 0.16);
+      --app-glass-interactive-fill-pressed: hsl(var(--foreground) / 0.20);
+      --app-glass-specular-opacity: 0;
+    }
+  }
+
+  @media (prefers-contrast: more) {
+    :root {
+      --app-text-secondary: hsl(var(--foreground) / 0.90);
+      --app-text-tertiary: hsl(var(--foreground) / 0.82);
+      --app-glass-regular-surface: hsl(var(--card) / 0.82);
+      --app-glass-panel-surface: hsl(var(--popover) / 0.92);
+      --app-glass-regular-line: hsl(var(--foreground) / 0.26);
+      --app-glass-panel-line: hsl(var(--foreground) / 0.32);
+      --app-glass-chrome-surface: hsl(var(--card) / 0.86);
+      --app-glass-chrome-dense-surface: hsl(var(--popover) / 0.92);
+      --app-glass-chrome-line: hsl(var(--foreground) / 0.28);
+      --app-glass-chrome-tint-alpha: 0;
+      --app-glass-chrome-tint-soft-alpha: 0;
+      --app-glass-chrome-specular-opacity: 0;
+      --app-glass-rim-highlight: hsl(var(--foreground) / 0.18);
+      --app-glass-specular-opacity: 0;
+      --app-surface-status-fill: hsl(var(--popover) / 0.95);
+      --app-surface-status-line: hsl(var(--foreground) / 0.34);
+      --app-surface-status-shadow:
+        0 12px 28px -24px hsl(var(--foreground) / 0.38);
+      --app-surface-status-specular: none;
+      --app-surface-status-specular-opacity: 0;
+      --app-surface-status-artwork-opacity: 0;
+      --app-surface-status-artwork-filter: none;
+      --app-surface-status-artwork-veil: none;
+    }
+
+    :root.dark {
+      --app-glass-regular-surface: hsl(var(--popover) / 0.86);
+      --app-glass-panel-surface: hsl(var(--popover) / 0.94);
+      --app-glass-regular-line: rgb(255 255 255 / 32%);
+      --app-glass-panel-line: rgb(255 255 255 / 38%);
+      --app-glass-chrome-surface: hsl(var(--popover) / 0.90);
+      --app-glass-chrome-dense-surface: hsl(var(--popover) / 0.94);
+      --app-glass-chrome-line: rgb(255 255 255 / 34%);
+      --app-glass-rim-highlight: rgb(255 255 255 / 28%);
+      --app-surface-status-fill: hsl(var(--popover) / 0.96);
+      --app-surface-status-line: rgb(255 255 255 / 40%);
+    }
+
+    :root[data-xiadown-surface-style="contrast"],
+    :where([data-surface-style="contrast"]) {
+      --app-surface-separator: hsl(var(--foreground) / 0.24);
+      --app-surface-status-fill: hsl(var(--card));
+      --app-surface-status-filter: none;
+      --app-surface-status-line: hsl(var(--foreground) / 0.28);
+      --app-surface-status-shadow: none;
+      --app-surface-status-specular: none;
+      --app-surface-status-specular-opacity: 0;
+      --app-surface-status-artwork-opacity: 0;
+      --app-surface-status-artwork-filter: none;
+      --app-surface-status-artwork-veil: none;
+    }
+  }
+
+  /* When accessibility preferences overlap, removing transparency wins over
+     the denser high-contrast frost and over color-mix compatibility rules. */
+  :root[data-reduce-transparency="true"] {
+    --app-surface-status-fill: var(--app-glass-solid-surface);
+    --app-surface-status-filter: none;
+    --app-surface-status-shadow: none;
+    --app-surface-status-specular: none;
+    --app-surface-status-specular-opacity: 0;
+    --app-surface-status-artwork-opacity: 0;
+    --app-surface-status-artwork-filter: none;
+    --app-surface-status-artwork-veil: none;
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    :root {
+      --app-surface-status-fill: var(--app-glass-solid-surface);
+      --app-surface-status-filter: none;
+      --app-surface-status-shadow: none;
+      --app-surface-status-specular: none;
+      --app-surface-status-specular-opacity: 0;
+      --app-surface-status-artwork-opacity: 0;
+      --app-surface-status-artwork-filter: none;
+      --app-surface-status-artwork-veil: none;
+    }
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    :root {
+      --app-surface-status-fill: var(--app-glass-solid-surface);
+      --app-surface-status-filter: none;
+      --app-surface-status-shadow: none;
+      --app-surface-status-specular: none;
+      --app-surface-status-specular-opacity: 0;
+      --app-surface-status-artwork-opacity: 0;
+      --app-surface-status-artwork-filter: none;
+      --app-surface-status-artwork-veil: none;
+      --app-glass-regular-surface: var(--app-glass-solid-surface);
+      --app-glass-regular-filter: none;
+      --app-glass-panel-surface: var(--app-glass-solid-surface);
+      --app-glass-panel-filter: none;
+      --app-glass-clear-surface: var(--app-glass-solid-surface);
+      --app-glass-clear-filter: none;
+      --app-glass-chrome-surface: var(--app-glass-solid-surface);
+      --app-glass-chrome-dense-surface: var(--app-glass-solid-surface);
+      --app-glass-chrome-filter: none;
+      --app-glass-chrome-dense-filter: none;
+      --app-glass-chrome-tint-alpha: 0;
+      --app-glass-chrome-tint-soft-alpha: 0;
+      --app-glass-chrome-specular-opacity: 0;
+    }
+  }
+
+  @media (forced-colors: active) {
+    :root {
+      --app-surface-window-canvas: Canvas;
+      --app-surface-window-glass-wash: Canvas;
+      --app-surface-canvas: Canvas;
+      --app-surface-separator: CanvasText;
+      --app-workspace-divider-color: CanvasText;
+      --app-workspace-primary-glass-surface: Canvas;
+      --app-workspace-primary-surface: Canvas;
+      --app-surface-status-fill: Canvas;
+      --app-surface-status-filter: none;
+      --app-surface-status-line: CanvasText;
+      --app-surface-status-shadow: none;
+      --app-surface-status-specular: none;
+      --app-surface-status-specular-opacity: 0;
+      --app-surface-status-artwork-opacity: 0;
+      --app-surface-status-artwork-filter: none;
+      --app-surface-status-artwork-veil: none;
+      --app-surface-card-fill: Canvas;
+      --app-surface-card-line: CanvasText;
+      --app-surface-overlay-fill: Canvas;
+      --app-surface-overlay-line: CanvasText;
+      --app-surface-overlay-shadow: none;
+      --app-surface-inset-fill: Canvas;
+      --app-surface-control-fill: Canvas;
+      --app-glass-regular-surface: Canvas;
+      --app-glass-regular-line: CanvasText;
+      --app-glass-regular-shadow: none;
+      --app-glass-regular-filter: none;
+      --app-glass-panel-surface: Canvas;
+      --app-glass-panel-line: CanvasText;
+      --app-glass-panel-shadow: none;
+      --app-glass-panel-filter: none;
+      --app-glass-clear-surface: Canvas;
+      --app-glass-clear-line: CanvasText;
+      --app-glass-clear-shadow: none;
+      --app-glass-clear-filter: none;
+      --app-glass-chrome-surface: Canvas;
+      --app-glass-chrome-dense-surface: Canvas;
+      --app-glass-chrome-line: CanvasText;
+      --app-glass-chrome-shadow: none;
+      --app-glass-chrome-embedded-shadow: none;
+      --app-glass-chrome-filter: none;
+      --app-glass-chrome-dense-filter: none;
+      --app-glass-chrome-tint-alpha: 0;
+      --app-glass-chrome-tint-soft-alpha: 0;
+      --app-glass-chrome-specular-opacity: 0;
+      --app-glass-interactive-fill: Highlight;
+      --app-glass-interactive-fill-hover: Highlight;
+      --app-glass-interactive-fill-pressed: Highlight;
+      --app-glass-interactive-fill-selected: Highlight;
+      --app-glass-solid-surface: Canvas;
+      --app-glass-rim-highlight: CanvasText;
+      --app-glass-rim-lowlight: CanvasText;
+      --app-glass-specular-opacity: 0;
+      --app-media-chrome-foreground: CanvasText;
+      --app-media-chrome-foreground-muted: CanvasText;
+      --app-media-chrome-canvas: Canvas;
+      --app-media-chrome-scrim-soft: Canvas;
+      --app-media-chrome-scrim: Canvas;
+      --app-media-chrome-scrim-hover: Highlight;
+      --app-media-chrome-scrim-strong: Canvas;
+      --app-media-chrome-shadow: transparent;
+      --app-window-control-macos-close: ButtonText;
+      --app-window-control-macos-close-hover: Highlight;
+      --app-window-control-macos-minimize: ButtonText;
+      --app-window-control-macos-minimize-hover: Highlight;
+      --app-window-control-macos-maximize: ButtonText;
+      --app-window-control-macos-maximize-hover: Highlight;
+      --app-window-control-hover-surface: Highlight;
+      --app-window-control-pressed-surface: Highlight;
+      --app-window-control-danger: Highlight;
+      --app-window-control-danger-pressed: Highlight;
+      --app-window-control-danger-foreground: HighlightText;
+    }
+
+    :root[data-xiadown-surface-style="contrast"],
+    :where([data-surface-style="contrast"]) {
+      --app-surface-status-fill: Canvas;
+      --app-surface-status-filter: none;
+      --app-surface-status-line: CanvasText;
+      --app-surface-status-shadow: none;
+      --app-surface-status-specular: none;
+      --app-surface-status-specular-opacity: 0;
+    }
   }
 
   :root[data-motion="expressive"] {

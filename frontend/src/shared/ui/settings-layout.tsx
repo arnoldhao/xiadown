@@ -100,7 +100,10 @@ export function SettingsRow({
       )}
       {...props}
     >
-      <div className={cn("min-w-0 flex-auto overflow-hidden", description ? "space-y-1" : null)}>
+      <div
+        className="app-settings-row-summary"
+        data-has-description={description ? "true" : "false"}
+      >
         <div className={cn(SETTINGS_ROW_LABEL_CLASS, labelClassName)}>
           {label}
         </div>
@@ -111,11 +114,8 @@ export function SettingsRow({
         ) : null}
       </div>
       <div
-        className={cn(
-          SETTINGS_ROW_CONTENT_BASE_CLASS,
-          align === "start" ? "items-start" : "items-center",
-          contentClassName,
-        )}
+        className={cn(SETTINGS_ROW_CONTENT_BASE_CLASS, contentClassName)}
+        data-align={align}
       >
         {children}
       </div>

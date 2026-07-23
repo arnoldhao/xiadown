@@ -13,10 +13,14 @@ type HistoryRecordSource struct {
 }
 
 type HistoryRecordRefs struct {
-	OperationID   string
-	ImportBatchID string
-	FileIDs       []string
-	FileEventIDs  []string
+	// OperationID is the live relational reference and may be cleared by the
+	// database when an operation is deleted. SubjectOperationID is the stable
+	// audit identity retained after that deletion.
+	OperationID        string
+	SubjectOperationID string
+	ImportBatchID      string
+	FileIDs            []string
+	FileEventIDs       []string
 }
 
 type ImportRecordMeta struct {
@@ -81,6 +85,12 @@ func NewHistoryRecord(params HistoryRecordParams) (HistoryRecord, error) {
 	case "operation":
 		switch action {
 		case "download", "transcode":
+		default:
+			return HistoryRecord{}, ErrInvalidHistoryRecord
+		}
+	case "operation_event":
+		switch action {
+		case "operation_renamed", "operation_canceled", "operation_resumed", "operation_delete_requested", "operation_deleted":
 		default:
 			return HistoryRecord{}, ErrInvalidHistoryRecord
 		}

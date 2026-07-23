@@ -3,11 +3,10 @@ package wails
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,18 +16,53 @@ import (
 )
 
 const telemetrySignalEvent = "telemetry:signal"
-const telemetryDefaultTarget = "https://nom.telemetrydeck.com/v2/"
-const telemetryNativeClientName = "XiaDownNativeTelemetry"
 
-var forbiddenTelemetryPayloadKeys = map[string]struct{}{
-	"count":      {},
-	"type":       {},
-	"appID":      {},
-	"clientUser": {},
-	"__time":     {},
-	"payload":    {},
-	"platform":   {},
-	"receivedAt": {},
+const (
+	maxTelemetryBodies         = 4
+	maxTelemetryPayloadKeys    = 32
+	maxTelemetryStringLength   = 256
+	maxTelemetryClientIDLength = 512
+)
+
+var allowedTelemetrySignalTypes = map[string]struct{}{
+	"TelemetryDeck.Session.started":                {},
+	"TelemetryDeck.Acquisition.newInstallDetected": {},
+	"XiaDown.Station.opened":                       {},
+}
+
+var allowedTelemetryBodyKeys = map[string]struct{}{
+	"clientUser":             {},
+	"sessionID":              {},
+	"appID":                  {},
+	"type":                   {},
+	"telemetryClientVersion": {},
+	"isTestMode":             {},
+	"payload":                {},
+}
+
+var allowedTelemetryPayloadKeys = map[string]struct{}{
+	"TelemetryDeck.AppInfo.version":                     {},
+	"TelemetryDeck.AppInfo.buildNumber":                 {},
+	"TelemetryDeck.AppInfo.versionAndBuildNumber":       {},
+	"TelemetryDeck.Device.architecture":                 {},
+	"TelemetryDeck.Device.modelName":                    {},
+	"TelemetryDeck.Device.operatingSystem":              {},
+	"TelemetryDeck.Device.platform":                     {},
+	"TelemetryDeck.Device.timeZone":                     {},
+	"TelemetryDeck.RunContext.isDebug":                  {},
+	"TelemetryDeck.RunContext.targetEnvironment":        {},
+	"TelemetryDeck.RunContext.locale":                   {},
+	"TelemetryDeck.RunContext.language":                 {},
+	"TelemetryDeck.Acquisition.firstSessionDate":        {},
+	"TelemetryDeck.Retention.distinctDaysUsed":          {},
+	"TelemetryDeck.Retention.distinctDaysUsedLastMonth": {},
+	"TelemetryDeck.Retention.totalSessionsCount":        {},
+	"TelemetryDeck.UserPreference.language":             {},
+	"TelemetryDeck.UserPreference.region":               {},
+	"TelemetryDeck.SDK.nameAndVersion":                  {},
+	"TelemetryDeck.SDK.name":                            {},
+	"TelemetryDeck.SDK.version":                         {},
+	"XiaDown.Station.name":                              {},
 }
 
 type telemetrySignalEmitter struct {
@@ -47,9 +81,13 @@ func (emitter *telemetrySignalEmitter) Emit(signal apptelemetry.Signal) {
 }
 
 type TelemetryHandler struct {
-	service       *apptelemetry.Service
-	launchContext apptelemetry.AppLaunchContext
-	httpClient    telemetryHTTPClientProvider
+	service          *apptelemetry.Service
+	windowVisibility telemetryWindowVisibility
+	httpClient       telemetryHTTPClientProvider
+}
+
+type telemetryWindowVisibility interface {
+	MainWindowVisible() bool
 }
 
 type telemetryHTTPClientProvider interface {
@@ -57,16 +95,15 @@ type telemetryHTTPClientProvider interface {
 }
 
 type TelemetryPostSignalRequest struct {
-	Target    string           `json:"target"`
-	Body      []map[string]any `json:"body"`
-	Keepalive bool             `json:"keepalive,omitempty"`
+	Target string           `json:"target"`
+	Body   []map[string]any `json:"body"`
 }
 
-func NewTelemetryHandler(service *apptelemetry.Service, launchContext apptelemetry.AppLaunchContext, httpClient telemetryHTTPClientProvider) *TelemetryHandler {
+func NewTelemetryHandler(service *apptelemetry.Service, windowVisibility telemetryWindowVisibility, httpClient telemetryHTTPClientProvider) *TelemetryHandler {
 	return &TelemetryHandler{
-		service:       service,
-		launchContext: launchContext,
-		httpClient:    httpClient,
+		service:          service,
+		windowVisibility: windowVisibility,
+		httpClient:       httpClient,
 	}
 }
 
@@ -85,40 +122,157 @@ func (handler *TelemetryHandler) TrackAppLaunch(ctx context.Context) (int, error
 	if handler == nil || handler.service == nil {
 		return 0, nil
 	}
-	return handler.service.TrackAppLaunch(ctx, handler.launchContext)
+	return handler.service.TrackAppLaunch(ctx)
 }
 
-func (handler *TelemetryHandler) FlushSessionSummary(ctx context.Context) error {
+// TrackStationOpened deliberately accepts only a station name. The telemetry
+// service reduces it to a fixed low-cardinality enum before constructing the
+// signal, so callers cannot attach identifiers, paths, URLs, or other payload.
+func (handler *TelemetryHandler) TrackStationOpened(ctx context.Context, station string) bool {
 	if handler == nil || handler.service == nil {
-		return nil
+		return false
 	}
-	return handler.service.FlushSessionSummary(ctx)
-}
-
-func (handler *TelemetryHandler) FlushSessionSummaryForShutdown(ctx context.Context) error {
-	if handler == nil || handler.service == nil {
-		return nil
+	if handler.windowVisibility != nil && !handler.windowVisibility.MainWindowVisible() {
+		return false
 	}
-	bootstrap, err := handler.service.Bootstrap(ctx)
-	if err != nil {
-		return err
-	}
-	signal, ok, err := handler.service.FlushSessionSummarySignal(ctx)
-	if err != nil || !ok {
-		return err
-	}
-	body, err := telemetrySignalBody(bootstrap, signal)
-	if err != nil {
-		return err
-	}
-	return handler.postSignalBody(ctx, telemetryDefaultTarget, []map[string]any{body})
+	return handler.service.TrackStationOpened(ctx, station)
 }
 
 func (handler *TelemetryHandler) PostSignal(ctx context.Context, request TelemetryPostSignalRequest) error {
 	if len(request.Body) == 0 {
 		return nil
 	}
-	return handler.postSignalBody(ctx, request.Target, request.Body)
+	body, err := sanitizeTelemetryBodies(request.Body)
+	if err != nil {
+		return err
+	}
+	return handler.postSignalBody(ctx, request.Target, body)
+}
+
+func sanitizeTelemetryBodies(input []map[string]any) ([]map[string]any, error) {
+	if len(input) == 0 {
+		return nil, nil
+	}
+	if len(input) > maxTelemetryBodies {
+		return nil, fmt.Errorf("telemetry batch exceeds limit")
+	}
+	result := make([]map[string]any, 0, len(input))
+	for _, source := range input {
+		if source == nil {
+			return nil, fmt.Errorf("telemetry body is invalid")
+		}
+		for key := range source {
+			if _, allowed := allowedTelemetryBodyKeys[key]; !allowed {
+				return nil, fmt.Errorf("telemetry body contains an unsupported property")
+			}
+		}
+		signalType, ok := boundedTelemetryString(source["type"], maxTelemetryStringLength)
+		if !ok {
+			return nil, fmt.Errorf("telemetry signal type is invalid")
+		}
+		if _, allowed := allowedTelemetrySignalTypes[signalType]; !allowed {
+			return nil, fmt.Errorf("telemetry signal type is not allowed")
+		}
+		body := make(map[string]any, len(source))
+		body["type"] = signalType
+		for _, key := range []string{"clientUser", "sessionID", "appID", "telemetryClientVersion"} {
+			value, valid := boundedTelemetryString(source[key], maxTelemetryClientIDLength)
+			if !valid {
+				return nil, fmt.Errorf("telemetry identity is invalid")
+			}
+			body[key] = value
+		}
+		if testMode, exists := source["isTestMode"]; exists {
+			value, valid := testMode.(bool)
+			if !valid {
+				return nil, fmt.Errorf("telemetry test mode is invalid")
+			}
+			body["isTestMode"] = value
+		}
+		payload, err := sanitizeTelemetryPayload(source["payload"], signalType)
+		if err != nil {
+			return nil, err
+		}
+		body["payload"] = payload
+		result = append(result, body)
+	}
+	return result, nil
+}
+
+func sanitizeTelemetryPayload(value any, signalType string) (map[string]any, error) {
+	source, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("telemetry payload is invalid")
+	}
+	if len(source) > maxTelemetryPayloadKeys {
+		return nil, fmt.Errorf("telemetry payload exceeds limit")
+	}
+	result := make(map[string]any, len(source))
+	for key, value := range source {
+		if _, allowed := allowedTelemetryPayloadKeys[key]; !allowed {
+			return nil, fmt.Errorf("telemetry payload contains an unsupported property")
+		}
+		if key == "XiaDown.Station.name" {
+			if signalType != "XiaDown.Station.opened" {
+				return nil, fmt.Errorf("telemetry station property is invalid")
+			}
+			station, valid := boundedTelemetryString(value, 16)
+			if !valid {
+				return nil, fmt.Errorf("telemetry station is invalid")
+			}
+			result[key] = normalizeTelemetryStation(station)
+			continue
+		}
+		primitive, valid := boundedTelemetryPrimitive(value)
+		if !valid {
+			return nil, fmt.Errorf("telemetry payload value is invalid")
+		}
+		result[key] = primitive
+	}
+	if signalType == "XiaDown.Station.opened" {
+		if _, exists := result["XiaDown.Station.name"]; !exists {
+			return nil, fmt.Errorf("telemetry station is missing")
+		}
+	}
+	return result, nil
+}
+
+func boundedTelemetryString(value any, maxLength int) (string, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	return text, text != "" && len(text) <= maxLength
+}
+
+func boundedTelemetryPrimitive(value any) (any, bool) {
+	switch typed := value.(type) {
+	case string:
+		if len(typed) > maxTelemetryStringLength {
+			return nil, false
+		}
+		return typed, true
+	case bool:
+		return typed, true
+	case float64:
+		return typed, !math.IsNaN(typed) && !math.IsInf(typed, 0)
+	case float32:
+		return typed, !math.IsNaN(float64(typed)) && !math.IsInf(float64(typed), 0)
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return typed, true
+	default:
+		return nil, false
+	}
+}
+
+func normalizeTelemetryStation(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "library", "music", "sniff", "rss", "youtube":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "other"
+	}
 }
 
 func (handler *TelemetryHandler) postSignalBody(ctx context.Context, rawTarget string, body []map[string]any) error {
@@ -155,64 +309,6 @@ func (handler *TelemetryHandler) postSignalBody(ctx context.Context, rawTarget s
 		return fmt.Errorf("telemetry post failed: http %d", resp.StatusCode)
 	}
 	return nil
-}
-
-func telemetrySignalBody(bootstrap apptelemetry.Bootstrap, signal apptelemetry.Signal) (map[string]any, error) {
-	if !bootstrap.Enabled || strings.TrimSpace(bootstrap.AppID) == "" || strings.TrimSpace(bootstrap.InstallID) == "" {
-		return nil, fmt.Errorf("telemetry bootstrap is not enabled")
-	}
-	signalType := strings.TrimSpace(signal.Type)
-	if signalType == "" {
-		return nil, fmt.Errorf("telemetry signal type is empty")
-	}
-	appVersion := strings.TrimSpace(bootstrap.AppVersion)
-	nameAndVersion := telemetryNativeClientName
-	if appVersion != "" {
-		nameAndVersion += " " + appVersion
-	}
-	body := map[string]any{
-		"clientUser":             sha256Hex(strings.TrimSpace(bootstrap.InstallID)),
-		"sessionID":              strings.TrimSpace(bootstrap.SessionID),
-		"appID":                  strings.TrimSpace(bootstrap.AppID),
-		"type":                   signalType,
-		"telemetryClientVersion": nameAndVersion,
-	}
-	if bootstrap.TestMode {
-		body["isTestMode"] = true
-	}
-	if signal.FloatValue != nil {
-		body["floatValue"] = *signal.FloatValue
-	}
-	payload := sanitizedTelemetryPayload(signal.Payload)
-	payload["TelemetryDeck.SDK.nameAndVersion"] = nameAndVersion
-	payload["TelemetryDeck.SDK.name"] = telemetryNativeClientName
-	if appVersion != "" {
-		payload["TelemetryDeck.SDK.version"] = appVersion
-	}
-	if len(payload) > 0 {
-		body["payload"] = payload
-	}
-	return body, nil
-}
-
-func sanitizedTelemetryPayload(payload map[string]any) map[string]any {
-	result := make(map[string]any, len(payload))
-	for key, value := range payload {
-		trimmedKey := strings.TrimSpace(key)
-		if trimmedKey == "" {
-			continue
-		}
-		if _, forbidden := forbiddenTelemetryPayloadKeys[trimmedKey]; forbidden {
-			continue
-		}
-		result[trimmedKey] = value
-	}
-	return result
-}
-
-func sha256Hex(value string) string {
-	sum := sha256.Sum256([]byte(value))
-	return hex.EncodeToString(sum[:])
 }
 
 func telemetryTargetAllowed(raw string) bool {

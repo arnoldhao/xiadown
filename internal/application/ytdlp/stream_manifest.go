@@ -213,6 +213,7 @@ func AnalyzeStreamManifest(rawURL string, body []byte, contentType string, keyPr
 }
 
 func analyzeHLSManifest(rawURL string, body string, contentType string, keyProbe *StreamKeyProbe) StreamManifestPreflight {
+	referencesAllowed := hlsManifestReferencesAllowed(rawURL, body)
 	preflight := StreamManifestPreflight{
 		Kind:           StreamManifestKindHLS,
 		URL:            strings.TrimSpace(rawURL),
@@ -223,6 +224,9 @@ func analyzeHLSManifest(rawURL string, body string, contentType string, keyProbe
 	keyURIs := map[string]struct{}{}
 	segmentExts := map[string]struct{}{}
 	warnings := map[string]struct{}{}
+	if !referencesAllowed {
+		warnings["manifest_reference_network_policy"] = struct{}{}
+	}
 	drmSystems := map[string]struct{}{}
 	segmentExtensionless := false
 	segmentCount := 0
@@ -344,7 +348,9 @@ func analyzeHLSManifest(rawURL string, body string, contentType string, keyProbe
 	if preflight.KeyProbe != nil {
 		preflight.KeyProbe.Method = strings.ToLower(strings.TrimSpace(firstNonEmpty(preflight.KeyProbe.Method, preflight.EncryptionType)))
 	}
-	if preflight.DRM {
+	if !referencesAllowed {
+		preflight.UnsupportedReason = unsupportedManifestReferenceReason
+	} else if preflight.DRM {
 		preflight.EncryptionType = StreamEncryptionDRM
 		preflight.UnsupportedReason = "DRM-protected HLS streams are not supported"
 	} else if unsupported := unsupportedHLSEncryptionMethod(preflight.HLSMethods); unsupported != "" {
@@ -374,6 +380,7 @@ func analyzeHLSManifest(rawURL string, body string, contentType string, keyProbe
 }
 
 func analyzeDASHManifest(rawURL string, body []byte, contentType string) StreamManifestPreflight {
+	referencesAllowed := dashManifestReferencesAllowed(rawURL, body)
 	preflight := StreamManifestPreflight{
 		Kind:           StreamManifestKindDASH,
 		URL:            strings.TrimSpace(rawURL),
@@ -422,7 +429,10 @@ func analyzeDASHManifest(rawURL string, body []byte, contentType string) StreamM
 			preflight.EncryptionType = StreamEncryptionUnknown
 		}
 	}
-	if preflight.DRM {
+	if !referencesAllowed {
+		preflight.Warnings = []string{"manifest_reference_network_policy"}
+		preflight.UnsupportedReason = unsupportedManifestReferenceReason
+	} else if preflight.DRM {
 		preflight.EncryptionType = StreamEncryptionDRM
 		preflight.UnsupportedReason = "DRM-protected DASH streams are not supported"
 	} else if encrypted {
@@ -724,8 +734,12 @@ func FirstHLSSegmentProbe(manifestURL string, body []byte) (HLSSegmentProbe, boo
 		if len(iv) != 16 {
 			iv = HLSMediaSequenceIV(mediaSequence)
 		}
+		resolvedURL := ResolveManifestReference(manifestURL, line)
+		if resolvedURL == "" {
+			return HLSSegmentProbe{}, false
+		}
 		probe := HLSSegmentProbe{
-			URL: ResolveManifestReference(manifestURL, line),
+			URL: resolvedURL,
 			IV:  append([]byte{}, iv...),
 		}
 		if segmentHasByteRange {
@@ -920,23 +934,7 @@ func streamURLPathExtension(rawURL string) string {
 }
 
 func ResolveManifestReference(baseURL string, ref string) string {
-	trimmedRef := strings.TrimSpace(ref)
-	if trimmedRef == "" {
-		return ""
-	}
-	parsedRef, err := url.Parse(trimmedRef)
-	if err == nil && parsedRef.IsAbs() {
-		return trimmedRef
-	}
-	parsedBase, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil {
-		return trimmedRef
-	}
-	resolved, err := url.Parse(trimmedRef)
-	if err != nil {
-		return trimmedRef
-	}
-	return parsedBase.ResolveReference(resolved).String()
+	return resolveNetworkReference(baseURL, ref)
 }
 
 func ManifestRawQuery(rawURL string) string {

@@ -45,15 +45,6 @@ static void xiadown_append_token(NSMutableString *result, NSString *piece) {
     [result appendString:piece];
 }
 
-int xiadown_romanization_available() {
-    @autoreleasepool {
-        if (@available(macOS 10.14, *)) {
-            return 1;
-        }
-        return 0;
-    }
-}
-
 char* xiadown_dominant_language(const char *input) {
     @autoreleasepool {
         if (input == NULL) {
@@ -63,13 +54,11 @@ char* xiadown_dominant_language(const char *input) {
         if (text == nil || [text length] == 0) {
             return NULL;
         }
-        if (@available(macOS 10.14, *)) {
-            NLLanguageRecognizer *recognizer = [[NLLanguageRecognizer alloc] init];
-            [recognizer processString:text];
-            NLLanguage language = [recognizer dominantLanguage];
-            if (language != nil) {
-                return strdup([language UTF8String]);
-            }
+        NLLanguageRecognizer *recognizer = [[NLLanguageRecognizer alloc] init];
+        [recognizer processString:text];
+        NLLanguage language = [recognizer dominantLanguage];
+        if (language != nil) {
+            return strdup([language UTF8String]);
         }
         return NULL;
     }
@@ -140,7 +129,7 @@ import "C"
 import "unsafe"
 
 func systemRomanizationAvailable() bool {
-	return C.xiadown_romanization_available() != 0
+	return true
 }
 
 func romanizeWithLocale(text string, locale string) string {

@@ -20,18 +20,8 @@ import {
 buildAssetPreviewURL,
 extractExtensionFromPath
 } from "@/shared/utils/resourceHelpers";
-import {
-FileArchive,
-FileBraces,
-FileCode,
-FileText,
-FileType,
-FileVideo,
-ImageIcon,
-Languages,
-Link2,
-Music2,
-} from "lucide-react";
+import { resolveResourceKindIcon } from "@/shared/ui/resource-kind-icon";
+import type { DreamStatusTone } from "@/shared/ui/status-badge";
 
 import { COMPLETED_PREVIEW_SUPPORT_CACHE } from "@/app/main/main-constants";
 import type { CompletedDeleteConfirmation,CompletedFileEntry,CompletedFileType,CompletedPreviewGroupKind,CompletedTaskFileTypeSummary,CompletedViewMode } from "@/app/main/types";
@@ -140,6 +130,8 @@ export const COMPLETED_IMAGE_PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
 export const SITE_KEYS = new Set([
   "youtube",
   "bilibili",
+  "douyin",
+  "xiaohongshu",
   "tiktok",
   "china_private",
   "instagram",
@@ -168,21 +160,21 @@ export function normalizeProxy(settings?: Settings | null): ProxySettings {
   );
 }
 
-export function resolveStatusTone(status?: string) {
+export function resolveStatusTone(status?: string): DreamStatusTone {
   switch ((status ?? "").trim().toLowerCase()) {
     case "succeeded":
     case "installed":
-      return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-200";
+      return "success";
     case "running":
     case "queued":
-      return "bg-sky-500/15 text-sky-700 dark:text-sky-200";
+      return "busy";
     case "failed":
     case "invalid":
-      return "bg-rose-500/15 text-rose-700 dark:text-rose-200";
+      return "danger";
     case "canceled":
-      return "bg-amber-500/15 text-amber-700 dark:text-amber-200";
+      return "warning";
     default:
-      return "bg-muted text-muted-foreground";
+      return "muted";
   }
 }
 
@@ -1234,28 +1226,7 @@ export function resolveCompletedPreviewGroupLabel(
 }
 
 export function resolveCompletedPreviewTabIcon(kind: CompletedFileType) {
-  switch (kind) {
-    case "video":
-      return FileVideo;
-    case "audio":
-      return Music2;
-    case "subtitle":
-      return Languages;
-    case "image":
-      return ImageIcon;
-    case "manifest":
-      return FileCode;
-    case "api":
-      return FileBraces;
-    case "document":
-      return FileText;
-    case "font":
-      return FileType;
-    case "archive":
-      return FileArchive;
-    default:
-      return Link2;
-  }
+  return resolveResourceKindIcon(kind);
 }
 
 export function resolveCompletedPreviewGroupIcon(kind: CompletedPreviewGroupKind) {
@@ -1425,6 +1396,30 @@ export function formatCodecLabel(codec?: string) {
 
 export function resolveSiteKeyForDomain(domain?: string) {
   const normalized = (domain ?? "").trim().toLowerCase();
+  if (
+    normalized === "douyin.com" ||
+    normalized.endsWith(".douyin.com") ||
+    normalized === "iesdouyin.com" ||
+    normalized.endsWith(".iesdouyin.com")
+  ) {
+    return "douyin";
+  }
+  if (
+    normalized === "xiaohongshu.com" ||
+    normalized.endsWith(".xiaohongshu.com") ||
+    normalized === "xhs.cn" ||
+    normalized.endsWith(".xhs.cn") ||
+    normalized === "xhslink.com" ||
+    normalized.endsWith(".xhslink.com") ||
+    normalized === "xhslink.cn" ||
+    normalized.endsWith(".xhslink.cn") ||
+    normalized === "xhsurl.com" ||
+    normalized.endsWith(".xhsurl.com") ||
+    normalized === "rl.ink" ||
+    normalized.endsWith(".rl.ink")
+  ) {
+    return "xiaohongshu";
+  }
   switch (normalized) {
     case "youtube.com":
     case "youtu.be":
@@ -1437,15 +1432,7 @@ export function resolveSiteKeyForDomain(domain?: string) {
     case "tiktokv.com":
     case "vm.tiktok.com":
       return "tiktok";
-    case "douyin.com":
-    case "iesdouyin.com":
-    case "xiaohongshu.com":
     case "rednote.com":
-    case "xhs.cn":
-    case "xhslink.com":
-    case "xhslink.cn":
-    case "xhsurl.com":
-    case "rl.ink":
       return "china_private";
     case "instagram.com":
       return "instagram";

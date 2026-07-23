@@ -57,7 +57,7 @@ func buildAppearanceConfig(themePackID string) map[string]any {
 	return map[string]any{
 		"appearance": map[string]any{
 			"themePackId":  themePackID,
-			"sidebarStyle": "glass",
+			"surfaceStyle": "glass",
 			"accentMode":   "theme",
 		},
 	}

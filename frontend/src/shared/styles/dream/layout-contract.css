@@ -1,0 +1,522 @@
+/*
+ * Shared workspace layout contracts.
+ *
+ * Stations own their content and responsive composition. This file owns the
+ * cross-station header, native-window safe area, and Search-page placement.
+ */
+
+/* Route names remain available to assistive technology, page actions start at
+ * the leading edge, and the trailing edge is reserved only while Primary
+ * actually hosts native Windows caption controls. */
+.app-workspace-primary-header {
+  --app-workspace-primary-header-window-controls-safe-area: 0px;
+
+  position: relative;
+  z-index: var(--app-layer-floating-controls);
+}
+
+.app-workspace-primary-header[data-window-controls="true"] {
+  --app-workspace-primary-header-window-controls-safe-area:
+    var(--app-windows-caption-control-width);
+}
+
+.app-workspace-primary-header__actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--app-workspace-header-action-gap);
+}
+
+.app-workspace-primary-header-action-group {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--app-workspace-header-action-gap);
+}
+
+.app-workspace-primary-header-action-group
+  + .app-workspace-primary-header-action-group {
+  margin-inline-start: var(--app-workspace-header-group-gap);
+}
+
+.app-workspace-primary-header-action[aria-pressed="true"] {
+  background: var(--dream-surface-pressed);
+  color: var(--app-text-primary);
+}
+
+.app-workspace-primary-header__safe-area {
+  width: var(--app-workspace-primary-header-window-controls-safe-area);
+  min-width: var(--app-workspace-primary-header-window-controls-safe-area);
+  align-self: stretch;
+  flex: 0 0 var(--app-workspace-primary-header-window-controls-safe-area);
+  margin-left: auto;
+}
+
+/*
+ * Workspace page anatomy
+ * ----------------------
+ * A Station selects semantics through WorkspacePageContract. These roles own
+ * the single content viewport, route heading, top drag rail, and true page
+ * footer. Feature CSS starts inside __content and may arrange domain items.
+ */
+:root[data-listen-native-video-underlay="true"] {
+  --listen-native-video-primary-hole-x: 0px;
+  --listen-native-video-primary-hole-y: 0px;
+  --listen-native-video-primary-hole-w: 0px;
+  --listen-native-video-primary-hole-h: 0px;
+  --listen-native-video-primary-hole-r: 0px;
+  --listen-native-video-primary-outside-mask:
+    linear-gradient(#000 0 0) 0 0 / 100% var(--listen-native-video-primary-hole-y) no-repeat,
+    linear-gradient(#000 0 0) 0 calc(var(--listen-native-video-primary-hole-y) + var(--listen-native-video-primary-hole-h)) / 100% calc(100% - var(--listen-native-video-primary-hole-y) - var(--listen-native-video-primary-hole-h)) no-repeat,
+    linear-gradient(#000 0 0) 0 var(--listen-native-video-primary-hole-y) / var(--listen-native-video-primary-hole-x) var(--listen-native-video-primary-hole-h) no-repeat,
+    linear-gradient(#000 0 0) calc(var(--listen-native-video-primary-hole-x) + var(--listen-native-video-primary-hole-w)) var(--listen-native-video-primary-hole-y) / calc(100% - var(--listen-native-video-primary-hole-x) - var(--listen-native-video-primary-hole-w)) var(--listen-native-video-primary-hole-h) no-repeat,
+    radial-gradient(circle at 100% 100%, transparent calc(var(--listen-native-video-primary-hole-r) - 0.5px), #000 var(--listen-native-video-primary-hole-r)) var(--listen-native-video-primary-hole-x) var(--listen-native-video-primary-hole-y) / var(--listen-native-video-primary-hole-r) var(--listen-native-video-primary-hole-r) no-repeat,
+    radial-gradient(circle at 0 100%, transparent calc(var(--listen-native-video-primary-hole-r) - 0.5px), #000 var(--listen-native-video-primary-hole-r)) calc(var(--listen-native-video-primary-hole-x) + var(--listen-native-video-primary-hole-w) - var(--listen-native-video-primary-hole-r)) var(--listen-native-video-primary-hole-y) / var(--listen-native-video-primary-hole-r) var(--listen-native-video-primary-hole-r) no-repeat,
+    radial-gradient(circle at 0 0, transparent calc(var(--listen-native-video-primary-hole-r) - 0.5px), #000 var(--listen-native-video-primary-hole-r)) calc(var(--listen-native-video-primary-hole-x) + var(--listen-native-video-primary-hole-w) - var(--listen-native-video-primary-hole-r)) calc(var(--listen-native-video-primary-hole-y) + var(--listen-native-video-primary-hole-h) - var(--listen-native-video-primary-hole-r)) / var(--listen-native-video-primary-hole-r) var(--listen-native-video-primary-hole-r) no-repeat,
+    radial-gradient(circle at 100% 0, transparent calc(var(--listen-native-video-primary-hole-r) - 0.5px), #000 var(--listen-native-video-primary-hole-r)) var(--listen-native-video-primary-hole-x) calc(var(--listen-native-video-primary-hole-y) + var(--listen-native-video-primary-hole-h) - var(--listen-native-video-primary-hole-r)) / var(--listen-native-video-primary-hole-r) var(--listen-native-video-primary-hole-r) no-repeat;
+}
+
+:root[data-listen-native-video-underlay="true"]:is(
+    [data-youtube-workspace-video-active="true"],
+    [data-rss-bilibili-video-active="true"],
+    [data-rss-site-video-active="true"]
+  )
+  .app-workspace-primary-pane {
+  isolation: isolate;
+}
+
+:root[data-listen-native-video-underlay="true"]:is(
+    [data-youtube-workspace-video-active="true"],
+    [data-rss-bilibili-video-active="true"],
+    [data-rss-site-video-active="true"]
+  )
+  .app-workspace-primary-pane::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+}
+
+.app-workspace-page {
+  container: workspace-page / inline-size;
+  position: relative;
+  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "topbar"
+    "content"
+    "footer";
+  overflow: hidden;
+  background: transparent;
+}
+
+.app-workspace-page__topbar {
+  grid-area: topbar;
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--app-workspace-page-topbar-height);
+  min-width: 0;
+  min-height: var(--app-workspace-page-topbar-height);
+  flex: 0 0 var(--app-workspace-page-topbar-height);
+  align-items: center;
+  gap: var(--app-workspace-header-action-gap);
+  padding-inline: var(--app-page-gutter);
+  background: transparent;
+}
+
+.app-glass-surface[data-material="regular"][data-glass-role="header"].app-workspace-page__topbar-material {
+  --app-glass-filter: none;
+  --app-glass-line: transparent;
+  --app-glass-local-specular-opacity: 0;
+  --app-glass-shadow: none;
+  --app-surface-state-shadow: 0 0 transparent;
+
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  opacity: 0;
+  box-shadow: none;
+  pointer-events: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+  transition: opacity var(--app-motion-duration-base)
+    var(--app-motion-ease-standard);
+}
+
+.app-workspace-page__topbar > :not(.app-workspace-page__topbar-material) {
+  position: relative;
+  z-index: 1;
+}
+
+.app-workspace-page__topbar-actions {
+  min-width: 0;
+  max-width: calc(
+    100% - var(--app-workspace-page-drag-region-min-width)
+  );
+  flex: 0 1 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+
+.app-workspace-page__topbar-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.app-workspace-page__topbar-drag-region {
+  min-width: var(--app-workspace-page-drag-region-min-width);
+  align-self: stretch;
+  flex: 1 1 auto;
+}
+
+.app-workspace-page__topbar-safe-area {
+  flex: 0 0 var(--app-workspace-primary-header-window-controls-safe-area);
+}
+
+.app-workspace-page__content {
+  grid-area: content;
+  container-name: workspace-page-content;
+  container-type: inline-size;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--app-workspace-page-content-padding-block)
+    var(--app-page-gutter);
+}
+
+.app-workspace-page__content[data-page-scroll="content"] {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.app-workspace-page__content:is(
+    [data-page-scroll="panes"],
+    [data-page-scroll="none"]
+  ) {
+  overflow: hidden;
+}
+
+.app-workspace-page__content[data-page-scroll="host"] {
+  overflow: visible;
+}
+
+/* Standard pages share one viewport with their Header. The leading content
+ * inset preserves the resting geometry; once it scrolls away, content passes
+ * below the Header layer instead of pushing that layer out of the layout. */
+.app-workspace-page[data-page-header-layer="layered"] {
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "content"
+    "footer";
+}
+
+/* A persistent page Footer is its own chrome layer. It stays independent from
+ * Header eligibility so Search may keep its special Header while pagination
+ * still receives the canonical bottom treatment. */
+.app-workspace-page[data-page-footer-layer="layered"] {
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "topbar"
+    "content";
+}
+
+.app-workspace-page[data-page-header-layer="layered"][data-page-footer-layer="layered"] {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "content";
+}
+
+.app-workspace-page[data-page-header-layer="layered"]
+  > .app-workspace-page__topbar {
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+.app-workspace-page[data-page-header-layer="layered"]
+  > .app-workspace-page__content[data-page-scroll="content"] {
+  padding-block-start: calc(
+    var(--app-workspace-page-topbar-height) +
+      var(--app-workspace-page-content-padding-block)
+  );
+  scroll-padding-block-start: calc(
+    var(--app-workspace-page-topbar-height) +
+      var(--app-workspace-page-content-padding-block)
+  );
+}
+
+/* Keep the Windows/WebView2 scrollbar out from under native draggable chrome.
+ * macOS overlay scrollbars retain their platform behavior. */
+.app-workspace-page[data-page-header-layer="layered"]
+  > .app-workspace-page__content[data-page-scroll="content"]::-webkit-scrollbar-track {
+  margin-block-start: var(--app-workspace-page-topbar-height);
+}
+
+.app-workspace-page[data-page-footer-layer="layered"]
+  > .app-workspace-page__content[data-page-scroll="content"]::-webkit-scrollbar-track {
+  margin-block-end: var(--app-workspace-page-footer-min-height);
+}
+
+.app-workspace-page[data-page-header-layer="layered"][data-page-header-state="scrolled"]
+  > .app-workspace-page__topbar
+  > .app-workspace-page__topbar-material,
+.app-workspace-page__topbar[data-page-scroll-material-state="scrolled"]
+  > .app-glass-surface[data-material="regular"][data-glass-role="header"].app-workspace-page__topbar-material,
+.app-glass-surface[data-material="regular"][data-glass-role="header"].app-workspace-page__topbar-material[data-page-scroll-material-state="scrolled"] {
+  --app-glass-filter: var(--app-glass-chrome-filter);
+
+  opacity: 1;
+}
+
+.app-workspace-page__topbar[data-page-scroll-material-state] {
+  position: relative;
+  z-index: var(--app-layer-floating-controls);
+}
+
+:where(
+    :root[data-xiadown-surface-style="contrast"],
+    [data-surface-style="contrast"]
+  )
+  .app-workspace-page
+  > .app-workspace-page__topbar
+  > .app-glass-surface[data-material="regular"][data-glass-role="header"].app-workspace-page__topbar-material,
+:where(
+    :root[data-xiadown-surface-style="contrast"],
+    [data-surface-style="contrast"]
+  )
+  .app-glass-surface[data-material="regular"][data-glass-role="header"].app-workspace-page__topbar-material[data-page-scroll-material-state] {
+  --app-glass-fill: var(--app-surface-canvas);
+  --app-glass-filter: none;
+  --app-glass-tint-layer: linear-gradient(transparent, transparent);
+}
+
+@media (forced-colors: active) {
+  .app-glass-surface[data-material="regular"][data-glass-role="header"].app-workspace-page__topbar-material {
+    --app-glass-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-glass-surface[data-material="regular"][data-glass-role="header"].app-workspace-page__topbar-material {
+    transition: none;
+  }
+}
+
+.app-workspace-page[data-page-immersion="edge-to-edge"]
+  > .app-workspace-page__content,
+.app-workspace-page[data-page-content-layout="split"]
+  > .app-workspace-page__content,
+.app-workspace-page[data-page-content-layout="canvas"]
+  > .app-workspace-page__content {
+  padding: 0;
+}
+
+.app-workspace-page__heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--app-space-4);
+  margin-block-end: var(--app-workspace-page-heading-gap);
+}
+
+.app-workspace-page__heading-text {
+  min-width: 0;
+}
+
+.app-workspace-page__heading-title {
+  margin: 0;
+  color: var(--app-text-primary);
+  font-family: var(--app-font-display);
+  font-size: var(--app-workspace-page-display-heading-size);
+  font-weight: 720;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.app-workspace-page__heading[data-page-heading="hero"]
+  .app-workspace-page__heading-title {
+  font-size: var(--app-workspace-page-hero-heading-size);
+}
+
+.app-workspace-page__heading-description {
+  max-width: 65ch;
+  margin-block-start: var(--app-space-2);
+  color: var(--app-text-secondary);
+  line-height: 1.5;
+}
+
+.app-workspace-page__heading-actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--app-workspace-header-action-gap);
+}
+
+.app-workspace-page__footer {
+  position: relative;
+  grid-area: footer;
+  z-index: var(--app-layer-floating-controls);
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--app-workspace-page-footer-min-height);
+  flex: 0 0 auto;
+  align-items: center;
+  padding-inline: var(--app-page-gutter);
+  border: 0;
+  background: transparent;
+}
+
+.app-workspace-page[data-page-footer-layer="layered"]
+  > .app-workspace-page__footer {
+  position: absolute;
+  inset: auto 0 0;
+}
+
+.app-glass-surface[data-material="regular"][data-glass-role="footer"].app-workspace-page__footer-material {
+  --app-glass-line: transparent;
+  --app-glass-local-specular-opacity: 0;
+  --app-glass-shadow: none;
+  --app-surface-state-shadow: 0 0 transparent;
+
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  opacity: 0;
+  box-shadow: none;
+  pointer-events: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+  transition: opacity var(--app-motion-duration-base)
+    var(--app-motion-ease-standard);
+}
+
+.app-workspace-page[data-page-footer-layer="layered"][data-page-footer-state="content"]
+  > .app-workspace-page__footer
+  > .app-workspace-page__footer-material {
+  opacity: 1;
+}
+
+.app-workspace-page__footer
+  > :not(.app-workspace-page__footer-material) {
+  position: relative;
+  z-index: 1;
+}
+
+:where(
+    :root[data-xiadown-surface-style="contrast"],
+    [data-surface-style="contrast"]
+  )
+  .app-workspace-page
+  > .app-workspace-page__footer
+  > .app-glass-surface[data-material="regular"][data-glass-role="footer"].app-workspace-page__footer-material {
+  --app-glass-fill: var(--app-surface-canvas);
+  --app-glass-filter: none;
+  --app-glass-tint-layer: linear-gradient(transparent, transparent);
+}
+
+@media (forced-colors: active) {
+  .app-glass-surface[data-material="regular"][data-glass-role="footer"].app-workspace-page__footer-material {
+    --app-glass-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-glass-surface[data-material="regular"][data-glass-role="footer"].app-workspace-page__footer-material {
+    transition: none;
+  }
+}
+
+.app-workspace-page__footer[data-page-footer="overlay"] {
+  position: absolute;
+  inset: auto 0 0;
+}
+
+.app-workspace-page[data-page-footer-layer="layered"]
+  > .app-workspace-page__content[data-page-scroll="content"],
+.app-workspace-page[data-page-footer="overlay"]
+  > .app-workspace-page__content[data-page-scroll="content"] {
+  padding-block-end: calc(
+    var(--app-workspace-page-footer-min-height) +
+      var(--app-workspace-page-content-padding-block)
+  );
+  scroll-padding-block-end: calc(
+    var(--app-workspace-page-footer-min-height) +
+      var(--app-workspace-page-content-padding-block)
+  );
+}
+
+.app-workspace-page[data-page-density="comfortable"] {
+  --app-workspace-page-heading-gap: calc(var(--app-space-6) + var(--app-space-2));
+}
+
+.app-workspace-page[data-page-density="compact"] {
+  --app-workspace-page-content-padding-block: var(--app-space-3);
+  --app-workspace-page-heading-gap: var(--app-space-4);
+}
+
+/* Primary is one canvas regardless of whether a station renders one column or
+ * several. Subpanes never add opacity, blur, or shadow; the leading pane owns
+ * the only internal structural divider. */
+.app-workspace-primary-subpane {
+  border-color: var(--app-workspace-divider-color);
+  background: var(--app-workspace-primary-subpane-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* A legacy window scope may still provide typography and control context, but
+ * it cannot reclaim canvas ownership from a semantic Primary subpane. */
+.app-workspace-primary-subpane.app-dream-window {
+  background: var(--app-workspace-primary-subpane-surface);
+}
+
+.app-workspace-primary-subpane--leading {
+  border-inline-end:
+    var(--app-workspace-divider-width) solid
+    var(--app-workspace-divider-color);
+}
+
+/* Search routes use one compact drag rail and one centered shared control.
+ * Search anatomy itself is owned by controls.css/WorkspaceSearchControl. */
+.app-station-search-header {
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  height: 52px;
+  min-width: 0;
+  min-height: 52px;
+  flex: 0 0 52px;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  padding: 0 calc(
+    14px + var(--app-workspace-primary-header-window-controls-safe-area, 0px)
+  ) 0 14px;
+  background: transparent;
+}
+
+.app-station-search-content-search {
+  width: min(720px, calc(100% - 24px));
+  min-width: 0;
+  margin: 16px auto;
+}

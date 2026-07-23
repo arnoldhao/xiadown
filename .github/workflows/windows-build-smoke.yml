@@ -9,26 +9,29 @@ on:
         type: string
 
 env:
-  GO_VERSION: "1.25.5"
+  GO_VERSION: "1.25.12"
   BUN_VERSION: "1.3.5"
-  WAILS_VERSION: "v3.0.0-alpha.95"
+  WAILS_VERSION: "v3.0.0-alpha2.117"
+
+permissions:
+  contents: read
 
 jobs:
   windows-build-smoke:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
@@ -36,8 +39,40 @@ jobs:
         run: go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: Install frontend deps
-        run: bun install --frozen-lockfile
         working-directory: frontend
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          bun scripts/prepare-wails-deps.mjs
 
       - name: Windows build smoke
         run: wails3 task windows:build
+
+      - name: Windows runtime smoke
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "xiadown-smoke-localappdata"
+          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA | Out-Null
+          $startupLog = Join-Path $env:LOCALAPPDATA "xiadown\logs\startup.log"
+          $process = Start-Process -FilePath "bin/xiadown.exe" -PassThru
+          try {
+            Start-Sleep -Seconds 10
+            $process.Refresh()
+            if ($process.HasExited) {
+              $diagnostics = if (Test-Path $startupLog) { Get-Content $startupLog -Raw } else { "startup.log was not created" }
+              throw "XiaDown exited during startup (code $($process.ExitCode)).`n$diagnostics"
+            }
+            if (-not (Test-Path $startupLog)) {
+              throw "XiaDown stayed alive but did not create $startupLog"
+            }
+            $diagnostics = Get-Content $startupLog -Raw
+            if ($diagnostics -notmatch "application launch started") {
+              throw "XiaDown startup log is missing its launch marker.`n$diagnostics"
+            }
+          }
+          finally {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }

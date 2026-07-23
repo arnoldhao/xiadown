@@ -21,6 +21,7 @@ tasks:
           ARCH: '{{.ARCH}}'
           DEV: '{{.DEV}}'
           OUTPUT: '{{.OUTPUT}}'
+          EXTRA_TAGS: '{{.EXTRA_TAGS}}'
     vars:
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
@@ -46,9 +47,9 @@ tasks:
       TELEMETRYDECK_APP_ID:
         sh: 'printf %s "${TELEMETRYDECK_APP_ID:-}"'
       DEPLOYMENT_TARGET:
-        sh: 'if [ "{{.ARCH | default ARCH}}" = "arm64" ]; then printf "11.0"; else printf "10.15"; fi'
+        sh: 'printf "14.0"'
       TELEMETRY_LDFLAGS: '{{if .APP_VERSION}} -X xiadown/internal/app.AppVersion={{.APP_VERSION}}{{end}}{{if .TELEMETRYDECK_APP_ID}} -X xiadown/internal/app.TelemetryDeckAppID={{.TELEMETRYDECK_APP_ID}}{{end}}'
-      BUILD_FLAGS: '{{if eq .DEV "true"}}-buildvcs=false -gcflags=all="-l"{{if or .APP_VERSION .TELEMETRYDECK_APP_ID}} -ldflags="{{.TELEMETRY_LDFLAGS}}"{{end}}{{else}}-tags production -trimpath -buildvcs=false -ldflags="-w -s{{.TELEMETRY_LDFLAGS}}"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if .EXTRA_TAGS}}-tags {{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{if or .APP_VERSION .TELEMETRYDECK_APP_ID}} -ldflags="{{.TELEMETRY_LDFLAGS}}"{{end}}{{else}}-tags production{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s{{.TELEMETRY_LDFLAGS}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:
@@ -66,7 +67,7 @@ tasks:
       - go test ./...
     vars:
       DEPLOYMENT_TARGET:
-        sh: 'if [ "$(go env GOARCH)" = "arm64" ]; then printf "11.0"; else printf "10.15"; fi'
+        sh: 'printf "14.0"'
     env:
       CGO_ENABLED: 1
       CGO_CFLAGS: "-mmacosx-version-min={{.DEPLOYMENT_TARGET}}"
@@ -87,7 +88,7 @@ tasks:
           Docker image '{{.CROSS_IMAGE}}' not found.
           Build it first: wails3 task setup:docker
     cmds:
-      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{.CROSS_IMAGE}} darwin {{.DOCKER_ARCH}}
+      - docker run --rm -v "{{.ROOT_DIR}}:/app" {{.GO_CACHE_MOUNT}} {{.REPLACE_MOUNTS}} -e APP_NAME="{{.APP_NAME}}" {{if .EXTRA_TAGS}}-e EXTRA_TAGS="{{.EXTRA_TAGS}}"{{end}} {{.CROSS_IMAGE}} darwin {{.DOCKER_ARCH}}
       - docker run --rm -v "{{.ROOT_DIR}}:/app" alpine chown -R $(id -u):$(id -g) /app/bin
       - mkdir -p {{.BIN_DIR}}
       - mv "bin/{{.APP_NAME}}-darwin-{{.DOCKER_ARCH}}" "{{.OUTPUT}}"
@@ -191,6 +192,10 @@ tasks:
     env:
       GOCACHE: '{{.ROOT_DIR}}/.task-cache/go-build'
     cmds:
+      # A Launch Services-owned app is reparented to launchd. Stop any prior
+      # dev instance before replacing its signed executable, otherwise TCC sees
+      # the still-running process as invalid code after a hot reload.
+      - /bin/sh build/darwin/dev_app_process.sh stop "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app" "{{.APP_NAME}}"
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
       - mkdir -p "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
       - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Resources"
@@ -200,12 +205,33 @@ tasks:
         fi
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS"
       - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/Info.plist"
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
-      - '"{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
+      - task: codesign:dev
+      - /bin/sh build/darwin/dev_app_process.sh run "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app" "{{.APP_NAME}}"
     vars:
       APP_VERSION:
         sh: 'printf %s "${APP_VERSION:-}"'
       EFFECTIVE_APP_VERSION: '{{if .APP_VERSION}}{{.APP_VERSION}}{{else}}dev{{end}}'
+
+  codesign:dev:
+    summary: Signs the development app with a stable local identity when available
+    internal: true
+    cmds:
+      - task: ensure:entitlements
+      - |
+        identity="${XIADOWN_DEV_CODESIGN_IDENTITY:-}"
+        if [ -z "$identity" ]; then
+          identity="$(security find-identity -v -p codesigning | awk -F '"' '/Developer ID Application:/ { print $2; exit }')"
+        fi
+        if [ -z "$identity" ]; then
+          identity="$(security find-identity -v -p codesigning | awk -F '"' '/Apple Development:/ { print $2; exit }')"
+        fi
+        if [ -z "$identity" ]; then
+          identity="-"
+          echo "No stable code-signing identity was found; macOS privacy grants may reset after each dev rebuild."
+        else
+          echo "Signing the development app with a stable code-signing identity."
+        fi
+        codesign --force --deep --sign "$identity" {{if .ENTITLEMENTS}}--entitlements "{{.ENTITLEMENTS}}"{{end}} "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
 
   ensure:entitlements:
     summary: Ensures the macOS entitlements plist exists after Wails regenerates build assets

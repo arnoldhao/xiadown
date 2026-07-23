@@ -1,0 +1,316 @@
+/*
+ * XiaDown Liquid Glass recipe.
+ *
+ * A glass surface owns exactly one backdrop sample. Children may use
+ * interactive fills, but must not add another backdrop-filter. Keeping the
+ * optical recipe here prevents feature CSS from drifting into bespoke frost.
+ */
+  /* Layout stays intentionally low-specificity so fixed/absolute/overflow
+     utilities can still define a component's placement. */
+  .app-glass-surface {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .app-glass-surface[data-material] {
+    --app-glass-fill: var(--app-glass-regular-surface);
+    --app-glass-tint-layer: linear-gradient(transparent, transparent);
+    --app-glass-line: var(--app-glass-regular-line);
+    --app-glass-filter: var(--app-glass-regular-filter);
+    --app-glass-shadow: var(--app-glass-regular-shadow);
+    --app-glass-surface-radius: var(--app-radius-panel);
+    --app-surface-inner-radius: calc(var(--app-glass-surface-radius) - 1px);
+    --app-glass-local-specular: var(--app-glass-specular);
+    --app-glass-local-specular-opacity: var(--app-glass-specular-opacity);
+    --app-surface-state-shadow: 0 0 transparent;
+
+    border: 1px solid var(--app-glass-line);
+    border-radius: var(--app-glass-surface-radius);
+    background:
+      var(--app-glass-tint-layer),
+      var(--app-glass-fill);
+    color: var(--app-text-primary);
+    box-shadow: var(--app-glass-shadow), var(--app-surface-state-shadow);
+    -webkit-backdrop-filter: var(--app-glass-filter);
+    backdrop-filter: var(--app-glass-filter);
+  }
+
+  .app-glass-surface::before {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    border-radius: 0;
+    content: "";
+    pointer-events: none;
+    background: var(--app-glass-local-specular);
+    box-shadow: inset 0 -1px 0 var(--app-glass-rim-lowlight);
+    opacity: var(--app-glass-local-specular-opacity);
+  }
+
+  .app-glass-surface > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Nested groups may add separation, but never resample an already blurred
+     backdrop. This is the one-surface/one-sample invariant. */
+  .app-glass-surface .app-glass-surface {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .app-glass-surface[data-material="panel"] {
+    --app-glass-fill: var(--app-glass-panel-surface);
+    --app-glass-line: var(--app-glass-panel-line);
+    --app-glass-filter: var(--app-glass-panel-filter);
+    --app-glass-shadow: var(--app-glass-panel-shadow);
+  }
+
+  .app-glass-surface[data-material="clear"] {
+    --app-glass-fill: var(--app-glass-clear-surface);
+    --app-glass-line: var(--app-glass-clear-line);
+    --app-glass-filter: var(--app-glass-clear-filter);
+    --app-glass-shadow: var(--app-glass-clear-shadow);
+    --app-glass-local-specular-opacity: calc(
+      var(--app-glass-specular-opacity) * 1.25
+    );
+    color: var(--app-media-chrome-foreground);
+  }
+
+  .app-glass-surface[data-material="solid"] {
+    --app-glass-fill: var(--app-glass-solid-surface);
+    --app-glass-filter: none;
+    --app-glass-local-specular-opacity: 0;
+  }
+
+  /* Media chrome keeps the same control-glass optics while using a neutral
+     translucent fill that remains legible over video in every app theme. */
+  [data-media-chrome="dark"]
+    > .app-glass-surface[data-surface-role="control"] {
+    --app-glass-fill: rgb(9 9 11 / 48%);
+    --app-glass-line: rgb(255 255 255 / 14%);
+    --app-glass-shadow: 0 14px 38px -22px rgb(0 0 0 / 62%);
+    --app-glass-local-specular-opacity: 0.52;
+
+    color: var(--app-media-chrome-foreground);
+  }
+
+  .app-glass-surface[data-elevation="embedded"] {
+    --app-glass-shadow:
+      inset 0 0 0 1px hsl(var(--foreground) / 0.035);
+  }
+
+  .app-glass-surface[data-elevation="floating"] {
+    --app-glass-shadow: var(--app-glass-regular-shadow);
+  }
+
+  .app-glass-surface[data-material="panel"][data-elevation="floating"],
+  .app-glass-surface[data-elevation="modal"] {
+    --app-glass-shadow: var(--app-glass-panel-shadow);
+  }
+
+  /*
+   * Functional roles are the public material contract. Components choose a
+   * role; this layer owns the optical recipe. The legacy data-material value
+   * remains as a low-level primitive and compatibility hook, never a feature
+   * decision.
+   */
+  .app-glass-surface[data-surface-role="status"] {
+    --app-glass-fill: var(--app-surface-status-fill);
+    --app-glass-line: var(--app-surface-status-line);
+    --app-glass-filter: var(--app-surface-status-filter);
+    --app-glass-shadow: var(--app-surface-status-shadow);
+    --app-glass-local-specular: var(--app-surface-status-specular);
+    --app-glass-local-specular-opacity: var(
+      --app-surface-status-specular-opacity
+    );
+  }
+
+  .app-glass-surface[data-surface-role="overlay"] {
+    --app-glass-fill: var(--app-surface-overlay-fill);
+    --app-glass-line: var(--app-surface-overlay-line);
+    --app-glass-filter: var(--app-glass-panel-filter);
+    --app-glass-shadow: var(--app-surface-overlay-shadow);
+  }
+
+  :where(
+      :root[data-xiadown-surface-style="contrast"],
+      [data-surface-style="contrast"]
+    )
+    .app-glass-surface[data-surface-role="status"] {
+    --app-glass-filter: none;
+    --app-glass-local-specular-opacity: 0;
+  }
+
+  .app-glass-surface[data-shape="control"] {
+    --app-glass-surface-radius: var(--app-radius-control);
+  }
+
+  .app-glass-surface[data-shape="card"] {
+    --app-glass-surface-radius: var(--app-radius-card);
+  }
+
+  .app-glass-surface[data-shape="panel"] {
+    --app-glass-surface-radius: var(--app-radius-panel);
+  }
+
+  .app-glass-surface[data-shape="capsule"] {
+    --app-glass-surface-radius: var(--app-radius-capsule);
+  }
+
+  .app-glass-surface[data-tint="accent"] {
+    --app-glass-tint-layer:
+      linear-gradient(
+        135deg,
+        hsl(var(--primary) / 0.16),
+        hsl(var(--primary) / 0.08)
+      );
+    --app-glass-line: hsl(var(--primary) / 0.28);
+  }
+
+  .app-glass-surface[data-tint="artwork"] {
+    --app-glass-tint-layer:
+      linear-gradient(
+        135deg,
+        hsl(var(--app-glass-artwork-tint, var(--primary)) / 0.16),
+        transparent 58%
+      );
+  }
+
+  /*
+   * Xia Prism structural roles are intentionally opt-in and only refine the
+   * regular material. A panel material keeps the stronger transient recipe
+   * used by sheets, dialogs, dropdowns, and an overlaid companion.
+   */
+  .app-glass-surface[data-material="regular"][data-glass-role="header"],
+  .app-glass-surface[data-material="regular"][data-glass-role="sidebar"],
+  .app-glass-surface[data-material="regular"][data-glass-role="footer"],
+  .app-glass-surface[data-material="regular"][data-glass-role="companion"] {
+    --app-glass-fill: var(--app-glass-chrome-surface);
+    --app-glass-line: var(--app-glass-chrome-line);
+    --app-glass-filter: var(--app-glass-chrome-filter);
+    --app-glass-shadow: var(--app-glass-chrome-shadow);
+    --app-glass-chrome-tint-source: var(--primary);
+    --app-glass-chrome-tint-angle: 115deg;
+    --app-glass-tint-layer:
+      linear-gradient(
+        var(--app-glass-chrome-tint-angle),
+        hsl(
+          var(--app-glass-chrome-tint-source) /
+          var(--app-glass-chrome-tint-alpha)
+        ) 0%,
+        hsl(
+          var(--app-glass-chrome-tint-source) /
+          var(--app-glass-chrome-tint-soft-alpha)
+        ) 32%,
+        transparent 64%
+      );
+    --app-glass-local-specular-opacity: var(
+      --app-glass-chrome-specular-opacity
+    );
+  }
+
+  .app-glass-surface[data-material="regular"][data-glass-role="companion"] {
+    --app-glass-fill: var(--app-glass-chrome-dense-surface);
+    --app-glass-filter: var(--app-glass-chrome-dense-filter);
+    --app-glass-chrome-tint-angle: 245deg;
+  }
+
+  .app-glass-surface[data-material="regular"][data-glass-role][data-tint="artwork"] {
+    --app-glass-chrome-tint-source: var(
+      --app-glass-artwork-tint,
+      var(--primary)
+    );
+  }
+
+  .app-glass-surface[data-material="regular"][data-glass-role][data-elevation="embedded"] {
+    --app-glass-shadow: var(--app-glass-chrome-embedded-shadow);
+  }
+
+  .app-glass-surface[data-interactive="true"] {
+    cursor: pointer;
+    transition:
+      transform var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+      border-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      background-color var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  }
+
+  .app-glass-surface[data-interactive="true"]:hover {
+    border-color: var(--app-glass-panel-line);
+    box-shadow:
+      var(--app-glass-shadow),
+      inset 0 0 0 999px var(--app-glass-interactive-fill-hover);
+    transform: translateY(var(--app-motion-hover-lift-y));
+  }
+
+  .app-glass-surface[data-interactive="true"]:active {
+    box-shadow:
+      var(--app-glass-shadow),
+      inset 0 0 0 999px var(--app-glass-interactive-fill-pressed);
+    transform: scale(var(--app-motion-press-scale));
+  }
+
+  :root:not([data-input-modality="pointer"])
+    .app-glass-surface[data-interactive="true"]:focus-visible,
+  :root:not([data-input-modality="pointer"])
+    .app-glass-surface:focus-within[data-focus-ring="true"] {
+    outline: 2px solid hsl(var(--app-focus-ring, var(--ring)) / 0.58);
+    outline-offset: -2px;
+    box-shadow: var(--app-glass-shadow), var(--app-surface-state-shadow);
+  }
+
+  .app-glass-group {
+    display: flex;
+    align-items: center;
+    gap: var(--app-space-1);
+    padding: var(--app-space-1);
+  }
+
+  .app-glass-group > :is(button, [role="button"], [role="menuitem"], [role="tab"]) {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .app-glass-group > :is(button, [role="button"], [role="menuitem"], [role="tab"]):hover {
+    background: var(--app-glass-interactive-fill-hover);
+  }
+
+  .app-glass-group > :is(button, [role="button"], [role="menuitem"], [role="tab"]):active {
+    background: var(--app-glass-interactive-fill-pressed);
+  }
+
+  .app-glass-group > :is(button, [role="button"], [role="menuitem"], [role="tab"]):is(
+      [aria-current="page"],
+      [aria-selected="true"],
+      [data-active="true"]
+    ) {
+    background: var(--app-glass-interactive-fill-selected);
+    color: hsl(var(--app-accent-text, var(--primary)));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-glass-surface[data-interactive="true"] {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .app-glass-surface {
+      border: 1px solid CanvasText;
+      forced-color-adjust: auto;
+    }
+
+    .app-glass-surface::before {
+      display: none;
+    }
+
+    :root:not([data-input-modality="pointer"])
+      .app-glass-surface[data-interactive="true"]:focus-visible,
+    :root:not([data-input-modality="pointer"])
+      .app-glass-surface:focus-within[data-focus-ring="true"] {
+      outline-color: Highlight;
+    }
+  }

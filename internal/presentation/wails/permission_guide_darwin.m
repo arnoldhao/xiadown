@@ -341,7 +341,9 @@ static NSRunningApplication *xiadownSystemSettingsApplication(void) {
 static void xiadownActivateSystemSettings(void) {
 	NSRunningApplication *application = xiadownSystemSettingsApplication();
 	if (application != nil) {
-		[application activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+		// macOS 14 ignores and deprecates the force-activation flag. A normal
+		// activation still brings System Settings forward without a warning.
+		[application activateWithOptions:0];
 	}
 }
 

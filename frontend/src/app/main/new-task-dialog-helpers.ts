@@ -15,7 +15,66 @@ stripPathExtension
 import { formatBytes } from "@/shared/utils/formatBytes";
 
 import { AUDIO_FILE_EXTENSIONS,SITE_KEYS,VIDEO_FILE_EXTENSIONS,formatCodecLabel,resolveSiteKeyForDomain } from "@/app/main/helpers";
-import type { SelectOption,SourceMediaType } from "@/app/main/types";
+import type {
+  NewTaskDialogDownloadTarget,
+  SelectOption,
+  SourceMediaType,
+} from "@/app/main/types";
+
+export function alignPreparedDownloadTargets(
+  preparedURLs: readonly { url: string }[],
+  initialTargets: readonly NewTaskDialogDownloadTarget[] | undefined,
+): Array<NewTaskDialogDownloadTarget | undefined> {
+  const targets = initialTargets ?? [];
+  const aligned = new Array<NewTaskDialogDownloadTarget | undefined>(
+    preparedURLs.length,
+  );
+  const used = new Set<number>();
+
+  // Prefer URL identity because the prepare response can reorder inputs.
+  for (const [preparedIndex, prepared] of preparedURLs.entries()) {
+    const url = prepared.url.trim();
+    const targetIndex = targets.findIndex(
+      (target, index) => !used.has(index) && target.url.trim() === url,
+    );
+    if (targetIndex >= 0) {
+      aligned[preparedIndex] = targets[targetIndex];
+      used.add(targetIndex);
+    }
+  }
+
+  // A prepare adapter may canonicalize every URL while preserving cardinality.
+  // Pair the remaining items in input order without ever reusing metadata.
+  if (preparedURLs.length === targets.length) {
+    const remainingTargets = targets
+      .map((target, index) => ({ target, index }))
+      .filter(({ index }) => !used.has(index));
+    let remainingIndex = 0;
+    for (let preparedIndex = 0; preparedIndex < aligned.length; preparedIndex += 1) {
+      if (aligned[preparedIndex]) continue;
+      const next = remainingTargets[remainingIndex];
+      if (!next) break;
+      aligned[preparedIndex] = next.target;
+      used.add(next.index);
+      remainingIndex += 1;
+    }
+  }
+
+  return aligned;
+}
+
+export function resolveDownloadTargetOrigin(
+  target: Pick<NewTaskDialogDownloadTarget, "source" | "caller"> | undefined,
+  fallback: Pick<NewTaskDialogDownloadTarget, "source" | "caller"> = {},
+) {
+  return {
+    source:
+      target?.source?.trim() ||
+      fallback.source?.trim() ||
+      "xiadown.download.dialog",
+    caller: target?.caller?.trim() || fallback.caller?.trim() || "main",
+  };
+}
 
 export function resolveFormatMediaType(
   format: YTDLPFormatOption | null | undefined,

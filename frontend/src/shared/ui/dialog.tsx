@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/shared/ui/separator";
+import {
+  getXiaSurfaceAttributes,
+  type XiaSurfaceRole,
+} from "@/shared/ui/surface-contract";
 
 const Dialog = BaseDialog;
 const DialogPortal = BaseDialogPortal;
@@ -30,14 +34,48 @@ DialogOverlay.displayName = "DialogOverlay";
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof BaseDialogContent>,
-  React.ComponentPropsWithoutRef<typeof BaseDialogContent>
->(({ className, ...props }, ref) => (
-  <BaseDialogContent
-    ref={ref}
-    className={cn("app-dialog-content app-motion-surface gap-3 p-4", className)}
-    {...props}
-  />
-));
+  React.ComponentPropsWithoutRef<typeof BaseDialogContent> & {
+    overlayClassName?: string;
+    portalContainer?: HTMLElement | null;
+    surfaceRole?: XiaSurfaceRole;
+    unstyled?: boolean;
+  }
+>(
+  (
+    {
+      className,
+      overlayClassName,
+      portalContainer,
+      surfaceRole,
+      unstyled = false,
+      ...props
+    },
+    ref,
+  ) => {
+    const resolvedSurfaceRole = surfaceRole ?? (!unstyled ? "overlay" : undefined);
+
+    return (
+      <BaseDialogContent
+        ref={ref}
+        className={cn(
+          !unstyled &&
+            "app-glass-surface app-dialog-content app-motion-surface",
+          className,
+        )}
+        data-elevation={!unstyled ? "modal" : undefined}
+        data-shape={!unstyled ? "panel" : undefined}
+        data-tint={!unstyled ? "neutral" : undefined}
+        overlayClassName={overlayClassName}
+        portalContainer={portalContainer}
+        unstyled={unstyled}
+        {...props}
+        {...(resolvedSurfaceRole
+          ? getXiaSurfaceAttributes(resolvedSurfaceRole)
+          : {})}
+      />
+    );
+  }
+);
 DialogContent.displayName = "DialogContent";
 
 type DialogScrollAreaProps = React.HTMLAttributes<HTMLElement> & {
@@ -219,10 +257,7 @@ function DialogFooter({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <BaseDialogFooter
-      className={cn(
-        "app-dialog-footer flex-row flex-wrap items-center justify-end gap-2 pt-0 sm:space-x-0",
-        className,
-      )}
+      className={cn("app-dialog-footer", className)}
       {...props}
     />
   );
@@ -285,7 +320,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDialogTitle
     ref={ref}
-    className={cn("text-base font-semibold leading-[1.35] tracking-normal", className)}
+    className={cn("app-dialog-title", className)}
     {...props}
   />
 ));
@@ -297,7 +332,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <BaseDialogDescription
     ref={ref}
-    className={cn("text-xs text-muted-foreground", className)}
+    className={cn("app-dialog-description", className)}
     {...props}
   />
 ));

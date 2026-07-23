@@ -10,6 +10,8 @@ import (
 	"strings"
 )
 
+const darwinMinimumSystemVersion = "14.0.0"
+
 var versionPrefixPattern = regexp.MustCompile(`^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?`)
 
 func main() {
@@ -31,18 +33,21 @@ func runDarwinPlist(args []string) {
 	fs := flag.NewFlagSet("darwin-plist", flag.ExitOnError)
 	inputPath := fs.String("input", "", "input plist path")
 	outputPath := fs.String("output", "", "output plist path")
-	version := fs.String("version", "", "display version")
+	version := fs.String("version", "", "display version; preserve the existing version when omitted")
 	_ = fs.Parse(args)
 
 	if strings.TrimSpace(*inputPath) == "" || strings.TrimSpace(*outputPath) == "" {
 		fatal("darwin-plist requires --input and --output")
 	}
 
-	displayVersion := normalizeDisplayVersion(*version)
-	_, _, numeric3 := normalizeNumericVersion(displayVersion)
 	content := readText(*inputPath)
-	content = replacePlistString(content, "CFBundleShortVersionString", displayVersion)
-	content = replacePlistString(content, "CFBundleVersion", numeric3)
+	if strings.TrimSpace(*version) != "" {
+		displayVersion := normalizeDisplayVersion(*version)
+		_, _, numeric3 := normalizeNumericVersion(displayVersion)
+		content = replacePlistString(content, "CFBundleShortVersionString", displayVersion)
+		content = replacePlistString(content, "CFBundleVersion", numeric3)
+	}
+	content = replacePlistString(content, "LSMinimumSystemVersion", darwinMinimumSystemVersion)
 	writeText(*outputPath, content)
 }
 

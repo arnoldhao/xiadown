@@ -60,13 +60,14 @@ var dependencySources = map[dependencies.DependencyName]dependencySource{
 }
 
 type DependenciesService struct {
-	repo         dependencies.Repository
-	updates      *softwareupdate.Service
-	appVersion   string
-	httpClient   dependencyHTTPClientProvider
-	now          func() time.Time
-	installMu    sync.RWMutex
-	installState map[dependencies.DependencyName]dto.DependencyInstallState
+	repo            dependencies.Repository
+	updates         *softwareupdate.Service
+	appVersion      string
+	httpClient      dependencyHTTPClientProvider
+	now             func() time.Time
+	dependenciesDir func() (string, error)
+	installMu       sync.RWMutex
+	installState    map[dependencies.DependencyName]dto.DependencyInstallState
 }
 
 type dependencyHTTPClientProvider interface {
@@ -83,11 +84,12 @@ func WithHTTPClientProvider(provider dependencyHTTPClientProvider) Option {
 
 func NewDependenciesService(repo dependencies.Repository, updates *softwareupdate.Service, appVersion string, options ...Option) *DependenciesService {
 	service := &DependenciesService{
-		repo:         repo,
-		updates:      updates,
-		appVersion:   strings.TrimSpace(appVersion),
-		now:          time.Now,
-		installState: make(map[dependencies.DependencyName]dto.DependencyInstallState),
+		repo:            repo,
+		updates:         updates,
+		appVersion:      strings.TrimSpace(appVersion),
+		now:             time.Now,
+		dependenciesDir: dependenciesBaseDir,
+		installState:    make(map[dependencies.DependencyName]dto.DependencyInstallState),
 	}
 	for _, option := range options {
 		if option != nil {
@@ -151,6 +153,24 @@ func (service *DependenciesService) GetInstallState(ctx context.Context, request
 		Progress:  0,
 		UpdatedAt: service.now().Format(time.RFC3339),
 	}, nil
+}
+
+// HasActiveInstalls is the cleanup barrier used by Settings data management.
+// Dependency files must remain in place while an archive is downloading,
+// extracting, or being verified.
+func (service *DependenciesService) HasActiveInstalls() bool {
+	if service == nil {
+		return false
+	}
+	service.installMu.RLock()
+	defer service.installMu.RUnlock()
+	for _, state := range service.installState {
+		switch strings.TrimSpace(state.Stage) {
+		case installStageDownloading, installStageExtracting, installStageVerifying:
+			return true
+		}
+	}
+	return false
 }
 
 func (service *DependenciesService) EnsureDefaults(ctx context.Context) error {
@@ -333,7 +353,11 @@ func (service *DependenciesService) SetDependencyPath(ctx context.Context, reque
 		return dto.Dependency{}, dependencies.ErrInvalidDependency
 	}
 	dependencyName := dependencies.DependencyName(name)
-	if source, err := resolveDependencySource(dependencyName); err == nil && source.DependencyKind == string(dependencies.KindRuntime) {
+	source, err := resolveDependencySource(dependencyName)
+	if err != nil {
+		return dto.Dependency{}, err
+	}
+	if source.DependencyKind == string(dependencies.KindRuntime) {
 		return dto.Dependency{}, fmt.Errorf("manual path is unsupported for runtime dependency %s", dependencyName)
 	}
 	execPath := strings.TrimSpace(request.ExecPath)
@@ -375,15 +399,22 @@ func (service *DependenciesService) RemoveDependency(ctx context.Context, reques
 	if name == "" {
 		return dependencies.ErrInvalidDependency
 	}
+	dependencyName := dependencies.DependencyName(name)
+	if _, err := resolveDependencySource(dependencyName); err != nil {
+		return err
+	}
 	dependency, err := service.repo.Get(ctx, name)
 	if err != nil && err != dependencies.ErrDependencyNotFound {
 		return err
 	}
 	if err == nil && dependency.ExecPath != "" {
-		_ = os.RemoveAll(filepath.Dir(dependency.ExecPath))
-	}
-	if baseDir, baseErr := dependenciesBaseDir(); baseErr == nil {
-		_ = os.RemoveAll(filepath.Join(baseDir, name))
+		if baseDir, baseErr := service.dependenciesDir(); baseErr == nil {
+			if managedDir, ok := managedDependencyDir(baseDir, dependencyName, dependency.ExecPath); ok {
+				if removeErr := os.RemoveAll(managedDir); removeErr != nil {
+					return fmt.Errorf("remove managed dependency %s: %w", dependencyName, removeErr)
+				}
+			}
+		}
 	}
 	now := service.now()
 	updated, err := dependencies.NewDependency(dependencies.DependencyParams{
@@ -553,7 +584,7 @@ func (service *DependenciesService) installCatalogRelease(ctx context.Context, r
 }
 
 func (service *DependenciesService) installCatalogBinaryRelease(ctx context.Context, release softwareupdate.DependencyRelease) (dto.Dependency, error) {
-	baseDir, err := dependenciesBaseDir()
+	baseDir, err := service.dependenciesDir()
 	if err != nil {
 		return dto.Dependency{}, err
 	}
@@ -589,7 +620,7 @@ func (service *DependenciesService) installCatalogBinaryRelease(ctx context.Cont
 }
 
 func (service *DependenciesService) installCatalogArchiveRelease(ctx context.Context, release softwareupdate.DependencyRelease) (dto.Dependency, error) {
-	baseDir, err := dependenciesBaseDir()
+	baseDir, err := service.dependenciesDir()
 	if err != nil {
 		return dto.Dependency{}, err
 	}
@@ -826,6 +857,25 @@ func dependenciesBaseDir() (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+func managedDependencyDir(
+	baseDir string,
+	name dependencies.DependencyName,
+	execPath string,
+) (string, bool) {
+	baseDir = filepath.Clean(strings.TrimSpace(baseDir))
+	execPath = filepath.Clean(strings.TrimSpace(execPath))
+	if baseDir == "." || execPath == "." {
+		return "", false
+	}
+	dependencyDir := filepath.Join(baseDir, string(name))
+	relative, err := filepath.Rel(dependencyDir, execPath)
+	if err != nil || relative == "." || filepath.IsAbs(relative) || relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return dependencyDir, true
 }
 
 func executableName(name dependencies.DependencyName) string {

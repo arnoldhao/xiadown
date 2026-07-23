@@ -45,6 +45,7 @@ type browserSession struct {
 	FinalResult   *dto.FinishAppSessionConnectResult
 	FinalError    string
 	Snapshot      dto.AppSession
+	Canceled      bool
 	cleanupOnce   sync.Once
 	finalizeOnce  sync.Once
 	finalizeDone  chan struct{}
@@ -95,14 +96,9 @@ func (service *AppSessionsService) startBrowserSession(ctx context.Context, appS
 		return dto.StartAppSessionConnectResult{}, appsessions.ErrUnsupported
 	}
 	sessionID := service.newSessionID()
-	if purpose == browserSessionPurposeConnect {
-		if err := service.ClearAppSession(ctx, dto.ClearAppSessionRequest{ID: appSession.ID}); err != nil {
-			return dto.StartAppSessionConnectResult{}, err
-		}
-		if current, err := service.repo.Get(ctx, appSession.ID); err == nil {
-			appSession = current
-		}
-	}
+	// A reconnect stages credentials in its browser window and leaves the
+	// current Session untouched until Finish atomically commits a valid auth
+	// snapshot. Cancel and launch failures therefore preserve the old login.
 	initialCookies := service.storedCookies(ctx, appSession.SiteKey)
 	browser, err := service.provider.StartAppSession(ctx, AppSessionStartRequest{
 		SessionID:      sessionID,
@@ -225,7 +221,7 @@ func (service *AppSessionsService) finalizeSession(ctx context.Context, sessionI
 
 func appSessionFinalizeAction(purpose string) string {
 	if strings.TrimSpace(purpose) == browserSessionPurposeOpen {
-		return "verify-started"
+		return "open-closed"
 	}
 	return "finish"
 }
@@ -233,6 +229,29 @@ func appSessionFinalizeAction(purpose string) string {
 func (service *AppSessionsService) performFinalize(ctx context.Context, session *browserSession, reason string) (dto.FinishAppSessionConnectResult, error) {
 	if session == nil {
 		return dto.FinishAppSessionConnectResult{}, appsessions.ErrSessionGone
+	}
+	// An "open" window is a viewer, not a credential editor. In particular,
+	// never read its live cookies: WKWebView may share a persistent data store,
+	// so treating that store as an import source would silently replace both the
+	// Session secret and its browser-profile provenance.
+	if strings.TrimSpace(session.Purpose) == browserSessionPurposeOpen {
+		current, err := service.repo.Get(ctx, session.AppSessionID)
+		if err != nil {
+			service.cleanupSession(session)
+			return dto.FinishAppSessionConnectResult{}, err
+		}
+		records := service.storedCookies(ctx, current.SiteKey)
+		result := dto.FinishAppSessionConnectResult{
+			SessionID:            session.ID,
+			Saved:                false,
+			RawCookiesCount:      len(records),
+			FilteredCookiesCount: len(records),
+			Domains:              cookieDomains(records),
+			Reason:               reason,
+			AppSession:           service.mapSessionDTOWithCookies(current, records),
+		}
+		service.cleanupSession(session)
+		return result, nil
 	}
 	records := append([]appcookies.Record(nil), session.LastCookies...)
 	if session.Browser != nil {
@@ -242,6 +261,12 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 		if err == nil && len(liveRecords) > 0 {
 			records = liveRecords
 		}
+	}
+	service.credentialMutationMu.Lock()
+	defer service.credentialMutationMu.Unlock()
+	if service.browserSessionCanceled(session) {
+		service.cleanupSession(session)
+		return dto.FinishAppSessionConnectResult{}, appsessions.ErrSessionGone
 	}
 	filtered := filterAppSessionCookies(session.SiteKey, records)
 	hasAuthCookies := appSessionHasAuthenticationCookies(session.SiteKey, filtered)
@@ -266,12 +291,6 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 		service.cleanupSession(session)
 		return result, nil
 	}
-	if service.provider != nil {
-		if err := service.provider.SaveAppSessionCookies(ctx, session.SiteKey, filtered); err != nil {
-			service.cleanupSession(session)
-			return dto.FinishAppSessionConnectResult{}, err
-		}
-	}
 	now := service.now().UTC().Round(0)
 	verificationStatus := appsessions.AccountVerificationUnsupported
 	verificationError := ""
@@ -293,6 +312,8 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 		AccountVerificationStatus:    string(verificationStatus),
 		AccountVerificationError:     verificationError,
 		AccountVerificationStartedAt: verificationStartedAt,
+		SourceType:                   string(appsessions.SourceTypeXiaDownProfile),
+		LastSyncedAt:                 &now,
 		CreatedAt:                    &current.CreatedAt,
 		UpdatedAt:                    &now,
 	})
@@ -300,21 +321,62 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 		service.cleanupSession(session)
 		return dto.FinishAppSessionConnectResult{}, err
 	}
-	if err := service.repo.Save(ctx, updated); err != nil {
-		service.cleanupSession(session)
-		return dto.FinishAppSessionConnectResult{}, err
+	committed := false
+	if service.importCommitter != nil {
+		encoded, encodeErr := appcookies.EncodeJSON(filtered)
+		if encodeErr != nil || encoded == "" {
+			service.cleanupSession(session)
+			if encodeErr != nil {
+				return dto.FinishAppSessionConnectResult{}, encodeErr
+			}
+			return dto.FinishAppSessionConnectResult{}, appsessions.ErrNoCookies
+		}
+		if err := service.importCommitter.CommitImportedAppSession(ctx, updated, []byte(encoded)); err != nil {
+			service.cleanupSession(session)
+			return dto.FinishAppSessionConnectResult{}, err
+		}
+		if cache, ok := service.provider.(AppSessionImportedCookieCache); ok {
+			cache.CacheImportedAppSessionCookies(updated.SiteKey, filtered)
+		}
+		committed = true
 	}
+	if !committed {
+		previous := service.storedCookies(ctx, session.SiteKey)
+		if service.provider != nil {
+			if err := service.provider.SaveAppSessionCookies(ctx, session.SiteKey, filtered); err != nil {
+				service.cleanupSession(session)
+				return dto.FinishAppSessionConnectResult{}, err
+			}
+		}
+		if err := service.repo.Save(ctx, updated); err != nil {
+			service.restoreAppSessionCookies(ctx, session.SiteKey, previous)
+			service.cleanupSession(session)
+			return dto.FinishAppSessionConnectResult{}, err
+		}
+	}
+	verificationEpoch := service.nextAccountVerificationEpoch(updated.ID)
 	result.AppSession = service.mapSessionDTOWithCookies(updated, filtered)
 	service.cleanupSession(session)
 	if verificationStatus == appsessions.AccountVerificationVerifying && verificationStartedAt != nil {
-		service.startAppSessionAccountVerification(updated, filtered, *verificationStartedAt)
+		service.startAppSessionAccountVerification(updated, filtered, *verificationStartedAt, verificationEpoch)
 	}
 	return result, nil
 }
 
+func (service *AppSessionsService) restoreAppSessionCookies(ctx context.Context, siteKey string, records []appcookies.Record) {
+	if service == nil || service.provider == nil {
+		return
+	}
+	if len(records) > 0 {
+		_ = service.provider.SaveAppSessionCookies(ctx, siteKey, records)
+		return
+	}
+	_ = service.provider.ClearAppSession(ctx, siteKey, appSessionCookieDomains(siteKey))
+}
+
 func appSessionRequiresAccountVerification(siteKey string) bool {
 	switch strings.TrimSpace(siteKey) {
-	case "youtube", "bilibili", "tiktok", "instagram", "x", "facebook", "vimeo", "twitch", "niconico":
+	case "youtube", "bilibili", "tiktok", "douyin", "xiaohongshu", "instagram", "x", "facebook", "vimeo", "twitch", "niconico":
 		return true
 	default:
 		return false
@@ -336,7 +398,7 @@ func targetURLForSite(siteKey string, requestedURL string) (string, error) {
 		return "", appsessions.ErrInvalidSession
 	}
 	parsed, err := url.Parse(targetURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || parsed.Host == "" || parsed.User != nil {
 		return "", appsessions.ErrInvalidSession
 	}
 	policy, ok := sitepolicy.ForSiteKey(siteKey)

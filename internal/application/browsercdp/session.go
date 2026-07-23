@@ -45,8 +45,13 @@ type SessionOptions struct {
 	PreferredBrowser string
 	Headless         bool
 	UserDataDir      string
-	SSRFRules        SSRFPolicy
-	Cookies          CookieProvider
+	NetworkRoute     *ManagedNetworkRoute
+	// LoopbackOnly selects StartLoopbackOnly for a local harness/test. It is
+	// mutually exclusive with NetworkRoute and cannot reach remote HTTP-family
+	// destinations.
+	LoopbackOnly bool
+	SSRFRules    SSRFPolicy
+	Cookies      CookieProvider
 }
 
 type CookieProvider interface {
@@ -469,7 +474,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 			"browser open blocked by url policy",
 			append(session.logFields(),
 				sanitizedURLField("url", targetURL),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, err
@@ -479,7 +484,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 			"browser open start runtime failed",
 			append(session.logFields(),
 				sanitizedURLField("url", targetURL),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, session.wrapError(err)
@@ -491,7 +496,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 				"browser open cookie sync failed; retrying on fresh runtime",
 				append(session.logFields(),
 					sanitizedURLField("url", targetURL),
-					zap.Error(err),
+					browserErrorLogField(err),
 				)...,
 			)
 			session.stop()
@@ -506,7 +511,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 			append(session.logFields(),
 				sanitizedURLField("url", targetURL),
 				zap.Duration("elapsed", time.Since(cookiesStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, err
@@ -519,7 +524,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 			append(session.logFields(),
 				sanitizedURLField("url", targetURL),
 				zap.Duration("elapsed", time.Since(createTabStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, session.wrapError(err)
@@ -549,7 +554,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 				sanitizedURLField("url", targetURL),
 				zap.String("targetId", tab.TargetID),
 				zap.Duration("elapsed", time.Since(navigateStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, session.wrapError(err)
@@ -568,7 +573,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 					sanitizedURLField("url", targetURL),
 					zap.String("targetId", tab.TargetID),
 					zap.Duration("elapsed", time.Since(waitStartedAt).Round(time.Millisecond)),
-					zap.Error(err),
+					browserErrorLogField(err),
 				)...,
 			)
 			return ActionResult{}, session.wrapError(err)
@@ -587,7 +592,7 @@ func (session *Session) Open(ctx context.Context, targetURL string, options Comm
 				sanitizedURLField("url", targetURL),
 				zap.String("targetId", tab.TargetID),
 				zap.Duration("elapsed", time.Since(stateStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, session.wrapError(err)
@@ -626,7 +631,7 @@ func (session *Session) Navigate(ctx context.Context, targetID string, targetURL
 				append(session.logFields(),
 					zap.String("targetId", tab.TargetID),
 					sanitizedURLField("url", targetURL),
-					zap.Error(err),
+					browserErrorLogField(err),
 				)...,
 			)
 			session.stop()
@@ -651,7 +656,7 @@ func (session *Session) Navigate(ctx context.Context, targetID string, targetURL
 				zap.String("targetId", currentTargetID),
 				sanitizedURLField("url", targetURL),
 				zap.Duration("elapsed", time.Since(navigateStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, session.wrapError(wrapRuntimeHangError(err))
@@ -667,7 +672,7 @@ func (session *Session) Navigate(ctx context.Context, targetID string, targetURL
 					zap.String("targetId", tab.TargetID),
 					sanitizedURLField("url", targetURL),
 					zap.Duration("elapsed", time.Since(navigateStartedAt).Round(time.Millisecond)),
-					zap.Error(err),
+					browserErrorLogField(err),
 				)...,
 			)
 			return ActionResult{}, session.wrapError(err)
@@ -685,7 +690,7 @@ func (session *Session) Navigate(ctx context.Context, targetID string, targetURL
 				zap.String("targetId", tab.TargetID),
 				sanitizedURLField("url", targetURL),
 				zap.Duration("elapsed", time.Since(navigateStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		if isTargetLookupError(err) {
@@ -707,7 +712,7 @@ func (session *Session) Navigate(ctx context.Context, targetID string, targetURL
 				append(session.logFields(),
 					zap.String("targetId", tab.TargetID),
 					sanitizedURLField("url", targetURL),
-					zap.Error(recoveredErr),
+					browserErrorLogField(recoveredErr),
 				)...,
 			)
 		}
@@ -955,7 +960,7 @@ func (session *Session) Act(ctx context.Context, request ActRequest) (ActionResu
 				zap.String("targetId", tab.TargetID),
 				zap.String("ref", strings.TrimSpace(request.Ref)),
 				zap.Duration("elapsed", time.Since(actStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		if request.Kind != "wait" {
@@ -990,7 +995,7 @@ func (session *Session) Act(ctx context.Context, request ActRequest) (ActionResu
 					zap.String("targetId", currentTab.TargetID),
 					zap.String("ref", strings.TrimSpace(request.Ref)),
 					zap.Duration("elapsed", time.Since(actStartedAt).Round(time.Millisecond)),
-					zap.Error(err),
+					browserErrorLogField(err),
 				)...,
 			)
 			return ActionResult{}, session.wrapError(err)
@@ -1022,7 +1027,7 @@ func (session *Session) Act(ctx context.Context, request ActRequest) (ActionResu
 				zap.String("kind", strings.TrimSpace(request.Kind)),
 				zap.String("targetId", currentTab.TargetID),
 				zap.Duration("elapsed", time.Since(actStartedAt).Round(time.Millisecond)),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 		return ActionResult{}, session.wrapError(err)
@@ -1057,7 +1062,20 @@ func normalizeSessionOptions(options SessionOptions) SessionOptions {
 	if options.SSRFRules.AllowedHostnames == nil {
 		options.SSRFRules.AllowedHostnames = map[string]struct{}{}
 	}
+	if options.NetworkRoute != nil {
+		routeSnapshot := *options.NetworkRoute
+		options.NetworkRoute = &routeSnapshot
+	}
 	return options
+}
+
+func sessionLaunchOptions(options SessionOptions) LaunchOptions {
+	return LaunchOptions{
+		PreferredBrowser: options.PreferredBrowser,
+		Headless:         options.Headless,
+		UserDataDir:      options.UserDataDir,
+		NetworkRoute:     options.NetworkRoute,
+	}
 }
 
 func (session *Session) optionsSnapshot() SessionOptions {
@@ -1090,11 +1108,14 @@ func (session *Session) ensureStarted() error {
 
 	startCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	runtime, err := Start(startCtx, LaunchOptions{
-		PreferredBrowser: options.PreferredBrowser,
-		Headless:         options.Headless,
-		UserDataDir:      options.UserDataDir,
-	})
+	launchOptions := sessionLaunchOptions(options)
+	var runtime *Runtime
+	var err error
+	if options.LoopbackOnly {
+		runtime, err = StartLoopbackOnly(startCtx, launchOptions)
+	} else {
+		runtime, err = Start(startCtx, launchOptions)
+	}
 	if err != nil {
 		return err
 	}
@@ -1342,7 +1363,7 @@ func (session *Session) startTargetLifecycle(runtime *Runtime) {
 		}
 	})
 	if err != nil {
-		zap.L().Debug("browser target lifecycle watch failed", append(session.logFields(), zap.Error(err))...)
+		zap.L().Debug("browser target lifecycle watch failed", append(session.logFields(), browserErrorLogField(err))...)
 		return
 	}
 	session.mu.Lock()
@@ -1367,7 +1388,7 @@ func (session *Session) isCurrentRuntime(runtime *Runtime) bool {
 }
 
 func (session *Session) handleBrowserTargetInfo(info *targetpkg.Info) {
-	if session == nil || info == nil || info.Type != "page" {
+	if session == nil || !isPageTargetInfo(info) {
 		return
 	}
 	targetID := strings.TrimSpace(string(info.TargetID))
@@ -1409,7 +1430,7 @@ func (session *Session) syncManagedTabs(timeout time.Duration) {
 	}
 	infos, err := session.browserPageTargets(timeout)
 	if err != nil {
-		zap.L().Debug("browser managed tab sync failed", append(session.logFields(), zap.Error(err))...)
+		zap.L().Debug("browser managed tab sync failed", append(session.logFields(), browserErrorLogField(err))...)
 		return
 	}
 	session.reconcileBrowserTargetMap(infos)
@@ -1543,7 +1564,7 @@ func (session *Session) handlePausedRequest(tab *sessionTab, event *fetch.EventR
 				append(session.logFields(),
 					zap.String("targetId", tab.TargetID),
 					sanitizedURLField("url", requestURL),
-					zap.Error(err),
+					browserErrorLogField(err),
 				)...,
 			)
 			return fetch.FailRequest(event.RequestID, network.ErrorReasonBlockedByClient).Do(ctx)
@@ -1556,7 +1577,7 @@ func (session *Session) handlePausedRequest(tab *sessionTab, event *fetch.EventR
 			append(session.logFields(),
 				zap.String("targetId", tab.TargetID),
 				sanitizedURLField("url", requestURL),
-				zap.Error(err),
+				browserErrorLogField(err),
 			)...,
 		)
 	}
@@ -1657,7 +1678,7 @@ func (session *Session) browserPageTargets(timeout time.Duration) (map[string]*t
 	}
 	result := map[string]*targetpkg.Info{}
 	for _, info := range infos {
-		if info == nil || info.Type != "page" {
+		if !isPageTargetInfo(info) {
 			continue
 		}
 		result[string(info.TargetID)] = info
@@ -1697,7 +1718,7 @@ func (session *Session) prepareNewTabWaiter(parent context.Context, tab *session
 	return &newTabWaiter{
 		ctx: waitCtx,
 		ids: chromedp.WaitNewTarget(waitCtx, func(info *targetpkg.Info) bool {
-			return info != nil && info.Type == "page"
+			return isPageTargetInfo(info)
 		}),
 		cancel: cancel,
 		stop:   stop,
@@ -1956,7 +1977,7 @@ func (session *Session) collectActionResult(tab *sessionTab, limit int, timeout 
 			zap.String("targetId", tab.TargetID),
 			sanitizedURLField("url", url),
 			zap.Duration("timeout", timeout),
-			zap.Error(err),
+			browserErrorLogField(err),
 		)...,
 	)
 	if blockedErr := consumeBlockedRequestError(tab); blockedErr != nil {
@@ -2142,7 +2163,7 @@ func collectSnapshot(tab *sessionTab, runBaseCtx context.Context, limit int, tim
 			zap.String("targetId", tab.TargetID),
 			zap.Duration("elapsed", time.Since(captureStartedAt).Round(time.Millisecond)),
 			zap.Duration("timeout", timeout),
-			zap.Error(err),
+			browserErrorLogField(err),
 		)
 		return nil, err
 	}
@@ -2617,7 +2638,7 @@ func (session *Session) navigateTab(tab *sessionTab, targetURL string, timeout t
 			sanitizedURLField("url", targetURL),
 			sanitizedURLField("previousURL", previousURL),
 			zap.Duration("elapsed", time.Since(commandStartedAt).Round(time.Millisecond)),
-			zap.Error(err),
+			browserErrorLogField(err),
 		)
 		return nil, err
 	}
@@ -2629,7 +2650,7 @@ func (session *Session) navigateTab(tab *sessionTab, targetURL string, timeout t
 			sanitizedURLField("url", targetURL),
 			sanitizedURLField("previousURL", previousURL),
 			zap.Duration("elapsed", time.Since(commandStartedAt).Round(time.Millisecond)),
-			zap.Error(navigationErr),
+			browserErrorLogField(navigationErr),
 		)
 		return nil, navigationErr
 	}
@@ -2906,7 +2927,7 @@ func (session *Session) stabilizeActionResult(tab *sessionTab, result ActionResu
 					zap.String("targetId", tab.TargetID),
 					zap.Int("attempts", attempts),
 					zap.String("reason", actionStateReason(result)),
-					zap.Error(err),
+					browserErrorLogField(err),
 				)...,
 			)
 			break
@@ -3074,7 +3095,7 @@ func preferredPageURL(candidates ...string) string {
 func pickReusableTargetID(infos []*targetpkg.Info) string {
 	choose := func(requireUnattached bool) string {
 		for _, info := range infos {
-			if info == nil || info.Type != "page" {
+			if !isPageTargetInfo(info) {
 				continue
 			}
 			if requireUnattached && info.Attached {
@@ -3320,18 +3341,11 @@ func sanitizedURLField(key string, rawURL string) zap.Field {
 }
 
 func sanitizeLogURL(rawURL string) string {
-	trimmed := strings.TrimSpace(rawURL)
-	if trimmed == "" {
+	reference := browserLogReference(rawURL)
+	if reference == "" {
 		return ""
 	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil {
-		return trimmed
-	}
-	parsed.User = nil
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return parsed.String()
+	return "<url-ref:" + reference + ">"
 }
 
 func minDuration(left time.Duration, right time.Duration) time.Duration {

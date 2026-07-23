@@ -36,15 +36,18 @@ type Command struct {
 }
 
 type CommandOptions struct {
-	ExecPath            string
-	Tools               ToolResolver
-	Request             dto.CreateYTDLPJobRequest
-	OutputTemplate      string
-	SubtitleTemplate    string
-	ThumbnailTemplate   string
-	Headers             map[string]string
-	CookiesPath         string
-	ProxyURL            string
+	ExecPath          string
+	Tools             ToolResolver
+	Request           dto.CreateYTDLPJobRequest
+	OutputTemplate    string
+	SubtitleTemplate  string
+	ThumbnailTemplate string
+	Headers           map[string]string
+	CookiesPath       string
+	ProxyURL          string
+	// RestrictedProxy makes the explicit proxy authoritative for the command
+	// and child downloaders by replacing inherited proxy/no-proxy environment.
+	RestrictedProxy     bool
 	ConcurrentFragments int
 	StreamStrategy      StreamDownloadStrategy
 	Timeout             time.Duration

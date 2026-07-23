@@ -23,11 +23,13 @@ type catalogProviderStub struct {
 }
 
 type downloaderStub struct {
-	path string
-	err  error
+	path          string
+	err           error
+	downloadedURL string
 }
 
-func (stub *downloaderStub) Download(_ context.Context, _ string, progress func(int)) (string, error) {
+func (stub *downloaderStub) Download(_ context.Context, url string, progress func(int)) (string, error) {
+	stub.downloadedURL = url
 	if progress != nil {
 		progress(100)
 	}
@@ -51,10 +53,11 @@ type installerStub struct {
 	installErr            error
 	restartErr            error
 	restarted             bool
-	selectedDownloadURLs  []string
+	selectedDownloadAsset *softwareupdate.Asset
 	selectDownloadInvoked bool
 	preparedInfo          domainupdate.Info
 	hasPreparedInfo       bool
+	preparedUpdateInvoked bool
 	clearPreparedInvoked  bool
 	pendingWhatsNew       domainupdate.WhatsNew
 	hasPendingWhatsNew    bool
@@ -71,15 +74,16 @@ func (stub *installerStub) RestartToApply(_ context.Context) error {
 	return stub.restartErr
 }
 
-func (stub *installerStub) SelectDownloadURLs(_ context.Context, urls []string) []string {
+func (stub *installerStub) SelectDownloadAsset(_ context.Context, asset softwareupdate.Asset) softwareupdate.Asset {
 	stub.selectDownloadInvoked = true
-	if stub.selectedDownloadURLs != nil {
-		return stub.selectedDownloadURLs
+	if stub.selectedDownloadAsset != nil {
+		return *stub.selectedDownloadAsset
 	}
-	return urls
+	return asset
 }
 
 func (stub *installerStub) PreparedUpdate(_ context.Context) (domainupdate.Info, bool, error) {
+	stub.preparedUpdateInvoked = true
 	return stub.preparedInfo, stub.hasPreparedInfo, nil
 }
 
@@ -329,18 +333,34 @@ func TestCheckForUpdateReturnsNoUpdateWhenCurrentVersionIsNewerThanLatest(t *tes
 	}
 }
 
-func TestCheckForUpdateUsesInstallerDownloadURLSelector(t *testing.T) {
+func TestCheckForUpdateKeepsSelectedDownloadAssetAndChecksumTogether(t *testing.T) {
 	t.Parallel()
 
 	provider := &catalogProviderStub{
 		catalog: buildCatalog("1.2.4", "https://example.com/xiadown-windows-x64-1.2.4-installer.exe"),
 	}
-	installer := &installerStub{
-		selectedDownloadURLs: []string{
-			"https://example.com/xiadown-windows-x64-1.2.4.zip",
-		},
+	provider.catalog.App.Asset.SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+	portableAsset := softwareupdate.Asset{
+		ArtifactName: "xiadown-windows-x64-1.2.4.zip",
+		ArtifactType: "zip",
+		SHA256:       emptyFileSHA256,
+		Sources: []softwareupdate.DownloadSource{{
+			Name:     "portable",
+			URL:      "https://example.com/xiadown-windows-x64-1.2.4.zip",
+			Priority: 10,
+			Enabled:  true,
+		}},
 	}
-	service := NewService(ServiceParams{Catalog: newCatalogService(provider), Installer: installer})
+	installer := &installerStub{
+		selectedDownloadAsset: &portableAsset,
+	}
+	downloader := &downloaderStub{path: createEmptyUpdateFile(t)}
+	service := NewService(ServiceParams{
+		Catalog:    newCatalogService(provider),
+		Downloader: downloader,
+		Installer:  installer,
+	})
+	service.autoPrepareInFlight = true
 
 	info, err := service.CheckForUpdate(context.Background(), "1.2.3")
 	if err != nil {
@@ -359,6 +379,39 @@ func TestCheckForUpdateUsesInstallerDownloadURLSelector(t *testing.T) {
 	}
 	if urls[0] != "https://example.com/xiadown-windows-x64-1.2.4.zip" {
 		t.Fatalf("expected portable URL first, got %#v", urls)
+	}
+	if service.downloadSHA256 != emptyFileSHA256 {
+		t.Fatalf("expected portable checksum %q, got %q", emptyFileSHA256, service.downloadSHA256)
+	}
+
+	prepared, err := service.DownloadUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("download selected portable asset failed: %v", err)
+	}
+	if downloader.downloadedURL != portableAsset.PrimaryDownloadURL() {
+		t.Fatalf("downloaded URL = %q, want %q", downloader.downloadedURL, portableAsset.PrimaryDownloadURL())
+	}
+	if prepared.Status != domainupdate.StatusReadyToRestart {
+		t.Fatalf("expected ready-to-restart status, got %q", prepared.Status)
+	}
+}
+
+func TestCheckForUpdateDoesNotFallbackToIncompatibleAsset(t *testing.T) {
+	t.Parallel()
+
+	provider := &catalogProviderStub{
+		catalog: buildCatalog("1.2.4", "https://example.com/xiadown-windows-x64-1.2.4-installer.exe"),
+	}
+	rejectedAsset := softwareupdate.Asset{}
+	installer := &installerStub{selectedDownloadAsset: &rejectedAsset}
+	service := NewService(ServiceParams{Catalog: newCatalogService(provider), Installer: installer})
+
+	info, err := service.CheckForUpdate(context.Background(), "1.2.3")
+	if err == nil || !strings.Contains(err.Error(), "no downloadable asset") {
+		t.Fatalf("expected incompatible asset rejection, got state %#v and error %v", info, err)
+	}
+	if info.DownloadURL != "" || service.downloadSHA256 != "" {
+		t.Fatalf("rejected asset fell back to manifest primary: state %#v, checksum %q", info, service.downloadSHA256)
 	}
 }
 
@@ -548,6 +601,99 @@ func TestRestorePreparedUpdateRestoresReadyState(t *testing.T) {
 	}
 	if info.PreparedChangelog != "Bug fixes" {
 		t.Fatalf("expected prepared changelog to be restored, got %q", info.PreparedChangelog)
+	}
+}
+
+func TestRestorePreparedUpdateSkipsNonReleaseVersion(t *testing.T) {
+	t.Parallel()
+
+	installer := &installerStub{
+		hasPreparedInfo: true,
+		preparedInfo: domainupdate.Info{
+			PreparedVersion:   "1.2.4",
+			PreparedChangelog: "Production update",
+		},
+	}
+	service := NewService(ServiceParams{Installer: installer})
+	service.SetCurrentVersion("dev")
+
+	info, err := service.RestorePreparedUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("restore prepared update failed: %v", err)
+	}
+	if installer.preparedUpdateInvoked {
+		t.Fatal("development build inspected the production prepared update")
+	}
+	if installer.clearPreparedInvoked {
+		t.Fatal("development build deleted the production prepared update")
+	}
+	if info.Status != domainupdate.StatusIdle {
+		t.Fatalf("expected idle development update state, got %q", info.Status)
+	}
+	if info.PreparedVersion != "" || info.PreparedChangelog != "" {
+		t.Fatalf("development state exposed production prepared update: %+v", info)
+	}
+}
+
+func TestCheckForUpdateSkipsRemoteCatalogForNonReleaseVersion(t *testing.T) {
+	t.Parallel()
+
+	provider := &catalogProviderStub{
+		catalog: buildCatalog("1.2.4", "https://example.com/download.zip"),
+	}
+	service := NewService(ServiceParams{Catalog: newCatalogService(provider)})
+	service.state = domainupdate.Info{
+		Kind:              domainupdate.KindApp,
+		CurrentVersion:    "1.2.3",
+		LatestVersion:     "1.2.4",
+		DownloadURL:       "https://example.com/download.zip",
+		Status:            domainupdate.StatusReadyToRestart,
+		PreparedVersion:   "1.2.4",
+		PreparedChangelog: "Production update",
+	}
+	service.SetCurrentVersion("dev")
+
+	// A bound caller may supply a stale or forged numeric version. The dev
+	// version set during bootstrap must remain authoritative.
+	info, err := service.CheckForUpdate(context.Background(), "1.2.3")
+	if err != nil {
+		t.Fatalf("development update check failed: %v", err)
+	}
+	if provider.fetchCount != 0 {
+		t.Fatalf("development update check fetched the production catalog %d times", provider.fetchCount)
+	}
+	if info.Status != domainupdate.StatusNoUpdate {
+		t.Fatalf("expected no_update development state, got %q", info.Status)
+	}
+	if info.CurrentVersion != "dev" {
+		t.Fatalf("current version = %q, want dev", info.CurrentVersion)
+	}
+	if info.LatestVersion != "" || info.DownloadURL != "" || info.PreparedVersion != "" {
+		t.Fatalf("development state retained production update data: %+v", info)
+	}
+}
+
+func TestNonReleaseVersionCannotMutateSharedUpdaterState(t *testing.T) {
+	t.Parallel()
+
+	installer := &installerStub{}
+	service := NewService(ServiceParams{Installer: installer})
+	service.SetCurrentVersion("dev")
+
+	if _, err := service.DownloadUpdate(context.Background()); !errors.Is(err, errUpdatesDisabledForNonRelease) {
+		t.Fatalf("development download error = %v", err)
+	}
+	if _, err := service.RestartToApply(context.Background()); !errors.Is(err, errUpdatesDisabledForNonRelease) {
+		t.Fatalf("development restart error = %v", err)
+	}
+	if installer.restarted {
+		t.Fatal("development build invoked the production restart plan")
+	}
+	if err := service.DismissWhatsNew(context.Background(), "2.0.7"); err != nil {
+		t.Fatalf("development dismiss failed: %v", err)
+	}
+	if installer.markSeenVersion != "" {
+		t.Fatalf("development build mutated shared what's-new state: %q", installer.markSeenVersion)
 	}
 }
 

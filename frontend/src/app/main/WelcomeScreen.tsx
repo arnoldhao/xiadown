@@ -12,7 +12,6 @@ import {
   Waves,
 } from "lucide-react";
 import * as React from "react";
-import "./welcome.css";
 
 import { CORE_DEPENDENCIES } from "@/app/main/main-constants";
 import {
@@ -20,7 +19,6 @@ import {
   mergeXiaAppearanceConfig,
   readXiaAppearance,
   XIA_THEME_PACKS,
-  type XiaThemePack,
   type XiaThemePackId,
 } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
@@ -83,7 +81,7 @@ type WelcomeMotionPhase =
   | "ready-enter";
 type WelcomeDropdownOption<T extends string> = {
   label: string;
-  swatch?: XiaThemePack["preview"];
+  themePackId?: XiaThemePackId;
   value: T;
 };
 
@@ -148,53 +146,8 @@ function buildWelcomeText(language: SupportedLanguage): WelcomeText {
   };
 }
 
-function welcomeNoise(index: number, salt: number) {
-  const value = Math.sin(index * 12.9898 + salt * 78.233) * 43758.5453;
-  return value - Math.floor(value);
-}
-
-const WELCOME_STARS = Array.from({ length: 72 }, (_, index) => {
-  const size = welcomeNoise(index, 7) > 0.84 ? 3 : welcomeNoise(index, 13) > 0.48 ? 2 : 1;
-  return {
-    delay: `${-(welcomeNoise(index, 2) * 5.8).toFixed(2)}s`,
-    duration: `${(2.1 + welcomeNoise(index, 3) * 4.7).toFixed(2)}s`,
-    left: `${(3 + welcomeNoise(index, 5) * 93).toFixed(2)}%`,
-    maxOpacity: (0.58 + welcomeNoise(index, 11) * 0.42).toFixed(2),
-    minOpacity: (0.18 + welcomeNoise(index, 17) * 0.34).toFixed(2),
-    size: `${size}px`,
-    top: `${(4 + Math.pow(welcomeNoise(index, 19), 1.35) * 51).toFixed(2)}%`,
-  };
-});
-
-const WELCOME_SHOOTING_STARS = [
-  {
-    delay: "-1.4s",
-    duration: "11.6s",
-    left: "76%",
-    top: "11%",
-    travelX: "-290px",
-    travelY: "118px",
-    width: "84px",
-  },
-  {
-    delay: "-7.8s",
-    duration: "16.2s",
-    left: "58%",
-    top: "24%",
-    travelX: "-210px",
-    travelY: "74px",
-    width: "54px",
-  },
-  {
-    delay: "-12.2s",
-    duration: "21.4s",
-    left: "91%",
-    top: "18%",
-    travelX: "-360px",
-    travelY: "140px",
-    width: "96px",
-  },
-];
+const WELCOME_STAR_COUNT = 72;
+const WELCOME_SHOOTING_STAR_COUNT = 3;
 
 type WelcomePixelRect = readonly [number, number, number, number];
 
@@ -466,17 +419,11 @@ function dependencyLatestVersionLabel(
   return loading ? checkingLabel : fallbackLabel;
 }
 
-function WelcomeThemeSwatch(props: { swatch: XiaThemePack["preview"] }) {
+function WelcomeThemeSwatch(props: { themePackId: XiaThemePackId }) {
   return (
     <span
       className="welcome-theme-swatch"
-      style={
-        {
-          "--welcome-swatch-accent": props.swatch.accent,
-          "--welcome-swatch-shell": props.swatch.shell,
-          "--welcome-swatch-sidebar": props.swatch.sidebar,
-        } as React.CSSProperties
-      }
+      data-theme-pack-preview={props.themePackId}
       aria-hidden="true"
     />
   );
@@ -541,8 +488,8 @@ function WelcomeDropdown<T extends string>(props: {
         disabled={props.disabled}
         onClick={() => setOpen((current) => !current)}
       >
-        {selectedOption?.swatch ? (
-          <WelcomeThemeSwatch swatch={selectedOption.swatch} />
+        {selectedOption?.themePackId ? (
+          <WelcomeThemeSwatch themePackId={selectedOption.themePackId} />
         ) : null}
         <span id={`${dropdownId}-value`} className="welcome-dropdown-value">
           {selectedOption?.label ?? props.value}
@@ -572,7 +519,9 @@ function WelcomeDropdown<T extends string>(props: {
                   void props.onChange(option.value);
                 }}
               >
-                {option.swatch ? <WelcomeThemeSwatch swatch={option.swatch} /> : null}
+                {option.themePackId ? (
+                  <WelcomeThemeSwatch themePackId={option.themePackId} />
+                ) : null}
                 <span className="welcome-dropdown-item-label">{option.label}</span>
                 <span className="welcome-dropdown-check" aria-hidden="true">
                   {selected ? ">" : ""}
@@ -1142,7 +1091,7 @@ export function WelcomeScreen(props: {
   const themeOptions: Array<WelcomeDropdownOption<XiaThemePackId>> =
     XIA_THEME_PACKS.map((pack) => ({
       label: text.themePacks[pack.id].label,
-      swatch: pack.preview,
+      themePackId: pack.id,
       value: pack.id,
     }));
 
@@ -1159,39 +1108,15 @@ export function WelcomeScreen(props: {
         </div>
         <div className="welcome-sun" />
         <div className="welcome-stars">
-          {WELCOME_STARS.map((star, index) => (
-            <span
-              key={index}
-              style={
-                {
-                  "--star-max-opacity": star.maxOpacity,
-                  "--star-min-opacity": star.minOpacity,
-                  animationDelay: star.delay,
-                  animationDuration: star.duration,
-                  height: star.size,
-                  left: star.left,
-                  top: star.top,
-                  width: star.size,
-                } as React.CSSProperties
-              }
-            />
+          {Array.from({ length: WELCOME_STAR_COUNT }, (_, index) => (
+            <span key={index} data-star-index={index} />
           ))}
         </div>
-        {WELCOME_SHOOTING_STARS.map((star, index) => (
+        {Array.from({ length: WELCOME_SHOOTING_STAR_COUNT }, (_, index) => (
           <div
             key={index}
             className="welcome-shooting-star"
-            style={
-              {
-                "--shoot-travel-x": star.travelX,
-                "--shoot-travel-y": star.travelY,
-                animationDelay: star.delay,
-                animationDuration: star.duration,
-                left: star.left,
-                top: star.top,
-                width: star.width,
-              } as React.CSSProperties
-            }
+            data-shooting-star-index={index}
           />
         ))}
         <div className="welcome-cloud welcome-cloud-a">

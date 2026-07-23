@@ -3,13 +3,62 @@ import { describe, expect, test } from "bun:test";
 import {
   buildListenImageCacheURL,
   buildListenHighQualityThumbnailURL,
+  buildListenPosterCandidates,
   buildListenTrackThumbnailCandidates,
   buildYouTubePosterURL,
+  createDefaultListenStorageState,
+  readListenStorageState,
+  sanitizeListenLocalQueueIds,
   sanitizeListenOnlineItems,
   updateListenProgressMap,
+  writeListenStorageState,
 } from "@/app/main/listen/storage";
+import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 
 describe("listen playback storage helpers", () => {
+  test("persists local queue order and restores a sanitized explicit queue", () => {
+    const storage = new Map<string, string>();
+    const previousWindow = (globalThis as { window?: unknown }).window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: {
+          getItem: (key: string) => storage.get(key) ?? null,
+          setItem: (key: string, value: string) => storage.set(key, value),
+        },
+      },
+    });
+    try {
+      writeListenStorageState({
+        ...createDefaultListenStorageState(),
+        selectedLocalId: "b",
+        localPlaybackQueueIds: ["c", "b", "a"],
+      });
+      expect(readListenStorageState().localPlaybackQueueIds).toEqual([
+        "c",
+        "b",
+        "a",
+      ]);
+    } finally {
+      if (previousWindow === undefined) {
+        delete (globalThis as { window?: unknown }).window;
+      } else {
+        Object.defineProperty(globalThis, "window", {
+          configurable: true,
+          value: previousWindow,
+        });
+      }
+    }
+  });
+
+  test("sanitizes duplicate and malformed restored local queue IDs", () => {
+    expect(
+      sanitizeListenLocalQueueIds([" b ", "", 42, "b", "missing", "a"]),
+    ).toEqual(["b", "missing", "a"]);
+    expect(sanitizeListenLocalQueueIds(undefined)).toBeNull();
+    expect(sanitizeListenLocalQueueIds([])).toEqual([]);
+  });
+
   test("removes zero progress from persisted resume map", () => {
     expect(updateListenProgressMap({ "song-a": 12 }, "song-a", 0)).toEqual({});
   });
@@ -56,6 +105,33 @@ describe("listen playback storage helpers", () => {
         thumbnailUrl: "",
       }),
     ).toEqual(["https://i.ytimg.com/vi/TESTVID007G/hqdefault.jpg"]);
+  });
+
+  test("always gives square music cards a full-size default artwork", () => {
+    expect(
+      buildListenPosterCandidates("http://127.0.0.1:5678", {}),
+    ).toEqual([LISTEN_DEFAULT_COVER_IMAGE_URL]);
+    expect(
+      buildListenPosterCandidates("http://127.0.0.1:5678", {
+        thumbnailUrl: "https://lh3.googleusercontent.com/playlist=w60-h60",
+      }),
+    ).toEqual([
+      "https://lh3.googleusercontent.com/playlist=w226-h226",
+      LISTEN_DEFAULT_COVER_IMAGE_URL,
+    ]);
+  });
+
+  test("orders live catalog artwork before its public YouTube poster fallback", () => {
+    expect(
+      buildListenPosterCandidates("http://127.0.0.1:5678", {
+        videoId: "liveVideo01",
+        thumbnailUrl: "https://lh3.googleusercontent.com/lofi-girl=w60-h60",
+      }),
+    ).toEqual([
+      "https://lh3.googleusercontent.com/lofi-girl=w226-h226",
+      "https://i.ytimg.com/vi/liveVideo01/hqdefault.jpg",
+      LISTEN_DEFAULT_COVER_IMAGE_URL,
+    ]);
   });
 
   test("keeps audio endpoint video-unavailable cache entries", () => {

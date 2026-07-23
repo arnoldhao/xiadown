@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -17,6 +18,12 @@ import (
 	"xiadown/internal/domain/library"
 	ydlpinfr "xiadown/internal/infrastructure/ytdlp"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
 
 const maxYTDLPThumbnailBytes int64 = 32 << 20
 
@@ -89,7 +96,8 @@ func (service *LibraryService) downloadYTDLPSubtitles(
 		OutputTemplate:   subtitleOutputTemplate,
 		SubtitleTemplate: subtitleOutputTemplate,
 		CookiesPath:      cookiesPath,
-		ProxyURL:         service.resolveYTDLPProxy(request.URL),
+		ProxyURL:         service.resolveYTDLPProxyForRequest(request),
+		RestrictedProxy:  strings.TrimSpace(request.RestrictedProxyURL) != "",
 	})
 	if err != nil {
 		step.warning = fmt.Sprintf("subtitle download failed: %v", err)
@@ -149,7 +157,7 @@ func (service *LibraryService) downloadYTDLPThumbnail(
 	if err != nil {
 		return "", err
 	}
-	return service.downloadYTDLPThumbnailToTarget(ctx, thumbnailURL, targetPath, true)
+	return service.downloadYTDLPThumbnailToTarget(ctx, thumbnailURL, targetPath, true, request.RestrictedProxyURL)
 }
 
 func (service *LibraryService) downloadYTDLPThumbnailPrefetch(
@@ -166,7 +174,7 @@ func (service *LibraryService) downloadYTDLPThumbnailPrefetch(
 	if err != nil {
 		return "", err
 	}
-	return service.downloadYTDLPThumbnailToTarget(ctx, thumbnailURL, targetPath, true)
+	return service.downloadYTDLPThumbnailToTarget(ctx, thumbnailURL, targetPath, true, request.RestrictedProxyURL)
 }
 
 func prepareYTDLPThumbnailPrefetchTargetPath(outputTemplate string, operationID string, extension string) (string, error) {
@@ -217,7 +225,21 @@ func (service *LibraryService) promotePrefetchedYTDLPThumbnail(tempPath string, 
 	return targetPath, nil
 }
 
-func (service *LibraryService) ytdlpAuxiliaryHTTPClient() *http.Client {
+func (service *LibraryService) ytdlpAuxiliaryHTTPClient(restrictedProxyURLs ...string) *http.Client {
+	restrictedProxyURL := ""
+	if len(restrictedProxyURLs) > 0 {
+		restrictedProxyURL = restrictedProxyURLs[0]
+	}
+	if strings.TrimSpace(restrictedProxyURL) != "" {
+		if client, err := newRestrictedAuxiliaryHTTPClient(restrictedProxyURL); err == nil {
+			return client
+		}
+		// A malformed/missing enforcing proxy must fail closed. The returned
+		// client has no usable transport rather than falling back to direct I/O.
+		return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("restricted network proxy is unavailable")
+		})}
+	}
 	if service != nil && service.proxyClient != nil {
 		if provider, ok := service.proxyClient.(interface{ HTTPClient() *http.Client }); ok {
 			if client := provider.HTTPClient(); client != nil {
@@ -277,6 +299,7 @@ func (service *LibraryService) downloadYTDLPThumbnailToTarget(
 	thumbnailURL string,
 	targetPath string,
 	replaceExtension bool,
+	restrictedProxyURL string,
 ) (string, error) {
 	parsedURL, err := url.Parse(strings.TrimSpace(thumbnailURL))
 	if err != nil {
@@ -299,7 +322,7 @@ func (service *LibraryService) downloadYTDLPThumbnailToTarget(
 	}
 	req.Header.Set("Accept", "image/*")
 
-	client := service.ytdlpAuxiliaryHTTPClient()
+	client := service.ytdlpAuxiliaryHTTPClient(restrictedProxyURL)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

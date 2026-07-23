@@ -22,17 +22,21 @@ import {
 import { Progress } from "@/shared/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { PetDisplay } from "@/shared/ui/pet-player";
+import {
+  WorkspacePage,
+  WorkspacePageContent,
+  WorkspacePageTopBar,
+  defineWorkspacePageContract,
+} from "@/shared/ui/workspace-page";
 import { RunningPetPlayground } from "@/app/main/RunningPetPlayground";
 import { useCancelOperation } from "@/shared/query/library";
 import { getLanguage, resolveI18nText } from "@/shared/i18n";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/shared/utils/formatBytes";
-import { buildAssetPreviewURL } from "@/shared/utils/resourceHelpers";
+import { resolveOperationThumbnailCoverURL } from "@/shared/activity/operations";
 import { getXiaText } from "@/features/xiadown/shared";
 import type { PetAnimation } from "@/shared/pets/animation";
-import { RUNNING_PET_GLOW_STYLE } from "@/shared/styles/xiadown";
 import { resolveOperationKindLabel } from "@/app/main/helpers";
-import { WindowControls } from "@/components/layout/WindowControls";
 
 type RunningPageProps = {
   text: ReturnType<typeof getXiaText>;
@@ -43,7 +47,7 @@ type RunningPageProps = {
   petAnimation: PetAnimation;
   pet: Pet | null;
   loading?: boolean;
-  isWindows?: boolean;
+  reserveWindowControls?: boolean;
   onNewDownload: () => void;
 };
 
@@ -117,7 +121,7 @@ function DetailValueTooltip(props: {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{props.children}</TooltipTrigger>
-      <TooltipContent side="top" className="text-xs">
+      <TooltipContent side="top" className="app-running-detail-tooltip">
         {props.label}
       </TooltipContent>
     </Tooltip>
@@ -147,8 +151,8 @@ function RunningActionButton(
       variant={primary ? "default" : "ghost"}
       className={cn(
         primary
-          ? "app-running-new-download-button h-10 px-4 text-sm font-semibold"
-          : "app-running-action-button h-10 px-4 text-sm font-medium",
+          ? "app-running-new-download-button"
+          : "app-running-action-button",
         className,
       )}
       aria-label={label}
@@ -224,17 +228,6 @@ function resolveOperationSourceLabel(
     return "";
   }
   return source === text.running.localSource ? source : source.toUpperCase();
-}
-
-function resolveOperationThumbnailCoverURL(
-  baseURL: string,
-  operation: OperationListItemDTO,
-) {
-  const thumbnailPreviewPath = operation.thumbnailPreviewPath?.trim() ?? "";
-  if (!thumbnailPreviewPath) {
-    return "";
-  }
-  return buildAssetPreviewURL(baseURL, thumbnailPreviewPath);
 }
 
 function resolveRunningVisualQuality(operationCount: number): RunningVisualQuality {
@@ -847,6 +840,18 @@ export function RunningPage(props: RunningPageProps) {
     hasTranscodeOperation,
   ]);
   const useRunningPetGlow = props.petAnimation === "running";
+  const pageContract = defineWorkspacePageContract({
+    presentation: "primary",
+    recipe: "operational",
+    routeLabel: text.running.title,
+    topBar: "drag",
+    heading: "assistive",
+    contentLayout: "canvas",
+    footer: "none",
+    scroll: "content",
+    density: "regular",
+    immersion: "edge-to-edge",
+  });
 
   React.useEffect(() => {
     if (!scrollRef.current || operations.length === 0) {
@@ -918,42 +923,36 @@ export function RunningPage(props: RunningPageProps) {
   );
 
   const renderShell = (children: React.ReactNode) => (
-    <div
-      className="app-main-page app-main-running-page relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-background"
+    <WorkspacePage
+      contract={pageContract}
+      className="app-main-page app-main-running-page"
       data-operation-count={operations.length}
       data-running-state={
         props.loading ? "loading" : operations.length > 0 ? "tasks" : "empty"
       }
       data-visual-quality={visualQuality}
     >
-      <div
+      <WorkspacePageTopBar
+        className="app-running-page-toolbar"
+        reserveWindowControls={props.reserveWindowControls}
+      />
+      <WorkspacePageContent
+        ref={scrollRef}
         className={cn(
-          "app-running-page-toolbar wails-drag flex min-h-[var(--app-page-top-drag-height)] items-center justify-between gap-4 px-5",
-          props.isWindows
-            ? "min-h-[var(--app-page-top-drag-height)] pb-3 pt-4"
-            : "pb-3 pt-4",
+          "app-running-page-content p-0",
+          operations.length > 0 && "app-running-card-scroll",
         )}
       >
-        <h1 className="sr-only">{text.running.title}</h1>
-        <div className="min-w-0 flex-1" aria-hidden="true" />
-        <div
-          className={cn(
-            "flex min-w-0 items-center justify-end gap-2",
-            props.isWindows && "min-w-[var(--app-windows-caption-control-width)]",
-          )}
-        >
-          {props.isWindows ? <WindowControls platform="windows" /> : null}
-        </div>
-      </div>
-      {children}
-    </div>
+        {children}
+      </WorkspacePageContent>
+    </WorkspacePage>
   );
 
   if (props.loading) {
     return renderShell(
-      <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-5">
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
+      <div className="flex min-h-full items-center justify-center px-5 pb-5">
+        <div className="app-running-loading flex items-center gap-3">
+          <Loader2 className="h-4 w-4 app-motion-spin" />
           <span>{text.running.loading}</span>
         </div>
       </div>,
@@ -962,7 +961,10 @@ export function RunningPage(props: RunningPageProps) {
 
   if (operations.length === 0) {
     return renderShell(
-      <div className="min-h-0 flex-1 px-5 pb-5">
+      <div
+        className="h-full min-h-0 px-5 pb-5"
+        data-running-empty-state="true"
+      >
         <RunningPetPlayground
           pet={props.pet}
           imageUrl={props.petImageURL}
@@ -983,13 +985,13 @@ export function RunningPage(props: RunningPageProps) {
   }
 
   return renderShell(
-    <div className="relative flex min-h-0 flex-1 items-start justify-center px-5 pb-5">
-      <div className="flex h-full min-h-0 w-full max-w-4xl flex-col">
+    <div className="relative flex min-h-full items-start justify-center px-5 pb-5">
+      <div className="flex w-full max-w-4xl flex-col">
         <div className="shrink-0 px-6">
           <div className="app-running-summary-panel grid h-32 grid-cols-[minmax(0,1fr)_auto] items-center gap-6 px-[10%]">
             <div className="relative isolate min-w-0">
               <div className="relative z-10 min-w-0">
-                <div className="truncate text-2xl font-semibold leading-8 tabular-nums text-foreground">
+                <div className="app-running-summary-line truncate">
                   {runningSummaryLine}
                 </div>
                 {kindSegments.length > 0 ? (
@@ -997,14 +999,14 @@ export function RunningPage(props: RunningPageProps) {
                     {kindSegments.map((segment) => (
                       <div
                         key={segment.key}
-                        className="app-running-speed-segment grid h-8 min-w-40 w-fit max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-visible px-2.5 text-xs"
+                        className="app-running-speed-segment grid h-8 min-w-40 w-fit max-w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 overflow-visible px-2.5"
                         aria-label={`${segment.label} ${segment.value}`}
                         data-speed-kind={segment.key}
                       >
-                        <span className="min-w-0 justify-self-start truncate font-semibold text-foreground/82">
+                        <span className="app-running-speed-text min-w-0 justify-self-start truncate">
                           {segment.label}
                         </span>
-                        <span className="shrink-0 justify-self-end whitespace-nowrap font-semibold tabular-nums text-foreground/82">
+                        <span className="app-running-speed-text app-running-speed-value shrink-0 justify-self-end whitespace-nowrap">
                           {segment.value}
                         </span>
                       </div>
@@ -1021,21 +1023,14 @@ export function RunningPage(props: RunningPageProps) {
                 animation={props.petAnimation}
                 alt={text.appName}
                 className="shrink-0"
-                glowClassName={
-                  useRunningPetGlow
-                    ? "h-[10rem] w-[13.5rem] blur-[18px]"
-                    : undefined
-                }
-                glowStyle={
-                  useRunningPetGlow ? RUNNING_PET_GLOW_STYLE : undefined
-                }
+                glowVariant={useRunningPetGlow ? "running-summary" : undefined}
               />
             </div>
           </div>
         </div>
 
-        <div className="relative min-h-0 flex-1 px-6">
-          <div ref={scrollRef} className="app-running-card-scroll h-full overflow-y-auto pr-3">
+        <div className="relative px-6">
+          <div className="pr-3">
             <div className="flex flex-col gap-3 pb-7 pt-5">
               {operations.map((operation) => {
                 const thumbnailCoverURL = resolveOperationThumbnailCoverURL(
@@ -1070,102 +1065,51 @@ export function RunningPage(props: RunningPageProps) {
                   >
                     {thumbnailCoverURL ? (
                       <div
-                        className="app-running-thumbnail-stage absolute inset-0 overflow-hidden rounded-[inherit]"
+                        className="app-running-thumbnail-stage"
                         data-arriving={thumbnailArrivalActive ? "true" : undefined}
                       >
-	                        <img
-	                          src={thumbnailCoverURL}
-	                          alt=""
-	                          aria-hidden="true"
-	                          className="app-running-thumbnail-blur pointer-events-none absolute right-0 top-1/2 h-[calc(100%+5rem)] w-[calc(100%+5rem)] -translate-y-1/2 object-cover object-right opacity-[0.74] blur-[54px] saturate-[1.6] contrast-[1.15] brightness-110 transition-opacity duration-300 group-hover:opacity-[0.82]"
-	                          style={{
-	                            maskImage:
-	                              "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.08) 12%, rgba(0,0,0,0.3) 28%, rgba(0,0,0,0.7) 52%, black 82%, black 100%)",
-	                            WebkitMaskImage:
-	                              "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.08) 12%, rgba(0,0,0,0.3) 28%, rgba(0,0,0,0.7) 52%, black 82%, black 100%)",
-	                          }}
-	                          loading="lazy"
-	                          decoding="async"
-	                          draggable={false}
-	                        />
-	                        <div className="absolute inset-y-0 right-0 w-[58%]">
-	                          <img
-	                            src={thumbnailCoverURL}
-	                            alt=""
-	                            aria-hidden="true"
-	                            className="app-running-thumbnail-detail pointer-events-none absolute inset-0 h-full w-full object-cover object-right opacity-20 blur-[0.9px] saturate-[1.1] contrast-125 brightness-90 mix-blend-luminosity transition duration-300 group-hover:opacity-[0.24]"
-	                            style={{
-	                              maskImage:
-	                                "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.02) 34%, rgba(0,0,0,0.1) 56%, rgba(0,0,0,0.38) 78%, rgba(0,0,0,0.62) 100%)",
-	                              WebkitMaskImage:
-	                                "linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.02) 34%, rgba(0,0,0,0.1) 56%, rgba(0,0,0,0.38) 78%, rgba(0,0,0,0.62) 100%)",
-	                            }}
-	                            loading="lazy"
-	                            decoding="async"
-	                            draggable={false}
-	                          />
-	                        </div>
-	                        <div
-	                          className="absolute inset-y-0 right-0 w-[72%]"
-	                          style={{
-	                            backdropFilter: "blur(9px) saturate(1.08)",
-	                            WebkitBackdropFilter: "blur(9px) saturate(1.08)",
-	                            background:
-	                              "linear-gradient(90deg,transparent 0%,hsl(var(--card)/0.04) 34%,hsl(var(--background)/0.1) 64%,hsl(var(--card)/0.18) 100%)",
-	                            maskImage:
-	                              "linear-gradient(90deg,transparent 0%,rgba(0,0,0,0.1) 30%,rgba(0,0,0,0.45) 58%,rgba(0,0,0,0.68) 100%)",
-	                            WebkitMaskImage:
-	                              "linear-gradient(90deg,transparent 0%,rgba(0,0,0,0.1) 30%,rgba(0,0,0,0.45) 58%,rgba(0,0,0,0.68) 100%)",
-	                          }}
-	                        />
-	                        <div className="absolute inset-0 bg-[linear-gradient(90deg,hsl(var(--card)/0.9)_0%,hsl(var(--card)/0.78)_38%,hsl(var(--background)/0.54)_58%,hsl(var(--background)/0.3)_78%,hsl(var(--primary)/0.08)_100%)]" />
-	                        <div
-	                          className="absolute inset-y-0 left-[24%] w-[46%]"
-	                          style={{
-	                            backgroundImage: [
-	                              "linear-gradient(90deg,hsl(var(--card)/0.42),hsl(var(--card)/0.2)_46%,transparent)",
-	                              "radial-gradient(circle at 12% 18%,hsl(var(--card)/0.44)_0_1px,transparent_2px)",
-	                              "radial-gradient(circle at 76% 34%,hsl(var(--background)/0.3)_0_1px,transparent_2px)",
-	                              "radial-gradient(circle at 42% 72%,hsl(var(--card)/0.28)_0_1px,transparent_2px)",
-	                            ].join(","),
-	                            backgroundSize:
-	                              "100% 100%, 17px 17px, 23px 23px, 29px 29px",
-	                            maskImage:
-	                              "linear-gradient(90deg,transparent 0%,black 18%,black 74%,transparent 100%)",
-	                            WebkitMaskImage:
-	                              "linear-gradient(90deg,transparent 0%,black 18%,black 74%,transparent 100%)",
-	                          }}
-	                        />
-	                        <div className="absolute bottom-0 right-0 h-[76%] w-[82%] bg-[linear-gradient(0deg,hsl(var(--card)/0.82)_0%,hsl(var(--card)/0.52)_34%,hsl(var(--card)/0.2)_66%,transparent_100%)]" />
-	                        <div className="absolute inset-0 mix-blend-soft-light bg-[radial-gradient(circle_at_16%_10%,rgba(255,255,255,0.38),transparent_30%),radial-gradient(ellipse_at_86%_70%,hsl(var(--primary)/0.36),transparent_48%),radial-gradient(ellipse_at_96%_18%,hsl(var(--primary-foreground)/0.18),transparent_38%),linear-gradient(120deg,rgba(255,255,255,0.18),rgba(0,0,0,0.2))]" />
-	                        <div
-	                          className="absolute inset-0 opacity-[0.18] mix-blend-overlay"
-	                          style={{
-	                            backgroundImage: [
-	                              "repeating-radial-gradient(circle at 0 0,rgba(255,255,255,0.2)_0_0.55px,transparent_0.8px_3.8px)",
-	                              "repeating-radial-gradient(circle at 1px 1px,rgba(0,0,0,0.14)_0_0.45px,transparent_0.7px_5.6px)",
-	                            ].join(","),
-	                            backgroundSize: "7px 7px, 11px 11px",
-	                          }}
-	                        />
-	                        <div className="absolute inset-y-0 left-0 w-[58%] bg-[linear-gradient(90deg,hsl(var(--card)/0.58),hsl(var(--card)/0.28)_58%,transparent)]" />
-	                        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[radial-gradient(ellipse_at_68%_100%,hsl(var(--primary)/0.18),transparent_68%)]" />
-	                        <div
-	                          aria-hidden="true"
-	                          className="app-running-thumbnail-sweep pointer-events-none absolute inset-y-[-32%] left-[-34%] w-[34%] rotate-[13deg] opacity-0"
-	                        />
-	                      </div>
-	                    ) : (
-                      <>
-                        <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--card)/0.82),hsl(var(--background)/0.70)_58%,hsl(var(--primary)/0.06))]" />
-                      </>
+                        <img
+                          src={thumbnailCoverURL}
+                          alt=""
+                          aria-hidden="true"
+                          className="app-running-thumbnail-blur"
+                          loading="lazy"
+                          decoding="async"
+                          draggable={false}
+                        />
+                        <div className="app-running-thumbnail-detail-host">
+                          <img
+                            src={thumbnailCoverURL}
+                            alt=""
+                            aria-hidden="true"
+                            className="app-running-thumbnail-detail"
+                            loading="lazy"
+                            decoding="async"
+                            draggable={false}
+                          />
+                        </div>
+                        <div className="app-running-thumbnail-glass-veil" />
+                        <div className="app-running-thumbnail-base-wash" />
+                        <div className="app-running-thumbnail-grain-field" />
+                        <div className="app-running-thumbnail-bottom-wash" />
+                        <div className="app-running-thumbnail-light-mix" />
+                        <div className="app-running-thumbnail-texture" />
+                        <div className="app-running-thumbnail-leading-fade" />
+                        <div className="app-running-thumbnail-bottom-glow" />
+                        <div
+                          aria-hidden="true"
+                          className="app-running-thumbnail-sweep"
+                        />
+                      </div>
+                    ) : (
+                      <div className="app-running-thumbnail-fallback" />
                     )}
-                    <div className="app-running-card-ring pointer-events-none absolute inset-0 z-30 rounded-[inherit] ring-1 ring-inset ring-white/[0.16] dark:ring-white/[0.08]" />
+                    <div className="app-running-card-ring" />
                     <div className="relative z-10 space-y-3">
                       <div className="flex min-w-0 items-start gap-4">
                         <div className="min-w-0 flex-1 pt-0.5">
                           <div
-                            className="truncate text-base font-semibold text-foreground/86"
+                            className="app-running-operation-name truncate"
                             title={operation.name}
                           >
                             {operation.name}
@@ -1174,7 +1118,7 @@ export function RunningPage(props: RunningPageProps) {
                         <div className="ml-auto flex shrink-0 items-center gap-2">
                           <div className="app-running-meta-strip flex min-w-0 max-w-full shrink-0 items-center overflow-hidden">
                             <span
-                              className="app-running-meta-cell app-running-meta-cell-primary inline-flex h-[var(--app-control-height-compact)] w-[5.75rem] shrink-0 items-center justify-center px-2.5 text-[11px] font-medium"
+                              className="app-running-meta-cell app-running-meta-cell-primary app-running-meta-cell--kind"
                               title={kindLabel}
                             >
                               <span className="min-w-0 truncate">{kindLabel}</span>
@@ -1182,10 +1126,10 @@ export function RunningPage(props: RunningPageProps) {
                             {sourceLabel ? (
                               <DetailValueTooltip label={text.running.source}>
                                 <span
-                                  className="app-running-meta-cell inline-flex h-[var(--app-control-height-compact)] w-[8.5rem] shrink-0 items-center px-2.5 text-[11px] font-medium"
+                                  className="app-running-meta-cell app-running-meta-cell--source"
                                   title={sourceLabel}
                                 >
-                                  <span className="min-w-0 truncate tracking-[0.08em] uppercase">
+                                  <span className="app-running-meta-source min-w-0 truncate">
                                     {sourceLabel}
                                   </span>
                                 </span>
@@ -1194,7 +1138,7 @@ export function RunningPage(props: RunningPageProps) {
                             {createdLabel ? (
                               <DetailValueTooltip label={text.running.createdAt}>
                                 <span
-                                  className="app-running-meta-cell inline-flex h-[var(--app-control-height-compact)] w-[6.25rem] shrink-0 items-center px-2.5 text-[11px] font-medium"
+                                  className="app-running-meta-cell app-running-meta-cell--created"
                                   title={createdLabel}
                                 >
                                   <span className="min-w-0 truncate">
@@ -1222,16 +1166,16 @@ export function RunningPage(props: RunningPageProps) {
                       </div>
                       <Progress
                         value={percent}
-                        className="app-running-progress h-2.5 bg-primary/[0.10] dark:bg-primary/[0.16]"
+                        className="app-running-progress h-2.5"
                         data-kind={kindCode}
                         data-stage={stageCode}
                       />
-                      <div className="flex items-center justify-between gap-4 text-xs text-muted-foreground">
+                      <div className="app-running-progress-meta flex items-center justify-between gap-4">
                         <span className="truncate">
                           {resolveProgressSummary(text, operation) ||
                             text.running.progressFallback}
                         </span>
-                        <span className="truncate text-right">
+                        <span className="app-running-progress-detail truncate">
                           {resolveProgressMeta(
                             text,
                             operation,
@@ -1259,10 +1203,10 @@ export function RunningPage(props: RunningPageProps) {
       >
         <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[calc(100vh-2rem)]">
           <DialogHeader>
-            <DialogTitle className="overflow-hidden break-words pr-6 text-left leading-[1.35] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+            <DialogTitle className="app-running-cancel-title overflow-hidden break-words pr-6">
               {text.running.cancelConfirmTitle}
             </DialogTitle>
-            <DialogDescription className="max-h-32 overflow-y-auto break-words text-left leading-5 [overflow-wrap:anywhere]">
+            <DialogDescription className="app-running-cancel-description max-h-32 overflow-y-auto break-words">
               {formatRunningTemplate(text.running.cancelConfirmDescription, {
                 name:
                   cancelConfirmOperation?.name.trim() ||
@@ -1272,7 +1216,7 @@ export function RunningPage(props: RunningPageProps) {
             </DialogDescription>
           </DialogHeader>
           {cancelConfirmError ? (
-            <div className="app-dream-status-message max-h-24 overflow-y-auto break-words px-3 py-2 text-xs leading-5 [overflow-wrap:anywhere]" data-intent="danger">
+            <div className="app-dream-status-message app-running-cancel-error max-h-24 overflow-y-auto break-words px-3 py-2" data-intent="danger">
               {cancelConfirmError}
             </div>
           ) : null}
@@ -1295,7 +1239,7 @@ export function RunningPage(props: RunningPageProps) {
               disabled={cancelOperation.isPending}
             >
               {cancelOperation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 app-motion-spin" />
               ) : null}
               {text.actions.cancel}
             </Button>

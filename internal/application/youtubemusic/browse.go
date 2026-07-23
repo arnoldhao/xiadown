@@ -3,8 +3,11 @@ package youtubemusic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -15,6 +18,7 @@ const (
 	browseNewReleasesID     = "FEmusic_new_releases"
 	browseHistoryID         = "FEmusic_history"
 	browseLibraryLandingID  = "FEmusic_library_landing"
+	browsePodcastsID        = "FEmusic_podcasts"
 	browseLibraryArtistsID  = "FEmusic_library_corpus_artists"
 	browseLikedPlaylistsID  = "FEmusic_liked_playlists"
 	browseLikedSongsID      = "VLLM"
@@ -76,32 +80,44 @@ type BrowseTab struct {
 }
 
 type BrowsePage struct {
-	Shelves      []Shelf
-	Continuation string
-	Tabs         []BrowseTab
-	Title        string
-	Author       string
+	Shelves         []Shelf
+	Continuation    string
+	Tabs            []BrowseTab
+	Title           string
+	Author          string
+	AuthorBrowseID  string
+	TrackCountLabel string
+	DurationLabel   string
+	Description     string
+	ThumbnailURL    string
 }
 
 type TrackListPage struct {
-	Tracks       []Track
-	Continuation string
-	Title        string
-	Author       string
+	Tracks          []Track
+	Continuation    string
+	Title           string
+	Author          string
+	AuthorBrowseID  string
+	TrackCountLabel string
+	DurationLabel   string
+	Description     string
+	ThumbnailURL    string
 }
 
 type ArtistPage struct {
-	ID            string
-	Title         string
-	Subtitle      string
-	ThumbnailURL  string
-	ChannelID     string
-	IsSubscribed  bool
-	MixPlaylistID string
-	MixVideoID    string
-	Tracks        []Track
-	Shelves       []Shelf
-	Continuation  string
+	ID               string
+	Title            string
+	Subtitle         string
+	Description      string
+	ThumbnailURL     string
+	HeroThumbnailURL string
+	ChannelID        string
+	IsSubscribed     bool
+	MixPlaylistID    string
+	MixVideoID       string
+	Tracks           []Track
+	Shelves          []Shelf
+	Continuation     string
 }
 
 func (client *Client) HomeRecommendations(ctx context.Context, limit int) ([]Track, error) {
@@ -129,16 +145,9 @@ func (client *Client) BrowseShelves(ctx context.Context, browseID string, sectio
 func (client *Client) BrowseShelvesPage(ctx context.Context, browseID string, params string, continuation string, sectionLimit int, itemLimit int) (BrowsePage, error) {
 	trimmedContinuation := strings.TrimSpace(continuation)
 	if trimmedContinuation != "" {
-		data, err := client.requestRead(ctx, "browse", map[string]any{
+		return client.readBrowseShelvesPage(ctx, map[string]any{
 			"continuation": trimmedContinuation,
-		})
-		if err != nil {
-			return BrowsePage{}, err
-		}
-		return BrowsePage{
-			Shelves:      parseHomeShelves(data, normalizeShelfLimit(sectionLimit), normalizeLimit(itemLimit)),
-			Continuation: extractBrowseContinuationToken(data),
-		}, nil
+		}, sectionLimit, itemLimit, false)
 	}
 
 	cleanedBrowseID, err := cleanBrowseID(browseID)
@@ -155,18 +164,134 @@ func (client *Client) BrowseShelvesPage(ctx context.Context, browseID string, pa
 	if cleanedParams != "" {
 		body["params"] = cleanedParams
 	}
+	return client.readBrowseShelvesPage(ctx, body, sectionLimit, itemLimit, true)
+}
+
+func (client *Client) readBrowseShelvesPage(ctx context.Context, body map[string]any, sectionLimit int, itemLimit int, includeMetadata bool) (BrowsePage, error) {
+	normalizedSectionLimit := normalizeShelfLimit(sectionLimit)
+	normalizedItemLimit := normalizeLimit(itemLimit)
 	data, err := client.requestRead(ctx, "browse", body)
+	if errors.Is(err, ErrBrowseUnavailable) {
+		// Availability interstitials are occasionally transient. Retry once while
+		// bypassing the read cache; requestWithOptions deliberately never caches
+		// either interstitial response.
+		data, err = client.requestReadFresh(ctx, "browse", body)
+	}
 	if err != nil {
 		return BrowsePage{}, err
 	}
-	header := playlistHeaderFromBrowseData(data)
-	return BrowsePage{
-		Shelves:      parseHomeShelves(data, normalizeShelfLimit(sectionLimit), normalizeLimit(itemLimit)),
+	page := parseBrowseShelvesPage(data, normalizedSectionLimit, normalizedItemLimit, includeMetadata)
+	if len(page.Shelves) > 0 {
+		return page, nil
+	}
+
+	zap.L().Debug(
+		"youtube music browse parsed empty; refreshing without read cache",
+		zap.Bool("continuationRequest", !includeMetadata),
+		zap.Int("initialSectionCount", len(browseSections(data))),
+		zap.Int("initialShelfCount", len(page.Shelves)),
+		zap.Int("initialTabCount", len(page.Tabs)),
+	)
+	freshData, err := client.requestReadFresh(ctx, "browse", body)
+	if err != nil {
+		zap.L().Warn(
+			"youtube music browse empty refresh failed",
+			zap.Bool("continuationRequest", !includeMetadata),
+			zap.Int("initialSectionCount", len(browseSections(data))),
+			zap.Error(err),
+		)
+		return BrowsePage{}, err
+	}
+	freshPage := parseBrowseShelvesPage(freshData, normalizedSectionLimit, normalizedItemLimit, includeMetadata)
+	zap.L().Debug(
+		"youtube music browse empty refresh completed",
+		zap.Bool("continuationRequest", !includeMetadata),
+		zap.Int("freshSectionCount", len(browseSections(freshData))),
+		zap.Int("freshShelfCount", len(freshPage.Shelves)),
+		zap.Int("freshTabCount", len(freshPage.Tabs)),
+	)
+	return freshPage, nil
+}
+
+// homeBrowseInterstitialError recognizes YouTube Music's successful HTTP
+// response that contains only an itemSectionRenderer/messageRenderer
+// interstitial instead of Home shelves. Known region-availability messages are
+// classified separately because retrying cannot resolve them. Other messages
+// remain opaque and transient; upstream text is never included in the error.
+func homeBrowseInterstitialError(endpoint string, body map[string]any, data map[string]any) error {
+	if strings.Trim(strings.TrimSpace(endpoint), "/") != "browse" ||
+		strings.TrimSpace(stringInMap(body, "browseId")) != browseHomeID {
+		return nil
+	}
+	sections := browseSections(data)
+	if len(sections) == 0 {
+		return nil
+	}
+	messageTexts := make([]string, 0, len(sections))
+	regionUnavailableIcon := false
+	for _, section := range sections {
+		itemSection := asMap(section["itemSectionRenderer"])
+		if itemSection == nil {
+			return nil
+		}
+		items := mapsFromArray(itemSection["contents"])
+		if len(items) == 0 {
+			return nil
+		}
+		for _, item := range items {
+			messageRenderer := asMap(item["messageRenderer"])
+			if messageRenderer == nil {
+				return nil
+			}
+			messageTexts = append(messageTexts, strings.Join(runsText(asMap(messageRenderer["text"])), " "))
+			iconType := strings.TrimSpace(stringInMap(asMap(messageRenderer["icon"]), "iconType"))
+			if strings.EqualFold(iconType, "MUSIC_UNAVAILABLE") {
+				regionUnavailableIcon = true
+			}
+		}
+	}
+	if regionUnavailableIcon || isRegionUnavailableMessage(messageTexts) {
+		return ErrRegionUnavailable
+	}
+	return ErrBrowseUnavailable
+}
+
+func isRegionUnavailableMessage(messages []string) bool {
+	for _, message := range messages {
+		normalized := strings.ToLower(strings.Join(strings.Fields(message), " "))
+		for _, marker := range []string{
+			"youtube music is not available in your area",
+			"youtube music isn't available in your area",
+			"youtube music is not available in your country",
+			"youtube music isn't available in your country",
+			"youtube music is not currently available in your country",
+		} {
+			if strings.Contains(normalized, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func parseBrowseShelvesPage(data map[string]any, sectionLimit int, itemLimit int, includeMetadata bool) BrowsePage {
+	page := BrowsePage{
+		Shelves:      parseHomeShelves(data, sectionLimit, itemLimit),
 		Continuation: extractBrowseContinuationToken(data),
-		Tabs:         extractBrowseTabs(data),
-		Title:        header.Title,
-		Author:       header.Author,
-	}, nil
+	}
+	if !includeMetadata {
+		return page
+	}
+	header := playlistHeaderFromBrowseData(data)
+	page.Tabs = extractBrowseTabs(data)
+	page.Title = header.Title
+	page.Author = header.Author
+	page.AuthorBrowseID = header.AuthorBrowseID
+	page.TrackCountLabel = header.TrackCountLabel
+	page.DurationLabel = header.DurationLabel
+	page.Description = header.Description
+	page.ThumbnailURL = header.ThumbnailURL
+	return page
 }
 
 func (client *Client) LibraryPlaylists(ctx context.Context, limit int) ([]Playlist, error) {
@@ -258,7 +383,7 @@ func (client *Client) PlaylistPage(ctx context.Context, playlistID string, conti
 		if err == nil && len(page.Tracks) > 0 {
 			return page, nil
 		}
-		if isMoodCategoryBrowseID(browseID) || isAlbumBrowseID(browseID) {
+		if isMoodCategoryBrowseID(browseID) || isAlbumBrowseID(browseID) || isPodcastBrowseID(browseID) {
 			return page, err
 		}
 	}
@@ -279,6 +404,7 @@ func playlistBrowseID(playlistID string) string {
 		strings.HasPrefix(trimmed, "RD") ||
 		strings.HasPrefix(trimmed, "OLAK") ||
 		strings.HasPrefix(trimmed, "MPRE") ||
+		isPodcastBrowseID(trimmed) ||
 		strings.HasPrefix(trimmed, "UC") ||
 		isMoodCategoryBrowseID(trimmed) {
 		return trimmed
@@ -316,10 +442,15 @@ func (client *Client) browseTracksPage(ctx context.Context, browseID string, par
 	}
 	itemLimit := normalizeLimit(limit)
 	return TrackListPage{
-		Tracks:       tracksFromShelves(page.Shelves, itemLimit),
-		Continuation: page.Continuation,
-		Title:        page.Title,
-		Author:       page.Author,
+		Tracks:          tracksFromShelves(page.Shelves, itemLimit),
+		Continuation:    page.Continuation,
+		Title:           page.Title,
+		Author:          page.Author,
+		AuthorBrowseID:  page.AuthorBrowseID,
+		TrackCountLabel: page.TrackCountLabel,
+		DurationLabel:   page.DurationLabel,
+		Description:     page.Description,
+		ThumbnailURL:    page.ThumbnailURL,
 	}, nil
 }
 
@@ -342,17 +473,19 @@ func (client *Client) ArtistPage(ctx context.Context, browseID string, limit int
 		tracks = parseHomeRecommendationTracks(data, itemLimit)
 	}
 	return ArtistPage{
-		ID:            artistBrowseID,
-		Title:         firstNonEmpty(header.Title, browsePageTitle(data)),
-		Subtitle:      header.Subtitle,
-		ThumbnailURL:  header.ThumbnailURL,
-		ChannelID:     header.ChannelID,
-		IsSubscribed:  header.IsSubscribed,
-		MixPlaylistID: header.MixPlaylistID,
-		MixVideoID:    header.MixVideoID,
-		Tracks:        tracks,
-		Shelves:       shelves,
-		Continuation:  extractBrowseContinuationToken(data),
+		ID:               artistBrowseID,
+		Title:            firstNonEmpty(header.Title, browsePageTitle(data)),
+		Subtitle:         header.Subtitle,
+		Description:      header.Description,
+		ThumbnailURL:     header.ThumbnailURL,
+		HeroThumbnailURL: header.HeroThumbnailURL,
+		ChannelID:        header.ChannelID,
+		IsSubscribed:     header.IsSubscribed,
+		MixPlaylistID:    header.MixPlaylistID,
+		MixVideoID:       header.MixVideoID,
+		Tracks:           tracks,
+		Shelves:          shelves,
+		Continuation:     extractBrowseContinuationToken(data),
 	}, nil
 }
 
@@ -1219,10 +1352,44 @@ func trackFromHomeItem(item map[string]any) (Track, bool) {
 	if renderer := asMap(item["musicResponsiveListItemRenderer"]); renderer != nil {
 		return trackFromMusicResponsiveRenderer(renderer)
 	}
+	if renderer := asMap(item["musicMultiRowListItemRenderer"]); renderer != nil {
+		return trackFromMusicMultiRowRenderer(renderer)
+	}
 	if renderer := asMap(item["musicTwoRowItemRenderer"]); renderer != nil {
 		return trackFromHomeTwoRowRenderer(renderer)
 	}
 	return Track{}, false
+}
+
+// Podcast episode shelves use musicMultiRowListItemRenderer in some YouTube
+// Music responses. Keep their projection deliberately conservative: require a
+// valid playable video ID, then reuse only visible metadata that is stable
+// across renderer revisions.
+func trackFromMusicMultiRowRenderer(renderer map[string]any) (Track, bool) {
+	videoID := findFirstStringByKey(renderer, "videoId")
+	if !videoIDPattern.MatchString(videoID) {
+		return Track{}, false
+	}
+	title := firstUsefulText(runsText(asMap(renderer["title"])))
+	if title == "" {
+		title = firstUsefulText(collectTextRuns(renderer))
+	}
+	if title == "" {
+		title = videoID
+	}
+	subtitleRuns := runsText(asMap(renderer["subtitle"]))
+	channel := firstCreatorText(subtitleRuns)
+	allText := collectTextRuns(renderer)
+	return Track{
+		ID:             videoID,
+		VideoID:        videoID,
+		Title:          title,
+		Channel:        fallbackString(channel, "YouTube Music"),
+		DurationLabel:  firstDurationLabel(allText),
+		ThumbnailURL:   lastThumbnailURL(renderer),
+		MusicVideoType: positiveMusicVideoTypeFromRenderer(renderer),
+		RawDescription: firstUsefulText(runsText(asMap(renderer["description"]))),
+	}, true
 }
 
 func trackFromHomeTwoRowRenderer(renderer map[string]any) (Track, bool) {
@@ -1377,10 +1544,13 @@ func playlistFromResponsiveRenderer(renderer map[string]any) (Playlist, bool) {
 }
 
 type playlistHeaderData struct {
-	Title        string
-	Description  string
-	ThumbnailURL string
-	Author       string
+	Title           string
+	Description     string
+	ThumbnailURL    string
+	Author          string
+	AuthorBrowseID  string
+	TrackCountLabel string
+	DurationLabel   string
 }
 
 func playlistHeaderFromBrowseData(data map[string]any) playlistHeaderData {
@@ -1412,9 +1582,8 @@ func applyPlaylistDetailHeaderRenderer(headerDict map[string]any, header *playli
 	if thumbnailURL := lastThumbnailURL(renderer); thumbnailURL != "" {
 		header.ThumbnailURL = thumbnailURL
 	}
-	if runs := runsText(asMap(renderer["subtitle"])); len(runs) > 0 {
-		header.Author = firstCreatorText(runs)
-	}
+	applyPlaylistAuthorText(asMap(renderer["subtitle"]), header)
+	applyPlaylistStructuredMetadata(renderer, header)
 }
 
 func applyPlaylistImmersiveHeaderRenderer(headerDict map[string]any, header *playlistHeaderData) {
@@ -1431,11 +1600,8 @@ func applyPlaylistImmersiveHeaderRenderer(headerDict map[string]any, header *pla
 	if header.Description == "" {
 		header.Description = strings.Join(runsText(asMap(renderer["description"])), "")
 	}
-	if header.Author == "" {
-		if runs := runsText(asMap(renderer["subtitle"])); len(runs) > 0 {
-			header.Author = firstCreatorText(runs)
-		}
-	}
+	applyPlaylistAuthorText(asMap(renderer["subtitle"]), header)
+	applyPlaylistStructuredMetadata(renderer, header)
 }
 
 func applyPlaylistVisualHeaderRenderer(headerDict map[string]any, header *playlistHeaderData) {
@@ -1464,11 +1630,8 @@ func applyPlaylistEditableHeaderRenderer(headerDict map[string]any, header *play
 	if header.ThumbnailURL == "" {
 		header.ThumbnailURL = lastThumbnailURL(renderer)
 	}
-	if header.Author == "" {
-		if runs := runsText(asMap(renderer["subtitle"])); len(runs) > 0 {
-			header.Author = firstCreatorText(runs)
-		}
-	}
+	applyPlaylistAuthorText(asMap(renderer["subtitle"]), header)
+	applyPlaylistStructuredMetadata(renderer, header)
 }
 
 func extractPlaylistResponsiveHeaderRenderer(data map[string]any) map[string]any {
@@ -1519,11 +1682,46 @@ func applyPlaylistResponsiveHeaderRenderer(renderer map[string]any, header *play
 		descriptionShelf := asMap(asMap(renderer["description"])["musicDescriptionShelfRenderer"])
 		header.Description = strings.Join(runsText(asMap(descriptionShelf["description"])), "")
 	}
+	applyPlaylistAuthorText(asMap(renderer["straplineTextOne"]), header)
 	if header.Author == "" {
 		facepile := asMap(renderer["facepile"])
 		avatarStack := asMap(facepile["avatarStackViewModel"])
 		text := asMap(avatarStack["text"])
 		header.Author = firstCreatorText([]string{stringInMap(text, "content")})
+	}
+	applyPlaylistStructuredMetadata(renderer, header)
+}
+
+func applyPlaylistAuthorText(text map[string]any, header *playlistHeaderData) {
+	runs := textRunsWithNavigation(text)
+	_, _, _, artists := artistRunFromBylineRuns(runs)
+	if len(artists) > 0 {
+		if header.Author == "" {
+			header.Author = artists[0].Name
+		}
+		if header.AuthorBrowseID == "" {
+			header.AuthorBrowseID = artists[0].BrowseID
+		}
+		return
+	}
+	if header.Author == "" {
+		header.Author = firstCreatorText(textValuesFromRuns(runs))
+	}
+}
+
+func applyPlaylistStructuredMetadata(renderer map[string]any, header *playlistHeaderData) {
+	runs := textRunsWithNavigation(asMap(renderer["secondSubtitle"]))
+	if len(runs) >= 3 && isSeparatorText(runs[1].Text) {
+		if header.TrackCountLabel == "" {
+			header.TrackCountLabel = strings.TrimSpace(runs[0].Text)
+		}
+		if header.DurationLabel == "" {
+			header.DurationLabel = strings.TrimSpace(runs[2].Text)
+		}
+		return
+	}
+	if len(runs) == 1 && header.DurationLabel == "" {
+		header.DurationLabel = strings.TrimSpace(runs[0].Text)
 	}
 }
 
@@ -1570,16 +1768,22 @@ func isMoodCategoryBrowseID(browseID string) bool {
 }
 
 func isPlaylistBrowseID(browseID string) bool {
+	browseID = strings.TrimSpace(browseID)
 	switch {
 	case strings.HasPrefix(browseID, "VL"),
 		strings.HasPrefix(browseID, "PL"),
 		strings.HasPrefix(browseID, "RD"),
 		strings.HasPrefix(browseID, "OLAK"),
-		strings.HasPrefix(browseID, "MPRE"):
+		strings.HasPrefix(browseID, "MPRE"),
+		isPodcastBrowseID(browseID):
 		return true
 	default:
 		return false
 	}
+}
+
+func isPodcastBrowseID(browseID string) bool {
+	return strings.HasPrefix(strings.TrimSpace(browseID), "MPSP")
 }
 
 func isAlbumBrowseID(browseID string) bool {
@@ -1643,7 +1847,19 @@ func buildShelfID(title string, kind ShelfKind, firstItemID string) string {
 }
 
 func headerTitle(header map[string]any) string {
-	return firstUsefulText(collectTextRuns(header))
+	if header == nil {
+		return ""
+	}
+	// Shelf headers also contain action buttons such as "More" and "Play all".
+	// Walking the whole renderer makes the selected text depend on Go's map
+	// iteration order, so the action label can accidentally become the shelf
+	// title. Prefer the renderer's explicit title field and keep the recursive
+	// scan only as a compatibility fallback for older response shapes.
+	return firstNonEmpty(
+		firstUsefulText(runsText(asMap(header["title"]))),
+		firstUsefulText(runsText(asMap(header["text"]))),
+		firstUsefulText(collectTextRuns(header)),
+	)
 }
 
 func browsePageTitle(data map[string]any) string {
@@ -1653,13 +1869,15 @@ func browsePageTitle(data map[string]any) string {
 }
 
 type artistHeader struct {
-	Title         string
-	Subtitle      string
-	ThumbnailURL  string
-	ChannelID     string
-	IsSubscribed  bool
-	MixPlaylistID string
-	MixVideoID    string
+	Title            string
+	Subtitle         string
+	Description      string
+	ThumbnailURL     string
+	HeroThumbnailURL string
+	ChannelID        string
+	IsSubscribed     bool
+	MixPlaylistID    string
+	MixVideoID       string
 }
 
 func artistHeaderFromBrowseData(data map[string]any, browseID string) artistHeader {
@@ -1683,8 +1901,14 @@ func artistHeaderFromBrowseData(data map[string]any, browseID string) artistHead
 		if result.Subtitle == "" {
 			result.Subtitle = artistSubtitleFromHeader(renderer)
 		}
+		if result.Description == "" {
+			result.Description = artistDescriptionFromHeader(renderer)
+		}
 		if result.ThumbnailURL == "" {
-			result.ThumbnailURL = lastThumbnailURL(renderer)
+			result.ThumbnailURL = artistPortraitThumbnailURL(renderer)
+		}
+		if result.HeroThumbnailURL == "" {
+			result.HeroThumbnailURL = artistHeroThumbnailURL(renderer)
 		}
 		if channelID, subscribed := artistSubscriptionFromHeader(renderer); channelID != "" || subscribed {
 			if channelID != "" {
@@ -1699,7 +1923,53 @@ func artistHeaderFromBrowseData(data map[string]any, browseID string) artistHead
 	if result.Subtitle == "" {
 		result.Subtitle = firstArtistInfoText(collectTextRuns(root))
 	}
+	if result.HeroThumbnailURL == "" {
+		result.HeroThumbnailURL = result.ThumbnailURL
+	}
+	if result.ThumbnailURL == "" {
+		result.ThumbnailURL = result.HeroThumbnailURL
+	}
 	return result
+}
+
+func artistDescriptionFromHeader(renderer map[string]any) string {
+	for _, key := range []string{"description", "descriptionText", "biography"} {
+		candidate := asMap(renderer[key])
+		if candidate == nil {
+			continue
+		}
+		if description := strings.TrimSpace(strings.Join(runsText(candidate), "")); description != "" {
+			return description
+		}
+		for _, rendererKey := range []string{"musicDescriptionShelfRenderer", "descriptionShelfRenderer"} {
+			descriptionRenderer := asMap(candidate[rendererKey])
+			if descriptionRenderer == nil {
+				continue
+			}
+			if description := strings.TrimSpace(strings.Join(runsText(asMap(descriptionRenderer["description"])), "")); description != "" {
+				return description
+			}
+		}
+	}
+	return ""
+}
+
+func artistPortraitThumbnailURL(renderer map[string]any) string {
+	for _, key := range []string{"foregroundThumbnail", "avatar", "thumbnail"} {
+		if thumbnailURL := lastThumbnailURL(renderer[key]); thumbnailURL != "" {
+			return thumbnailURL
+		}
+	}
+	return lastThumbnailURL(renderer)
+}
+
+func artistHeroThumbnailURL(renderer map[string]any) string {
+	for _, key := range []string{"thumbnail", "backgroundThumbnail", "backgroundImage", "heroImage"} {
+		if thumbnailURL := lastThumbnailURL(renderer[key]); thumbnailURL != "" {
+			return thumbnailURL
+		}
+	}
+	return artistPortraitThumbnailURL(renderer)
 }
 
 func artistChannelIDFromBrowseID(browseID string) string {
@@ -1724,11 +1994,16 @@ func firstArtistTitleText(values []string) string {
 func artistSubtitleFromHeader(renderer map[string]any) string {
 	for _, key := range []string{
 		"monthlyListenerCount",
-		"subtitle",
-		"secondSubtitle",
 		"subscriberCountText",
 		"shortSubscriberCountText",
 	} {
+		// These fields have explicit count semantics, so their localized value is
+		// useful even when it does not contain one of our English/Chinese hints.
+		if subtitle := firstUsefulText(collectTextRuns(renderer[key])); subtitle != "" {
+			return subtitle
+		}
+	}
+	for _, key := range []string{"subtitle", "secondSubtitle"} {
 		if subtitle := firstArtistInfoText(collectTextRuns(renderer[key])); subtitle != "" {
 			return subtitle
 		}

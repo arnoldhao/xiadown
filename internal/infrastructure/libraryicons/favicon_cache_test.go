@@ -1,6 +1,20 @@
 package libraryicons
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"testing"
+)
+
+type faviconRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn faviconRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
 
 func TestFaviconCacheBoundsMemoryAndMissingEntries(t *testing.T) {
 	cache := NewFaviconCache()
@@ -33,5 +47,56 @@ func TestFaviconCacheBoundsMemoryAndMissingEntries(t *testing.T) {
 	}
 	if _, ok := cache.missing["miss-c.example"]; !ok {
 		t.Fatalf("expected newest missing entry to be retained")
+	}
+}
+
+func TestFaviconCacheRejectsOversizedRemoteBodies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		contentLength int64
+		body          []byte
+	}{
+		{name: "declared", contentLength: maxFaviconBytes + 1, body: []byte("ignored")},
+		{name: "streamed", contentLength: -1, body: bytes.Repeat([]byte{'x'}, int(maxFaviconBytes)+1)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			cache := NewFaviconCache()
+			cache.baseDir = ""
+			cache.httpClient = &http.Client{Transport: faviconRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode:    http.StatusOK,
+					Body:          io.NopCloser(bytes.NewReader(test.body)),
+					ContentLength: test.contentLength,
+					Header:        make(http.Header),
+				}, nil
+			})}
+
+			_, err := cache.ResolveDomainIcon(context.Background(), "example.com")
+			if err == nil || !strings.Contains(err.Error(), "exceeds") {
+				t.Fatalf("expected oversized favicon rejection, got %v", err)
+			}
+		})
+	}
+}
+
+func TestFaviconCacheRejectsOversizedDiskEntry(t *testing.T) {
+	t.Parallel()
+
+	cache := NewFaviconCache()
+	cache.baseDir = t.TempDir()
+	if err := os.WriteFile(
+		cache.iconPath("example.com"),
+		bytes.Repeat([]byte{'x'}, int(maxFaviconBytes)+1),
+		0o600,
+	); err != nil {
+		t.Fatalf("write oversized cache entry: %v", err)
+	}
+
+	if icon, ok := cache.ResolveDomainIconCached(context.Background(), "example.com"); ok || icon != "" {
+		t.Fatalf("expected oversized disk cache entry to be ignored, got ok=%v icon length=%d", ok, len(icon))
 	}
 }

@@ -1,240 +1,25 @@
 import {
-CassetteTape,
-Loader2,
-Pause,
-Play,
-Radar,
-SkipBack,
-SkipForward,
-X
+  Loader2,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  X,
 } from "lucide-react";
 import * as React from "react";
 
-import {
-type ListenNowPlayingStatus
-} from "@/app/main/Listen";
-import {
-getXiaText
-} from "@/features/xiadown/shared";
+import type { ListenNowPlayingStatus } from "@/app/main/Listen";
+import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
 import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
-import type { CDPBrowserStatus } from "@/shared/contracts/library";
-import { Button } from "@/shared/ui/button";
-import { Tooltip,TooltipContent,TooltipTrigger } from "@/shared/ui/tooltip";
-import {
-LISTEN_MINI_PRIMARY_CONTROL_CLASS,
-LISTEN_MINI_SIDE_CONTROL_CLASS,
-LISTEN_NOW_PLAYING_PANEL_CLASS,
-} from "@/shared/styles/listen";
-import {
-MAIN_SIDEBAR_ACTION_CLASS,
-resolveXiaMainSidebarSurface,
-} from "@/shared/styles/xiadown";
+import { ListenCoverArtwork } from "@/shared/assets/listen-cover-artwork";
+import { resolveXiaMainSidebarSurface } from "@/shared/styles/xiadown";
 
 type ListenNowPlayingControlCommand = "previous" | "toggle" | "next";
 type ListenMiniPanelVariant = "hush" | "timeline";
 export type ListenNowPlayingPanelSurface = "white" | "dark" | "tray";
 
 export const resolveSidebarSurface = resolveXiaMainSidebarSurface;
-
-function formatTemplate(template: string, params: Record<string, string>) {
-  return Object.entries(params).reduce(
-    (output, [key, value]) => output.split(`{${key}}`).join(value),
-    template,
-  );
-}
-
-function normalizeStatus(value?: string) {
-  return (value ?? "").trim().toLowerCase();
-}
-
-function resolveCDPBrowserStatusLabel(
-  text: ReturnType<typeof getXiaText>,
-  status?: string,
-) {
-  switch (normalizeStatus(status)) {
-    case "open":
-      return text.sniffDesk.statusOpen;
-    case "closing":
-      return text.sniffDesk.statusClosing;
-    case "tab_closed":
-      return text.sniffDesk.statusTabClosed;
-    case "browser_closed":
-      return text.sniffDesk.statusClosed;
-    default:
-      return text.common.unknown;
-  }
-}
-
-export type SidebarIconButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  label: string;
-  active?: boolean;
-  children: React.ReactNode;
-};
-
-export const SidebarIconButton = React.forwardRef<
-  HTMLButtonElement,
-  SidebarIconButtonProps
->(function SidebarIconButton(
-  {
-    label,
-    active,
-    className,
-    children,
-    "aria-current": ariaCurrent,
-    "aria-label": ariaLabel,
-    ...props
-  },
-  ref,
-) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          ref={ref}
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "app-main-sidebar-action",
-            MAIN_SIDEBAR_ACTION_CLASS,
-            "relative border border-transparent bg-transparent text-sidebar-foreground/72 transition [&_svg]:!h-[var(--app-main-sidebar-icon-size)] [&_svg]:!w-[var(--app-main-sidebar-icon-size)]",
-            active
-              ? "bg-sidebar-accent text-sidebar-primary shadow-sm"
-              : "hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground",
-            className,
-          )}
-          data-active={active ? "true" : undefined}
-          aria-current={ariaCurrent ?? (active ? "page" : undefined)}
-          aria-label={ariaLabel ?? label}
-          {...props}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
-    </Tooltip>
-  );
-});
-
-export function CDPBrowserStatusMiniButton(props: {
-  status: CDPBrowserStatus | null | undefined;
-  text: ReturnType<typeof getXiaText>;
-  active?: boolean;
-  stopping?: boolean;
-  onOpenSniffDesk: () => void;
-  onCloseOrphan: (runtimeId: string) => void;
-}) {
-  const status = props.status;
-  if (!status?.active) {
-    return null;
-  }
-  const isOrphan = status.mode === "orphan";
-  const label = isOrphan
-    ? props.text.sniffDesk.cdpOrphan
-    : props.text.sniffDesk.cdpStatus;
-  const actionLabel = isOrphan
-    ? props.text.sniffDesk.cdpClose
-    : props.text.sniffDesk.title;
-  const title =
-    status.title ||
-    status.session?.title ||
-    status.session?.unoptimizedDomain ||
-    label;
-  const currentURL =
-    status.currentUrl || status.session?.currentUrl || status.session?.url || "";
-  const tabText =
-    typeof status.tabCount === "number" && status.tabCount > 0
-      ? formatTemplate(props.text.sniffDesk.tabCount, {
-          count: String(status.tabCount),
-        })
-      : "";
-  const processText =
-    typeof status.processCount === "number" && status.processCount > 0
-      ? formatTemplate(props.text.sniffDesk.cdpProcessCount, {
-          count: String(status.processCount),
-        })
-      : "";
-  const pidText =
-    typeof status.pid === "number" && status.pid > 0
-      ? formatTemplate(props.text.sniffDesk.cdpPid, {
-          pid: String(status.pid),
-        })
-      : "";
-  const browserStatusText = resolveCDPBrowserStatusLabel(
-    props.text,
-    status.browserStatus,
-  );
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "app-cdp-status-button app-main-sidebar-action",
-            MAIN_SIDEBAR_ACTION_CLASS,
-            "relative border border-transparent bg-transparent text-sidebar-foreground/72 transition",
-            props.active
-              ? "bg-sidebar-accent text-sidebar-primary shadow-sm"
-              : "hover:bg-sidebar-accent/75 hover:text-sidebar-accent-foreground",
-            isOrphan && "app-cdp-status-button-orphan",
-          )}
-          data-active={props.active ? "true" : undefined}
-          data-mode={isOrphan ? "orphan" : "resource-sniff"}
-          aria-label={label}
-          disabled={props.stopping}
-          onClick={() => {
-            if (isOrphan && status.runtimeId) {
-              props.onCloseOrphan(status.runtimeId);
-              return;
-            }
-            props.onOpenSniffDesk();
-          }}
-        >
-          {props.stopping ? (
-            <Loader2 className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)] animate-spin" />
-          ) : isOrphan ? (
-            <X className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)]" />
-          ) : (
-            <Radar className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)]" />
-          )}
-          <span className="app-cdp-status-dot pointer-events-none absolute right-2.5 top-2.5 z-[2] h-2 w-2 rounded-full" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent
-        side="right"
-        multiline
-        className="app-cdp-status-tooltip min-w-[15rem] max-w-[22rem] px-3 py-2 text-left"
-      >
-        <div className="space-y-1.5">
-          <div className="flex min-w-0 items-center justify-between gap-3 text-[11px] font-semibold text-background">
-            <span className="min-w-0 truncate">{label}</span>
-            <span className="min-w-0 max-w-[10rem] truncate text-[10px] text-background/78">
-              {actionLabel}
-            </span>
-          </div>
-          <div className="truncate text-[11px] font-medium text-background/86">
-            {title}
-          </div>
-          {currentURL ? (
-            <div className="line-clamp-2 break-all text-[10px] font-medium text-background/72">
-              {currentURL}
-            </div>
-          ) : null}
-          <div className="flex flex-wrap gap-1.5 text-[10px] text-background/70">
-            <span>{browserStatusText}</span>
-            {tabText ? <span>{tabText}</span> : null}
-            {processText ? <span>{processText}</span> : null}
-            {pidText ? <span>{pidText}</span> : null}
-          </div>
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  );
-}
 
 export function listenStatusLabel(
   status: ListenNowPlayingStatus | null,
@@ -282,7 +67,7 @@ function resolveListenProgress(status: ListenNowPlayingStatus) {
 function resolveListenMiniPanelVariant(
   status: ListenNowPlayingStatus | null,
 ): ListenMiniPanelVariant {
-  return status?.mode === "hush" ? "hush" : "timeline";
+  return status?.live === true || status?.mode === "hush" ? "hush" : "timeline";
 }
 
 function renderListenMiniControlIcon(
@@ -290,15 +75,15 @@ function renderListenMiniControlIcon(
   isPlaying: boolean,
 ) {
   if (state === "loading") {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
+    return <Loader2 className="app-motion-spin h-3.5 w-3.5" />;
   }
   if (state === "error") {
     return <X className="h-3.5 w-3.5" />;
   }
   if (isPlaying) {
-    return <Pause className="h-3.5 w-3.5 fill-current" />;
+    return <Pause className="listen-mini-control-icon h-3.5 w-3.5" data-filled="true" />;
   }
-  return <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />;
+  return <Play className="listen-mini-control-icon ml-0.5 h-3.5 w-3.5" data-filled="true" />;
 }
 
 function ListenMiniScrollingText(props: {
@@ -346,7 +131,6 @@ function ListenMiniScrollingText(props: {
       ref={containerRef}
       className={cn(
         "listen-mini-marquee relative block max-w-full min-w-0 overflow-hidden whitespace-nowrap",
-        scrolling ? "text-left" : "text-center",
         props.className,
       )}
       data-overflow={scrolling ? "true" : "false"}
@@ -388,10 +172,10 @@ function ListenNowPlayingPanelArtwork(props: {
 }) {
   if (!props.status || props.status.state === "idle") {
     return (
-      <img
-        src={LISTEN_DEFAULT_COVER_IMAGE_URL}
+      <ListenCoverArtwork
         alt=""
-        className="h-full w-full object-cover"
+        candidates={[LISTEN_DEFAULT_COVER_IMAGE_URL]}
+        className="h-full w-full"
         loading="lazy"
       />
     );
@@ -413,6 +197,8 @@ function ListenNowPlayingPanelTransport(props: {
       state !== "idle" &&
       state !== "loading",
   );
+  const canPrevious = canControl && props.status?.canPrevious !== false;
+  const canNext = canControl && props.status?.canNext !== false;
   const isPlaying = state === "playing";
   const playLabel = isPlaying ? props.text.listen.pause : props.text.listen.play;
   const primaryLabel =
@@ -424,13 +210,10 @@ function ListenNowPlayingPanelTransport(props: {
 
   if (variant === "hush") {
     return (
-      <div
-        className="listen-mini-transport flex h-9 items-center justify-center gap-1.5"
-        data-variant="hush"
-      >
+      <div className="listen-mini-transport" data-variant="hush">
         <button
           type="button"
-          className={LISTEN_MINI_PRIMARY_CONTROL_CLASS}
+          className="listen-mini-primary-control"
           aria-label={primaryLabel}
           disabled={!canControl}
           onClick={() => props.onControlCommand?.("toggle")}
@@ -442,22 +225,19 @@ function ListenNowPlayingPanelTransport(props: {
   }
 
   return (
-    <div
-      className="listen-mini-transport flex h-9 items-center justify-center gap-1.5"
-      data-variant="timeline"
-    >
+    <div className="listen-mini-transport" data-variant="timeline">
       <button
         type="button"
-        className={LISTEN_MINI_SIDE_CONTROL_CLASS}
+        className="listen-mini-side-control"
         aria-label={props.text.listen.previous}
-        disabled={!canControl}
+        disabled={!canPrevious}
         onClick={() => props.onControlCommand?.("previous")}
       >
         <SkipBack className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
-        className={LISTEN_MINI_PRIMARY_CONTROL_CLASS}
+        className="listen-mini-primary-control"
         aria-label={primaryLabel}
         disabled={!canControl}
         onClick={() => props.onControlCommand?.("toggle")}
@@ -466,9 +246,9 @@ function ListenNowPlayingPanelTransport(props: {
       </button>
       <button
         type="button"
-        className={LISTEN_MINI_SIDE_CONTROL_CLASS}
+        className="listen-mini-side-control"
         aria-label={props.text.listen.next}
-        disabled={!canControl}
+        disabled={!canNext}
         onClick={() => props.onControlCommand?.("next")}
       >
         <SkipForward className="h-3.5 w-3.5" />
@@ -485,24 +265,21 @@ function ListenNowPlayingPanelProgress(props: {
   if (variant === "hush") {
     const state = props.status?.state ?? "idle";
     return (
-      <div
-        className="listen-mini-progress-row flex h-[18px] items-center"
-        data-variant="hush"
-      >
+      <div className="listen-mini-progress-row" data-variant="hush">
         <div
-          className="listen-mini-live-progress relative flex h-3.5 w-full items-center overflow-hidden rounded-full"
+          className="listen-mini-live-progress"
           data-state={state}
           role="status"
-          aria-label={listenStatusLabel(props.status, props.text)}
+          aria-label={`LIVE · ${listenStatusLabel(props.status, props.text)}`}
         >
+          <span aria-hidden="true" className="listen-mini-live-line" />
           <span
             aria-hidden="true"
-            className="listen-mini-live-line relative min-w-0 flex-1 rounded-full"
-          />
-          <span
-            aria-hidden="true"
-            className="listen-mini-live-dot absolute right-0 top-1/2 rounded-full"
-          />
+            className="listen-mini-live-label"
+          >
+            LIVE
+          </span>
+          <span aria-hidden="true" className="listen-mini-live-dot" />
         </div>
       </div>
     );
@@ -514,12 +291,9 @@ function ListenNowPlayingPanelProgress(props: {
       : null;
 
   return (
-    <div
-      className="listen-mini-progress-row flex h-[18px] items-center"
-      data-variant="timeline"
-    >
+    <div className="listen-mini-progress-row" data-variant="timeline">
       <div
-        className="listen-mini-progress-track relative h-1 w-full overflow-hidden rounded-full bg-[hsl(var(--tray-control-foreground)/0.16)]"
+        className="listen-mini-progress-track"
         data-state={
           progress
             ? "ready"
@@ -536,67 +310,29 @@ function ListenNowPlayingPanelProgress(props: {
           <>
             <span
               aria-hidden="true"
-              className="listen-mini-progress-buffer absolute inset-y-0 left-0 rounded-full bg-[hsl(var(--tray-control-foreground)/0.22)] transition-[width] duration-300"
+              className="listen-mini-progress-buffer"
               style={{ width: `${progress.bufferedPercent}%` }}
             />
             <span
               aria-hidden="true"
-              className="listen-mini-progress-value absolute inset-y-0 left-0 rounded-full bg-sidebar-primary transition-[width] duration-150"
+              className="listen-mini-progress-value"
               style={{ width: `${progress.progressPercent}%` }}
             />
           </>
         ) : props.status?.state === "loading" ? (
-          <span
-            aria-hidden="true"
-            className="listen-mini-progress-loading absolute inset-y-0 left-0 w-1/3 animate-pulse rounded-full bg-sidebar-primary/45"
-          />
+          <span aria-hidden="true" className="listen-mini-progress-loading" />
         ) : null}
       </div>
     </div>
   );
 }
 
-export function ListenSidebarSourceBadge(props: {
-  status: ListenNowPlayingStatus | null;
-}) {
-  switch (props.status?.state) {
-    case "loading":
-      return (
-        <span className="pointer-events-none absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-sidebar-background bg-sidebar-background/92 text-sidebar-foreground shadow-sm backdrop-blur-sm">
-          <span className="h-2 w-2 animate-spin rounded-full border border-sidebar-foreground/30 border-t-sidebar-foreground/75" />
-        </span>
-      );
-    case "playing":
-      return (
-        <span className="pointer-events-none absolute right-1 top-1 flex h-3.5 w-3.5 items-end justify-center gap-[1px] rounded-full border border-sidebar-background bg-primary/18 px-0.5 pb-0.5 shadow-sm backdrop-blur-sm">
-          <span className="h-1 w-0.5 animate-pulse rounded-full bg-primary" />
-          <span className="h-2 w-0.5 animate-pulse rounded-full bg-primary [animation-delay:120ms]" />
-          <span className="h-1.5 w-0.5 animate-pulse rounded-full bg-primary [animation-delay:240ms]" />
-        </span>
-      );
-    case "paused":
-      return (
-        <span className="pointer-events-none absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center gap-[2px] rounded-full border border-sidebar-background bg-sidebar-background/92 shadow-sm backdrop-blur-sm">
-          <span className="h-2 w-[2px] rounded-full bg-sidebar-foreground/75" />
-          <span className="h-2 w-[2px] rounded-full bg-sidebar-foreground/75" />
-        </span>
-      );
-    case "error":
-      return (
-        <span className="pointer-events-none absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-sidebar-background bg-destructive/18 shadow-sm backdrop-blur-sm">
-          <span className="absolute h-2 w-[2px] rotate-45 rounded-full bg-destructive" />
-          <span className="absolute h-2 w-[2px] -rotate-45 rounded-full bg-destructive" />
-        </span>
-      );
-    default:
-      return null;
-  }
-}
-
 export function ListenNowPlayingHoverPanel(props: {
   status: ListenNowPlayingStatus | null;
   text: ReturnType<typeof getXiaText>;
   className?: string;
+  /** The surrounding disclosure owns the one and only glass material. */
+  embedded?: boolean;
   surface?: ListenNowPlayingPanelSurface;
   onControlCommand?: (command: ListenNowPlayingControlCommand) => void;
 }) {
@@ -606,57 +342,36 @@ export function ListenNowPlayingHoverPanel(props: {
   return (
     <div
       className={cn(
-        LISTEN_NOW_PLAYING_PANEL_CLASS,
+        "listen-now-playing-panel",
         props.className,
       )}
+      data-embedded={props.embedded ? "true" : undefined}
       data-surface={surface}
       aria-label={`${props.text.listen.nowPlaying}: ${text.title}`}
     >
-      <div className="listen-panel-layout relative grid h-full min-w-0 grid-cols-2 overflow-hidden rounded-[21px]">
+      <div className="listen-panel-layout relative grid h-full min-w-0 grid-cols-2 overflow-hidden">
         <div className="relative min-w-0 overflow-visible">
-          <div className="listen-panel-artwork-glow absolute inset-y-[-26px] left-[-30px] w-[calc(100%+118px)] opacity-72 blur-[38px] saturate-[1.55] contrast-[1.12] [mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)] [-webkit-mask-image:linear-gradient(90deg,#000_0%,rgba(0,0,0,0.82)_42%,rgba(0,0,0,0.32)_72%,transparent_100%)]">
+          <div className="listen-panel-artwork-glow">
             <ListenNowPlayingPanelArtwork status={props.status} />
           </div>
-          <div className="listen-panel-artwork-main absolute inset-y-0 left-0 z-[1] w-[calc(100%+42px)] overflow-hidden [mask-image:linear-gradient(90deg,#000_0%,#000_64%,rgba(0,0,0,0.72)_84%,transparent_100%)] [-webkit-mask-image:linear-gradient(90deg,#000_0%,#000_64%,rgba(0,0,0,0.72)_84%,transparent_100%)]">
+          <div className="listen-panel-artwork-main">
             <ListenNowPlayingPanelArtwork status={props.status} />
           </div>
         </div>
-        <div
-          aria-hidden="true"
-          className="listen-panel-color-wash pointer-events-none absolute inset-0 z-10"
-        />
-        <div
-          aria-hidden="true"
-          className="listen-panel-blur-veil pointer-events-none absolute inset-y-0 left-[44%] z-10 w-[30%]"
-        />
-        <div
-          aria-hidden="true"
-          className="listen-panel-bottom-vignette pointer-events-none absolute bottom-0 right-0 z-10 h-[58%] w-[74%] [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.18)_20%,#000_48%,#000_100%)] [-webkit-mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.18)_20%,#000_48%,#000_100%)]"
-        />
-        <div
-          aria-hidden="true"
-          className="listen-panel-grain pointer-events-none absolute inset-0 z-10 opacity-[0.12] mix-blend-overlay [mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.35)_28%,#000_54%,#000_100%)] [-webkit-mask-image:linear-gradient(90deg,transparent_0%,rgba(0,0,0,0.35)_28%,#000_54%,#000_100%)]"
-          style={{
-            backgroundImage: [
-              "repeating-radial-gradient(circle at 0 0,rgba(255,255,255,0.2)_0_0.55px,transparent_0.8px_3.8px)",
-              "repeating-radial-gradient(circle at 1px 1px,rgba(0,0,0,0.14)_0_0.45px,transparent_0.7px_5.6px)",
-            ].join(","),
-            backgroundSize: "7px 7px, 11px 11px",
-          }}
-        />
-        <div
-          aria-hidden="true"
-          className="listen-panel-ring pointer-events-none absolute inset-0 z-30 rounded-[21px]"
-        />
+        <div aria-hidden="true" className="listen-panel-color-wash" />
+        <div aria-hidden="true" className="listen-panel-blur-veil" />
+        <div aria-hidden="true" className="listen-panel-bottom-vignette" />
+        <div aria-hidden="true" className="listen-panel-grain" />
+        <div aria-hidden="true" className="listen-panel-ring" />
         <div className="relative z-20 col-start-2 flex h-full min-w-0 flex-col px-2.5 py-2.5">
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
+          <div className="listen-panel-body flex min-h-0 flex-1 flex-col items-center justify-center">
             <ListenMiniScrollingText
               text={text.title}
-              className="text-[13px] font-semibold leading-5"
+              className="listen-panel-title"
             />
             <ListenMiniScrollingText
               text={text.subtitle}
-              className="mt-0.5 text-[11px] font-medium leading-4 text-[hsl(var(--tray-control-foreground)/0.72)]"
+              className="listen-panel-subtitle"
             />
           </div>
           <ListenNowPlayingPanelTransport
@@ -674,121 +389,39 @@ export function ListenNowPlayingHoverPanel(props: {
   );
 }
 
-export function ListenSidebarArtwork(props: { status: ListenNowPlayingStatus }) {
-  const [failedURL, setFailedURL] = React.useState("");
-  const source =
-    props.status.artworkURL && props.status.artworkURL !== failedURL
-      ? props.status.artworkURL
-      : LISTEN_DEFAULT_COVER_IMAGE_URL;
-
-  React.useEffect(() => {
-    setFailedURL("");
-  }, [props.status.artworkURL]);
-
-  return (
-    <img
-      src={source}
-      alt=""
-      className="h-full w-full object-cover"
-      loading="lazy"
-      onError={() => setFailedURL(source)}
-    />
-  );
+export function resolveListenArtworkCandidates(
+  status: ListenNowPlayingStatus,
+) {
+  const seen = new Set<string>();
+  const sources = [status.artworkURL, ...(status.artworkCandidates ?? [])];
+  const candidates: string[] = [];
+  for (const value of sources) {
+    const candidate = String(value || "").trim();
+    if (
+      !candidate ||
+      candidate === LISTEN_DEFAULT_COVER_IMAGE_URL ||
+      seen.has(candidate)
+    ) {
+      continue;
+    }
+    seen.add(candidate);
+    candidates.push(candidate);
+  }
+  candidates.push(LISTEN_DEFAULT_COVER_IMAGE_URL);
+  return candidates;
 }
 
-export function ListenNowPlayingMiniPlayer(props: {
-  status: ListenNowPlayingStatus | null;
-  text: ReturnType<typeof getXiaText>;
-  active?: boolean;
-  surface?: Exclude<ListenNowPlayingPanelSurface, "tray">;
-  onOpen: () => void;
-  onToggle: () => void;
-  onControlCommand?: (command: ListenNowPlayingControlCommand) => void;
+export function ListenSidebarArtwork(props: {
+  status: ListenNowPlayingStatus;
+  className?: string;
 }) {
-  if (!props.status || props.status.state === "idle") {
-    return (
-      <SidebarIconButton
-        label={props.text.views.listen}
-        active={props.active}
-        onClick={props.onOpen}
-        className="listen-sidebar-entry listen-sidebar-entry-idle"
-      >
-        <CassetteTape className="h-[var(--app-main-sidebar-icon-size)] w-[var(--app-main-sidebar-icon-size)]" />
-      </SidebarIconButton>
-    );
-  }
-  const statusLabel = listenStatusLabel(props.status, props.text);
-  const canToggle = Boolean(
-    props.status?.canControl && props.status.state !== "loading",
-  );
-  const isPlaying = props.status?.state === "playing";
-  const toggleLabel =
-    props.status.state === "loading"
-      ? props.text.listen.loading
-      : props.status.state === "error"
-        ? props.text.listen.errorStatus
-        : isPlaying
-          ? props.text.listen.pause
-          : props.text.listen.play;
-
+  const candidates = resolveListenArtworkCandidates(props.status);
   return (
-    <div
-      className={cn(
-        "wails-no-drag group/listen-mini listen-sidebar-entry listen-mini-player relative flex w-[var(--app-main-sidebar-action-size)] flex-col items-center gap-1.5 rounded-2xl border border-sidebar-border/70 bg-sidebar-accent/45 p-1.5 shadow-sm backdrop-blur-xl",
-        props.active && "bg-sidebar-accent text-sidebar-primary",
-      )}
-      data-active={props.active ? "true" : undefined}
-    >
-      <button
-        type="button"
-        className="listen-mini-artwork-button relative h-10 w-10 overflow-hidden rounded-xl bg-background/80 text-sidebar-foreground outline-none ring-1 ring-sidebar-border/70 transition hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-sidebar-ring/45"
-        aria-label={`${props.text.listen.nowPlaying}: ${props.status.title}`}
-        onClick={props.onOpen}
-      >
-        <ListenSidebarArtwork status={props.status} />
-        <span className="listen-mini-artwork-overlay absolute inset-0 bg-gradient-to-t from-black/40 via-black/8 to-transparent" />
-        {props.status.state === "playing" ? (
-          <span className="absolute inset-x-1 bottom-1 flex items-end justify-center gap-[2px] rounded-full bg-black/24 px-1 py-0.5 backdrop-blur-sm">
-            <span className="h-1.5 w-0.5 animate-pulse rounded-full bg-white" />
-            <span className="h-2.5 w-0.5 animate-pulse rounded-full bg-white [animation-delay:120ms]" />
-            <span className="h-2 w-0.5 animate-pulse rounded-full bg-white [animation-delay:240ms]" />
-          </span>
-        ) : null}
-      </button>
-
-      <div className="listen-mini-hover-panel-wrap absolute left-full top-1/2 z-50 -translate-y-1/2 pl-3">
-        <div className="pointer-events-auto">
-          <ListenNowPlayingHoverPanel
-            status={props.status}
-            text={props.text}
-            surface={props.surface}
-            onControlCommand={props.onControlCommand}
-          />
-        </div>
-      </div>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className="listen-mini-toggle-button flex h-7 w-7 items-center justify-center rounded-full border border-sidebar-border/70 bg-sidebar-background/90 text-sidebar-foreground shadow-sm transition hover:bg-sidebar-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-55"
-            aria-label={toggleLabel}
-            disabled={!canToggle}
-            onClick={props.onToggle}
-          >
-            {props.status.state === "loading" ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : isPlaying ? (
-              <Pause className="h-3.5 w-3.5" />
-            ) : props.status.state === "error" ? (
-              <X className="h-3.5 w-3.5" />
-            ) : (
-              <Play className="h-3.5 w-3.5 translate-x-px" />
-            )}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="right">{statusLabel}</TooltipContent>
-      </Tooltip>
-    </div>
+    <ListenCoverArtwork
+      alt=""
+      candidates={candidates}
+      className={cn("h-full w-full", props.className)}
+      loading="lazy"
+    />
   );
 }

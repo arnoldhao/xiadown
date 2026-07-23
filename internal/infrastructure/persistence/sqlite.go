@@ -3,24 +3,63 @@ package persistence
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
-	_ "github.com/ncruces/go-sqlite3/driver"
+	sqlite3 "github.com/ncruces/go-sqlite3"
+	sqlite3driver "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/extra/bundebug"
+	"go.uber.org/zap"
 )
 
 type SQLiteConfig struct {
 	Path string
+	// SkipPreMigrationSnapshot is reserved for disposable database copies whose
+	// authoritative source is already retained elsewhere. Live XiaDown databases
+	// must leave this false so every schema upgrade has a rollback snapshot.
+	SkipPreMigrationSnapshot bool
 }
 
 type Database struct {
-	SQL *sql.DB
-	Bun *bun.DB
+	SQL                   *sql.DB
+	Bun                   *bun.DB
+	MigrationSnapshotPath string
+	maintenanceCancel     context.CancelFunc
+	maintenanceDone       <-chan struct{}
+	closeOnce             sync.Once
+	closeErr              error
+}
+
+const (
+	sqliteFullIntegrityCheckInterval = 7 * 24 * time.Hour
+	sqliteFullIntegrityCheckDelay    = 30 * time.Second
+	sqliteFullIntegrityCheckTimeout  = 30 * time.Minute
+)
+
+var scheduledSQLiteFullIntegrityChecks sync.Map
+
+const (
+	SQLiteIntegrityStatePending     = "pending"
+	SQLiteIntegrityStateHealthy     = "healthy"
+	SQLiteIntegrityStateFailed      = "failed"
+	SQLiteIntegrityStateUnavailable = "unavailable"
+)
+
+// SQLiteIntegrityStatus is the lightweight, local-only health state exposed to
+// Library maintenance. Detail never contains database contents; it is limited
+// to the integrity checker result saved in the private sidecar.
+type SQLiteIntegrityStatus struct {
+	State     string
+	CheckedAt string
+	Detail    string
 }
 
 const (
@@ -32,24 +71,60 @@ func (db *Database) Close() error {
 	if db == nil || db.SQL == nil {
 		return nil
 	}
-	return db.SQL.Close()
+	db.closeOnce.Do(func() {
+		if db.maintenanceCancel != nil {
+			db.maintenanceCancel()
+		}
+		// Do not wait for the maintenance goroutine. Its query context is canceled
+		// above, while database/sql remains responsible for safely unwinding any
+		// in-flight call as the pool closes.
+		db.closeErr = db.SQL.Close()
+	})
+	return db.closeErr
 }
 
 func OpenSQLite(ctx context.Context, config SQLiteConfig) (*Database, error) {
 	if config.Path == "" {
 		return nil, fmt.Errorf("sqlite path is required")
 	}
-
-	sqlDB, err := sql.Open("sqlite3", config.Path)
+	// The persistent cache lock was acquired before cache validation in package
+	// initialization. Always release it, including initialization failures.
+	defer func() { _ = releaseSQLiteCompilationCacheFileLock() }()
+	// Initialize eagerly so the persistent cache manifest can be committed
+	// immediately after wazero has produced a valid SQLite module.
+	if err := sqlite3.Initialize(); err != nil {
+		return nil, fmt.Errorf("initialize sqlite WASM runtime: %w", err)
+	}
+	// Cache metadata only affects the next launch, and releasing a closed lock
+	// file still relinquishes OS ownership. Neither can make user data
+	// unavailable in the current process.
+	_ = recordSQLiteCompilationCacheIntegrity()
+	_ = releaseSQLiteCompilationCacheFileLock()
+	databaseExisted, err := sqliteDatabaseHasContent(config.Path)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := applyPragmas(ctx, sqlDB); err != nil {
+	// database/sql may grow the pool at any time. Configure connection-local
+	// PRAGMAs from the driver's connector so every physical SQLite connection
+	// receives the same safety settings, not only the first pooled connection.
+	sqlDB, err := sqlite3driver.Open(config.Path, configureSQLiteConnection)
+	if err != nil {
+		return nil, err
+	}
+
+	migrationSnapshotPath, err := prepareAndApplySQLiteMigrations(
+		ctx, sqlDB, config.Path, databaseExisted, config.SkipPreMigrationSnapshot,
+	)
+	if err != nil {
 		_ = sqlDB.Close()
 		return nil, err
 	}
-	if err := applySchema(ctx, sqlDB); err != nil {
+	if err := applyPersistentPragmas(ctx, sqlDB); err != nil {
+		_ = sqlDB.Close()
+		return nil, err
+	}
+	if err := secureSQLiteFile(config.Path); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
 	}
@@ -58,22 +133,257 @@ func OpenSQLite(ctx context.Context, config SQLiteConfig) (*Database, error) {
 	if os.Getenv("XIADOWN_SQL_DEBUG") != "" {
 		bunDB.AddQueryHook(bundebug.NewQueryHook(bundebug.WithVerbose(true)))
 	}
+	maintenanceCtx, maintenanceCancel := context.WithCancel(context.Background())
+	maintenanceDone := schedulePeriodicSQLiteFullIntegrityCheck(
+		maintenanceCtx, config.Path, sqlDB, sqliteFullIntegrityCheckDelay,
+	)
 
-	return &Database{SQL: sqlDB, Bun: bunDB}, nil
+	return &Database{
+		SQL: sqlDB, Bun: bunDB, MigrationSnapshotPath: migrationSnapshotPath,
+		maintenanceCancel: maintenanceCancel, maintenanceDone: maintenanceDone,
+	}, nil
 }
 
-func applyPragmas(ctx context.Context, db *sql.DB) error {
-	statements := []string{
-		"PRAGMA foreign_keys = ON",
-		"PRAGMA journal_mode = WAL",
-		"PRAGMA synchronous = NORMAL",
+func schedulePeriodicSQLiteFullIntegrityCheck(
+	lifecycleCtx context.Context,
+	databasePath string,
+	db *sql.DB,
+	delay time.Duration,
+) <-chan struct{} {
+	done := make(chan struct{})
+	databasePath = normalizePersistentSQLiteDatabasePath(databasePath)
+	due, err := sqliteFullIntegrityCheckDue(databasePath, time.Now())
+	if err != nil {
+		zap.L().Warn("sqlite: inspect periodic integrity-check state", zap.Error(err))
+		close(done)
+		return done
 	}
-	for _, statement := range statements {
-		if _, err := db.ExecContext(ctx, statement); err != nil {
-			return err
+	if !due {
+		close(done)
+		return done
+	}
+	if _, alreadyScheduled := scheduledSQLiteFullIntegrityChecks.LoadOrStore(databasePath, struct{}{}); alreadyScheduled {
+		close(done)
+		return done
+	}
+	go func() {
+		defer close(done)
+		defer scheduledSQLiteFullIntegrityChecks.Delete(databasePath)
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-lifecycleCtx.Done():
+			return
 		}
+		ctx, cancel := context.WithTimeout(lifecycleCtx, sqliteFullIntegrityCheckTimeout)
+		defer cancel()
+		if err := runPeriodicSQLiteFullIntegrityCheck(ctx, databasePath, db); err != nil {
+			if lifecycleCtx.Err() != nil || errors.Is(err, context.Canceled) {
+				return
+			}
+			if markerErr := recordSQLiteFullIntegrityCheckFailure(databasePath, err, time.Now()); markerErr != nil {
+				zap.L().Error(
+					"sqlite: periodic full integrity check failed and failure marker could not be written",
+					zap.Error(err), zap.NamedError("markerError", markerErr),
+				)
+				return
+			}
+			zap.L().Error(
+				"sqlite: periodic full integrity check failed; Library maintenance is recommended",
+				zap.Error(err),
+			)
+		}
+	}()
+	return done
+}
+
+func runPeriodicSQLiteFullIntegrityCheck(ctx context.Context, databasePath string, db *sql.DB) error {
+	if err := checkSQLiteIntegrity(ctx, db, false); err != nil {
+		return err
+	}
+	return recordSQLiteFullIntegrityCheckSuccess(databasePath, time.Now())
+}
+
+func sqliteFullIntegrityCheckDue(databasePath string, now time.Time) (bool, error) {
+	if !isPersistentSQLiteDatabasePath(databasePath) {
+		return false, nil
+	}
+	if info, err := os.Lstat(sqliteFullIntegrityCheckFailureMarkerPath(databasePath)); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			// Never trust an invalid marker to suppress checking. The deferred
+			// check will either repair the state or publish a queryable failure.
+			return true, nil
+		}
+		return true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	info, err := os.Lstat(sqliteFullIntegrityCheckMarkerPath(databasePath))
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return true, nil
+	}
+	return now.Sub(info.ModTime()) >= sqliteFullIntegrityCheckInterval, nil
+}
+
+func recordSQLiteFullIntegrityCheckSuccess(databasePath string, checkedAt time.Time) error {
+	if !isPersistentSQLiteDatabasePath(databasePath) {
+		return nil
+	}
+	if err := writePrivateSQLiteIntegrityMarker(
+		sqliteFullIntegrityCheckMarkerPath(databasePath),
+		checkedAt.UTC().Format(time.RFC3339Nano)+"\n",
+	); err != nil {
+		return err
+	}
+	if err := os.Remove(sqliteFullIntegrityCheckFailureMarkerPath(databasePath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove sqlite integrity failure marker: %w", err)
 	}
 	return nil
+}
+
+func recordSQLiteFullIntegrityCheckFailure(databasePath string, checkErr error, checkedAt time.Time) error {
+	if !isPersistentSQLiteDatabasePath(databasePath) {
+		return nil
+	}
+	return writePrivateSQLiteIntegrityMarker(
+		sqliteFullIntegrityCheckFailureMarkerPath(databasePath),
+		checkedAt.UTC().Format(time.RFC3339Nano)+"\n"+checkErr.Error()+"\n",
+	)
+}
+
+func writePrivateSQLiteIntegrityMarker(path, contents string) error {
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("refuse to replace non-regular sqlite integrity marker")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if _, err := file.WriteString(contents); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+func isPersistentSQLiteDatabasePath(databasePath string) bool {
+	return databasePath != "" && databasePath != ":memory:" && !strings.HasPrefix(databasePath, "file:")
+}
+
+func normalizePersistentSQLiteDatabasePath(databasePath string) string {
+	if !isPersistentSQLiteDatabasePath(databasePath) {
+		return databasePath
+	}
+	cleaned := filepath.Clean(databasePath)
+	if absolute, err := filepath.Abs(cleaned); err == nil {
+		cleaned = absolute
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return resolved
+	}
+	return cleaned
+}
+
+func sqliteFullIntegrityCheckMarkerPath(databasePath string) string {
+	return normalizePersistentSQLiteDatabasePath(databasePath) + ".integrity-check"
+}
+
+func sqliteFullIntegrityCheckFailureMarkerPath(databasePath string) string {
+	return normalizePersistentSQLiteDatabasePath(databasePath) + ".integrity-check.failed"
+}
+
+// InspectSQLiteIntegrityStatus reads only the private integrity sidecars. It is
+// intentionally independent from the live sql.DB so Library maintenance can
+// query health without starting another expensive PRAGMA integrity_check.
+func InspectSQLiteIntegrityStatus(databasePath string) SQLiteIntegrityStatus {
+	if !isPersistentSQLiteDatabasePath(databasePath) {
+		return SQLiteIntegrityStatus{State: SQLiteIntegrityStateUnavailable}
+	}
+	if checkedAt, detail, found, err := readSQLiteIntegrityMarker(
+		sqliteFullIntegrityCheckFailureMarkerPath(databasePath),
+	); err != nil {
+		return SQLiteIntegrityStatus{State: SQLiteIntegrityStateUnavailable}
+	} else if found {
+		return SQLiteIntegrityStatus{
+			State: SQLiteIntegrityStateFailed, CheckedAt: checkedAt, Detail: detail,
+		}
+	}
+	if checkedAt, _, found, err := readSQLiteIntegrityMarker(
+		sqliteFullIntegrityCheckMarkerPath(databasePath),
+	); err != nil {
+		return SQLiteIntegrityStatus{State: SQLiteIntegrityStateUnavailable}
+	} else if found {
+		return SQLiteIntegrityStatus{State: SQLiteIntegrityStateHealthy, CheckedAt: checkedAt}
+	}
+	return SQLiteIntegrityStatus{State: SQLiteIntegrityStatePending}
+}
+
+func readSQLiteIntegrityMarker(path string) (checkedAt, detail string, found bool, err error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", "", false, fmt.Errorf("sqlite integrity marker is not a regular file")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return "", "", false, err
+	}
+	parts := strings.SplitN(strings.TrimSpace(string(contents)), "\n", 2)
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return "", "", false, fmt.Errorf("sqlite integrity marker has no timestamp")
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(parts[0]))
+	if err != nil {
+		return "", "", false, fmt.Errorf("sqlite integrity marker timestamp: %w", err)
+	}
+	if len(parts) == 2 {
+		detail = strings.TrimSpace(parts[1])
+	}
+	return parsed.UTC().Format(time.RFC3339Nano), detail, true, nil
+}
+
+func secureSQLiteFile(path string) error {
+	if path == ":memory:" || strings.HasPrefix(path, "file:") {
+		return nil
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("secure sqlite database permissions: %w", err)
+	}
+	return nil
+}
+
+func configureSQLiteConnection(conn *sqlite3.Conn) error {
+	return conn.Exec(`
+PRAGMA foreign_keys = ON;
+PRAGMA synchronous = NORMAL;
+`)
+}
+
+func applyPersistentPragmas(ctx context.Context, db *sql.DB) error {
+	// journal_mode is persistent database state, unlike foreign_keys and
+	// synchronous, so it only needs to be established once for the database.
+	_, err := db.ExecContext(ctx, "PRAGMA journal_mode = WAL")
+	return err
 }
 
 func applySchema(ctx context.Context, db *sql.DB) error {
@@ -639,25 +949,6 @@ CREATE TABLE IF NOT EXISTS cron_run_events (
 CREATE INDEX IF NOT EXISTS cron_run_events_run_id_created_at_ms ON cron_run_events(run_id, created_at_ms DESC);
 CREATE INDEX IF NOT EXISTS cron_run_events_job_id_created_at_ms ON cron_run_events(job_id, created_at_ms DESC);
 
-CREATE TABLE IF NOT EXISTS site_app_sessions (
-	id TEXT PRIMARY KEY,
-	site_key TEXT NOT NULL UNIQUE,
-	status TEXT NOT NULL,
-	account_display_name TEXT,
-	account_handle TEXT,
-	account_avatar_url TEXT,
-	account_tier_key TEXT,
-	account_tier_label TEXT,
-	account_badges_json TEXT,
-	account_metadata_json TEXT,
-	account_verification_status TEXT NOT NULL DEFAULT 'unverified',
-	account_verification_error TEXT,
-	account_verification_started_at TIMESTAMP,
-	last_verified_at TIMESTAMP,
-	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS dependencies (
 	name TEXT PRIMARY KEY,
 	exec_path TEXT,
@@ -943,27 +1234,27 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
-`
+	`
 	if _, err := db.ExecContext(ctx, schema); err != nil {
-		return err
+		return fmt.Errorf("apply core SQLite schema: %w", err)
 	}
 	if err := ensureSQLiteColumns(ctx, db); err != nil {
-		return err
+		return fmt.Errorf("upgrade legacy SQLite columns: %w", err)
 	}
 	if err := cleanupLegacyConnectorTables(ctx, db); err != nil {
-		return err
+		return fmt.Errorf("remove legacy connector tables: %w", err)
 	}
 	if _, err := db.ExecContext(ctx, librarySchemaSQL); err != nil {
-		return err
+		return fmt.Errorf("apply legacy Library schema: %w", err)
 	}
 	if err := ensureLibraryFilesCompletedKinds(ctx, db); err != nil {
-		return err
+		return fmt.Errorf("upgrade legacy Library file kinds: %w", err)
 	}
 	if err := ensureListenLiveChannelsLooseColumn(ctx, db); err != nil {
-		return err
+		return fmt.Errorf("upgrade Listen Live channel ownership: %w", err)
 	}
 	if err := createMemoryChunksFTSTable(ctx, db); err != nil {
-		return err
+		return fmt.Errorf("create memory chunk search index: %w", err)
 	}
 	return nil
 }
@@ -971,7 +1262,6 @@ CREATE TABLE IF NOT EXISTS subagent_runs (
 func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 	threadLastInteractivePresent := false
 	providerCompatibilityPresent := false
-	appSessionVerificationPresent := false
 	updates := []struct {
 		table     string
 		column    string
@@ -1115,33 +1405,24 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			column:    "validation_code",
 			statement: "ALTER TABLE pets ADD COLUMN validation_code TEXT",
 		},
-		{
-			table:     "site_app_sessions",
-			column:    "account_verification_status",
-			statement: "ALTER TABLE site_app_sessions ADD COLUMN account_verification_status TEXT NOT NULL DEFAULT 'unverified'",
-		},
-		{
-			table:     "site_app_sessions",
-			column:    "account_verification_error",
-			statement: "ALTER TABLE site_app_sessions ADD COLUMN account_verification_error TEXT",
-		},
-		{
-			table:     "site_app_sessions",
-			column:    "account_verification_started_at",
-			statement: "ALTER TABLE site_app_sessions ADD COLUMN account_verification_started_at TIMESTAMP",
-		},
+		{table: "listen_local_tracks", column: "album", statement: "ALTER TABLE listen_local_tracks ADD COLUMN album TEXT"},
+		{table: "listen_local_tracks", column: "album_artist", statement: "ALTER TABLE listen_local_tracks ADD COLUMN album_artist TEXT"},
+		{table: "listen_local_tracks", column: "genre", statement: "ALTER TABLE listen_local_tracks ADD COLUMN genre TEXT"},
+		{table: "listen_local_tracks", column: "track_number", statement: "ALTER TABLE listen_local_tracks ADD COLUMN track_number INTEGER"},
+		{table: "listen_local_tracks", column: "disc_number", statement: "ALTER TABLE listen_local_tracks ADD COLUMN disc_number INTEGER"},
+		{table: "listen_local_tracks", column: "year", statement: "ALTER TABLE listen_local_tracks ADD COLUMN year INTEGER"},
 	}
 	for _, item := range updates {
 		hasTable, err := sqliteTableExists(ctx, db, item.table)
 		if err != nil {
-			return err
+			return fmt.Errorf("inspect legacy table %s: %w", item.table, err)
 		}
 		if !hasTable {
 			continue
 		}
 		hasColumn, err := sqliteTableHasColumn(ctx, db, item.table, item.column)
 		if err != nil {
-			return err
+			return fmt.Errorf("inspect legacy column %s.%s: %w", item.table, item.column, err)
 		}
 		if hasColumn {
 			if item.table == "threads" && item.column == "last_interactive_at" {
@@ -1150,13 +1431,10 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 			if item.table == "providers" && item.column == "compatibility" {
 				providerCompatibilityPresent = true
 			}
-			if item.table == "site_app_sessions" && item.column == "account_verification_status" {
-				appSessionVerificationPresent = true
-			}
 			continue
 		}
 		if _, err := db.ExecContext(ctx, item.statement); err != nil {
-			return err
+			return fmt.Errorf("add legacy column %s.%s: %w", item.table, item.column, err)
 		}
 		if item.table == "threads" && item.column == "last_interactive_at" {
 			threadLastInteractivePresent = true
@@ -1164,13 +1442,10 @@ func ensureSQLiteColumns(ctx context.Context, db *sql.DB) error {
 		if item.table == "providers" && item.column == "compatibility" {
 			providerCompatibilityPresent = true
 		}
-		if item.table == "site_app_sessions" && item.column == "account_verification_status" {
-			appSessionVerificationPresent = true
-		}
 	}
 	if threadLastInteractivePresent {
 		if _, err := db.ExecContext(ctx, "UPDATE threads SET last_interactive_at = updated_at WHERE last_interactive_at IS NULL"); err != nil {
-			return err
+			return fmt.Errorf("backfill thread last interactive time: %w", err)
 		}
 	}
 	if providerCompatibilityPresent {
@@ -1185,24 +1460,14 @@ SET compatibility = CASE
 END
 WHERE TRIM(COALESCE(compatibility, '')) = ''
 `); err != nil {
-			return err
-		}
-	}
-	if appSessionVerificationPresent {
-		if _, err := db.ExecContext(ctx, `
-UPDATE site_app_sessions
-SET account_verification_status = 'verified'
-WHERE last_verified_at IS NOT NULL
-  AND TRIM(COALESCE(account_verification_status, '')) IN ('', 'unverified')
-`); err != nil {
-			return err
+			return fmt.Errorf("backfill provider compatibility: %w", err)
 		}
 	}
 	if err := backfillTelemetrySessionDays(ctx, db); err != nil {
-		return err
+		return fmt.Errorf("backfill telemetry session days: %w", err)
 	}
 	if err := backfillLibraryFileIdentity(ctx, db); err != nil {
-		return err
+		return fmt.Errorf("backfill Library file identity: %w", err)
 	}
 	return nil
 }
@@ -1528,6 +1793,12 @@ func backfillLibraryFileIdentity(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	defer rows.Close()
+	type identityUpdate struct {
+		id          string
+		name        string
+		displayName string
+	}
+	updates := make([]identityUpdate, 0)
 
 	for rows.Next() {
 		var (
@@ -1549,11 +1820,35 @@ func backfillLibraryFileIdentity(ctx context.Context, db *sql.DB) error {
 		if nextName == strings.TrimSpace(name) && nextDisplayName == strings.TrimSpace(displayName.String) {
 			continue
 		}
-		if _, err := db.ExecContext(ctx, "UPDATE library_files SET name = ?, display_name = ? WHERE id = ?", nextName, nextDisplayName, id); err != nil {
+		updates = append(updates, identityUpdate{id: id, name: nextName, displayName: nextDisplayName})
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	// Do not write through database/sql while the SELECT cursor is open. SQLite
+	// otherwise keeps a read lock on one pooled connection while another waits
+	// for a write lock, which deadlocks real legacy databases containing files.
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, update := range updates {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE library_files SET name = ?, display_name = ? WHERE id = ?",
+			update.name, update.displayName, update.id,
+		); err != nil {
 			return err
 		}
 	}
-	return rows.Err()
+	return tx.Commit()
 }
 
 const librarySchemaSQL = `
@@ -1630,6 +1925,12 @@ CREATE TABLE IF NOT EXISTS listen_local_tracks (
   local_path TEXT NOT NULL,
   title TEXT NOT NULL,
   author TEXT,
+  album TEXT,
+  album_artist TEXT,
+  genre TEXT,
+  track_number INTEGER,
+  disc_number INTEGER,
+  year INTEGER,
   cover_local_path TEXT,
   format TEXT,
   audio_codec TEXT,
@@ -1654,6 +1955,31 @@ CREATE INDEX IF NOT EXISTS listen_local_tracks_library_idx
 
 CREATE INDEX IF NOT EXISTS listen_local_tracks_path_idx
   ON listen_local_tracks(local_path);
+
+CREATE TABLE IF NOT EXISTS listen_local_playlists (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL COLLATE NOCASE,
+  created_at TIMESTAMP NOT NULL,
+  updated_at TIMESTAMP NOT NULL,
+  CHECK (length(trim(name)) > 0 AND length(name) <= 120)
+);
+
+CREATE TABLE IF NOT EXISTS listen_local_playlist_items (
+  playlist_id TEXT NOT NULL,
+  file_id TEXT NOT NULL,
+  position INTEGER NOT NULL CHECK (position >= 0),
+  added_at TIMESTAMP NOT NULL,
+  PRIMARY KEY (playlist_id, file_id),
+  UNIQUE (playlist_id, position),
+  FOREIGN KEY (playlist_id) REFERENCES listen_local_playlists(id) ON DELETE CASCADE,
+  FOREIGN KEY (file_id) REFERENCES listen_local_tracks(file_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS listen_local_playlists_updated_idx
+  ON listen_local_playlists(updated_at DESC, name COLLATE NOCASE);
+
+CREATE INDEX IF NOT EXISTS listen_local_playlist_items_order_idx
+  ON listen_local_playlist_items(playlist_id, position);
 
 CREATE TABLE IF NOT EXISTS listen_live_columns (
   id TEXT PRIMARY KEY,
@@ -1835,7 +2161,6 @@ CREATE TABLE IF NOT EXISTS library_file_events (
   detail_json TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL,
   FOREIGN KEY (library_id) REFERENCES library_libraries(id) ON DELETE CASCADE,
-  FOREIGN KEY (file_id) REFERENCES library_files(id) ON DELETE CASCADE,
   FOREIGN KEY (operation_id) REFERENCES library_operations(id) ON DELETE SET NULL
 );
 

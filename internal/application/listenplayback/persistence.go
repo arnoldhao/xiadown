@@ -21,6 +21,7 @@ func (service *PlayerService) RestorePlaybackSession(ctx context.Context) (bool,
 		session.Duration,
 	)
 	service.mu.Lock()
+	service.playbackLanguage = stringsTrim(session.Language)
 	service.shuffleEnabled = session.ShuffleEnabled
 	service.repeatMode = session.RepeatMode
 	service.volume = clampVolume(session.Volume)
@@ -85,6 +86,7 @@ func (service *PlayerService) currentSession() (RestoredPlaybackSession, bool) {
 		Queue:            cloneTracks(service.queue),
 		QueueKind:        service.queueKind,
 		QueueTitle:       service.queueTitle,
+		Language:         service.playbackLanguage,
 		CurrentIndex:     index,
 		CurrentVideoID:   currentVideoID,
 		Progress:         progress,

@@ -240,40 +240,44 @@ func (service *LibraryService) listMissingLibraryFileItems(ctx context.Context, 
 	}
 	now := service.now()
 	missingItems := make([]library.LibraryFile, 0)
-	for _, item := range items {
-		if item.State.Deleted || strings.TrimSpace(item.Storage.LocalPath) == "" {
-			continue
-		}
+	updatedItems := make([]library.LibraryFile, 0)
+	for _, candidate := range items {
 		if filter != nil {
-			if _, ok := filter[item.ID]; !ok {
+			if _, ok := filter[candidate.ID]; !ok {
 				continue
 			}
 		}
-		response.Checked++
-		if localFileExists(item.Storage.LocalPath) {
-			if updateState && item.State.LastError == missingLocalFileError {
-				item.State.LastError = ""
-				item.State.LastChecked = now.Format(time.RFC3339)
-				item.UpdatedAt = now
-				if err := service.files.Save(ctx, item); err != nil {
-					return response, nil, err
-				}
-				service.publishFileUpdate(service.mustBuildFileDTO(ctx, item))
-			}
+		presence, err := service.inspectAndPersistLibraryFilePresence(ctx, candidate.ID, updateState, false, now)
+		if err != nil {
+			return response, nil, err
+		}
+		if !presence.eligible {
 			continue
 		}
-		if updateState {
-			item.State.LastError = missingLocalFileError
-			item.State.LastChecked = now.Format(time.RFC3339)
-			item.UpdatedAt = now
-			if err := service.files.Save(ctx, item); err != nil {
-				return response, nil, err
+		response.Checked++
+		switch presence.presence {
+		case localFilePresenceAvailable:
+			if presence.updated {
+				updatedItems = append(updatedItems, presence.item)
 			}
-			service.syncListenLocalTrackFromFile(ctx, item, nil)
+			continue
+		case localFilePresenceIndeterminate:
+			continue
+		}
+		if presence.updated {
+			service.syncListenLocalTrackFromFile(ctx, presence.item, nil)
+			updatedItems = append(updatedItems, presence.item)
+		}
+		missingItems = append(missingItems, presence.item)
+		response.Missing = append(response.Missing, toMissingLibraryFileDTO(presence.item))
+	}
+	if len(updatedItems) > 0 {
+		if err := service.syncCatalogProjection(ctx, libraryFileLibraryIDs(updatedItems)...); err != nil {
+			return response, missingItems, err
+		}
+		for _, item := range updatedItems {
 			service.publishFileUpdate(service.mustBuildFileDTO(ctx, item))
 		}
-		missingItems = append(missingItems, item)
-		response.Missing = append(response.Missing, toMissingLibraryFileDTO(item))
 	}
 	return response, missingItems, nil
 }
@@ -289,6 +293,7 @@ func (service *LibraryService) listMissingListenLocalFileItems(ctx context.Conte
 	}
 	now := service.now()
 	missingItems := make([]library.LibraryFile, 0)
+	updatedItems := make([]library.LibraryFile, 0)
 	for _, track := range tracks {
 		fileID := strings.TrimSpace(track.FileID)
 		if fileID == "" {
@@ -299,48 +304,60 @@ func (service *LibraryService) listMissingListenLocalFileItems(ctx context.Conte
 				continue
 			}
 		}
-		item, err := service.files.Get(ctx, fileID)
+		presence, err := service.inspectAndPersistLibraryFilePresence(ctx, fileID, updateState, false, now)
 		if err != nil {
+			// Preserve the legacy local-index scan behavior: one stale or corrupt
+			// backing record must not prevent the remaining tracks from being
+			// inspected.
 			continue
 		}
-		if item.State.Deleted || strings.TrimSpace(item.Storage.LocalPath) == "" {
+		if !presence.eligible {
 			continue
 		}
 		response.Checked++
-		if localFileExists(item.Storage.LocalPath) {
-			if updateState && item.State.LastError == missingLocalFileError {
-				item.State.LastError = ""
-				item.State.LastChecked = now.Format(time.RFC3339)
-				item.UpdatedAt = now
-				if err := service.files.Save(ctx, item); err != nil {
-					return response, nil, err
-				}
-				service.publishFileUpdate(service.mustBuildFileDTO(ctx, item))
+		switch presence.presence {
+		case localFilePresenceAvailable:
+			if presence.updated {
+				updatedItems = append(updatedItems, presence.item)
 			}
 			if updateState && track.Availability == library.ListenLocalTrackMissing {
-				track.Availability = library.ListenLocalTrackAvailable
-				track.LocalPath = item.Storage.LocalPath
-				track.LastCheckedAt = now
-				track.ProbeError = ""
-				track.UpdatedAt = now
-				if err := service.localTracks.Save(ctx, track); err != nil {
-					return response, nil, err
+				unlock := service.lockListenLocalTrackMutation(fileID)
+				currentTrack, trackErr := service.localTracks.Get(ctx, fileID)
+				currentFile, fileErr := service.files.Get(ctx, fileID)
+				if trackErr == nil && fileErr == nil && currentTrack.Availability == library.ListenLocalTrackMissing {
+					currentTrack.Availability = library.ListenLocalTrackAvailable
+					currentTrack.LocalPath = currentFile.Storage.LocalPath
+					currentTrack.LastCheckedAt = now
+					currentTrack.ProbeError = ""
+					currentTrack.UpdatedAt = now
+					trackErr = service.localTracks.Save(ctx, currentTrack)
+				}
+				unlock()
+				if trackErr != nil {
+					return response, nil, trackErr
+				}
+				if fileErr != nil {
+					return response, nil, fileErr
 				}
 			}
 			continue
+		case localFilePresenceIndeterminate:
+			continue
 		}
-		if updateState {
-			item.State.LastError = missingLocalFileError
-			item.State.LastChecked = now.Format(time.RFC3339)
-			item.UpdatedAt = now
-			if err := service.files.Save(ctx, item); err != nil {
-				return response, nil, err
-			}
-			service.syncListenLocalTrackFromFile(ctx, item, nil)
+		if presence.updated {
+			service.syncListenLocalTrackFromFile(ctx, presence.item, nil)
+			updatedItems = append(updatedItems, presence.item)
+		}
+		missingItems = append(missingItems, presence.item)
+		response.Missing = append(response.Missing, toMissingLibraryFileDTO(presence.item))
+	}
+	if len(updatedItems) > 0 {
+		if err := service.syncCatalogProjection(ctx, libraryFileLibraryIDs(updatedItems)...); err != nil {
+			return response, missingItems, err
+		}
+		for _, item := range updatedItems {
 			service.publishFileUpdate(service.mustBuildFileDTO(ctx, item))
 		}
-		missingItems = append(missingItems, item)
-		response.Missing = append(response.Missing, toMissingLibraryFileDTO(item))
 	}
 	return response, missingItems, nil
 }
@@ -517,6 +534,37 @@ func libraryRelinkMatchAccepted(match dto.LibraryRelinkMatchDTO) bool {
 }
 
 func (service *LibraryService) applyLibraryFileRelink(ctx context.Context, item library.LibraryFile, newPath string) (dto.LibraryFileDTO, error) {
+	unlock := service.lockListenLocalTrackMutation(item.ID)
+	updatedItem, err := service.applyLibraryFileRelinkRecord(ctx, item, newPath)
+	unlock()
+	if err != nil {
+		return dto.LibraryFileDTO{}, err
+	}
+
+	// Refresh after releasing the record lock: refreshListenLocalTrack acquires
+	// the same per-file shard. A metadata edit entering in this small window
+	// sees the LibraryFile path mismatch and fails safely with a conflict rather
+	// than writing the stale path.
+	service.refreshListenLocalTracksForLibrary(ctx, updatedItem.LibraryID)
+	fileDTO, err := service.buildFileDTO(ctx, updatedItem)
+	if err != nil {
+		return dto.LibraryFileDTO{}, err
+	}
+	service.publishFileUpdate(fileDTO)
+	return fileDTO, nil
+}
+
+func (service *LibraryService) applyLibraryFileRelinkRecord(ctx context.Context, item library.LibraryFile, newPath string) (library.LibraryFile, error) {
+	// The relink request was built from an earlier snapshot. Reload after taking
+	// the local-track lock so two relinks cannot resurrect an obsolete path.
+	if service != nil && service.files != nil {
+		current, err := service.files.Get(ctx, item.ID)
+		if err != nil {
+			return library.LibraryFile{}, err
+		}
+		item = current
+	}
+	before := item
 	oldPath := strings.TrimSpace(item.Storage.LocalPath)
 	cleaned := filepath.Clean(strings.TrimSpace(newPath))
 	now := service.now()
@@ -526,22 +574,40 @@ func (service *LibraryService) applyLibraryFileRelink(ctx context.Context, item 
 	item.State.LastError = ""
 	item.State.LastChecked = now.Format(time.RFC3339)
 	item.UpdatedAt = now
-	if err := service.files.Save(ctx, item); err != nil {
-		return dto.LibraryFileDTO{}, err
+	if err := service.saveLibraryFilePreservingDisplayName(ctx, item); err != nil {
+		return library.LibraryFile{}, err
 	}
 	if err := service.touchLibrary(ctx, item.LibraryID, now); err != nil {
-		return dto.LibraryFileDTO{}, err
+		return library.LibraryFile{}, err
 	}
 	if err := service.updateOperationOutputPathReferences(ctx, item, oldPath, cleaned); err != nil {
-		return dto.LibraryFileDTO{}, err
+		return library.LibraryFile{}, err
 	}
-	service.refreshListenLocalTracksForLibrary(ctx, item.LibraryID)
-	fileDTO, err := service.buildFileDTO(ctx, item)
-	if err != nil {
-		return dto.LibraryFileDTO{}, err
+	if err := service.syncCatalogProjection(ctx, item.LibraryID); err != nil {
+		return library.LibraryFile{}, err
 	}
-	service.publishFileUpdate(fileDTO)
-	return fileDTO, nil
+	changes := []dto.FileFieldChangeDTO{{
+		Field: "localPath", Before: oldPath, After: cleaned,
+	}}
+	if before.Name != item.Name {
+		changes = append(changes, dto.FileFieldChangeDTO{
+			Field: "fileName", Before: before.Name, After: item.Name,
+		})
+	}
+	if _, err := service.appendLibraryFileEvent(ctx, appendLibraryFileEventParams{
+		EventType:   libraryFileEventRelinked,
+		Category:    "maintenance",
+		OperationID: fileEventOperationID(item),
+		FileID:      item.ID,
+		LibraryID:   item.LibraryID,
+		Before:      fileEventSnapshot(before),
+		After:       fileEventSnapshot(item),
+		Changes:     changes,
+		OccurredAt:  now,
+	}); err != nil {
+		return library.LibraryFile{}, err
+	}
+	return item, nil
 }
 
 func mergeRelinkMediaInfo(current *library.MediaInfo, probe mediaProbe) *library.MediaInfo {
@@ -628,19 +694,23 @@ func (service *LibraryService) updateOperationOutputPathReferences(ctx context.C
 			continue
 		}
 		seen[id] = struct{}{}
+		service.operationOutputMutationMu.Lock()
 		operation, err := service.operations.Get(ctx, id)
 		if err != nil {
+			service.operationOutputMutationMu.Unlock()
 			continue
 		}
 		outputJSON, changed := replaceOperationOutputPath(operation.OutputJSON, oldPath, newPath)
 		if !changed {
+			service.operationOutputMutationMu.Unlock()
 			continue
 		}
 		operation.OutputJSON = outputJSON
-		if err := service.operations.Save(ctx, operation); err != nil {
+		if err := service.saveAndPublishOperationLocked(ctx, &operation); err != nil {
+			service.operationOutputMutationMu.Unlock()
 			return err
 		}
-		service.publishOperationUpdate(toOperationDTO(operation))
+		service.operationOutputMutationMu.Unlock()
 	}
 	return nil
 }

@@ -6,7 +6,6 @@ import (
 
 	"xiadown/internal/application/events"
 	"xiadown/internal/application/library/dto"
-	"xiadown/internal/domain/library"
 )
 
 const (
@@ -53,14 +52,4 @@ func (service *LibraryService) publishWorkspaceUpdate(item dto.WorkspaceStateRec
 
 func (service *LibraryService) publishFileEventUpdate(item dto.FileEventRecordDTO) {
 	service.publishEvent(libraryTopicEvent, libraryEventUpsert, item)
-}
-
-func (service *LibraryService) trackCompletedOperation(ctx context.Context, operation library.LibraryOperation) {
-	if service == nil || service.telemetry == nil {
-		return
-	}
-	if operation.Status != library.OperationStatusSucceeded {
-		return
-	}
-	service.telemetry.TrackLibraryOperationCompleted(ctx, strings.TrimSpace(operation.ID), strings.TrimSpace(operation.Kind))
 }

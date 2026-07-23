@@ -14,11 +14,11 @@ const generatedBindingDTORoot = path.join(frontendRoot, "bindings", "xiadown", "
 const allowedExtensions = new Set([".ts", ".tsx", ".go"]);
 const transportContractSuffixPattern = /(?:Request|Response|Result)$/;
 const generatedContractPairs = [
-  ["appsessions", "appSessions.ts"],
-  ["dependencies", "dependencies.ts"],
-  ["library", "library.ts"],
-  ["settings", "settings.ts"],
-  ["pets", "pets.ts"],
+  ["appsessions", ["appSessions.ts"]],
+  ["dependencies", ["dependencies.ts"]],
+  ["library", ["library.ts", "catalog.ts"]],
+  ["settings", ["settings.ts"]],
+  ["pets", ["pets.ts"]],
 ];
 
 async function collectFiles(root) {
@@ -122,30 +122,54 @@ function diffFields(expectedFields, actualFields) {
 async function collectGeneratedBindingContractFindings() {
   const findings = [];
 
-  for (const [domainName, contractFileName] of generatedContractPairs) {
+  for (const [domainName, contractFileNames] of generatedContractPairs) {
     const bindingPath = path.join(generatedBindingDTORoot, domainName, "dto", "models.ts");
-    const contractPath = path.join(frontendContractDir, contractFileName);
     const bindingClasses = parseGeneratedBindingClasses(await readFile(bindingPath, "utf8"));
-    const contractInterfaces = parseFrontendContractInterfaces(await readFile(contractPath, "utf8"));
-
-    for (const [typeName, bindingFields] of bindingClasses) {
-      const contractFields = contractInterfaces.get(typeName);
-      if (!contractFields) {
-        findings.push(`${relative(contractPath)}: missing frontend contract interface \`${typeName}\``);
-        continue;
-      }
-      const { missing, extra } = diffFields(bindingFields, contractFields);
-      if (missing.length > 0) {
-        findings.push(`${relative(contractPath)}: contract \`${typeName}\` is missing fields ${missing.map((field) => `\`${field}\``).join(", ")}`);
-      }
-      if (extra.length > 0) {
-        findings.push(`${relative(contractPath)}: contract \`${typeName}\` has fields not present in generated Go binding ${extra.map((field) => `\`${field}\``).join(", ")}`);
+    const contractInterfaces = new Map();
+    const contractPaths = contractFileNames.map((fileName) => path.join(frontendContractDir, fileName));
+    for (const contractPath of contractPaths) {
+      const interfaces = parseFrontendContractInterfaces(await readFile(contractPath, "utf8"));
+      for (const [typeName, fields] of interfaces) {
+        const existing = contractInterfaces.get(typeName);
+        if (existing) {
+          findings.push(
+            `${relative(contractPath)}: duplicate frontend contract interface \`${typeName}\` also declared in ${relative(existing.filePath)}`,
+          );
+          continue;
+        }
+        contractInterfaces.set(typeName, { fields, filePath: contractPath });
       }
     }
 
-    for (const typeName of contractInterfaces.keys()) {
-      if (!bindingClasses.has(typeName)) {
-        findings.push(`${relative(contractPath)}: frontend transport contract \`${typeName}\` has no generated Go binding`);
+    for (const [typeName, bindingFields] of bindingClasses) {
+      const contractName = contractInterfaces.has(typeName)
+        ? typeName
+        : typeName.endsWith("DTO") && contractInterfaces.has(typeName.slice(0, -3))
+          ? typeName.slice(0, -3)
+          : "";
+      const contract = contractInterfaces.get(contractName);
+      if (!contract) {
+        findings.push(
+          `${contractPaths.map(relative).join(" or ")}: missing frontend contract interface \`${typeName}\``,
+        );
+        continue;
+      }
+      const { missing, extra } = diffFields(bindingFields, contract.fields);
+      if (missing.length > 0) {
+        findings.push(`${relative(contract.filePath)}: contract \`${contractName}\` for generated \`${typeName}\` is missing fields ${missing.map((field) => `\`${field}\``).join(", ")}`);
+      }
+      if (extra.length > 0) {
+        findings.push(`${relative(contract.filePath)}: contract \`${contractName}\` for generated \`${typeName}\` has fields not present in generated Go binding ${extra.map((field) => `\`${field}\``).join(", ")}`);
+      }
+    }
+
+    for (const [typeName, contract] of contractInterfaces) {
+      if (
+        transportContractSuffixPattern.test(typeName) &&
+        !bindingClasses.has(typeName) &&
+        !bindingClasses.has(`${typeName}DTO`)
+      ) {
+        findings.push(`${relative(contract.filePath)}: frontend transport contract \`${typeName}\` has no generated Go binding`);
       }
     }
   }

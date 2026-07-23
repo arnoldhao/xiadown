@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"xiadown/internal/infrastructure/processutil"
 )
 
 const (
@@ -25,7 +27,7 @@ func startDetachedCommand(name string, args []string) error {
 		// A fresh process group is enough here. Using DETACHED_PROCESS with
 		// powershell.exe has proven unreliable for the update helper.
 		CreationFlags: createNewProcessGroup,
-		HideWindow:    true,
 	}
+	processutil.ConfigureCLI(cmd)
 	return cmd.Start()
 }

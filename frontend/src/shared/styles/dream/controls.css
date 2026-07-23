@@ -117,6 +117,11 @@
   grid-template-columns: repeat(1, minmax(max-content, 1fr));
 }
 
+.app-new-task-mode-switch[data-count="3"],
+.app-new-task-download-mode-switch[data-count="3"] {
+  width: fit-content;
+}
+
 .app-new-task-mode-switch .app-dream-segment-switch-tab,
 .app-new-task-download-mode-switch .app-dream-segment-switch-tab {
   padding-inline: 0.75rem;
@@ -192,6 +197,16 @@
   border-radius: 0 var(--app-radius-lg) var(--app-radius-lg) 0;
 }
 
+.app-dream-segment-switch[data-count="4"]:is([data-index="1"], [data-index="2"])
+  .app-dream-segment-switch-indicator {
+  border-radius: 0;
+}
+
+.app-dream-segment-switch[data-count="4"][data-index="3"]
+  .app-dream-segment-switch-indicator {
+  border-radius: 0 var(--app-radius-lg) var(--app-radius-lg) 0;
+}
+
 .app-dream-segment-switch[data-view="files"] .app-dream-segment-switch-indicator,
 .app-dream-segment-switch[data-side="right"] .app-dream-segment-switch-indicator,
 .app-completed-view-switch[data-view="files"] .app-completed-view-switch-indicator {
@@ -228,6 +243,15 @@
 .app-completed-view-switch-tab:hover {
   background: transparent;
   color: hsl(var(--foreground) / 0.82);
+}
+
+.app-dream-segment-switch-tab:disabled {
+  cursor: not-allowed;
+  color: hsl(var(--foreground) / 0.28);
+}
+
+.app-dream-segment-switch-tab:disabled:hover {
+  color: hsl(var(--foreground) / 0.28);
 }
 
 .app-dream-segment-switch-tab:focus-visible,
@@ -323,6 +347,78 @@
 .app-main-search-control button:hover {
   background: var(--dream-surface-hover);
   color: hsl(var(--foreground) / 0.76);
+}
+
+/* Search-page contract: stations provide only query behavior and copy while
+ * this role owns a stable icon/input/clear/submit structure and geometry. */
+.app-dream-workspace-search {
+  box-sizing: border-box;
+  display: flex;
+  min-height: var(--app-workspace-search-height);
+  align-items: center;
+  gap: var(--app-workspace-search-gap);
+  padding:
+    var(--app-workspace-search-padding-block)
+    var(--app-workspace-search-padding-end)
+    var(--app-workspace-search-padding-block)
+    var(--app-workspace-search-padding-start);
+}
+
+.app-dream-workspace-search > .app-dream-workspace-search__icon {
+  width: var(--app-workspace-search-icon-size);
+  height: var(--app-workspace-search-icon-size);
+  flex: 0 0 var(--app-workspace-search-icon-size);
+}
+
+.app-dream-workspace-search > .app-dream-workspace-search__input {
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 13px;
+}
+
+.app-dream-workspace-search__input::-webkit-search-cancel-button,
+.app-dream-workspace-search__input::-webkit-search-decoration {
+  display: none;
+  appearance: none;
+}
+
+.app-dream-workspace-search > .app-dream-workspace-search__clear {
+  display: grid;
+  width: var(--app-workspace-search-clear-size);
+  height: var(--app-workspace-search-clear-size);
+  min-width: var(--app-workspace-search-clear-size);
+  place-items: center;
+  flex: 0 0 var(--app-workspace-search-clear-size);
+  border: 0;
+  border-radius: var(--app-radius-control-compact);
+  padding: 0;
+}
+
+.app-dream-workspace-search__clear > svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-dream-workspace-search > .app-dream-workspace-search__submit {
+  min-width: max-content;
+  flex: 0 0 auto;
+}
+
+/* Selection-list contract: a compact symmetric inset plus one stable scrollbar
+ * gutter keeps rows close to the pane edges without shifting when it scrolls. */
+.app-dream-selection-list {
+  box-sizing: border-box;
+  padding-inline: var(--app-selection-list-inset);
+  scroll-padding-inline: var(--app-selection-list-inset);
+  scrollbar-gutter: stable;
+}
+
+.app-dream-selection-list > .app-dream-selection-item {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* Dream base controls: overrides shadcn variants with the app surface language. */
@@ -429,4 +525,428 @@
   background: transparent;
   color: var(--dream-text-soft);
   opacity: 1;
+}
+
+/* Native Windows caption glyphs are product controls, not ad-hoc Tailwind
+   drawings. Their geometry and stroke recipe remain inspectable in Dream. */
+.app-window-control-glyph {
+  position: relative;
+  display: block;
+  width: 0.625rem;
+  height: 0.625rem;
+  flex: 0 0 0.625rem;
+  color: currentColor;
+}
+
+.app-window-control-glyph--minimize {
+  height: 1px;
+  background: currentColor;
+}
+
+.app-window-control-glyph--maximize {
+  border: 1px solid currentColor;
+}
+
+.app-window-control-glyph--restore > span {
+  position: absolute;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+
+.app-window-control-glyph--restore > [data-corner="upper"] {
+  top: 0;
+  right: 0;
+}
+
+.app-window-control-glyph--restore > [data-corner="lower"] {
+  bottom: 0;
+  left: 0;
+}
+
+.app-window-control-glyph--close > span {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: 100%;
+  background: currentColor;
+}
+
+.app-window-control-glyph--close > [data-stroke="forward"] {
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.app-window-control-glyph--close > [data-stroke="backward"] {
+  transform: translateX(-50%) rotate(-45deg);
+}
+
+/* Shared tooltips keep dynamic portal geometry in React while Dream owns the
+   inverse control appearance. */
+.app-dream-tooltip {
+  border-radius: var(--app-radius-control-inner);
+  background: var(--app-text-primary);
+  color: hsl(var(--background));
+  box-shadow: 0 12px 28px -16px hsl(var(--foreground) / 0.46);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.app-dream-tooltip__arrow {
+  background: inherit;
+}
+
+@media (forced-colors: active) {
+  .app-dream-tooltip {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: none;
+  }
+}
+
+/* Shared compact controls, groups, badges, and menu states belong to the
+   reusable Dream control vocabulary, never to a feature-domain module. */
+.app-dream-select.app-control-compact {
+  height: var(--dream-control-height-compact);
+  min-width: 0;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--dream-surface-soft);
+  background-image:
+    linear-gradient(45deg, transparent 50%, hsl(var(--foreground) / 0.48) 50%),
+    linear-gradient(135deg, hsl(var(--foreground) / 0.48) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size:
+    5px 5px,
+    5px 5px;
+  box-shadow: var(--dream-card-shadow);
+  color: var(--dream-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+  padding: 0 28px 0 10px;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-select.app-control-compact {
+  color: var(--dream-text-muted);
+}
+
+.app-dream-select.app-control-compact:hover {
+  background-color: var(--dream-surface-pressed);
+  color: hsl(var(--foreground) / 0.72);
+}
+
+.app-dream-select.app-control-compact:focus,
+.app-dream-select.app-control-compact:focus-visible {
+  color: hsl(var(--foreground) / 0.78);
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-select.app-control-compact option {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+}
+
+.app-dream-input.app-control-compact {
+  height: var(--dream-control-height-compact);
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  box-shadow: var(--dream-card-shadow);
+  color: var(--dream-text-strong);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  padding: 0 10px;
+}
+
+.app-dream-input.app-control-compact::placeholder {
+  color: hsl(var(--foreground) / 0.42);
+}
+
+.app-dream-input.app-control-compact:focus,
+.app-dream-input.app-control-compact:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-search-control .app-dream-input,
+.app-dream-search-control .app-dream-input:focus,
+.app-dream-search-control .app-dream-input:focus-visible {
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.app-dream-badge[class] {
+  min-height: 1.5rem;
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-soft);
+  color: var(--dream-text-muted);
+  box-shadow: var(--dream-card-shadow);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.app-dream-badge[data-variant="default"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+.app-dream-badge:is(
+    [data-variant="secondary"],
+    [data-variant="subtle"]
+  ) {
+  background: var(--dream-secondary-surface);
+  color: var(--dream-secondary-text);
+}
+
+.app-dream-badge[data-variant="destructive"] {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive) / 0.08);
+}
+
+.app-dream-badge[data-variant="outline"] {
+  border: 1px solid var(--dream-line-soft);
+  background: transparent;
+  color: var(--dream-text-strong);
+  box-shadow: none;
+}
+
+.app-dream-badge[data-variant="ghost"] {
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-checkbox__visual {
+  border: 1px solid var(--dream-line-soft);
+  border-radius: 0.25rem;
+  background: var(--dream-surface-soft);
+  box-shadow: var(--dream-card-shadow);
+}
+
+.app-dream-checkbox__visual svg {
+  color: hsl(var(--app-accent-on-solid));
+  opacity: 0;
+  stroke-width: 3;
+}
+
+.app-dream-checkbox__control:checked + .app-dream-checkbox__visual {
+  border-color: hsl(var(--app-accent-solid));
+  background: hsl(var(--app-accent-solid));
+  box-shadow: none;
+}
+
+.app-dream-checkbox__control:checked + .app-dream-checkbox__visual svg {
+  opacity: 1;
+}
+
+.app-dream-checkbox__control:not(:checked):hover + .app-dream-checkbox__visual {
+  background: var(--dream-surface-hover);
+}
+
+.app-dream-checkbox__control:focus-visible + .app-dream-checkbox__visual {
+  outline: 2px solid hsl(var(--app-accent-ring));
+  outline-offset: 2px;
+}
+
+.app-dream-checkbox__control {
+  cursor: pointer;
+}
+
+.app-dream-checkbox__control:disabled {
+  cursor: not-allowed;
+}
+
+.app-dream-checkbox__control:disabled + .app-dream-checkbox__visual {
+  opacity: 0.5;
+}
+
+.app-dream-button-group,
+.app-dream-segment-group {
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: var(--dream-surface-muted);
+  box-shadow: var(--dream-control-shadow);
+  overflow: hidden;
+}
+
+.app-dream-button-group :is(.app-dream-button, button.app-motion-surface, select.app-dream-select, input.app-dream-input, [role="tab"], [role="combobox"]),
+.app-dream-segment-group :is(.app-dream-button, button.app-motion-surface, select.app-dream-select, input.app-dream-input, [role="tab"], [role="combobox"]) {
+  min-height: var(--dream-control-height);
+  border: 0;
+  border-radius: var(--dream-control-radius-inner);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(.app-dream-button, button.app-motion-surface, [role="tab"], [role="combobox"]):hover,
+.app-dream-segment-group :is(.app-dream-button, button.app-motion-surface, [role="tab"], [role="combobox"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+.app-dream-button-group :is(select.app-dream-select, input.app-dream-input),
+.app-dream-segment-group :is(select.app-dream-select, input.app-dream-input) {
+  height: var(--dream-control-height);
+  background-color: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]) {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-primary, .text-primary, [aria-selected="true"], [data-active="true"]):hover {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground) {
+  background: var(--dream-accent-surface);
+  color: var(--dream-accent-text);
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-accent, .text-accent-foreground):hover {
+  background: var(--dream-accent-surface-hover);
+  color: var(--dream-accent-text);
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground),
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground),
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground) {
+  background: transparent;
+  color: hsl(var(--destructive));
+  box-shadow: none;
+}
+
+.app-dream-button-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover,
+.app-dream-segment-group :is(button, select, [role="tab"], [role="combobox"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover,
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):is(.bg-destructive, .text-destructive, .text-destructive-foreground):hover {
+  background: hsl(var(--destructive) / 0.11);
+  color: hsl(var(--destructive));
+}
+
+.app-dream-button-group.app-dream-button-group-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: calc(var(--dream-control-height) + 0.25rem);
+  padding: 0.125rem;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]) {
+  height: var(--dream-control-height);
+  min-height: var(--dream-control-height);
+  width: var(--dream-control-height);
+  min-width: var(--dream-control-height);
+  border: 0;
+  border-radius: var(--dream-control-radius);
+  background: transparent;
+  color: var(--dream-text-muted);
+  box-shadow: none;
+  padding: 0;
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):hover {
+  background: var(--dream-surface-hover);
+  color: hsl(var(--foreground));
+}
+
+:is(.app-dream-window, .app-dream-frame, .app-dialog-content) .app-dream-button-group.app-dream-button-group-icon button.app-dream-button.app-motion-surface.app-control-compact-icon:not(.app-main-sidebar-action):not(.app-main-user-button):not(.app-running-new-download-button):not([class*="listen-"]):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--dream-line-focus);
+}
+
+.app-dream-menu-item,
+.app-menu-item {
+  color: var(--dream-text-muted);
+}
+
+.app-menu-item[role="menuitemcheckbox"] {
+  padding-left: 2rem;
+}
+
+.app-menu-item[role="menuitemcheckbox"] > span:first-child {
+  left: 0.625rem;
+}
+
+.app-dream-menu-item:hover,
+.app-dream-menu-item:focus,
+.app-dream-menu-item[data-highlighted],
+.app-menu-item:hover,
+.app-menu-item:focus,
+.app-menu-item[data-highlighted] {
+  background: var(--app-glass-interactive-fill);
+  color: hsl(var(--foreground));
+}
+
+.app-dream-menu-item:is(:hover, :focus, [data-highlighted]) :is(svg, span),
+.app-menu-item:is(:hover, :focus, [data-highlighted]) :is(svg, span) {
+  color: currentColor;
+}
+
+.app-dream-menu-item[data-state="checked"],
+.app-menu-item[data-state="checked"] {
+  background: var(--dream-primary-surface);
+  color: var(--dream-primary-text);
+  box-shadow: inset 0 0 0 1px var(--dream-primary-line);
+}
+
+:is(.app-dream-menu-item, .app-menu-item)[data-tone="destructive"] {
+  color: hsl(var(--destructive));
+}
+
+.app-dream-menu-item[data-state="checked"]:hover,
+.app-dream-menu-item[data-state="checked"]:focus,
+.app-dream-menu-item[data-state="checked"][data-highlighted],
+.app-menu-item[data-state="checked"]:hover,
+.app-menu-item[data-state="checked"]:focus,
+.app-menu-item[data-state="checked"][data-highlighted] {
+  background: var(--dream-primary-surface-hover);
+  color: var(--dream-primary-text);
+}
+
+:is(.app-dream-menu-item, .app-menu-item)[data-tone="destructive"]:is(
+    :hover,
+    :focus,
+    [data-highlighted]
+  ) {
+  color: hsl(var(--destructive));
+  background: hsl(var(--destructive) / 0.11);
+}
+
+@media (forced-colors: active) {
+  :is(.app-dream-menu-item, .app-menu-item):is(
+      :hover,
+      :focus,
+      [data-highlighted]
+    ) {
+    color: HighlightText;
+    background: Highlight;
+    forced-color-adjust: none;
+  }
 }

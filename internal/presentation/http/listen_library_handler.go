@@ -3,36 +3,53 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 
 	"xiadown/internal/application/youtubemusic"
 )
 
 const (
-	listenLibraryPlaylistLimit       = 18
-	listenLibraryArtistLimit         = 12
-	listenLibraryLikedSongLimit      = 50
 	listenLibraryRecommendationLimit = 18
+	listenLibraryHomeShelfLimit      = 20
 	listenLibraryShelfLimit          = 8
 	listenLibraryShelfItemLimit      = 12
 	listenLibraryTimeout             = 25 * time.Second
+	listenLibraryLogDetailLimit      = 512
 )
 
+var listenLibrarySensitiveDetailPatterns = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	{regexp.MustCompile(`(?i)(https?://[^?\s"]+)\?[^\s"]+`), `${1}?[REDACTED]`},
+	{regexp.MustCompile(`(?i)("(?:authorization|proxy-authorization|cookie|set-cookie|key|token|access_token|refresh_token|id_token)"\s*:\s*")[^"]*(")`), `${1}[REDACTED]${2}`},
+	{regexp.MustCompile(`(?i)(\b(?:authorization|proxy-authorization)\s*[:=]\s*)(?:bearer\s+|sapisidhash\s+)?[^,;]+`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)(\b(?:cookie|set-cookie)\s*[:=]\s*)[^\r\n]+`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)([?&](?:key|token|access_token|refresh_token|id_token|auth|authorization)=)[^&\s]+`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)(\b(?:key|token|access_token|refresh_token|id_token)\s*=\s*)[^\s,;&]+`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)(\b(?:SAPISID|APISID|SID|HSID|SSID|__Secure-[^=\s]+)=)[^\s,;]+`), `${1}[REDACTED]`},
+	{regexp.MustCompile(`(?i)\bSAPISIDHASH\s+\S+`), `SAPISIDHASH [REDACTED]`},
+}
+
 const (
-	listenLibrarySourceHome    = "home"
-	listenLibrarySourceExplore = "explore"
-	listenLibrarySourceCharts  = "charts"
-	listenLibrarySourceMoods   = "moods"
-	listenLibrarySourceNew     = "new"
-	listenLibrarySourceHistory = "history"
+	listenLibrarySourceHome      = "home"
+	listenLibrarySourceExplore   = "explore"
+	listenLibrarySourceCharts    = "charts"
+	listenLibrarySourceMoods     = "moods"
+	listenLibrarySourceNew       = "new"
+	listenLibrarySourceHistory   = "history"
+	listenLibrarySourceRecent    = "recent"
+	listenLibrarySourcePodcasts  = "podcasts"
+	listenLibrarySourcePlaylists = "playlists"
 )
 
 type listenYouTubeMusicLibraryClient interface {
-	LibraryPlaylists(ctx context.Context, limit int) ([]youtubemusic.Playlist, error)
-	LibraryArtists(ctx context.Context, limit int) ([]youtubemusic.Artist, error)
-	LikedSongs(ctx context.Context, limit int) ([]youtubemusic.Track, error)
 	HomeRecommendations(ctx context.Context, limit int) ([]youtubemusic.Track, error)
 	HomeShelves(ctx context.Context, sectionLimit int, itemLimit int) ([]youtubemusic.Shelf, error)
 	BrowseShelves(ctx context.Context, browseID string, sectionLimit int, itemLimit int) ([]youtubemusic.Shelf, error)
@@ -120,13 +137,23 @@ func (handler *ListenLibraryHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	playlists, playlistErr := handler.ytMusic.LibraryPlaylists(ctx, listenLibraryPlaylistLimit)
-	artists, artistErr := handler.ytMusic.LibraryArtists(ctx, listenLibraryArtistLimit)
-	likedSongs, likedErr := handler.ytMusic.LikedSongs(ctx, listenLibraryLikedSongLimit)
-	homePage, homeShelvesErr := handler.ytMusic.BrowseShelvesPage(ctx, listenLibrarySourceBrowseID(listenLibrarySourceHome), "", "", listenLibraryShelfLimit, listenLibraryShelfItemLimit)
+	homePage, homeShelvesErr := handler.ytMusic.BrowseShelvesPage(ctx, listenLibrarySourceBrowseID(listenLibrarySourceHome), "", "", listenLibraryHomeShelfLimit, listenLibraryShelfItemLimit)
 	homeShelves := homePage.Shelves
+	if errors.Is(homeShelvesErr, youtubemusic.ErrBrowseUnavailable) ||
+		errors.Is(homeShelvesErr, youtubemusic.ErrRegionUnavailable) {
+		writeListenLibraryError(
+			w,
+			r,
+			listenLibraryErrorHTTPStatus(homeShelvesErr),
+			listenLibraryErrorCode(homeShelvesErr),
+			listenLibraryErrorMessage(homeShelvesErr, source),
+			strings.TrimSpace(homeShelvesErr.Error()),
+			source,
+		)
+		return
+	}
 	if homeShelvesErr != nil {
-		homeShelves, homeShelvesErr = handler.ytMusic.HomeShelves(ctx, listenLibraryShelfLimit, listenLibraryShelfItemLimit)
+		homeShelves, homeShelvesErr = handler.ytMusic.HomeShelves(ctx, listenLibraryHomeShelfLimit, listenLibraryShelfItemLimit)
 	}
 
 	var recommendations []youtubemusic.Track
@@ -134,14 +161,8 @@ func (handler *ListenLibraryHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	if homeShelvesErr != nil || len(homeShelves) == 0 {
 		recommendations, recommendationErr = handler.ytMusic.HomeRecommendations(ctx, listenLibraryRecommendationLimit)
 	}
-	if playlistErr != nil && artistErr != nil && likedErr != nil && homeShelvesErr != nil && recommendationErr != nil {
-		err := firstListenLibraryError(
-			playlistErr,
-			artistErr,
-			likedErr,
-			homeShelvesErr,
-			recommendationErr,
-		)
+	if homeShelvesErr != nil && recommendationErr != nil {
+		err := firstListenLibraryError(homeShelvesErr, recommendationErr)
 		writeListenLibraryError(
 			w,
 			r,
@@ -149,9 +170,6 @@ func (handler *ListenLibraryHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 			listenLibraryErrorCode(err),
 			listenLibraryErrorMessage(err, source),
 			joinListenLibraryErrors([]listenLibraryNamedError{
-				{name: "playlists", err: playlistErr},
-				{name: "artists", err: artistErr},
-				{name: "liked songs", err: likedErr},
 				{name: "home shelves", err: homeShelvesErr},
 				{name: "recommendations", err: recommendationErr},
 			}),
@@ -159,7 +177,6 @@ func (handler *ListenLibraryHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 		)
 		return
 	}
-	likedSongs = enrichListenTrackDurations(ctx, handler.ytMusic, likedSongs)
 	recommendations = enrichListenTrackDurations(ctx, handler.ytMusic, recommendations)
 	homeShelves = enrichListenShelfTrackDurations(ctx, handler.ytMusic, homeShelves)
 
@@ -167,9 +184,6 @@ func (handler *ListenLibraryHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	responseRecommendations := flattenListenLibraryTrackShelves(responseShelves, listenLibraryRecommendationLimit)
 	if len(responseRecommendations) == 0 {
 		responseRecommendations = mapYouTubeMusicTracksToListenItems(recommendations, "ytmusic-home")
-	}
-	if likedShelf := mapYouTubeMusicLikedSongsToListenShelf(likedSongs); len(likedShelf.Tracks) > 0 {
-		responseShelves = append([]ListenLibraryShelf{likedShelf}, responseShelves...)
 	}
 	if len(responseShelves) == 0 && len(responseRecommendations) > 0 {
 		responseShelves = []ListenLibraryShelf{{
@@ -180,8 +194,8 @@ func (handler *ListenLibraryHandler) ServeHTTP(w http.ResponseWriter, r *http.Re
 	}
 
 	writeListenLibraryJSON(w, r, ListenLibraryResponse{
-		Playlists:       mapYouTubeMusicPlaylistsToListenPlaylistItems(playlists, "ytmusic-library"),
-		Artists:         mapYouTubeMusicArtistsToListenArtistItems(artists, "ytmusic-library-artist"),
+		Playlists:       []ListenPlaylistItem{},
+		Artists:         []ListenArtistItem{},
 		Recommendations: responseRecommendations,
 		Shelves:         responseShelves,
 		Continuation:    homePage.Continuation,
@@ -225,8 +239,12 @@ func (handler *ListenLibraryHandler) serveBrowseSource(w http.ResponseWriter, r 
 	shelves := page.Shelves
 	shelves = enrichListenShelfTrackDurations(ctx, handler.ytMusic, shelves)
 	responseShelves := mapYouTubeMusicShelvesToListenShelvesWithPrefixes(shelves, "ytmusic-"+source, "ytmusic-"+source+"-playlist")
+	responsePlaylists := []ListenPlaylistItem{}
+	if source == listenLibrarySourcePlaylists {
+		responsePlaylists = flattenListenLibraryShelfPlaylists(responseShelves)
+	}
 	writeListenLibraryJSON(w, r, ListenLibraryResponse{
-		Playlists:       []ListenPlaylistItem{},
+		Playlists:       responsePlaylists,
 		Recommendations: flattenListenLibraryTrackShelves(responseShelves, listenLibraryRecommendationLimit),
 		Shelves:         responseShelves,
 		Continuation:    page.Continuation,
@@ -288,7 +306,29 @@ type listenLibraryNamedError struct {
 }
 
 func writeListenLibraryError(w http.ResponseWriter, r *http.Request, status int, code string, message string, detail string, source string) {
+	if r == nil || !errors.Is(r.Context().Err(), context.Canceled) {
+		zap.L().Warn(
+			"listen youtube music library request failed",
+			zap.Int("status", status),
+			zap.String("code", strings.TrimSpace(code)),
+			zap.String("source", strings.TrimSpace(source)),
+			zap.String("detail", safeListenLibraryLogDetail(detail)),
+		)
+	}
 	writeListenError(w, r, status, code, message, detail, source, listenYouTubeMusicErrorRetryableFromCode(code))
+}
+
+func safeListenLibraryLogDetail(detail string) string {
+	safe := detail
+	for _, sensitive := range listenLibrarySensitiveDetailPatterns {
+		safe = sensitive.pattern.ReplaceAllString(safe, sensitive.replacement)
+	}
+	safe = strings.Join(strings.Fields(safe), " ")
+	runes := []rune(safe)
+	if len(runes) > listenLibraryLogDetailLimit {
+		safe = string(runes[:listenLibraryLogDetailLimit]) + "…"
+	}
+	return safe
 }
 
 func firstListenLibraryError(errs ...error) error {
@@ -342,6 +382,12 @@ func normalizeListenLibrarySource(value string) string {
 		return listenLibrarySourceNew
 	case listenLibrarySourceHistory:
 		return listenLibrarySourceHistory
+	case listenLibrarySourceRecent:
+		return listenLibrarySourceRecent
+	case listenLibrarySourcePodcasts:
+		return listenLibrarySourcePodcasts
+	case listenLibrarySourcePlaylists:
+		return listenLibrarySourcePlaylists
 	default:
 		return cleaned
 	}
@@ -361,6 +407,12 @@ func listenLibrarySourceBrowseID(source string) string {
 		return "FEmusic_new_releases"
 	case listenLibrarySourceHistory:
 		return "FEmusic_history"
+	case listenLibrarySourceRecent:
+		return "FEmusic_library_landing"
+	case listenLibrarySourcePodcasts:
+		return "FEmusic_podcasts"
+	case listenLibrarySourcePlaylists:
+		return "FEmusic_liked_playlists"
 	default:
 		return ""
 	}
@@ -368,19 +420,10 @@ func listenLibrarySourceBrowseID(source string) string {
 
 func listenLibraryBrowseOverrideAllowed(source string, browseID string) bool {
 	switch source {
-	case listenLibrarySourceMoods:
+	case listenLibrarySourceHome, listenLibrarySourceMoods:
 		return strings.HasPrefix(strings.TrimSpace(browseID), "FEmusic_moods_and_genres")
 	default:
 		return false
-	}
-}
-
-func mapYouTubeMusicLikedSongsToListenShelf(tracks []youtubemusic.Track) ListenLibraryShelf {
-	return ListenLibraryShelf{
-		ID:     "ytmusic-liked-songs",
-		Title:  "Liked Music",
-		Kind:   string(youtubemusic.ShelfTracks),
-		Tracks: mapYouTubeMusicTracksToListenItems(tracks, "ytmusic-liked"),
 	}
 }
 
@@ -427,8 +470,12 @@ func mapYouTubeMusicShelvesToListenShelvesWithPrefixes(shelves []youtubemusic.Sh
 			item.Playlists = mapYouTubeMusicPlaylistsToListenPlaylistItems(shelf.Playlists, playlistPrefix)
 		case youtubemusic.ShelfCategories:
 			item.Categories = mapYouTubeMusicCategoriesToListenCategoryItems(shelf.Categories)
-		case "podcasts":
-			continue
+		case youtubemusic.ShelfKind("podcasts"):
+			// Keep the HTTP contract compatible with existing Music workspace
+			// clients: podcast shows are navigable collections, so expose them
+			// through the established playlists shape.
+			item.Kind = string(youtubemusic.ShelfPlaylists)
+			item.Playlists = mapYouTubeMusicPlaylistsToListenPlaylistItems(shelf.Playlists, playlistPrefix)
 		default:
 			item.Kind = string(youtubemusic.ShelfTracks)
 			item.Tracks = mapYouTubeMusicTracksToListenItems(shelf.Tracks, trackPrefix)
@@ -490,6 +537,25 @@ func flattenListenLibraryTrackShelves(shelves []ListenLibraryShelf, limit int) [
 			if len(items) >= limit {
 				return items
 			}
+		}
+	}
+	return items
+}
+
+func flattenListenLibraryShelfPlaylists(shelves []ListenLibraryShelf) []ListenPlaylistItem {
+	items := make([]ListenPlaylistItem, 0)
+	seen := make(map[string]struct{})
+	for _, shelf := range shelves {
+		for _, playlist := range shelf.Playlists {
+			playlistID := strings.TrimSpace(playlist.PlaylistID)
+			if playlistID == "" {
+				continue
+			}
+			if _, exists := seen[playlistID]; exists {
+				continue
+			}
+			seen[playlistID] = struct{}{}
+			items = append(items, playlist)
 		}
 	}
 	return items

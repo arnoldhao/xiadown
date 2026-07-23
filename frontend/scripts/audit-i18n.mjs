@@ -10,6 +10,8 @@ const fixEnglishStyle = process.argv.includes("--fix-english-style");
 
 const localeDir = path.join(rootDir, "src", "shared", "i18n", "locales");
 const sourceDir = path.join(rootDir, "src");
+// Developer-only visual labs are not shipped as user-facing product copy.
+const sourceAuditFileSkipPatterns = [/^src\/app\/dev\//];
 // Apple HIG alignment:
 // - Keep user-visible text localizable, then test each supported language.
 // - Prefer concise, direct labels; placeholders can hint input but must not be
@@ -29,12 +31,13 @@ const englishStyleSkipKeys = new Set([
   "settings.language.option.idID",
   "settings.language.option.viVN",
   "settings.appSessions.youtubeAccountFallbackName",
+  "xiadown.workspace.openLibrary",
 ]);
 const englishStylePreservePhrases = [
   "XiaDown",
   "DreamApp",
   "Pet Gallery",
-  "Sniff Desk",
+  "Sniff",
   "Codex",
   "codex-pets.net",
   "codexpet.xyz",
@@ -55,7 +58,10 @@ const englishStylePreservePhrases = [
   "Bun",
   "FFmpeg",
   "GitHub",
+  "RSSHub",
+  "YouTube Music",
   "YouTube",
+  "Lo-fi",
   "Bilibili",
   "TikTok",
   "Douyin",
@@ -182,7 +188,7 @@ const englishTitleStyleExplicitPatterns = [
   /^xiadown\.running\.(?:title|loading|overviewTitle|taskCount|overallProgress|throughput|elapsed|runningCount|queuedCount|downloadSpeed|transcodeSpeed|downloadBadge|transcodeBadge|source|createdAt|localSource|stage|status|eta|cancelConfirmTitle|stageLabels\.)/,
   /^xiadown\.completed\.(?:title|records|outputs|info|taskDetail|taskDtoTitle|openTaskDto|copyDownloadUrl|copyFailed|taskDataFields\.|fileDetail|searchTasks|searchFiles|searchFilter|total|taskCountLabel|fileCountLabel|perPage|itemUnit|page|taskStatus|source|fileType|fileFormat|fileInfo|selectFiles|selectAll|clearSelection|verifyFiles|clearMissingFiles|selectionSummary|selectionUnit|lineUnit|lineCount|deleteFiles|deleteTaskTitle|deleteTasksTitle|deleteFileTitle|deleteFilesTitle|previousPage|nextPage|preview|updatedAt|videoCount|subtitleCount|imageCount|type|resolution|frameRate|duration|channels|dpi|codec|bitrate|videoBitrate|audioBitrate|fileSize|originalFormat|succeeded|failed|canceled)/,
   /^xiadown\.welcome\.(?:title|language|proxy|dependencies|dependencyStatus|latestVersion|bgmOff|bgmOn|enterApp|installAll|installing|proxyNone|proxySystem|readyTitle|stage|systemProxyTitle|theme)/,
-  /^xiadown\.settings\.(?:title|tabs\.|startup|tray|menuBar|syncedLyrics|romanizedLyrics|pinyinLyrics|downloadDirectory|ytdlpConcurrentDownloads|ytdlpConcurrentFragments|sniffBrowser|refreshBrowsers|browserData|browserDataSize|browserDataOpen|browserDataClear|language|logLevel|themePack|accent|accentColor|fontFamily|fontSize|colorScheme|appearanceMode|sidebarStyle|systemProxy|manualProxy|noProxy|proxy|host|port|username|password|timeout|scheme|noProxyList|status|checking|notConfigured|unavailable|systemSource|vpnSource|editProxy|proxyDialogTitle|otherSoftware|menuBarOptions\.|colorSchemeOptions\.|sidebarStyleOptions\.|accentOptions\.|equalizer\.(?:title|enable|preset|bands|preamp|reset|retry|openSettings|custom|status\.|presets\.))/,
+  /^xiadown\.settings\.(?:title|tabs\.|aiUnderConstruction|startup|tray|menuBar|syncedLyrics|romanizedLyrics|pinyinLyrics|downloadDirectory|ytdlpConcurrentDownloads|ytdlpConcurrentFragments|sniffBrowser|refreshBrowsers|browserData|browserDataSize|browserDataOpen|browserDataClear|language|logLevel|themePack|accent|accentColor|fontFamily|fontSize|colorScheme|appearanceMode|sidebarStyle|systemProxy|manualProxy|noProxy|proxy|host|port|username|password|timeout|scheme|noProxyList|status|checking|notConfigured|unavailable|systemSource|vpnSource|editProxy|proxyDialogTitle|otherSoftware|menuBarOptions\.|colorSchemeOptions\.|sidebarStyleOptions\.|accentOptions\.|equalizer\.(?:title|enable|preset|bands|preamp|reset|retry|openSettings|custom|status\.|presets\.))/,
   /^xiadown\.dependencies\.(?:title|installed|missing|invalid|idle|latestVersion|currentVersion|execPath|noRemoteVersionInfo|reinstall|downloading|extracting|verifying|installing|missingDependency)/,
   /^xiadown\.dialogs\.(?:downloadTitle|transcodeTitle|dependenciesRequiredTitle|requestDownload|quickMode|customMode|preset|format|quality|qualityBest|qualityAudio|selectFormat|size|container|codec|scaleOriginal|scaleCustom|subtitles|noSubtitle|noTranscode|keepOnlyTranscodedFile|parse|parseAgain|currentStatus|useAppSession|appSessionAvailable|appSessionUnavailable|noAvailableAppSession|appSessionNotConfigured|appSessionCanEnable|appSessionCookiesDownload|modifyLink|modifyFile|path|fileAddress|inspectingFile|fileInspectFailed|noCompatibleTranscodePreset)$/,
   /^xiadown\.dialogs\.formatGroup(?:Video|Audio)$/,
@@ -202,7 +208,7 @@ const englishSentenceStyleExplicitPatterns = [
   /^xiadown\.settings\.(?:proxyDialogHint|aboutText|generalDescription|appearanceDescription|proxyDescription|systemProxyEmpty|proxyTestSucceeded|proxyTestFailed|ytdlpConcurrentDownloadsHelp|ytdlpConcurrentFragmentsHelp|equalizer\.(?:macOSOnly|messages\.))$/,
   /^xiadown\.dependencies\.subtitle$/,
   /^xiadown\.dialogs\.(?:dependenciesRequiredDescription|downloadPlaceholder|parseFailedWithoutAppSession|parseFailedWithAppSession|nameHint)$/,
-  /^xiadown\.listen\.(?:subtitle|localEmpty|localEmptyPrompt|liveUnavailable|liveEmpty|confirmRemoveChannel|customCatalogSummary|addChannelPlaceholder|channelVideoIdRequired|channelNotLive|channelTitleRequired|confirmRemoveColumn|customColumnPlaceholder|columnTitleRequired|columnAlreadyExists|userCatalogSaveFailed|playlistTrackCount|playlistTrackCountMore|idleSubtitle|favoriteUnavailable|selectStation|onlineHint|onlineUnavailable|onlineConnectionPrompt|onlineAuthRequired|onlineAuthExpired|onlineNetworkUnavailable|onlineServiceUnavailable|onlineEmpty|searchUnavailable|searchEmpty|linkCopied|artistUnavailable|artistEmpty|playlistEmpty|upNextEmpty|playerUnavailable)$/,
+  /^xiadown\.listen\.(?:subtitle|localEmpty|localEmptyPrompt|liveUnavailable|liveEmpty|confirmRemoveChannel|customCatalogSummary|addChannelPlaceholder|channelVideoIdRequired|channelNotLive|channelTitleRequired|confirmRemoveColumn|customColumnPlaceholder|columnTitleRequired|columnAlreadyExists|userCatalogSaveFailed|playlistTrackCount|playlistTrackCountMore|idleSubtitle|favoriteUnavailable|selectStation|onlineHint|onlineUnavailable|onlineConnectionPrompt|onlineAuthRequired|onlineAuthExpired|onlineNetworkUnavailable|onlineRegionUnavailable|onlineTransientUnavailable|onlineServiceUnavailable|onlineEmpty|searchUnavailable|searchEmpty|linkCopied|artistUnavailable|artistEmpty|playlistEmpty|upNextEmpty|playerUnavailable)$/,
   /^xiadown\.whatsNew\.empty$/,
   /^xiadown\.about\.(?:dreamCreatorDescription|hushDescription)$/,
   /^xiadown\.petGallery\.(?:empty|importInvalid|importSucceeded|errors\.|exportSucceeded|deleteMessage|deleteSucceeded|generationGuide\.steps\.[0-9]+\.description|generationGuide\.greatPetTips\.|importDialog\.(?:description|onlineDescription|validationReady|importedEmpty))$/,
@@ -263,6 +269,8 @@ const zhAllowedEnglishKeyPatterns = [
   /^settings\.appSessions\.item\./,
   /^xiadown\.welcome\.readyHint$/,
   /^xiadown\.petGallery\./,
+  /^xiadown\.about\.hush$/,
+  /^xiadown\.settings\.libraryAccess\.(?:tailscale|tailscaleDescription|tailscalePort|tailscaleURL)$/,
 ];
 const runningFramesPerSecondUnitKey = "xiadown.running.units.framesPerSecond";
 const runningFramesPerSecondUnitValue = "{value} FPS";
@@ -278,8 +286,10 @@ const zhAllowedEnglishTokens = new Set([
   "bun",
   "GitHub",
   "Issues",
+  "Sniff",
   "YouTube",
-  "Hush",
+  "RSS",
+  "RSSHub",
   "Music",
   "lo-fi",
   "Lo-fi",
@@ -292,10 +302,12 @@ const zhAllowedEnglishTokens = new Set([
   "AI",
   "EP",
   "API",
+  "CDP",
   "Markdown",
   "Vibe",
   "Coding",
   "AirPlay",
+  "Chrome",
   "macOS",
   "DreamCreator",
   "DreamApp",
@@ -914,7 +926,10 @@ const localeFlats = Object.fromEntries(
 const en = flatten(enSource);
 const zh = localeFlats["zh-CN"] ?? {};
 const chineseLocales = Object.entries(localeFlats).filter(([locale]) => isChineseLocale(locale));
-const files = walk(sourceDir);
+const files = walk(sourceDir).filter(
+  (file) =>
+    !sourceAuditFileSkipPatterns.some((pattern) => pattern.test(relative(file))),
+);
 const localeKeys = new Set(Object.values(localeFlats).flatMap((values) => Object.keys(values)));
 const sortedLocaleKeys = [...localeKeys];
 
@@ -960,9 +975,18 @@ for (const file of files) {
     true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   );
+  const skipHardcodedEnglish = shouldSkipHardcodedEnglishPropertyFile(file);
 
   function visit(node) {
-    if (ts.isJsxText(node)) {
+    if (ts.isIdentifier(node) && node.text === "copy") {
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+      i18nCopyNamingViolations.push({
+        file: relative(file),
+        line,
+        content: node.getText(sourceFile),
+      });
+    }
+    if (!skipHardcodedEnglish && ts.isJsxText(node)) {
       const content = visibleTextValue(node.getText(sourceFile));
       if (!looksLikeNonUserFacingVisibleText(content)) {
         const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
@@ -974,6 +998,7 @@ for (const file of files) {
       }
     }
     if (
+      !skipHardcodedEnglish &&
       ts.isJsxAttribute(node) &&
       node.initializer &&
       ts.isStringLiteral(node.initializer) &&
@@ -1079,13 +1104,6 @@ for (const file of files) {
     const trimmed = line.trim();
     if (!trimmed) {
       continue;
-    }
-    if (/\bcopy\b/.test(line)) {
-      i18nCopyNamingViolations.push({
-        file: relative(file),
-        line: index + 1,
-        content: trimmed,
-      });
     }
     if (/^\/\/|^\/\*|^\*|^\{\/\*/.test(trimmed)) {
       continue;

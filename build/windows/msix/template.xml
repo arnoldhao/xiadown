@@ -17,7 +17,7 @@
         PackageDisplayName="XiaDown"
         PublisherName="CN=DreamApp"
         PublisherDisplayName="DreamApp"
-        Version="2.0.0.0"
+        Version="0.0.0.0"
         PackageDescription="A yt-dlp powered downloader and transcoder.">
         <Capabilities>
             <Capability Name="runFullTrust" />
@@ -25,7 +25,7 @@
         </Capabilities>
         <Applications>
             <Application
-                Id="com.example.xiadown"
+                Id="com.dreamapp.xiadown"
                 Description="A yt-dlp powered downloader and transcoder."
                 DisplayName="XiaDown"
                 ExecutableName="xiadown"

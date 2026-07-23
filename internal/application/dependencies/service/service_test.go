@@ -3,6 +3,7 @@ package service
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -65,6 +66,21 @@ func TestEnsureDefaultsIncludesCoreDependencies(t *testing.T) {
 		if _, err := repo.Get(context.Background(), string(name)); err != nil {
 			t.Fatalf("expected default dependency %s: %v", name, err)
 		}
+	}
+}
+
+func TestHasActiveInstallsTracksMutatingStages(t *testing.T) {
+	service := NewDependenciesService(newMemoryRepo(), nil, "")
+	if service.HasActiveInstalls() {
+		t.Fatal("new dependency service must be idle")
+	}
+	service.setInstallState(dependencies.DependencyYTDLP, installStageDownloading, 10, "")
+	if !service.HasActiveInstalls() {
+		t.Fatal("downloading dependency must block component cleanup")
+	}
+	service.setInstallState(dependencies.DependencyYTDLP, installStageDone, 100, "")
+	if service.HasActiveInstalls() {
+		t.Fatal("completed dependency install must release cleanup barrier")
 	}
 }
 
@@ -262,14 +278,7 @@ func TestSetDependencyPathFFmpegRequiresFFprobe(t *testing.T) {
 	service := NewDependenciesService(repo, nil, "")
 
 	execDir := t.TempDir()
-	ffmpegPath := filepath.Join(execDir, executableNameForBinary("ffmpeg"))
-	ffprobePath := filepath.Join(execDir, executableNameForBinary("ffprobe"))
-	ffmpegScript := "#!/bin/sh\nprintf 'ffmpeg version 7.1.1\\n'"
-	ffprobeScript := "#!/bin/sh\nprintf 'ffprobe version 7.1.1\\n'"
-
-	if err := os.WriteFile(ffmpegPath, []byte(ffmpegScript), 0o755); err != nil {
-		t.Fatalf("write ffmpeg stub failed: %v", err)
-	}
+	ffmpegPath := writeDependencyVersionTestExecutable(t, execDir, "ffmpeg", "7.1.1")
 
 	result, err := service.SetDependencyPath(ctx, dto.SetDependencyPathRequest{
 		Name:     string(dependencies.DependencyFFmpeg),
@@ -282,9 +291,7 @@ func TestSetDependencyPathFFmpegRequiresFFprobe(t *testing.T) {
 		t.Fatalf("expected invalid status without ffprobe, got %s", result.Status)
 	}
 
-	if err := os.WriteFile(ffprobePath, []byte(ffprobeScript), 0o755); err != nil {
-		t.Fatalf("write ffprobe stub failed: %v", err)
-	}
+	writeDependencyVersionTestExecutable(t, execDir, "ffprobe", "7.1.1")
 
 	result, err = service.SetDependencyPath(ctx, dto.SetDependencyPathRequest{
 		Name:     string(dependencies.DependencyFFmpeg),
@@ -298,6 +305,137 @@ func TestSetDependencyPathFFmpegRequiresFFprobe(t *testing.T) {
 	}
 	if strings.TrimSpace(result.Version) != "7.1.1" {
 		t.Fatalf("unexpected ffmpeg version: %s", result.Version)
+	}
+}
+
+func TestSetDependencyPathRejectsUnsupportedDependency(t *testing.T) {
+	t.Parallel()
+
+	service := NewDependenciesService(newMemoryRepo(), nil, "")
+	_, err := service.SetDependencyPath(context.Background(), dto.SetDependencyPathRequest{
+		Name:     "../../external",
+		ExecPath: filepath.Join(t.TempDir(), "tool"),
+	})
+	if !errors.Is(err, dependencies.ErrInvalidDependency) {
+		t.Fatalf("expected unsupported dependency rejection, got %v", err)
+	}
+}
+
+func TestRemoveDependencyPreservesExternalManualPath(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	for _, test := range []struct {
+		name        string
+		externalDir func(baseDir string) string
+	}{
+		{
+			name: "separate directory",
+			externalDir: func(string) string {
+				return t.TempDir()
+			},
+		},
+		{
+			name: "managed root prefix sibling",
+			externalDir: func(baseDir string) string {
+				return filepath.Join(baseDir, string(dependencies.DependencyFFmpeg)+"-backup")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			baseDir := filepath.Join(t.TempDir(), "dependencies")
+			externalDir := test.externalDir(baseDir)
+			if err := os.MkdirAll(externalDir, 0o755); err != nil {
+				t.Fatalf("create external directory: %v", err)
+			}
+			execPath := filepath.Join(externalDir, executableNameForBinary("ffmpeg"))
+			markerPath := filepath.Join(externalDir, "keep.txt")
+			if err := os.WriteFile(execPath, []byte("manual"), 0o755); err != nil {
+				t.Fatalf("write manual dependency: %v", err)
+			}
+			if err := os.WriteFile(markerPath, []byte("keep"), 0o600); err != nil {
+				t.Fatalf("write external marker: %v", err)
+			}
+			repo := newMemoryRepo()
+			dependency, err := dependencies.NewDependency(dependencies.DependencyParams{
+				Name:     string(dependencies.DependencyFFmpeg),
+				ExecPath: execPath,
+				Status:   string(dependencies.StatusInstalled),
+			})
+			if err != nil {
+				t.Fatalf("create dependency: %v", err)
+			}
+			if err := repo.Save(ctx, dependency); err != nil {
+				t.Fatalf("save dependency: %v", err)
+			}
+			service := NewDependenciesService(repo, nil, "")
+			service.dependenciesDir = func() (string, error) { return baseDir, nil }
+
+			if err := service.RemoveDependency(ctx, dto.RemoveDependencyRequest{Name: string(dependencies.DependencyFFmpeg)}); err != nil {
+				t.Fatalf("remove manual dependency record: %v", err)
+			}
+			for _, path := range []string{execPath, markerPath} {
+				if _, err := os.Stat(path); err != nil {
+					t.Fatalf("external path %q must survive record removal: %v", path, err)
+				}
+			}
+			stored, err := repo.Get(ctx, string(dependencies.DependencyFFmpeg))
+			if err != nil || stored.ExecPath != "" || stored.Status != dependencies.StatusMissing {
+				t.Fatalf("expected cleared dependency record, got %#v, %v", stored, err)
+			}
+		})
+	}
+}
+
+func TestRemoveDependencyDeletesOnlyManagedDependencyRoot(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	baseDir := filepath.Join(t.TempDir(), "dependencies")
+	managedDir := filepath.Join(baseDir, string(dependencies.DependencyFFmpeg))
+	execPath := filepath.Join(managedDir, "7.1.3", "bin", executableNameForBinary("ffmpeg"))
+	otherDependencyMarker := filepath.Join(baseDir, string(dependencies.DependencyBun), "keep.txt")
+	for _, path := range []string{execPath, otherDependencyMarker} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("create managed directory: %v", err)
+		}
+		if err := os.WriteFile(path, []byte("managed"), 0o755); err != nil {
+			t.Fatalf("write managed file: %v", err)
+		}
+	}
+	repo := newMemoryRepo()
+	dependency, err := dependencies.NewDependency(dependencies.DependencyParams{
+		Name:     string(dependencies.DependencyFFmpeg),
+		ExecPath: execPath,
+		Status:   string(dependencies.StatusInstalled),
+	})
+	if err != nil {
+		t.Fatalf("create dependency: %v", err)
+	}
+	if err := repo.Save(ctx, dependency); err != nil {
+		t.Fatalf("save dependency: %v", err)
+	}
+	service := NewDependenciesService(repo, nil, "")
+	service.dependenciesDir = func() (string, error) { return baseDir, nil }
+
+	if err := service.RemoveDependency(ctx, dto.RemoveDependencyRequest{Name: string(dependencies.DependencyFFmpeg)}); err != nil {
+		t.Fatalf("remove managed dependency: %v", err)
+	}
+	if _, err := os.Stat(managedDir); !os.IsNotExist(err) {
+		t.Fatalf("managed dependency root must be removed, got %v", err)
+	}
+	if _, err := os.Stat(otherDependencyMarker); err != nil {
+		t.Fatalf("other managed dependency must survive: %v", err)
+	}
+}
+
+func TestRemoveDependencyRejectsTraversalName(t *testing.T) {
+	t.Parallel()
+
+	service := NewDependenciesService(newMemoryRepo(), nil, "")
+	err := service.RemoveDependency(context.Background(), dto.RemoveDependencyRequest{Name: "../../outside"})
+	if !errors.Is(err, dependencies.ErrInvalidDependency) {
+		t.Fatalf("expected traversal name rejection, got %v", err)
 	}
 }
 

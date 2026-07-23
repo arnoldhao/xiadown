@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,8 +29,8 @@ type Installer interface {
 	RestartToApply(ctx context.Context) error
 }
 
-type downloadURLSelector interface {
-	SelectDownloadURLs(ctx context.Context, urls []string) []string
+type downloadAssetSelector interface {
+	SelectDownloadAsset(ctx context.Context, asset softwareupdate.Asset) softwareupdate.Asset
 }
 
 type preparedUpdateInspector interface {
@@ -41,6 +42,8 @@ const (
 	listenLiveCatalogTopic       = "listen.live.catalog"
 	listenLiveCatalogUpdatedType = "catalog-updated"
 )
+
+var errUpdatesDisabledForNonRelease = errors.New("updates are disabled for non-release builds")
 
 type listenLiveCatalogUpdatePayload struct {
 	SchemaVersion int    `json:"schemaVersion,omitempty"`
@@ -120,6 +123,11 @@ func (service *Service) PublishCurrentState() {
 func (service *Service) SetCurrentVersion(version string) {
 	service.mu.Lock()
 	service.state.CurrentVersion = update.NormalizeVersion(version)
+	if !isReleaseVersion(service.state.CurrentVersion) {
+		service.resetNonReleaseStateLocked(update.StatusIdle)
+		service.mu.Unlock()
+		return
+	}
 	if service.state.CurrentVersion != "" &&
 		service.state.PreparedVersion != "" &&
 		update.CompareVersion(service.state.CurrentVersion, service.state.PreparedVersion) >= 0 {
@@ -140,9 +148,18 @@ func (service *Service) SetCurrentVersion(version string) {
 }
 
 func (service *Service) RestorePreparedUpdate(ctx context.Context) (update.Info, error) {
+	state := service.State()
+	if !isReleaseVersion(state.CurrentVersion) {
+		// Development builds share the normal updater data directory so they can
+		// exercise the rest of the application against realistic user data. Do
+		// not surface or mutate a production update that was prepared by an
+		// installed release.
+		return state, nil
+	}
+
 	inspector, ok := service.installer.(preparedUpdateInspector)
 	if !ok || inspector == nil {
-		return service.State(), nil
+		return state, nil
 	}
 
 	prepared, found, err := inspector.PreparedUpdate(ctx)
@@ -176,7 +193,7 @@ func (service *Service) RestorePreparedUpdate(ctx context.Context) (update.Info,
 	service.state.PreparedVersion = preparedVersion
 	service.state.PreparedChangelog = prepared.PreparedChangelog
 	service.setPreparedReadyLocked()
-	state := service.state
+	state = service.state
 	service.mu.Unlock()
 	service.notifyAvailability(true)
 	return state, nil
@@ -233,6 +250,9 @@ func (service *Service) GetWhatsNew(ctx context.Context) (update.WhatsNew, error
 }
 
 func (service *Service) DismissWhatsNew(ctx context.Context, version string) error {
+	if service.hasExplicitNonReleaseVersion() {
+		return nil
+	}
 	store, ok := service.installer.(whatsNewStore)
 	if !ok || store == nil {
 		return nil
@@ -242,8 +262,19 @@ func (service *Service) DismissWhatsNew(ctx context.Context, version string) err
 
 func (service *Service) CheckForUpdate(ctx context.Context, currentVersion string) (update.Info, error) {
 	service.mu.Lock()
-	if currentVersion != "" {
+	// The version seeded during application bootstrap is authoritative. In
+	// particular, a bound frontend call must not turn a dev process into a
+	// release updater merely by supplying a numeric argument.
+	if service.state.CurrentVersion == "" && currentVersion != "" {
 		service.state.CurrentVersion = update.NormalizeVersion(currentVersion)
+	}
+	if !isReleaseVersion(service.state.CurrentVersion) {
+		service.resetNonReleaseStateLocked(update.StatusNoUpdate)
+		state := service.state
+		service.mu.Unlock()
+		service.notifyAvailability(false)
+		service.publishSnapshot(state)
+		return state, nil
 	}
 	if service.state.Status == update.StatusDownloading || service.state.Status == update.StatusInstalling {
 		state := service.state
@@ -275,7 +306,8 @@ func (service *Service) CheckForUpdate(ctx context.Context, currentVersion strin
 		return service.publishCheckError(err)
 	}
 
-	downloadURLs := service.selectDownloadURLs(ctx, release.Asset.DownloadURLs())
+	downloadAsset := service.selectDownloadAsset(ctx, release.Asset)
+	downloadURLs := downloadAsset.DownloadURLs()
 
 	service.mu.Lock()
 	latest := update.NormalizeVersion(release.Version)
@@ -288,7 +320,7 @@ func (service *Service) CheckForUpdate(ctx context.Context, currentVersion strin
 	}
 	service.state.CheckedAt = service.now()
 	service.downloadURLs = downloadURLs
-	service.downloadSHA256 = normalizeSHA256(release.Asset.SHA256)
+	service.downloadSHA256 = normalizeSHA256(downloadAsset.SHA256)
 	zap.L().Info("update: check result",
 		zap.String("currentVersion", current),
 		zap.String("latestVersion", latest),
@@ -343,6 +375,11 @@ func (service *Service) CheckForUpdate(ctx context.Context, currentVersion strin
 
 func (service *Service) DownloadUpdate(ctx context.Context) (update.Info, error) {
 	service.mu.Lock()
+	if isExplicitNonReleaseVersion(service.state.CurrentVersion) {
+		state := service.state
+		service.mu.Unlock()
+		return state, errUpdatesDisabledForNonRelease
+	}
 	if service.state.Status == update.StatusDownloading || service.state.Status == update.StatusInstalling {
 		state := service.state
 		service.mu.Unlock()
@@ -417,6 +454,13 @@ func (service *Service) DownloadUpdate(ctx context.Context) (update.Info, error)
 }
 
 func (service *Service) RestartToApply(ctx context.Context) (update.Info, error) {
+	service.mu.Lock()
+	if isExplicitNonReleaseVersion(service.state.CurrentVersion) {
+		state := service.state
+		service.mu.Unlock()
+		return state, errUpdatesDisabledForNonRelease
+	}
+	service.mu.Unlock()
 	if service.installer == nil {
 		return service.publishError(fmt.Errorf("installer not configured"))
 	}
@@ -580,6 +624,20 @@ func (service *Service) setPreparedReadyLocked() {
 func (service *Service) clearPreparedStateLocked() {
 	service.state.PreparedVersion = ""
 	service.state.PreparedChangelog = ""
+}
+
+func (service *Service) resetNonReleaseStateLocked(status update.Status) {
+	service.state.Kind = update.KindApp
+	service.state.LatestVersion = ""
+	service.state.Changelog = ""
+	service.state.DownloadURL = ""
+	service.state.CheckedAt = time.Time{}
+	service.state.Status = status
+	service.state.Progress = 0
+	service.state.Message = ""
+	service.clearPreparedStateLocked()
+	service.downloadURLs = nil
+	service.downloadSHA256 = ""
 }
 
 func (service *Service) shouldAutoPrepareLocked() bool {
@@ -763,6 +821,17 @@ func isReleaseVersion(version string) bool {
 	return true
 }
 
+func isExplicitNonReleaseVersion(version string) bool {
+	normalized := update.NormalizeVersion(version)
+	return normalized != "" && !isReleaseVersion(normalized)
+}
+
+func (service *Service) hasExplicitNonReleaseVersion() bool {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return isExplicitNonReleaseVersion(service.state.CurrentVersion)
+}
+
 func normalizeSHA256(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	value = strings.TrimPrefix(value, "sha256:")
@@ -798,11 +867,9 @@ func verifyDownloadedAsset(path string, expectedSHA256 string) error {
 	return nil
 }
 
-func (service *Service) selectDownloadURLs(ctx context.Context, urls []string) []string {
-	if selector, ok := service.installer.(downloadURLSelector); ok && selector != nil {
-		if selected := selector.SelectDownloadURLs(ctx, urls); len(selected) > 0 {
-			return selected
-		}
+func (service *Service) selectDownloadAsset(ctx context.Context, asset softwareupdate.Asset) softwareupdate.Asset {
+	if selector, ok := service.installer.(downloadAssetSelector); ok && selector != nil {
+		return selector.SelectDownloadAsset(ctx, asset)
 	}
-	return slices.Clone(urls)
+	return asset
 }

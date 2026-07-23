@@ -1,13 +1,63 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  alignPreparedDownloadTargets,
   formatAudioTrackLabel,
+  normalizeSiteKey,
+  resolveDownloadTargetOrigin,
   resolveResourceSniffStartResolution,
   selectAudioFormatId,
 } from "@/app/main/new-task-dialog-helpers";
 
+describe("new task dialog app session selection", () => {
+  test("accepts the dedicated Douyin app session key", () => {
+    expect(normalizeSiteKey("site-app-session-douyin")).toBe("douyin");
+    expect(normalizeSiteKey("douyin")).toBe("douyin");
+  });
+
+  test("accepts the dedicated Xiaohongshu app session key", () => {
+    expect(normalizeSiteKey("site-app-session-xiaohongshu")).toBe("xiaohongshu");
+    expect(normalizeSiteKey("xiaohongshu")).toBe("xiaohongshu");
+  });
+});
+
+describe("new task dialog batch target origins", () => {
+  test("keeps each prepared RSS URL paired with its own entry origin", () => {
+    const aligned = alignPreparedDownloadTargets(
+      [
+        { url: "https://video.example/two" },
+        { url: "https://canonical.example/one" },
+      ],
+      [
+        {
+          url: "https://video.example/one",
+          source: "xiadown.rss",
+          caller: "rss-entry:one",
+        },
+        {
+          url: "https://video.example/two",
+          source: "xiadown.rss",
+          caller: "rss-entry:two",
+        },
+      ],
+    );
+
+    expect(aligned.map((target) => resolveDownloadTargetOrigin(target))).toEqual([
+      { source: "xiadown.rss", caller: "rss-entry:two" },
+      { source: "xiadown.rss", caller: "rss-entry:one" },
+    ]);
+  });
+
+  test("keeps the existing batch dialog defaults when no target metadata exists", () => {
+    expect(resolveDownloadTargetOrigin(undefined)).toEqual({
+      source: "xiadown.download.dialog",
+      caller: "main",
+    });
+  });
+});
+
 describe("new task dialog resource sniff lifecycle helpers", () => {
-  test("preserves a sniff start that was transferred to Sniff Desk", () => {
+  test("preserves a sniff start that was transferred to Sniff", () => {
     expect(
       resolveResourceSniffStartResolution({
         requestVersion: 4,

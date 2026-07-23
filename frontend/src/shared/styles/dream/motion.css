@@ -1,5 +1,174 @@
 /* Dream motion and utilities */
+@keyframes app-menu-content-enter {
+  from {
+    opacity: 0;
+    transform: translate(
+        var(--app-menu-motion-x, 0),
+        var(--app-menu-motion-y, 0)
+      )
+      scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes app-menu-content-exit {
+  from {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(
+        var(--app-menu-motion-x, 0),
+        var(--app-menu-motion-y, 0)
+      )
+      scale(0.95);
+  }
+}
+
+.app-menu-content-base[data-side="bottom"] {
+  --app-menu-motion-y: -0.5rem;
+}
+
+.app-menu-content-base[data-side="top"] {
+  --app-menu-motion-y: 0.5rem;
+}
+
+.app-menu-content-base[data-side="left"] {
+  --app-menu-motion-x: 0.5rem;
+}
+
+.app-menu-content-base[data-side="right"] {
+  --app-menu-motion-x: -0.5rem;
+}
+
+.app-menu-content-base[data-state="open"] {
+  animation: app-menu-content-enter var(--app-motion-duration-fast)
+    var(--app-motion-ease-enter) both;
+}
+
+.app-menu-content-base[data-state="closed"] {
+  animation: app-menu-content-exit var(--app-motion-duration-fast)
+    var(--app-motion-ease-standard) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-menu-content-base[data-state] {
+    animation: none;
+  }
+}
+
 @layer utilities {
+  @keyframes app-motion-spin-keyframes {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes app-motion-pulse-keyframes {
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  .app-motion-spin {
+    animation: app-motion-spin-keyframes 1s linear infinite;
+  }
+
+  .app-motion-pulse {
+    animation: app-motion-pulse-keyframes 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes app-message-overlay-enter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes app-message-overlay-exit {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+
+  @keyframes app-message-dialog-enter {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+  }
+
+  @keyframes app-message-dialog-exit {
+    from {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.95);
+    }
+  }
+
+  @keyframes app-message-stack-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-0.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .app-message-dialog-overlay[data-state="open"] {
+    animation: app-message-overlay-enter 200ms var(--app-motion-ease-enter) both;
+  }
+
+  .app-message-dialog-overlay[data-state="closed"] {
+    animation: app-message-overlay-exit 200ms var(--app-motion-ease-exit) both;
+  }
+
+  .app-message-dialog-content[data-state="open"] {
+    animation: app-message-dialog-enter 200ms var(--app-motion-ease-enter) both;
+  }
+
+  .app-message-dialog-content[data-state="closed"] {
+    animation: app-message-dialog-exit 200ms var(--app-motion-ease-exit) both;
+  }
+
+  .app-message-stack-entry {
+    animation: app-message-stack-enter 200ms var(--app-motion-ease-enter) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-motion-spin,
+    .app-motion-pulse,
+    .app-message-dialog-overlay,
+    .app-message-dialog-content,
+    .app-message-stack-entry {
+      animation: none;
+    }
+  }
+
+  @keyframes app-session-import-skeleton-pulse {
+    0%,
+    100% {
+      opacity: 0.48;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  .app-session-import-skeleton-card {
+    animation: app-session-import-skeleton-pulse 1.8s ease-in-out infinite;
+  }
+
   @keyframes typing-dot-wave {
     0%,
     60%,
@@ -38,7 +207,34 @@
     will-change: transform;
   }
 
+  @keyframes listen-workspace-fullscreen-artwork-drift {
+    0% {
+      transform: scale(1.06) translate3d(-0.8%, -0.4%, 0);
+    }
+    50% {
+      transform: scale(1.11) translate3d(1.2%, -1.1%, 0);
+    }
+    100% {
+      transform: scale(1.08) translate3d(0.4%, 1%, 0);
+    }
+  }
+
+  .listen-workspace-fullscreen-backdrop__artwork {
+    transform: scale(1.06) translate3d(-0.8%, -0.4%, 0);
+    will-change: transform;
+  }
+
+  .listen-workspace-fullscreen-backdrop[data-playing="true"]
+    .listen-workspace-fullscreen-backdrop__artwork {
+    animation: listen-workspace-fullscreen-artwork-drift 20s ease-in-out infinite alternate;
+  }
+
   @media (prefers-reduced-motion: reduce) {
+    .app-session-import-skeleton-card {
+      animation: none;
+      opacity: 0.72;
+    }
+
     .typing-dot-wave {
       animation: none;
       opacity: 0.9;
@@ -51,6 +247,11 @@
 
     .listen-live-video-shell {
       animation: none;
+    }
+
+    .listen-workspace-fullscreen-backdrop__artwork {
+      animation: none;
+      transform: scale(1.06);
     }
 
   }
@@ -143,6 +344,43 @@
     100% {
       opacity: 0;
       transform: translateX(240%) skewX(-12deg);
+    }
+  }
+
+  .app-secondary-reveal__panel {
+    animation-duration: var(--app-motion-duration-base);
+    animation-timing-function: var(--app-motion-ease-standard);
+  }
+
+  .app-secondary-reveal__positioner[data-side="left"]
+    > .app-secondary-reveal__panel {
+    transform-origin: right center;
+    animation-name: app-secondary-reveal-in-left;
+  }
+
+  .app-secondary-reveal__positioner[data-side="right"]
+    > .app-secondary-reveal__panel {
+    transform-origin: left center;
+    animation-name: app-secondary-reveal-in-right;
+  }
+
+  @keyframes app-secondary-reveal-in-right {
+    from {
+      opacity: 0;
+      transform: translateX(-5px) scale(0.985);
+    }
+  }
+
+  @keyframes app-secondary-reveal-in-left {
+    from {
+      opacity: 0;
+      transform: translateX(5px) scale(0.985);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-secondary-reveal__panel {
+      animation: none;
     }
   }
 
@@ -436,115 +674,214 @@
     animation: listen-panel-item-enter 220ms var(--app-motion-ease-enter) both;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .listen-online-group,
-    .listen-playlist-group,
-    .listen-category-group,
-    .listen-artist-group,
-    .listen-muse-group-frame,
-    .listen-muse-track-list-group,
-    .listen-hush-live-group,
-    .listen-muse-card,
-    .listen-hush-card,
-    .listen-track-list-row,
-    .app-settings-window .app-settings-tab-content,
-    .app-settings-window .app-dream-card,
-    .app-pets-gallery-card,
-    .app-pets-detail-card,
-    .app-pets-guide-step,
-    .app-pets-guide-tips,
-    .app-pets-import-section,
-    .app-pets-status-message,
-    .listen-muse-card:hover .listen-muse-card-artwork::after,
-    .listen-muse-card:focus-within .listen-muse-card-artwork::after,
-    .listen-hush-card:hover .listen-hush-card-artwork::after,
-    .listen-hush-card:focus-within .listen-hush-card-artwork::after,
-    .listen-cover-change-sweep,
-    .app-pets-gallery-card:hover::after,
-    .app-pets-gallery-card:focus-visible::after,
-    .app-dialog-overlay.app-dialog-overlay[data-state],
-    .app-dialog-content.app-dialog-content[data-state],
-    .app-dialog-list-card,
-    .listen-mini-live-dot,
-    .listen-mini-live-dot::after,
-    .listen-mini-live-line {
-      animation: none;
-    }
-
-    .listen-hover-soften-image,
-    .listen-cover-change-sweep,
-    .listen-playback-hover-layer,
-    .listen-playback-hover-button {
-      transition-delay: 0ms;
-    }
-  }
-
-  @keyframes app-running-water-flow {
-    0% {
-      background-position: 0 0, 0 0, 0 0;
-    }
+  @keyframes app-fun-button-aurora-drift {
+    0%,
     100% {
-      background-position: 96px 0, -128px 0, 0 0;
-    }
-  }
-
-  @keyframes app-running-fire-rise {
-    0% {
-      transform: translateY(9%) scaleX(0.94);
-      opacity: 0.52;
-    }
-    100% {
-      transform: translateY(-7%) scaleX(1.06);
-      opacity: 0.88;
-    }
-  }
-
-  @keyframes app-running-cloud-drift {
-    0% {
-      transform: translateX(-7%) scale(1);
+      transform: translate3d(-8%, 5%, 0) rotate(-7deg) scale(0.98);
     }
     50% {
-      transform: translateX(4%) scale(1.04);
-    }
-    100% {
-      transform: translateX(9%) scale(1);
+      transform: translate3d(8%, -5%, 0) rotate(8deg) scale(1.08);
     }
   }
 
-  @keyframes app-running-sun-sweep {
-    0% {
-      transform: translateX(-86%) rotate(17deg);
-      opacity: 0;
+  @keyframes app-fun-button-turn {
+    to {
+      transform: rotate(360deg);
     }
-    18%,
+  }
+
+  @keyframes app-fun-button-prism-sweep {
+    0%,
+    12% {
+      opacity: 0;
+      transform: translate3d(-68%, 0, 0) skewX(-18deg);
+    }
+    34%,
     62% {
-      opacity: 0.78;
+      opacity: 0.82;
     }
+    84%,
     100% {
-      transform: translateX(86%) rotate(17deg);
       opacity: 0;
+      transform: translate3d(68%, 0, 0) skewX(-18deg);
     }
   }
 
-  @keyframes app-running-mist-breathe {
+  @keyframes app-fun-button-prism-shift {
     0%,
     100% {
-      transform: translate3d(-5%, 4%, 0) scale(1);
-      opacity: 0.48;
+      transform: translate3d(-5%, 0, 0);
     }
     50% {
-      transform: translate3d(5%, -3%, 0) scale(1.08);
-      opacity: 0.74;
+      transform: translate3d(5%, 0, 0);
     }
   }
 
-  @keyframes app-running-shadow-sway {
+  @keyframes app-fun-button-comet-field {
     0%,
     100% {
-      transform: translateX(-6%) skewX(-10deg);
+      transform: translate3d(-7%, -4%, 0) rotate(-3deg);
     }
     50% {
-      transform: translateX(8%) skewX(8deg);
+      transform: translate3d(7%, 4%, 0) rotate(3deg);
+    }
+  }
+
+  @keyframes app-fun-button-comet-pass {
+    0%,
+    58% {
+      opacity: 0;
+      transform: translate3d(-220%, 0, 0) rotate(-13deg);
+    }
+    68%,
+    82% {
+      opacity: 0.92;
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(430%, 0, 0) rotate(-13deg);
+    }
+  }
+
+  @keyframes app-fun-button-plasma-bloom {
+    0%,
+    100% {
+      transform: translate3d(-8%, 4%, 0) rotate(-8deg) scale(0.94, 1.05);
+    }
+    50% {
+      transform: translate3d(8%, -4%, 0) rotate(9deg) scale(1.08, 0.96);
+    }
+  }
+
+  @keyframes app-fun-button-magnetic-flux {
+    0%,
+    100% {
+      transform: translate3d(-8%, 0, 0) skewX(-8deg) scaleX(0.98);
+    }
+    50% {
+      transform: translate3d(8%, 0, 0) skewX(8deg) scaleX(1.04);
+    }
+  }
+
+  @keyframes app-fun-button-magnetic-pulse {
+    0%,
+    100% {
+      opacity: 0.2;
+      transform: scale(0.76);
+    }
+    50% {
+      opacity: 0.68;
+      transform: scale(1.12);
+    }
+  }
+
+  @keyframes app-fun-button-ripple-expand {
+    0% {
+      opacity: 0;
+      transform: scale(0.46);
+    }
+    22% {
+      opacity: 0.7;
+    }
+    76%,
+    100% {
+      opacity: 0;
+      transform: scale(1.36);
+    }
+  }
+
+  @keyframes app-fun-button-stardust-drift {
+    0% {
+      transform: translate3d(-8%, 4%, 0) rotate(0deg);
+    }
+    100% {
+      transform: translate3d(8%, -4%, 0) rotate(12deg);
+    }
+  }
+
+  @keyframes app-fun-button-stardust-twinkle {
+    0%,
+    100% {
+      opacity: 0.18;
+      transform: scale(0.84) rotate(-4deg);
+    }
+    50% {
+      opacity: 0.72;
+      transform: scale(1.08) rotate(4deg);
+    }
+  }
+
+  @keyframes app-fun-button-orbit {
+    to {
+      transform: rotate(360deg) scale(1.02);
+    }
+  }
+
+  @keyframes app-fun-button-orbit-breathe {
+    0%,
+    100% {
+      opacity: 0.22;
+      transform: scale(0.72);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(1.16);
+    }
+  }
+
+  @keyframes app-fun-button-shards-flow {
+    0%,
+    14% {
+      opacity: 0;
+      transform: translate3d(-74%, 0, 0) skewX(-18deg);
+    }
+    32%,
+    68% {
+      opacity: 0.72;
+    }
+    88%,
+    100% {
+      opacity: 0;
+      transform: translate3d(74%, 0, 0) skewX(-18deg);
+    }
+  }
+
+  @keyframes app-fun-button-shards-counterflow {
+    0%,
+    100% {
+      transform: translate3d(7%, 0, 0);
+    }
+    50% {
+      transform: translate3d(-7%, 0, 0);
+    }
+  }
+
+  @keyframes app-fun-button-hologram-grid {
+    0%,
+    100% {
+      opacity: 0.28;
+      transform: translate3d(0, -5%, 0) perspective(90px) rotateX(5deg);
+    }
+    50% {
+      opacity: 0.5;
+      transform: translate3d(0, 5%, 0) perspective(90px) rotateX(-5deg);
+    }
+  }
+
+  @keyframes app-fun-button-hologram-scan {
+    0%,
+    10% {
+      opacity: 0;
+      transform: translate3d(-190%, 0, 0);
+    }
+    28%,
+    72% {
+      opacity: 0.84;
+    }
+    90%,
+    100% {
+      opacity: 0;
+      transform: translate3d(390%, 0, 0);
     }
   }
 
@@ -741,6 +1078,12 @@
   .app-running-pet-playground {
     touch-action: none;
     cursor: grab;
+    outline: none;
+  }
+
+  :root:not([data-input-modality="pointer"])
+    .app-running-pet-playground:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--app-accent-ring);
   }
 
   .app-running-pet-playground:active {
@@ -836,8 +1179,8 @@
     box-shadow:
       0 18px 42px -30px hsl(var(--foreground) / 0.42),
       inset 0 0 0 1px hsl(var(--foreground) / 0.08);
-    -webkit-backdrop-filter: blur(18px) saturate(1.12);
-    backdrop-filter: blur(18px) saturate(1.12);
+    -webkit-backdrop-filter: var(--app-glass-regular-filter);
+    backdrop-filter: var(--app-glass-regular-filter);
     font-size: 0.75rem;
     font-weight: 600;
     line-height: 1.35;
@@ -1247,14 +1590,18 @@
   }
 
   .app-running-new-download-button {
+    --app-fun-button-before-opacity: 0.54;
+    --app-fun-button-after-opacity: 0.4;
     position: relative;
     isolation: isolate;
+    border-radius: 9999px;
     overflow: hidden;
-    border-color: hsl(var(--primary) / 0.34);
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.84) 58%, hsl(var(--accent-foreground) / 0.9));
-    box-shadow:
-      0 16px 34px -22px hsl(var(--primary) / 0.78),
-      inset 0 -12px 22px hsl(var(--foreground) / 0.1);
+    -webkit-clip-path: inset(0 round 9999px);
+    clip-path: inset(0 round 9999px);
+    background-clip: padding-box;
+    border-color: hsl(var(--app-accent-brand, var(--primary)) / 0.34);
+    background: hsl(var(--app-accent-solid, var(--primary)));
+    box-shadow: 0 9px 22px -16px hsl(var(--app-accent-brand, var(--primary)) / 0.72);
   }
 
   .app-running-new-download-button > * {
@@ -1268,6 +1615,7 @@
     position: absolute;
     pointer-events: none;
     border-radius: inherit;
+    will-change: transform, opacity;
   }
 
   .app-running-new-download-button::before {
@@ -1280,123 +1628,227 @@
     z-index: 1;
   }
 
-  .app-running-new-download-button[data-effect="water"] {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.78) 50%, hsl(190 82% 46% / 0.92));
+  .app-running-new-download-button[data-effect="aurora"] {
+    --app-fun-button-before-opacity: 0.64;
+    --app-fun-button-after-opacity: 0.34;
   }
 
-  .app-running-new-download-button[data-effect="water"]::before {
+  .app-running-new-download-button[data-effect="aurora"]::before {
+    inset: -78% -34%;
+    border-radius: 50%;
     background:
-      repeating-linear-gradient(104deg, transparent 0 13px, hsl(var(--primary-foreground) / 0.24) 15px 18px, transparent 21px 34px),
-      radial-gradient(ellipse 46% 42% at 24% 44%, hsl(190 100% 78% / 0.38), transparent 70%),
-      radial-gradient(ellipse 56% 52% at 78% 58%, hsl(var(--primary-foreground) / 0.18), transparent 74%);
-    background-size: 64px 100%, 120% 120%, 100% 100%;
-    opacity: 0.72;
-    animation: app-running-water-flow 4.8s linear infinite;
+      radial-gradient(ellipse 44% 58% at 22% 48%, hsl(182 92% 66% / 0.72), transparent 72%),
+      radial-gradient(ellipse 46% 62% at 54% 36%, hsl(284 88% 72% / 0.62), transparent 70%),
+      radial-gradient(ellipse 42% 58% at 78% 62%, hsl(326 92% 72% / 0.54), transparent 72%);
+    filter: blur(6px) saturate(1.12);
+    animation: app-fun-button-aurora-drift 5.8s ease-in-out infinite;
   }
 
-  .app-running-new-download-button[data-effect="water"]::after {
-    background: linear-gradient(90deg, transparent, hsl(var(--primary-foreground) / 0.24), transparent);
-    transform: translateX(-74%) rotate(15deg);
-    animation: app-running-sun-sweep 5.2s ease-in-out infinite;
+  .app-running-new-download-button[data-effect="aurora"]::after {
+    inset: -112% -52%;
+    border-radius: 50%;
+    background: conic-gradient(from 24deg, transparent 0 18%, hsl(188 100% 82% / 0.58) 24%, transparent 34% 54%, hsl(314 100% 84% / 0.5) 62%, transparent 72%);
+    mix-blend-mode: soft-light;
+    animation: app-fun-button-turn 9s linear infinite;
   }
 
-  .app-running-new-download-button[data-effect="fire"] {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(24 92% 55% / 0.92) 54%, hsl(2 82% 48% / 0.9));
+  .app-running-new-download-button[data-effect="prism"] {
+    --app-fun-button-before-opacity: 0.72;
+    --app-fun-button-after-opacity: 0.3;
   }
 
-  .app-running-new-download-button[data-effect="fire"]::before {
-    inset: auto 2px -28% 2px;
-    height: 150%;
+  .app-running-new-download-button[data-effect="prism"]::before {
+    inset: -66% -82%;
+    background: linear-gradient(106deg, transparent 30%, hsl(188 100% 78% / 0.68) 40%, hsl(275 100% 82% / 0.74) 47%, hsl(330 100% 78% / 0.68) 54%, transparent 66%);
+    filter: blur(1px);
+    animation: app-fun-button-prism-sweep 4.2s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="prism"]::after {
+    inset: -20%;
+    background: repeating-linear-gradient(112deg, transparent 0 15px, hsl(var(--primary-foreground) / 0.3) 16px 17px, transparent 18px 31px);
+    mix-blend-mode: soft-light;
+    animation: app-fun-button-prism-shift 3.4s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="comet"] {
+    --app-fun-button-before-opacity: 0.46;
+    --app-fun-button-after-opacity: 0.76;
+  }
+
+  .app-running-new-download-button[data-effect="comet"]::before {
+    inset: -48% -16%;
     background:
-      radial-gradient(ellipse 18% 44% at 18% 88%, hsl(42 100% 74% / 0.86), transparent 68%),
-      radial-gradient(ellipse 24% 56% at 46% 92%, hsl(18 100% 58% / 0.82), transparent 70%),
-      radial-gradient(ellipse 20% 48% at 76% 88%, hsl(4 88% 50% / 0.72), transparent 70%);
-    filter: blur(4px);
-    opacity: 0.8;
-    animation: app-running-fire-rise 1.35s ease-in-out infinite alternate;
+      radial-gradient(circle at 12% 38%, hsl(var(--primary-foreground) / 0.78) 0 1px, transparent 1.7px),
+      radial-gradient(circle at 36% 72%, hsl(192 100% 84% / 0.74) 0 1.2px, transparent 2px),
+      radial-gradient(circle at 62% 24%, hsl(292 100% 86% / 0.66) 0 1px, transparent 1.8px),
+      radial-gradient(circle at 88% 64%, hsl(var(--primary-foreground) / 0.68) 0 1.3px, transparent 2.1px);
+    animation: app-fun-button-comet-field 6.8s ease-in-out infinite;
   }
 
-  .app-running-new-download-button[data-effect="fire"]::after {
-    background: radial-gradient(ellipse 68% 60% at 50% 100%, hsl(44 100% 66% / 0.32), transparent 72%);
-  }
-
-  .app-running-new-download-button[data-effect="cloud"] {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.72) 46%, hsl(206 78% 78% / 0.88));
-  }
-
-  .app-running-new-download-button[data-effect="cloud"]::before {
-    inset: -36% -28%;
-    background:
-      radial-gradient(circle at 18% 58%, hsl(var(--primary-foreground) / 0.52) 0 11%, transparent 19%),
-      radial-gradient(circle at 38% 45%, hsl(var(--primary-foreground) / 0.38) 0 13%, transparent 22%),
-      radial-gradient(circle at 62% 58%, hsl(var(--primary-foreground) / 0.46) 0 12%, transparent 22%),
-      radial-gradient(circle at 82% 46%, hsl(var(--primary-foreground) / 0.28) 0 10%, transparent 20%);
-    filter: blur(3px);
-    opacity: 0.64;
-    animation: app-running-cloud-drift 7.6s ease-in-out infinite alternate;
-  }
-
-  .app-running-new-download-button[data-effect="cloud"]::after {
-    background: linear-gradient(180deg, hsl(var(--primary-foreground) / 0.22), transparent 62%);
-    opacity: 0.4;
-  }
-
-  .app-running-new-download-button[data-effect="sun"] {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(43 96% 58% / 0.94) 58%, hsl(31 92% 52% / 0.88));
-  }
-
-  .app-running-new-download-button[data-effect="sun"]::before {
-    inset: -72% -22%;
-    background: repeating-conic-gradient(from -18deg at 50% 50%, hsl(var(--primary-foreground) / 0.28) 0deg 8deg, transparent 8deg 22deg);
-    opacity: 0.52;
-    animation: app-running-cloud-drift 8s linear infinite alternate;
-  }
-
-  .app-running-new-download-button[data-effect="sun"]::after {
-    inset-block: -42%;
-    left: -38%;
-    width: 46%;
-    background: linear-gradient(90deg, transparent, hsl(var(--primary-foreground) / 0.42), transparent);
-    animation: app-running-sun-sweep 3.2s var(--app-motion-ease-enter) infinite;
-  }
-
-  .app-running-new-download-button[data-effect="mist"] {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.68) 52%, hsl(var(--muted-foreground) / 0.62));
-  }
-
-  .app-running-new-download-button[data-effect="mist"]::before {
-    inset: -44% -30%;
-    background:
-      radial-gradient(ellipse 36% 28% at 20% 50%, hsl(var(--primary-foreground) / 0.36), transparent 72%),
-      radial-gradient(ellipse 42% 30% at 54% 42%, hsl(var(--primary-foreground) / 0.28), transparent 72%),
-      radial-gradient(ellipse 34% 26% at 82% 60%, hsl(var(--primary-foreground) / 0.24), transparent 74%);
-    filter: blur(7px);
-    animation: app-running-mist-breathe 5.8s ease-in-out infinite;
-  }
-
-  .app-running-new-download-button[data-effect="mist"]::after {
-    background: linear-gradient(90deg, transparent, hsl(var(--primary-foreground) / 0.14), transparent);
-    opacity: 0.56;
-  }
-
-  .app-running-new-download-button[data-effect="shadow"] {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(150 52% 38% / 0.9) 56%, hsl(95 42% 42% / 0.82));
-  }
-
-  .app-running-new-download-button[data-effect="shadow"]::before {
-    inset: -24% -30%;
-    background:
-      linear-gradient(102deg, transparent 0 18%, hsl(128 56% 12% / 0.28) 19% 22%, transparent 23% 42%, hsl(128 56% 12% / 0.2) 43% 48%, transparent 49%),
-      radial-gradient(ellipse 22% 34% at 24% 18%, hsl(96 76% 76% / 0.28), transparent 72%),
-      radial-gradient(ellipse 24% 38% at 72% 26%, hsl(96 76% 76% / 0.22), transparent 72%);
+  .app-running-new-download-button[data-effect="comet"]::after {
+    top: -78%;
+    bottom: -78%;
+    left: 0;
+    width: 26%;
+    background: linear-gradient(90deg, transparent 0, hsl(190 100% 78% / 0.16) 24%, hsl(var(--primary-foreground) / 0.92) 68%, transparent 100%);
     filter: blur(1.5px);
-    opacity: 0.76;
-    animation: app-running-shadow-sway 4.4s ease-in-out infinite;
+    animation: app-fun-button-comet-pass 4.8s cubic-bezier(0.2, 0.72, 0.22, 1) infinite;
   }
 
-  .app-running-new-download-button[data-effect="shadow"]::after {
-    background: radial-gradient(ellipse 48% 44% at 24% 20%, hsl(var(--primary-foreground) / 0.28), transparent 74%);
-    opacity: 0.52;
+  .app-running-new-download-button[data-effect="plasma"] {
+    --app-fun-button-before-opacity: 0.62;
+    --app-fun-button-after-opacity: 0.3;
+  }
+
+  .app-running-new-download-button[data-effect="plasma"]::before {
+    inset: -70% -34%;
+    border-radius: 46%;
+    background:
+      radial-gradient(ellipse 42% 62% at 28% 48%, hsl(190 100% 68% / 0.72), transparent 72%),
+      radial-gradient(ellipse 48% 56% at 68% 52%, hsl(312 92% 70% / 0.64), transparent 70%),
+      radial-gradient(ellipse 34% 48% at 50% 22%, hsl(258 100% 84% / 0.58), transparent 72%);
+    filter: blur(7px) saturate(1.16);
+    animation: app-fun-button-plasma-bloom 4.6s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="plasma"]::after {
+    inset: -118% -42%;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from 0deg, transparent 0 24deg, hsl(var(--primary-foreground) / 0.24) 28deg 30deg, transparent 34deg 58deg);
+    mix-blend-mode: soft-light;
+    animation: app-fun-button-turn 12s linear infinite reverse;
+  }
+
+  .app-running-new-download-button[data-effect="magnetic"] {
+    --app-fun-button-before-opacity: 0.5;
+    --app-fun-button-after-opacity: 0.44;
+  }
+
+  .app-running-new-download-button[data-effect="magnetic"]::before {
+    inset: -44% -22%;
+    background:
+      repeating-radial-gradient(ellipse at 22% 50%, transparent 0 10px, hsl(188 100% 80% / 0.34) 11px 12px, transparent 13px 22px),
+      repeating-radial-gradient(ellipse at 78% 50%, transparent 0 12px, hsl(306 100% 82% / 0.28) 13px 14px, transparent 15px 25px);
+    animation: app-fun-button-magnetic-flux 4.2s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="magnetic"]::after {
+    inset: -56% 18%;
+    border-radius: 50%;
+    background: radial-gradient(circle, hsl(var(--primary-foreground) / 0.46) 0 5%, transparent 12% 28%, hsl(190 100% 82% / 0.34) 30% 33%, transparent 36%);
+    animation: app-fun-button-magnetic-pulse 2.8s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="ripple"] {
+    --app-fun-button-before-opacity: 0.58;
+    --app-fun-button-after-opacity: 0.5;
+  }
+
+  .app-running-new-download-button[data-effect="ripple"]::before,
+  .app-running-new-download-button[data-effect="ripple"]::after {
+    inset: -96% 6%;
+    border-radius: 50%;
+    background: repeating-radial-gradient(circle at 24% 50%, transparent 0 12px, hsl(188 100% 82% / 0.48) 13px 14px, transparent 15px 26px);
+    animation: app-fun-button-ripple-expand 3.4s ease-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="ripple"]::after {
+    animation-delay: -1.7s;
+  }
+
+  .app-running-new-download-button[data-effect="stardust"] {
+    --app-fun-button-before-opacity: 0.62;
+    --app-fun-button-after-opacity: 0.5;
+  }
+
+  .app-running-new-download-button[data-effect="stardust"]::before {
+    inset: -48% -14%;
+    background:
+      radial-gradient(circle at 8% 54%, hsl(var(--primary-foreground) / 0.9) 0 1px, transparent 1.7px),
+      radial-gradient(circle at 24% 24%, hsl(188 100% 82% / 0.84) 0 1.2px, transparent 2px),
+      radial-gradient(circle at 42% 76%, hsl(312 100% 84% / 0.74) 0 1px, transparent 1.8px),
+      radial-gradient(circle at 64% 34%, hsl(var(--primary-foreground) / 0.86) 0 1.4px, transparent 2.2px),
+      radial-gradient(circle at 84% 68%, hsl(46 100% 78% / 0.78) 0 1.1px, transparent 1.9px),
+      radial-gradient(circle at 96% 28%, hsl(190 100% 82% / 0.72) 0 1px, transparent 1.8px);
+    animation: app-fun-button-stardust-drift 8.6s ease-in-out infinite alternate;
+  }
+
+  .app-running-new-download-button[data-effect="stardust"]::after {
+    inset: -66% 18%;
+    background: repeating-conic-gradient(from 8deg at 50% 50%, hsl(var(--primary-foreground) / 0.46) 0deg 2deg, transparent 3deg 24deg);
+    animation: app-fun-button-stardust-twinkle 3.2s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="orbit"] {
+    --app-fun-button-before-opacity: 0.82;
+    --app-fun-button-after-opacity: 0.42;
+  }
+
+  .app-running-new-download-button[data-effect="orbit"]::before {
+    inset: 0;
+    padding: 1.5px;
+    background: conic-gradient(from 0deg, transparent 0 58%, hsl(188 100% 82% / 0.9) 68%, hsl(var(--primary-foreground) / 0.96) 72%, hsl(308 100% 84% / 0.76) 78%, transparent 88%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: app-fun-button-orbit 3.8s linear infinite;
+  }
+
+  .app-running-new-download-button[data-effect="orbit"]::after {
+    inset: -72% 26%;
+    border-radius: 50%;
+    background: radial-gradient(circle, hsl(var(--primary-foreground) / 0.4) 0 7%, transparent 11% 28%, hsl(190 100% 82% / 0.34) 30% 32%, transparent 36%);
+    animation: app-fun-button-orbit-breathe 3.2s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="shards"] {
+    --app-fun-button-before-opacity: 0.64;
+    --app-fun-button-after-opacity: 0.36;
+  }
+
+  .app-running-new-download-button[data-effect="shards"]::before {
+    inset: -40% -64%;
+    background: repeating-linear-gradient(108deg, transparent 0 18px, hsl(188 100% 82% / 0.58) 19px 24px, transparent 25px 42px, hsl(310 100% 84% / 0.48) 43px 47px, transparent 48px 68px);
+    animation: app-fun-button-shards-flow 3.8s cubic-bezier(0.18, 0.72, 0.2, 1) infinite;
+  }
+
+  .app-running-new-download-button[data-effect="shards"]::after {
+    inset: -22% -14%;
+    background: repeating-linear-gradient(72deg, transparent 0 22px, hsl(var(--primary-foreground) / 0.32) 23px 25px, transparent 26px 48px);
+    animation: app-fun-button-shards-counterflow 4.6s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="hologram"] {
+    --app-fun-button-before-opacity: 0.46;
+    --app-fun-button-after-opacity: 0.72;
+  }
+
+  .app-running-new-download-button[data-effect="hologram"]::before {
+    inset: -16%;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 5px, hsl(188 100% 84% / 0.24) 6px, transparent 7px 11px),
+      repeating-linear-gradient(90deg, transparent 0 18px, hsl(var(--primary-foreground) / 0.16) 19px, transparent 20px 36px);
+    transform-origin: center;
+    animation: app-fun-button-hologram-grid 4.8s ease-in-out infinite;
+  }
+
+  .app-running-new-download-button[data-effect="hologram"]::after {
+    top: -36%;
+    bottom: -36%;
+    left: 0;
+    width: 24%;
+    background: linear-gradient(90deg, transparent, hsl(188 100% 84% / 0.86), hsl(var(--primary-foreground) / 0.54), transparent);
+    filter: blur(1px);
+    animation: app-fun-button-hologram-scan 3.6s ease-in-out infinite;
+  }
+
+  @media (hover: hover) and (prefers-reduced-motion: no-preference) {
+    .app-running-new-download-button:hover {
+      --app-fun-button-before-opacity: 0.76;
+      --app-fun-button-after-opacity: 0.62;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1427,9 +1879,54 @@
     box-shadow: inset 0 0 0 1px var(--dream-primary-line);
   }
 
-  .app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="listen-"])::before,
+  .app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="listen-"])::before {
+    opacity: var(--app-fun-button-before-opacity);
+  }
+
   .app-running-new-download-button.app-dream-button.app-motion-surface:not(.app-main-sidebar-action):not(.app-main-user-button):not([class*="listen-"])::after {
-    opacity: 0.12;
+    opacity: var(--app-fun-button-after-opacity);
+  }
+
+  @media (forced-colors: active) {
+    .app-running-new-download-button::before,
+    .app-running-new-download-button::after {
+      display: none;
+    }
+  }
+
+  .app-listen-horizontal-scroll-control {
+    transform: translateZ(0);
+    transition:
+      transform var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      background-color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      color var(--app-motion-duration-base) var(--app-motion-ease-standard),
+      box-shadow var(--app-motion-duration-base) var(--app-motion-ease-standard);
+  }
+
+  .listen-horizontal-scroll-button:hover .app-listen-horizontal-scroll-control {
+    transform: scale(1.04);
+  }
+
+  .listen-horizontal-scroll-button:active .app-listen-horizontal-scroll-control {
+    transform: scale(0.95);
+  }
+
+  .listen-hush-card-image {
+    transition: transform var(--app-motion-duration-slow) var(--app-motion-ease-standard);
+  }
+
+  .listen-hush-card:is(:hover, :focus-within) .listen-hush-card-image {
+    transform: scale(1.045);
+  }
+
+  .app-listen-hush-card-action-reveal {
+    opacity: 0;
+    transition: opacity var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+  }
+
+  .listen-hush-card:is(:hover, :focus-within) .app-listen-hush-card-action-reveal {
+    pointer-events: auto;
+    opacity: 1;
   }
 
   .app-motion-color {
@@ -1465,5 +1962,51 @@
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* This accessibility override must remain unlayered. Domain animations in
+   pets.css and workflows.css are unlayered, so a utilities-layer declaration
+   cannot win the cascade even when motion.css is imported later. */
+@media (prefers-reduced-motion: reduce) {
+  .listen-online-group,
+  .listen-playlist-group,
+  .listen-category-group,
+  .listen-artist-group,
+  .listen-muse-group-frame,
+  .listen-muse-track-list-group,
+  .listen-hush-live-group,
+  .listen-muse-card,
+  .listen-hush-card,
+  .listen-track-list-row,
+  .app-settings-window .app-settings-tab-content,
+  .app-settings-window .app-dream-card,
+  .app-pets-gallery-card,
+  .app-pets-detail-card,
+  .app-pets-guide-step,
+  .app-pets-guide-tips,
+  .app-pets-import-section,
+  .app-pets-status-message,
+  .listen-muse-card:hover .listen-muse-card-artwork::after,
+  .listen-muse-card:focus-within .listen-muse-card-artwork::after,
+  .listen-hush-card:hover .listen-hush-card-artwork::after,
+  .listen-hush-card:focus-within .listen-hush-card-artwork::after,
+  .listen-cover-change-sweep,
+  .app-pets-gallery-card:hover::after,
+  .app-pets-gallery-card:focus-visible::after,
+  .app-dialog-overlay.app-dialog-overlay[data-state],
+  .app-dialog-content.app-dialog-content[data-state],
+  .app-dialog-list-card,
+  .listen-mini-live-dot,
+  .listen-mini-live-dot::after,
+  .listen-mini-live-line {
+    animation: none;
+  }
+
+  .listen-hover-soften-image,
+  .listen-cover-change-sweep,
+  .listen-playback-hover-layer,
+  .listen-playback-hover-button {
+    transition-delay: 0ms;
   }
 }

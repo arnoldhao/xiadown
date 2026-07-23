@@ -9,16 +9,19 @@ import (
 )
 
 type ListenPlaybackQueueRequest struct {
-	Tracks       []listenplayback.Track `json:"tracks"`
-	StartingAt   int                    `json:"startingAt"`
-	Title        string                 `json:"title,omitempty"`
-	Kind         string                 `json:"kind,omitempty"`
-	PlaylistID   string                 `json:"playlistId,omitempty"`
-	StartVideoID string                 `json:"startVideoId,omitempty"`
+	Tracks        []listenplayback.Track `json:"tracks"`
+	StartingAt    int                    `json:"startingAt"`
+	Title         string                 `json:"title,omitempty"`
+	Language      string                 `json:"language,omitempty"`
+	Kind          string                 `json:"kind,omitempty"`
+	PlaylistID    string                 `json:"playlistId,omitempty"`
+	StartVideoID  string                 `json:"startVideoId,omitempty"`
+	QueueIdentity string                 `json:"queueIdentity,omitempty"`
 }
 
 type ListenPlaybackTrackRequest struct {
 	Track            listenplayback.Track `json:"track"`
+	Language         string               `json:"language,omitempty"`
 	StartSeconds     float64              `json:"startSeconds,omitempty"`
 	RestartFromStart bool                 `json:"restartFromStart,omitempty"`
 	ForceReload      bool                 `json:"forceReload,omitempty"`
@@ -57,7 +60,16 @@ type ListenPlaybackMoveQueueRequest struct {
 }
 
 type ListenPlaybackQueueItemsRequest struct {
-	Tracks []listenplayback.Track `json:"tracks"`
+	Tracks                []listenplayback.Track `json:"tracks"`
+	AnchorTrackID         string                 `json:"anchorTrackId,omitempty"`
+	ExpectedQueueIdentity string                 `json:"expectedQueueIdentity,omitempty"`
+}
+
+type ListenPlaybackQueueIndexRequest struct {
+	Index    int    `json:"index"`
+	TrackID  string `json:"trackId,omitempty"`
+	VideoID  string `json:"videoId,omitempty"`
+	Language string `json:"language,omitempty"`
 }
 
 type ListenPlaybackRemoveQueueRequest struct {
@@ -77,6 +89,19 @@ type ListenPlaybackShuffleRequest struct {
 	Enabled bool `json:"enabled"`
 }
 
+type ListenPlaybackLanguageRequest struct {
+	Language string `json:"language"`
+}
+
+func (handler *ListenPlayerHandler) setPlaybackLanguage(ctx context.Context, language string) {
+	if handler == nil || handler.service == nil {
+		return
+	}
+	if normalized := normalizeListenPlayerLanguage(language); normalized != "" {
+		handler.service.SetPlaybackLanguage(ctx, normalized)
+	}
+}
+
 func (handler *ListenPlayerHandler) PlaybackSnapshot(ctx context.Context) (listenplayback.Snapshot, error) {
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
@@ -84,10 +109,19 @@ func (handler *ListenPlayerHandler) PlaybackSnapshot(ctx context.Context) (liste
 	return handler.service.Snapshot(ctx), nil
 }
 
+func (handler *ListenPlayerHandler) SetPlaybackLanguage(ctx context.Context, request ListenPlaybackLanguageRequest) (listenplayback.Snapshot, error) {
+	if handler == nil || handler.service == nil {
+		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
+	}
+	handler.setPlaybackLanguage(ctx, request.Language)
+	return handler.service.Snapshot(ctx), nil
+}
+
 func (handler *ListenPlayerHandler) PlayTrack(ctx context.Context, request ListenPlaybackTrackRequest) (listenplayback.Snapshot, error) {
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
+	handler.setPlaybackLanguage(ctx, request.Language)
 	handler.service.RecordPlaybackIntent()
 	err := handler.service.PlayTrack(ctx, request.Track, listenplayback.PlayOptions{
 		StartSeconds:     request.StartSeconds,
@@ -113,7 +147,13 @@ func (handler *ListenPlayerHandler) ObservePlayback(ctx context.Context, request
 		request.State == listenplayback.PlaybackStateBuffering) &&
 		!request.Paused &&
 		!request.Ended
-	if err := handler.service.UpdatePlaybackState(ctx, isPlaying, request.Progress, request.Duration); err != nil {
+	if err := handler.service.UpdateObservedPlaybackState(
+		ctx,
+		request.State,
+		isPlaying,
+		request.Progress,
+		request.Duration,
+	); err != nil {
 		return handler.service.Snapshot(ctx), err
 	}
 	var err error
@@ -140,6 +180,7 @@ func (handler *ListenPlayerHandler) PlayQueue(ctx context.Context, request Liste
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
+	handler.setPlaybackLanguage(ctx, request.Language)
 	handler.service.RecordPlaybackIntent()
 	var err error
 	switch strings.TrimSpace(request.Kind) {
@@ -152,8 +193,28 @@ func (handler *ListenPlayerHandler) PlayQueue(ctx context.Context, request Liste
 			err = handler.service.PlayRadioQueue(ctx, request.Tracks, request.StartingAt, request.Title)
 		}
 	default:
-		err = handler.service.PlayQueue(ctx, request.Tracks, request.StartingAt, request.Title)
+		err = handler.service.PlayQueueWithIdentity(
+			ctx,
+			request.Tracks,
+			request.StartingAt,
+			request.Title,
+			request.QueueIdentity,
+		)
 	}
+	return handler.service.Snapshot(ctx), err
+}
+
+func (handler *ListenPlayerHandler) PlayFromQueue(ctx context.Context, request ListenPlaybackQueueIndexRequest) (listenplayback.Snapshot, error) {
+	if handler == nil || handler.service == nil {
+		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
+	}
+	handler.setPlaybackLanguage(ctx, request.Language)
+	handler.service.RecordPlaybackIntent()
+	err := handler.service.PlayFromQueue(ctx, listenplayback.QueueSelection{
+		Index:   request.Index,
+		TrackID: request.TrackID,
+		VideoID: request.VideoID,
+	})
 	return handler.service.Snapshot(ctx), err
 }
 
@@ -269,11 +330,24 @@ func (handler *ListenPlayerHandler) InsertNextInQueue(ctx context.Context, reque
 	return handler.service.Snapshot(ctx), nil
 }
 
+func (handler *ListenPlayerHandler) InsertAfterQueueItem(ctx context.Context, request ListenPlaybackQueueItemsRequest) (listenplayback.Snapshot, error) {
+	if handler == nil || handler.service == nil {
+		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
+	}
+	handler.service.InsertAfterQueueItemIfCurrent(
+		ctx,
+		request.Tracks,
+		request.AnchorTrackID,
+		request.ExpectedQueueIdentity,
+	)
+	return handler.service.Snapshot(ctx), nil
+}
+
 func (handler *ListenPlayerHandler) AppendToQueue(ctx context.Context, request ListenPlaybackQueueItemsRequest) (listenplayback.Snapshot, error) {
 	if handler == nil || handler.service == nil {
 		return listenplayback.Snapshot{}, fmt.Errorf("listen playback service unavailable")
 	}
-	handler.service.AppendToQueue(ctx, request.Tracks)
+	handler.service.AppendToQueueIfCurrent(ctx, request.Tracks, request.ExpectedQueueIdentity)
 	return handler.service.Snapshot(ctx), nil
 }
 

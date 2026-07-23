@@ -13,51 +13,34 @@ import {
 import { useOpenLibraryPath } from "@/shared/query/library";
 import { REALTIME_TOPICS,registerTopic } from "@/shared/realtime";
 
-import { fetchListenArtist,fetchListenLibrary,fetchListenLiveCatalog,fetchListenLiveStatuses,fetchListenLiveUserCatalog,fetchListenPlaylistPage,fetchListenPlaylistQueue,fetchListenSearch,fetchListenTrackFavorite,fetchListenTrackFavoriteStatuses,fetchListenTrackInfo,getListenErrorCode,getListenErrorMessage,saveListenLiveUserCatalog,updateListenArtistSubscription,updateListenPlaylistLibrary,updateListenTrackFavorite } from "@/app/main/listen/api";
+import { fetchCompleteListenPlaylistQueue,fetchListenArtist,fetchListenLibrary,fetchListenLiveCatalog,fetchListenLiveStatuses,fetchListenLiveUserCatalog,fetchListenPlaylistPage,fetchListenPlaylistQueue,fetchListenSearch,fetchListenTrackFavorite,fetchListenTrackFavoriteStatuses,fetchListenTrackInfo,getListenErrorCode,getListenErrorMessage,getListenErrorRetryable,saveListenLiveUserCatalog,updateListenArtistSubscription,updateListenPlaylistLibrary,updateListenTrackFavorite } from "@/app/main/listen/api";
 import type { ListenLiveUserCatalog } from "@/app/main/listen/api";
+import { handleListenYouTubeAppSessionEvent } from "@/app/main/listen/app-session-event";
+import { beginListenArtistRequest,createListenArtistIdentity,createListenArtistRequestRegistry,finishListenArtistRequest,invalidateListenArtistRequests,isListenArtistRequestCurrent,synchronizeListenArtistRequestIdentity } from "@/app/main/listen/artist-request-race";
 import { LISTEN_LIKED_SONGS_SHELF_ID,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_YOUTUBE_APP_SESSION_CHANGED_EVENT } from "@/app/main/listen/catalog";
 import { clampVolume,matchesQuery,normalizeSearch,resolveListenLiveSelectionId,resolveQueueIndex,useListenLocalTracks } from "@/app/main/listen/local-library";
 import { ListenLocalRelinkRepair } from "@/app/main/listen/LocalRelinkRepair";
+import { mergeListenLibraryPagePlaylists } from "@/app/main/listen/library-pagination";
+import { isListenLibraryPageRequestCurrent,isListenLibraryRequestReady,isSameListenArtistBrowseIdentity,resolveListenLibraryPageCacheKey,type ListenLibraryPageCacheEntry } from "@/app/main/listen/library-view-state";
+import { abortListenPaginationRequests,abortStaleListenPaginationRequests,beginListenPaginationRequest,createListenPaginationContextKey,finishListenPaginationRequest,isListenPaginationContextCurrent,resolveListenNextContinuation,type ListenPaginationKind,type ListenPaginationRequestRegistry } from "@/app/main/listen/pagination-race";
 import { ListenPageView } from "@/app/main/listen/PageView";
-import { callListenPlaybackAppendToQueue,callListenPlaybackClearQueue,callListenPlaybackInsertNextInQueue,callListenPlaybackMergeTrackMetadata,callListenPlaybackMoveQueueItem,callListenPlaybackNext,callListenPlaybackObserveNativeEvent,callListenPlaybackPause,callListenPlaybackPlayPause,callListenPlaybackPlayQueue,callListenPlaybackPlayTrack,callListenPlaybackPrevious,callListenPlaybackRedoQueue,callListenPlaybackRemoveFromQueue,callListenPlaybackResume,callListenPlaybackSeek,callListenPlaybackSetRepeatMode,callListenPlaybackSetShuffle,callListenPlaybackSetVolume,callListenPlaybackUndoQueue,listenRepeatModeFromPlayMode,type ListenPlaybackSnapshot } from "@/app/main/listen/playback-api";
-import { hasTrustedListenOnlineArtist,isMissingListenArtistLabel } from "@/app/main/listen/playback-helpers";
+import { applyListenPlaylistPlaybackFallback,placeListenPlaylistQueueContinuation,resolveListenPlaylistPlaybackFallbackArtist,resolveListenPlaylistQueueAction,startListenPlaylistPlayback,startListenPlaylistPlaybackFromIndex,startListenPlaylistQueueAction } from "@/app/main/listen/playlist-playback";
+import { resolveListenWorkspaceViewMode,resolveMusicWorkspaceRoute,shouldLoadListenWorkspaceBrowse } from "@/app/main/listen/workspace-routes";
+import { callListenPlaybackAppendToQueue,callListenPlaybackClearQueue,callListenPlaybackInsertNextInQueue,callListenPlaybackMergeTrackMetadata,callListenPlaybackMoveQueueItem,callListenPlaybackNext,callListenPlaybackObserveNativeEvent,callListenPlaybackPause,callListenPlaybackPlayFromQueue,callListenPlaybackPlayPause,callListenPlaybackPlayQueue,callListenPlaybackPlayTrack,callListenPlaybackPrevious,callListenPlaybackRedoQueue,callListenPlaybackRemoveFromQueue,callListenPlaybackResume,callListenPlaybackSeek,callListenPlaybackSetLanguage,callListenPlaybackSetRepeatMode,callListenPlaybackSetShuffle,callListenPlaybackSetVolume,callListenPlaybackUndoQueue,createListenPlaybackQueueIdentity,listenRepeatModeFromPlayMode,type ListenPlaybackSnapshot } from "@/app/main/listen/playback-api";
+import { hasTrustedListenOnlineArtist,isListenLiveEventForSession,isMissingListenArtistLabel,resolveListenPlaybackActivity } from "@/app/main/listen/playback-helpers";
 import { useListenPlaybackStore } from "@/app/main/listen/playback-store";
 import { pushListenForwardSkipIndex,resolveListenQueueNextAction,resolveListenQueuePreviousAction } from "@/app/main/listen/queue";
-import { buildListenHighQualityThumbnailURL,buildListenImageCacheURL,buildYouTubePosterURL,dedupeLibraryShelves,dedupeOnlineItems,dedupePlaylistItems,readListenStorageState,updateListenProgressMap,writeListenStorageState } from "@/app/main/listen/storage";
+import { buildListenPosterCandidates,dedupeLibraryShelves,dedupeOnlineItems,dedupePlaylistItems,readListenStorageState,updateListenProgressMap,writeListenStorageState } from "@/app/main/listen/storage";
 import type { ListenArtistBrowseState,ListenArtistItem,ListenCategoryItem,ListenLibraryShelf,ListenLiveGroup,ListenLiveStatus,ListenMode,ListenNativePlayerEvent,ListenNowPlayingStatus,ListenOnlineBrowseDetail,ListenOnlineBrowseSource,ListenOnlineItem,ListenPageProps,ListenPlayMode,ListenPlaybackProgressState,ListenPlayerCommand,ListenPlaylistItem,ListenPlaylistLibraryAction,ListenRemotePlaybackState,ListenSidebarView,ListenTrackArtist } from "@/app/main/listen/types";
+import { useListenLocalQueue } from "@/app/main/listen/useListenLocalQueue";
+import { openListenArtistFromPlayerSurface } from "@/app/main/listen/workspace-player-shared";
 export { ListenLocalPreviewPlayer } from "@/app/main/listen/LocalPreviewPlayer";
-export type { ListenExternalCommand,ListenLocalPreviewTrack,ListenMode,ListenNowPlayingStatus } from "@/app/main/listen/types";
+export type { ListenExternalCommand,ListenLocalPreviewTrack,ListenMode,ListenNowPlayingStatus,ListenPlaybackSource } from "@/app/main/listen/types";
 
 const LISTEN_UNKNOWN_ARTIST = "Unknown Artist";
 const LISTEN_LIVE_STATUS_POLL_MS = 60_000;
 const LISTEN_LIVE_STATUS_WARM_POLL_MS = 4_000;
 const LISTEN_ARTIST_SHELF_CONTINUATION_MAX_PAGES = 20;
-
-type ListenLibraryPageCacheEntry = {
-  playlists: ListenPlaylistItem[];
-  artists: ListenArtistItem[];
-  shelves: ListenLibraryShelf[];
-  continuation: string;
-  reloadToken: number;
-};
-
-function resolveListenLibraryPageCacheKey(
-  source: ListenOnlineBrowseSource,
-  detail: ListenOnlineBrowseDetail | null,
-  language: string,
-) {
-  const locale = language.trim() || "en";
-  if (!detail) {
-    return `source:${source}:locale:${locale}`;
-  }
-  return [
-    "detail",
-    source,
-    locale,
-    detail.browseId.trim(),
-    detail.params.trim(),
-  ].join(":");
-}
 
 function mergeListenNativeTrackItem(
   incoming: ListenOnlineItem,
@@ -186,78 +169,6 @@ function createNativeOnlineItem(params: {
   };
 }
 
-function cleanListenPlaylistPlaybackArtist(value: string) {
-  let artist = value.trim();
-  if (!artist) {
-    return "";
-  }
-  if (artist === "Album") {
-    return LISTEN_UNKNOWN_ARTIST;
-  }
-  if (artist.startsWith("Album, ")) {
-    artist = artist.slice(7).trim();
-  }
-  if (artist.includes("Album,")) {
-    const parts = artist.split(/,(.*)/s);
-    if (parts[1]) {
-      artist = parts[1].trim();
-    }
-  }
-  if (isMissingListenArtistLabel(artist)) {
-    return LISTEN_UNKNOWN_ARTIST;
-  }
-  return artist;
-}
-
-function applyListenPlaylistPlaybackFallback(
-  items: ListenOnlineItem[],
-  fallbackArtist: string,
-) {
-  const cleanedFallback = cleanListenPlaylistPlaybackArtist(fallbackArtist);
-  return items.map((item) => {
-    let channel = item.channel.trim();
-    if (channel === "Album") {
-      channel = "";
-    } else if (channel.startsWith("Album, ")) {
-      channel = channel.slice(7).trim();
-    }
-    if (isMissingListenArtistLabel(channel)) {
-      channel = "";
-    }
-    if (!channel && cleanedFallback) {
-      channel = cleanedFallback;
-    }
-    return channel === item.channel ? item : { ...item, channel };
-  });
-}
-
-function resolveListenPlaylistPlaybackFallbackArtist(
-  playlist: ListenPlaylistItem,
-  detailAuthor: string,
-) {
-  const author = detailAuthor.trim();
-  if (author && !isMissingListenArtistLabel(author)) {
-    return author;
-  }
-  const channel = playlist.channel.trim();
-  if (isMissingListenArtistLabel(channel)) {
-    return playlist.description.trim();
-  }
-  const normalizedChannel = channel.toLowerCase();
-  if (
-    normalizedChannel === "album" ||
-    normalizedChannel === "专辑" ||
-    normalizedChannel === "專輯" ||
-    normalizedChannel === "single" ||
-    normalizedChannel === "单曲" ||
-    normalizedChannel === "單曲" ||
-    normalizedChannel === "ep"
-  ) {
-    return playlist.description.trim() || channel;
-  }
-  return channel;
-}
-
 function nativeStatusToPlayerEvent(
   value: unknown,
   source = "listen-youtube-music-player",
@@ -281,6 +192,14 @@ function nativeStatusToPlayerEvent(
   }
   return {
     source,
+    provider:
+      record.provider === "stream" ||
+      record.provider === "youtube" ||
+      record.provider === "youtube_music" ||
+      record.provider === "local"
+        ? record.provider
+        : undefined,
+    sessionId: stringFromNativeStatus(record.sessionId),
     type: "status",
     state,
     videoId,
@@ -399,6 +318,7 @@ export function ListenPage(props: ListenPageProps) {
   );
   const openLibraryPath = useOpenLibraryPath();
   const appSessions = useAppSessions();
+  const refetchAppSessions = appSessions.refetch;
   const startAppSessionConnect = useStartAppSessionConnect();
   const cancelAppSessionConnect = useCancelAppSessionConnect();
   const clearAppSession = useClearAppSession();
@@ -413,10 +333,33 @@ export function ListenPage(props: ListenPageProps) {
   const [mode, setMode] = React.useState<ListenMode>(
     initialPersistedState.mode,
   );
+  const activeViewMode = resolveListenWorkspaceViewMode({
+    workspaceLayout: props.workspaceLayout,
+    workspaceRouteId: props.workspaceRouteId,
+    fallbackMode: mode,
+  });
+  const setLegacyBrowseMode = React.useCallback(
+    (nextMode: React.SetStateAction<ListenMode>) => {
+      if (!props.workspaceLayout) {
+        setMode(nextMode);
+      }
+    },
+    [props.workspaceLayout],
+  );
+  const museBrowseActive = shouldLoadListenWorkspaceBrowse({
+    active: props.active,
+    viewMode: activeViewMode,
+    targetMode: "muse",
+  });
+  const hushBrowseActive = shouldLoadListenWorkspaceBrowse({
+    active: props.active,
+    viewMode: activeViewMode,
+    targetMode: "hush",
+  });
   const [playbackMode, setPlaybackMode] = React.useState<ListenMode>(
     initialPersistedState.playbackMode,
   );
-  const modeRef = React.useRef(mode);
+  const modeRef = React.useRef(activeViewMode);
   const playbackModeRef = React.useRef(playbackMode);
   const [sidebarView, setSidebarView] =
     React.useState<ListenSidebarView>("browse");
@@ -453,9 +396,6 @@ export function ListenPage(props: ListenPageProps) {
   const [browsePlaylistId, setBrowsePlaylistId] = React.useState(
     initialPersistedState.browsePlaylistId,
   );
-  const [selectedLocalId, setSelectedLocalId] = React.useState(
-    initialPersistedState.selectedLocalId,
-  );
   const [localPlayMode, setLocalPlayMode] = React.useState<ListenPlayMode>(
     initialPersistedState.playMode,
   );
@@ -480,6 +420,10 @@ export function ListenPage(props: ListenPageProps) {
   const [libraryAppending, setLibraryAppending] = React.useState(false);
   const [libraryError, setLibraryError] = React.useState(false);
   const [libraryErrorCode, setLibraryErrorCode] = React.useState("");
+  const [libraryErrorRetryable, setLibraryErrorRetryable] =
+    React.useState(false);
+  const [librarySettledCacheKey, setLibrarySettledCacheKey] =
+    React.useState("");
   const [libraryReloadToken, setLibraryReloadToken] = React.useState(0);
   const [museAccountReloadToken, setMuseAccountReloadToken] = React.useState(0);
   const [museManualRefreshKind, setMuseManualRefreshKind] = React.useState<
@@ -489,8 +433,12 @@ export function ListenPage(props: ListenPageProps) {
     ListenOnlineItem[]
   >([]);
   const [playlistContinuation, setPlaylistContinuation] = React.useState("");
-  const [playlistDetailAuthor, setPlaylistDetailAuthor] = React.useState("");
+  const [playlistDetailAuthor, setPlaylistDetailAuthor] = React.useState(""); const [playlistDetailMetadata, setPlaylistDetailMetadata] = React.useState({ authorBrowseId: "", trackCountLabel: "", durationLabel: "" });
   const [playlistDetailTitle, setPlaylistDetailTitle] = React.useState("");
+  const [playlistDetailDescription, setPlaylistDetailDescription] =
+    React.useState("");
+  const [playlistDetailThumbnailURL, setPlaylistDetailThumbnailURL] =
+    React.useState("");
   const [playlistLoading, setPlaylistLoading] = React.useState(false);
   const [playlistAppending, setPlaylistAppending] = React.useState(false);
   const [playlistMutationPlaylistId, setPlaylistMutationPlaylistId] =
@@ -504,6 +452,8 @@ export function ListenPage(props: ListenPageProps) {
   >("");
   const [onlinePlayerCommand, setOnlinePlayerCommand] =
     React.useState<ListenPlayerCommand | null>(null);
+  const [onlinePlaybackActionPending, setOnlinePlaybackActionPending] =
+    React.useState(false);
   const [livePlaying, setLivePlaying] = React.useState(false);
   const [liveState, setLiveState] =
     React.useState<ListenRemotePlaybackState>("idle");
@@ -522,6 +472,9 @@ export function ListenPage(props: ListenPageProps) {
     React.useState<ListenPlayerCommand | null>(null);
   const [muted, setMuted] = React.useState(initialPersistedState.muted);
   const [volume, setVolume] = React.useState(initialPersistedState.volume);
+  const museVolumeObservedKeyRef = React.useRef("");
+  const museVolumeDesiredKeyRef = React.useRef("");
+  const museVolumeWriteTimerRef = React.useRef<number | null>(null);
   const lastNonZeroVolumeRef = React.useRef(
     initialPersistedState.volume > 0 ? initialPersistedState.volume : 1,
   );
@@ -564,6 +517,34 @@ export function ListenPage(props: ListenPageProps) {
     Map<string, ListenLibraryPageCacheEntry>
   >(new Map());
   const activeLibraryPageCacheKeyRef = React.useRef("");
+  const onlineBrowseSourceRef = React.useRef(onlineBrowseSource);
+  const onlineBrowseDetailRef = React.useRef(onlineBrowseDetail);
+  const listenLanguageRef = React.useRef(props.text.locale);
+  onlineBrowseSourceRef.current = onlineBrowseSource;
+  onlineBrowseDetailRef.current = onlineBrowseDetail;
+  listenLanguageRef.current = props.text.locale;
+  const paginationRequestsRef = React.useRef<ListenPaginationRequestRegistry>(
+    new Map(),
+  );
+  const playlistQueueLoadRef = React.useRef<{
+    context: string;
+    controller: AbortController;
+    promise: Promise<ListenOnlineItem[]>;
+  } | null>(null);
+  const artistRequestsRef = React.useRef(
+    createListenArtistRequestRegistry(),
+  );
+  const paginationContextsRef = React.useRef<
+    Record<ListenPaginationKind, string>
+  >({
+    artist: "",
+    library: "",
+    playlist: "",
+    search: "",
+  });
+  const clearForwardSkipNavigationStack = React.useCallback(() => {
+    forwardSkipIndexStackRef.current = [];
+  }, []);
 
   const localTrackIndex = useListenLocalTracks(
     props.libraries,
@@ -571,6 +552,17 @@ export function ListenPage(props: ListenPageProps) {
   );
   const localTracks = localTrackIndex.tracks;
   const listenLanguage = props.text.locale;
+  React.useEffect(() => {
+    void callListenPlaybackSetLanguage(listenLanguage).catch(() => {});
+  }, [listenLanguage]);
+  const currentLibraryPageCacheKey = resolveListenLibraryPageCacheKey(
+    onlineBrowseSource,
+    onlineBrowseDetail,
+    listenLanguage,
+  );
+  const librarySettled =
+    librarySettledCacheKey !== "" &&
+    librarySettledCacheKey === currentLibraryPageCacheKey;
   const rememberFavoriteOverride = React.useCallback(
     (videoId: string, liked: boolean) => {
       const trimmed = videoId.trim();
@@ -611,16 +603,23 @@ export function ListenPage(props: ListenPageProps) {
   );
 
   const reloadMuseAccountData = React.useCallback(() => {
+    invalidateListenArtistRequests(
+      artistRequestsRef.current,
+      artistRequestsRef.current.artistIdentity,
+    );
     libraryPageCacheRef.current.clear();
     activeLibraryPageCacheKeyRef.current = "";
+    setLibrarySettledCacheKey("");
     favoriteOverrideByVideoIdRef.current = {};
     setHomeShelves([]);
     setLibraryPlaylists([]);
     setLibraryArtists([]);
     setLibraryContinuation("");
     setLibraryAppending(false);
+    setLibraryLoading(true);
     setLibraryError(false);
     setLibraryErrorCode("");
+    setLibraryErrorRetryable(false);
     setSearchItems([]);
     setSearchArtists([]);
     setSearchPlaylists([]);
@@ -630,8 +629,10 @@ export function ListenPage(props: ListenPageProps) {
     setSearchError(false);
     setPlaylistTracks([]);
     setPlaylistContinuation("");
-    setPlaylistDetailAuthor("");
+    setPlaylistDetailAuthor(""); setPlaylistDetailMetadata({ authorBrowseId: "", trackCountLabel: "", durationLabel: "" });
     setPlaylistDetailTitle("");
+    setPlaylistDetailDescription("");
+    setPlaylistDetailThumbnailURL("");
     setPlaylistAppending(false);
     setPlaylistLoading(false);
     setArtistActionBusy("");
@@ -656,12 +657,17 @@ export function ListenPage(props: ListenPageProps) {
   }, []);
 
   const resetMuseAccountViewForLogout = React.useCallback(() => {
+    invalidateListenArtistRequests(artistRequestsRef.current, "");
     libraryPageCacheRef.current.clear();
     activeLibraryPageCacheKeyRef.current = "";
+    setLibrarySettledCacheKey("");
+    onlineBrowseSourceRef.current = "home";
+    onlineBrowseDetailRef.current = null;
     favoriteOverrideByVideoIdRef.current = {};
     museAccountConnectedRef.current = false;
     onlinePlaybackActionEpochRef.current += 1;
     onlinePlaybackActionPendingRef.current = false;
+    setOnlinePlaybackActionPending(false);
     resetOnlinePlaybackProjectionRef.current();
     setMuseManualRefreshKind("");
     setPlaybackSessionStarted(false);
@@ -680,10 +686,13 @@ export function ListenPage(props: ListenPageProps) {
     setLibraryLoading(false);
     setLibraryError(false);
     setLibraryErrorCode("");
+    setLibraryErrorRetryable(false);
     setPlaylistTracks([]);
     setPlaylistContinuation("");
-    setPlaylistDetailAuthor("");
+    setPlaylistDetailAuthor(""); setPlaylistDetailMetadata({ authorBrowseId: "", trackCountLabel: "", durationLabel: "" });
     setPlaylistDetailTitle("");
+    setPlaylistDetailDescription("");
+    setPlaylistDetailThumbnailURL("");
     setPlaylistAppending(false);
     setPlaylistLoading(false);
     setArtistActionBusy("");
@@ -700,9 +709,9 @@ export function ListenPage(props: ListenPageProps) {
   }, []);
 
   const activateMusePlayback = React.useCallback(() => {
-    setMode("muse");
+    setLegacyBrowseMode("muse");
     setPlaybackMode("muse");
-  }, []);
+  }, [setLegacyBrowseMode]);
   const shouldAcceptMuseSnapshot = React.useCallback(
     (snapshot: ListenPlaybackSnapshot) => {
       const hasMuseSession =
@@ -737,6 +746,8 @@ export function ListenPage(props: ListenPageProps) {
     });
   resetOnlinePlaybackProjectionRef.current = resetOnlinePlaybackProjection;
   const onlineQueueState = musePlayback.queueState;
+  const onlineQueueStateRef = React.useRef(onlineQueueState);
+  onlineQueueStateRef.current = onlineQueueState;
   const onlinePlaybackQueue = musePlayback.queueItems;
   const selectedOnlineId = musePlayback.selectedId;
   const onlineQueueCanUndo = musePlayback.canUndoQueue;
@@ -771,6 +782,10 @@ export function ListenPage(props: ListenPageProps) {
       Boolean(youtubeAppSession?.account?.avatarURL?.trim()));
   const museAccountConnected =
     !youtubeLoggedOutOverride && youtubeAppSessionConnected;
+  const libraryRequestReady = isListenLibraryRequestReady({
+    accountConnected: museAccountConnected,
+    httpBaseURL: props.httpBaseURL,
+  });
   museAccountConnectedRef.current = museAccountConnected;
   React.useEffect(() => {
     if (!museAccountConnected) {
@@ -799,7 +814,7 @@ export function ListenPage(props: ListenPageProps) {
       props.onOpenConnections();
       return;
     }
-    setMode("muse");
+    setLegacyBrowseMode("muse");
     setPlaybackMode("muse");
     try {
       const result = await startAppSessionConnect.mutateAsync({ id: appSession.id });
@@ -819,6 +834,7 @@ export function ListenPage(props: ListenPageProps) {
     onlineAuthRequiredLabel,
     props.onOpenConnections,
     startAppSessionConnect,
+    setLegacyBrowseMode,
     youtubeConnectBusy,
     youtubeAppSession,
   ]);
@@ -855,9 +871,9 @@ export function ListenPage(props: ListenPageProps) {
   ]);
 
   React.useEffect(() => {
-    modeRef.current = mode;
+    modeRef.current = activeViewMode;
     playbackModeRef.current = playbackMode;
-  }, [mode, playbackMode]);
+  }, [activeViewMode, playbackMode]);
 
   React.useEffect(() => {
     const session = youtubeConnectSession.data;
@@ -915,33 +931,21 @@ export function ListenPage(props: ListenPageProps) {
     const offYouTubeAppSessionChanged = Events.On(
       LISTEN_YOUTUBE_APP_SESSION_CHANGED_EVENT,
       (event: any) => {
-        const payload = event?.data ?? event;
-        const siteKey =
-          typeof payload?.siteKey === "string"
-            ? payload.siteKey.trim().toLowerCase()
-            : "";
-        if (siteKey && siteKey !== "youtube") {
-          return;
-        }
-        const action =
-          typeof payload?.action === "string"
-            ? payload.action.trim().toLowerCase()
-            : "";
-        const status =
-          typeof payload?.status === "string"
-            ? payload.status.trim().toLowerCase()
-            : "";
-        if (action === "clear" || status === "disconnected") {
-          setYouTubeLoggedOutOverride(true);
-          resetMuseAccountViewForLogout();
-        } else if (action === "finish" || status === "connected") {
-          setYouTubeLoggedOutOverride(false);
-        }
-        reloadMuseAccountData();
+        handleListenYouTubeAppSessionEvent(event, {
+          onConnected: () => setYouTubeLoggedOutOverride(false),
+          onDisconnected: () => {
+            setYouTubeLoggedOutOverride(true);
+            resetMuseAccountViewForLogout();
+          },
+          onReload: reloadMuseAccountData,
+          onRefetch: () => {
+            void refetchAppSessions();
+          },
+        });
       },
     );
     return () => offYouTubeAppSessionChanged();
-  }, [reloadMuseAccountData, resetMuseAccountViewForLogout]);
+  }, [refetchAppSessions, reloadMuseAccountData, resetMuseAccountViewForLogout]);
 
   React.useEffect(
     () => () => {
@@ -949,6 +953,9 @@ export function ListenPage(props: ListenPageProps) {
         controller.abort(),
       );
       nativeTrackLookupRef.current.clear();
+      abortListenPaginationRequests(paginationRequestsRef.current);
+      playlistQueueLoadRef.current?.controller.abort();
+      playlistQueueLoadRef.current = null;
     },
     [],
   );
@@ -956,6 +963,7 @@ export function ListenPage(props: ListenPageProps) {
   React.useEffect(() => {
     libraryPageCacheRef.current.clear();
     activeLibraryPageCacheKeyRef.current = "";
+    setLibrarySettledCacheKey("");
   }, [listenLanguage, props.httpBaseURL]);
 
   React.useEffect(() => {
@@ -964,22 +972,114 @@ export function ListenPage(props: ListenPageProps) {
     setFavoriteMutationVideoId("");
   }, [listenLanguage, props.httpBaseURL]);
 
-  React.useEffect(() => {
-    if (
-      selectedLocalId &&
-      !localTrackIndex.loading &&
-      !localTracks.some((item) => item.id === selectedLocalId)
-    ) {
-      setSelectedLocalId("");
-    }
-  }, [localTrackIndex.loading, localTracks, selectedLocalId]);
+  const {
+    selectedLocalId,
+    setSelectedLocalId,
+    localPlaybackQueueIds,
+    localPlaybackQueue,
+    localQueueCanUndo,
+    localQueueCanRedo,
+    selectLocalQueueTrack,
+    clearLocalQueue,
+    removeLocalQueueItem,
+    moveLocalQueueItem,
+    undoLocalQueueEdit,
+    redoLocalQueueEdit,
+    playLocalBrowseTrack,
+  } = useListenLocalQueue({
+    tracks: localTracks,
+    initialQueueIds: initialPersistedState.localPlaybackQueueIds,
+    initialSelectedId: initialPersistedState.selectedLocalId,
+    loading: localTrackIndex.loading,
+    error: localTrackIndex.error,
+    playing: localPlaying,
+    setPlaying: setLocalPlaying,
+    setPlaybackMode,
+    setPlayerCommand: setLocalPlayerCommand,
+    clearForwardSkipNavigationStack,
+  });
 
   const normalizedQuery = normalizeSearch(query);
+  const searchPaginationContext = createListenPaginationContextKey([
+      "search",
+      props.active ? "active" : "inactive",
+      activeViewMode,
+      museAccountConnected,
+      props.httpBaseURL,
+      listenLanguage,
+      query,
+      museAccountReloadToken,
+    ]);
+  const playlistPaginationContext = createListenPaginationContextKey([
+      "playlist",
+      props.active ? "active" : "inactive",
+      activeViewMode,
+      museAccountConnected,
+      props.httpBaseURL,
+      listenLanguage,
+      browsePlaylistId.trim(),
+      museAccountReloadToken,
+    ]);
+  const artistPaginationContext = createListenPaginationContextKey([
+      "artist",
+      props.active ? "active" : "inactive",
+      activeViewMode,
+      museAccountConnected,
+      props.httpBaseURL,
+      listenLanguage,
+      artistBrowsePage?.id.trim() ?? "",
+      artistBrowsePage?.name.trim() ?? "",
+      museAccountReloadToken,
+    ]);
+  const libraryPaginationContext = createListenPaginationContextKey([
+      "library",
+      props.active ? "active" : "inactive",
+      activeViewMode,
+      museAccountConnected,
+      props.httpBaseURL,
+      resolveListenLibraryPageCacheKey(
+        onlineBrowseSource,
+        onlineBrowseDetail,
+        listenLanguage,
+      ),
+      libraryReloadToken,
+      museAccountReloadToken,
+    ]);
+  React.useLayoutEffect(() => {
+    const contexts = paginationContextsRef.current;
+    const commitContext = (
+      kind: ListenPaginationKind,
+      nextContext: string,
+    ) => {
+      if (contexts[kind] === nextContext) {
+        return;
+      }
+      contexts[kind] = nextContext;
+      abortStaleListenPaginationRequests(
+        paginationRequestsRef.current,
+        kind,
+        nextContext,
+      );
+    };
+    commitContext("search", searchPaginationContext);
+    commitContext("playlist", playlistPaginationContext);
+    commitContext("artist", artistPaginationContext);
+    commitContext("library", libraryPaginationContext);
+  }, [
+    artistPaginationContext,
+    libraryPaginationContext,
+    playlistPaginationContext,
+    searchPaginationContext,
+  ]);
   const refreshMusePage = React.useCallback(() => {
-    if (mode !== "muse") {
+    if (!museBrowseActive) {
       return;
     }
     if (artistBrowsePage) {
+      invalidateListenArtistRequests(
+        artistRequestsRef.current,
+        createListenArtistIdentity(artistBrowsePage),
+      );
       setMuseManualRefreshKind("artist");
       setMuseAccountReloadToken((current) => current + 1);
       setArtistBrowsePage((current) =>
@@ -1002,8 +1102,10 @@ export function ListenPage(props: ListenPageProps) {
       setMuseAccountReloadToken((current) => current + 1);
       setPlaylistTracks([]);
       setPlaylistContinuation("");
-      setPlaylistDetailAuthor("");
+      setPlaylistDetailAuthor(""); setPlaylistDetailMetadata({ authorBrowseId: "", trackCountLabel: "", durationLabel: "" });
       setPlaylistDetailTitle("");
+      setPlaylistDetailDescription("");
+      setPlaylistDetailThumbnailURL("");
       setPlaylistAppending(false);
       setPlaylistLoading(true);
       return;
@@ -1036,12 +1138,14 @@ export function ListenPage(props: ListenPageProps) {
     setLibraryLoading(true);
     setLibraryError(false);
     setLibraryErrorCode("");
+    setLibraryErrorRetryable(false);
+    setLibrarySettledCacheKey("");
     setLibraryReloadToken((current) => current + 1);
-  }, [artistBrowsePage, browsePlaylistId, mode, normalizedQuery.length]);
+  }, [artistBrowsePage, browsePlaylistId, museBrowseActive, normalizedQuery.length]);
 
   React.useEffect(() => {
     if (
-      mode !== "muse" ||
+      !museBrowseActive ||
       !museAccountConnected ||
       artistBrowsePage ||
       normalizedQuery.length < 2
@@ -1096,10 +1200,10 @@ export function ListenPage(props: ListenPageProps) {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [artistBrowsePage, listenLanguage, mode, museAccountConnected, museAccountReloadToken, normalizedQuery, props.httpBaseURL, query]);
+  }, [artistBrowsePage, listenLanguage, museAccountConnected, museAccountReloadToken, museBrowseActive, normalizedQuery, props.httpBaseURL, query]);
 
   React.useEffect(() => {
-    if (mode !== "muse") {
+    if (!museBrowseActive) {
       activeLibraryPageCacheKeyRef.current = "";
       setMuseManualRefreshKind((current) =>
         current === "library" ? "" : current,
@@ -1109,6 +1213,7 @@ export function ListenPage(props: ListenPageProps) {
     if (!museAccountConnected) {
       activeLibraryPageCacheKeyRef.current = "";
       libraryPageCacheRef.current.clear();
+      setLibrarySettledCacheKey("");
       setHomeShelves([]);
       setLibraryPlaylists([]);
       setLibraryArtists([]);
@@ -1117,6 +1222,25 @@ export function ListenPage(props: ListenPageProps) {
       setLibraryAppending(false);
       setLibraryError(false);
       setLibraryErrorCode("");
+      setLibraryErrorRetryable(false);
+      setMuseManualRefreshKind((current) =>
+        current === "library" ? "" : current,
+      );
+      return;
+    }
+    if (!libraryRequestReady) {
+      activeLibraryPageCacheKeyRef.current = "";
+      libraryPageCacheRef.current.clear();
+      setLibrarySettledCacheKey("");
+      setHomeShelves([]);
+      setLibraryPlaylists([]);
+      setLibraryArtists([]);
+      setLibraryContinuation("");
+      setLibraryLoading(false);
+      setLibraryAppending(false);
+      setLibraryError(false);
+      setLibraryErrorCode("");
+      setLibraryErrorRetryable(false);
       setMuseManualRefreshKind((current) =>
         current === "library" ? "" : current,
       );
@@ -1130,6 +1254,7 @@ export function ListenPage(props: ListenPageProps) {
     activeLibraryPageCacheKeyRef.current = cacheKey;
     const cachedPage = libraryPageCacheRef.current.get(cacheKey);
     if (cachedPage && cachedPage.reloadToken === libraryReloadToken) {
+      setLibrarySettledCacheKey(cacheKey);
       setLibraryPlaylists(cachedPage.playlists);
       setLibraryArtists(cachedPage.artists);
       setHomeShelves(cachedPage.shelves);
@@ -1138,6 +1263,7 @@ export function ListenPage(props: ListenPageProps) {
       setLibraryAppending(false);
       setLibraryError(false);
       setLibraryErrorCode("");
+      setLibraryErrorRetryable(false);
       setMuseManualRefreshKind((current) =>
         current === "library" ? "" : current,
       );
@@ -1149,6 +1275,7 @@ export function ListenPage(props: ListenPageProps) {
     setLibraryContinuation("");
     setLibraryError(false);
     setLibraryErrorCode("");
+    setLibraryErrorRetryable(false);
     void fetchListenLibrary(
       props.httpBaseURL,
       controller.signal,
@@ -1162,7 +1289,13 @@ export function ListenPage(props: ListenPageProps) {
         : { language: listenLanguage },
     )
       .then((payload) => {
-        if (!controller.signal.aborted) {
+        if (
+          isListenLibraryPageRequestCurrent({
+            activeCacheKey: activeLibraryPageCacheKeyRef.current,
+            requestCacheKey: cacheKey,
+            aborted: controller.signal.aborted,
+          })
+        ) {
           libraryPageCacheRef.current.set(cacheKey, {
             playlists: payload.playlists,
             artists: payload.artists,
@@ -1174,10 +1307,17 @@ export function ListenPage(props: ListenPageProps) {
           setLibraryArtists(payload.artists);
           setHomeShelves(payload.shelves);
           setLibraryContinuation(payload.continuation);
+          setLibrarySettledCacheKey(cacheKey);
         }
       })
       .catch((error) => {
-        if (!controller.signal.aborted) {
+        if (
+          isListenLibraryPageRequestCurrent({
+            activeCacheKey: activeLibraryPageCacheKeyRef.current,
+            requestCacheKey: cacheKey,
+            aborted: controller.signal.aborted,
+          })
+        ) {
           libraryPageCacheRef.current.delete(cacheKey);
           setLibraryPlaylists([]);
           setLibraryArtists([]);
@@ -1185,10 +1325,18 @@ export function ListenPage(props: ListenPageProps) {
           setLibraryContinuation("");
           setLibraryError(true);
           setLibraryErrorCode(getListenErrorCode(error));
+          setLibraryErrorRetryable(getListenErrorRetryable(error));
+          setLibrarySettledCacheKey(cacheKey);
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        if (
+          isListenLibraryPageRequestCurrent({
+            activeCacheKey: activeLibraryPageCacheKeyRef.current,
+            requestCacheKey: cacheKey,
+            aborted: controller.signal.aborted,
+          })
+        ) {
           setLibraryLoading(false);
           setMuseManualRefreshKind((current) =>
             current === "library" ? "" : current,
@@ -1196,12 +1344,40 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [libraryReloadToken, listenLanguage, mode, museAccountConnected, museAccountReloadToken, onlineBrowseDetail, onlineBrowseSource, props.httpBaseURL]);
+  }, [libraryReloadToken, libraryRequestReady, listenLanguage, museAccountConnected, museAccountReloadToken, museBrowseActive, onlineBrowseDetail, onlineBrowseSource, props.httpBaseURL]);
 
   const artistBrowseId = artistBrowsePage?.id ?? "";
   const artistBrowseName = artistBrowsePage?.name ?? "";
+  const artistRequestIdentity = createListenArtistIdentity(artistBrowsePage);
+  React.useLayoutEffect(() => {
+    if (!museBrowseActive) {
+      invalidateListenArtistRequests(
+        artistRequestsRef.current,
+        artistRequestIdentity,
+      );
+      setArtistActionBusy("");
+      return;
+    }
+    if (
+      synchronizeListenArtistRequestIdentity(
+        artistRequestsRef.current,
+        artistRequestIdentity,
+      )
+    ) {
+      setArtistActionBusy("");
+    }
+  }, [artistRequestIdentity, museBrowseActive]);
+  React.useEffect(
+    () => () => {
+      invalidateListenArtistRequests(artistRequestsRef.current, "");
+    },
+    [],
+  );
   React.useEffect(() => {
-    if (mode !== "muse" || (!artistBrowseId && !artistBrowseName)) {
+    if (
+      !museBrowseActive ||
+      (!artistBrowseId && !artistBrowseName)
+    ) {
       setMuseManualRefreshKind((current) =>
         current === "artist" ? "" : current,
       );
@@ -1232,7 +1408,13 @@ export function ListenPage(props: ListenPageProps) {
                   id: payload.id || current.id,
                   title: payload.title || current.title,
                   subtitle: payload.subtitle,
+                  description: payload.description,
                   thumbnailUrl: payload.thumbnailUrl || current.thumbnailUrl,
+                  heroThumbnailUrl:
+                    payload.heroThumbnailUrl ||
+                    payload.thumbnailUrl ||
+                    current.heroThumbnailUrl ||
+                    current.thumbnailUrl,
                   channelId: payload.channelId,
                   isSubscribed: payload.isSubscribed,
                   mixPlaylistId: payload.mixPlaylistId,
@@ -1275,7 +1457,7 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [artistBrowseId, artistBrowseName, listenLanguage, mode, museAccountReloadToken, props.httpBaseURL]);
+  }, [artistBrowseId, artistBrowseName, listenLanguage, museAccountReloadToken, museBrowseActive, props.httpBaseURL]);
 
   const requestOnlineAutoplay = React.useCallback((options: {
     startSeconds?: number;
@@ -1306,15 +1488,74 @@ export function ListenPage(props: ListenPageProps) {
     });
   }, []);
 
+  const beginListenLibraryNavigation = React.useCallback(
+    (
+      source: ListenOnlineBrowseSource,
+      detail: ListenOnlineBrowseDetail | null,
+    ) => {
+      const nextCacheKey = resolveListenLibraryPageCacheKey(
+        source,
+        detail,
+        listenLanguageRef.current,
+      );
+      const currentCacheKey = resolveListenLibraryPageCacheKey(
+        onlineBrowseSourceRef.current,
+        onlineBrowseDetailRef.current,
+        listenLanguageRef.current,
+      );
+      onlineBrowseSourceRef.current = source;
+      onlineBrowseDetailRef.current = detail;
+      if (
+        currentCacheKey === nextCacheKey &&
+        activeLibraryPageCacheKeyRef.current === nextCacheKey
+      ) {
+        return;
+      }
+
+      // Invalidate the previous request immediately. The source state and the
+      // fetch effect commit on separate renders, so loading must begin here to
+      // keep the intermediate render out of the empty-success state.
+      activeLibraryPageCacheKeyRef.current = nextCacheKey;
+      setLibraryLoading(true);
+      setLibraryAppending(false);
+      setLibraryError(false);
+      setLibraryErrorCode("");
+      setLibraryErrorRetryable(false);
+    },
+    [],
+  );
+
   const changeOnlineBrowseSource = React.useCallback(
     (source: ListenOnlineBrowseSource) => {
+      beginListenLibraryNavigation(source, null);
       setOnlineBrowseSource(source);
       setOnlineBrowseDetail(null);
       setBrowsePlaylistId("");
       setArtistBrowsePage(null);
     },
-    [],
+    [beginListenLibraryNavigation],
   );
+
+  React.useEffect(() => {
+    if (!props.workspaceLayout) {
+      return;
+    }
+    const route = props.workspaceRouteId?.trim() || "home";
+    const descriptor = resolveMusicWorkspaceRoute(route);
+    setListOpen(true);
+    setSidebarView("browse");
+    setMode(descriptor.mode);
+    if (descriptor.content !== "search" && descriptor.content !== "local-search") {
+      setQuery("");
+    }
+    if (descriptor.browseSource) {
+      changeOnlineBrowseSource(descriptor.browseSource);
+    }
+  }, [
+    changeOnlineBrowseSource,
+    props.workspaceLayout,
+    props.workspaceRouteId,
+  ]);
 
   const openOnlineBrowseCategory = React.useCallback(
     (item: ListenCategoryItem) => {
@@ -1322,29 +1563,38 @@ export function ListenPage(props: ListenPageProps) {
       if (!browseId) {
         return;
       }
-      setMode("muse");
+      setLegacyBrowseMode("muse");
       setSidebarView("browse");
       setBrowsePlaylistId("");
       setArtistBrowsePage(null);
       setQuery("");
-      setOnlineBrowseDetail({
+      const detail: ListenOnlineBrowseDetail = {
         id: item.id,
         source: onlineBrowseSource,
         browseId,
         params: item.params.trim(),
         title: item.title.trim() || browseId,
-      });
+      };
+      beginListenLibraryNavigation(onlineBrowseSource, detail);
+      setOnlineBrowseDetail(detail);
     },
-    [onlineBrowseSource],
+    [beginListenLibraryNavigation, onlineBrowseSource],
   );
 
   const closeOnlineBrowseDetail = React.useCallback(() => {
+    beginListenLibraryNavigation(onlineBrowseSourceRef.current, null);
     setOnlineBrowseDetail(null);
-  }, []);
+  }, [beginListenLibraryNavigation]);
 
   const loadMoreLibrary = React.useCallback(() => {
     const continuation = libraryContinuation.trim();
-    if (!continuation || libraryAppending || libraryLoading) {
+    if (
+      !museBrowseActive ||
+      !libraryRequestReady ||
+      !continuation ||
+      libraryAppending ||
+      libraryLoading
+    ) {
       return;
     }
     const cacheKey = resolveListenLibraryPageCacheKey(
@@ -1352,6 +1602,15 @@ export function ListenPage(props: ListenPageProps) {
       onlineBrowseDetail,
       listenLanguage,
     );
+    const request = beginListenPaginationRequest(
+      paginationRequestsRef.current,
+      "library",
+      libraryPaginationContext,
+      continuation,
+    );
+    if (!request) {
+      return;
+    }
     const cachedPage = libraryPageCacheRef.current.get(cacheKey);
     const basePage: ListenLibraryPageCacheEntry =
       cachedPage && cachedPage.reloadToken === libraryReloadToken
@@ -1363,11 +1622,10 @@ export function ListenPage(props: ListenPageProps) {
             continuation,
             reloadToken: libraryReloadToken,
           };
-    const controller = new AbortController();
     setLibraryAppending(true);
     void fetchListenLibrary(
       props.httpBaseURL,
-      controller.signal,
+      request.controller.signal,
       onlineBrowseSource,
       {
         browseId: onlineBrowseDetail?.browseId,
@@ -1377,29 +1635,48 @@ export function ListenPage(props: ListenPageProps) {
       },
     )
       .then((payload) => {
-        if (controller.signal.aborted) {
+        if (
+          request.controller.signal.aborted ||
+          !isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.library,
+          ) ||
+          activeLibraryPageCacheKeyRef.current !== cacheKey
+        ) {
           return;
         }
         const nextPage: ListenLibraryPageCacheEntry = {
-          playlists: basePage.playlists,
+          playlists: mergeListenLibraryPagePlaylists(
+            onlineBrowseSource,
+            basePage.playlists,
+            payload.playlists,
+          ),
           artists: basePage.artists,
           shelves: dedupeLibraryShelves([
             ...basePage.shelves,
             ...payload.shelves,
           ]),
-          continuation: payload.continuation,
+          continuation: resolveListenNextContinuation(
+            continuation,
+            payload.continuation,
+          ),
           reloadToken: libraryReloadToken,
         };
         libraryPageCacheRef.current.set(cacheKey, nextPage);
-        if (activeLibraryPageCacheKeyRef.current === cacheKey) {
-          setLibraryPlaylists(nextPage.playlists);
-          setLibraryArtists(nextPage.artists);
-          setHomeShelves(nextPage.shelves);
-          setLibraryContinuation(nextPage.continuation);
-        }
+        setLibraryPlaylists(nextPage.playlists);
+        setLibraryArtists(nextPage.artists);
+        setHomeShelves(nextPage.shelves);
+        setLibraryContinuation(nextPage.continuation);
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.library,
+          ) &&
+          activeLibraryPageCacheKeyRef.current === cacheKey
+        ) {
           const currentPage = libraryPageCacheRef.current.get(cacheKey);
           if (currentPage) {
             libraryPageCacheRef.current.set(cacheKey, {
@@ -1407,14 +1684,20 @@ export function ListenPage(props: ListenPageProps) {
               continuation: "",
             });
           }
-          if (activeLibraryPageCacheKeyRef.current === cacheKey) {
-            setLibraryContinuation("");
-          }
+          setLibraryContinuation("");
         }
       })
       .finally(() => {
+        finishListenPaginationRequest(
+          paginationRequestsRef.current,
+          request,
+        );
         if (
-          !controller.signal.aborted &&
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.library,
+          ) &&
           activeLibraryPageCacheKeyRef.current === cacheKey
         ) {
           setLibraryAppending(false);
@@ -1427,7 +1710,10 @@ export function ListenPage(props: ListenPageProps) {
     libraryAppending,
     libraryContinuation,
     libraryLoading,
+    libraryRequestReady,
+    museBrowseActive,
     libraryPlaylists,
+    libraryPaginationContext,
     libraryReloadToken,
     onlineBrowseDetail?.browseId,
     onlineBrowseDetail?.params,
@@ -1456,6 +1742,10 @@ export function ListenPage(props: ListenPageProps) {
   }, [reloadLiveCatalog]);
 
   React.useEffect(() => {
+    if (!hushBrowseActive) {
+      setLiveCatalogLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLiveCatalogLoading(true);
     setLiveCatalogError(false);
@@ -1489,9 +1779,13 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [liveCatalogReloadToken, props.httpBaseURL]);
+  }, [hushBrowseActive, liveCatalogReloadToken, props.httpBaseURL]);
 
   React.useEffect(() => {
+    if (!hushBrowseActive) {
+      setLiveUserCatalogLoading(false);
+      return;
+    }
     const controller = new AbortController();
     setLiveUserCatalogLoading(true);
     setLiveUserCatalogError("");
@@ -1514,7 +1808,7 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [liveUserCatalogReloadToken, props.httpBaseURL]);
+  }, [hushBrowseActive, liveUserCatalogReloadToken, props.httpBaseURL]);
 
   const saveLiveUserCatalog = React.useCallback(
     async (catalog: ListenLiveUserCatalog) => {
@@ -1588,7 +1882,7 @@ export function ListenPage(props: ListenPageProps) {
     [activeLiveGroup?.items, liveQueue, normalizedQuery],
   );
   React.useEffect(() => {
-    if (!props.active || liveSelectionArmed || mode !== "hush") {
+    if (!hushBrowseActive || liveSelectionArmed) {
       return;
     }
     const nextId = resolveListenLiveSelectionId(liveQueue, selectedLiveId);
@@ -1597,12 +1891,11 @@ export function ListenPage(props: ListenPageProps) {
     }
     setSelectedLiveId(nextId);
     setLiveSelectionArmed(true);
-  }, [liveQueue, liveSelectionArmed, mode, props.active, selectedLiveId]);
+  }, [hushBrowseActive, liveQueue, liveSelectionArmed, selectedLiveId]);
 
   React.useEffect(() => {
     if (
-      !props.active ||
-      mode !== "hush" ||
+      !hushBrowseActive ||
       liveStatusVideoIds.length === 0 ||
       !props.httpBaseURL.trim()
     ) {
@@ -1657,13 +1950,12 @@ export function ListenPage(props: ListenPageProps) {
   }, [
     liveStatusVideoIdKey,
     liveStatusVideoIds,
-    mode,
-    props.active,
+    hushBrowseActive,
     props.httpBaseURL,
   ]);
 
   React.useEffect(() => {
-    if (mode === "hush" && liveStatusVideoIds.length > 0) {
+    if (hushBrowseActive && liveStatusVideoIds.length > 0) {
       return;
     }
     setLiveStatusByVideoId((current) => {
@@ -1672,7 +1964,7 @@ export function ListenPage(props: ListenPageProps) {
       }
       return {};
     });
-  }, [liveStatusVideoIds.length, mode]);
+  }, [hushBrowseActive, liveStatusVideoIds.length]);
   const homeRecommendations = React.useMemo(
     () =>
       dedupeOnlineItems(
@@ -1749,7 +2041,7 @@ export function ListenPage(props: ListenPageProps) {
     [libraryPlaylists, normalizedQuery],
   );
   const showLibraryPlaylistGroup =
-    mode === "muse" &&
+    activeViewMode === "muse" &&
     !onlineBrowseDetail &&
     (normalizedQuery.length > 0 || onlineBrowseSource === "home");
   const filteredLocalTracks = React.useMemo(
@@ -1804,9 +2096,24 @@ export function ListenPage(props: ListenPageProps) {
     onlinePlaybackQueue.find((item) => item.id === selectedOnlineId) ??
     onlinePlaybackQueue[0] ??
     null;
-  const selectedPlaylist =
+  const selectedPlaylistSource =
     allOnlinePlaylists.find((item) => item.playlistId === browsePlaylistId) ??
     null;
+  const selectedPlaylist = browsePlaylistId.trim()
+    ? {
+        id: selectedPlaylistSource?.id || `playlist-detail-${browsePlaylistId}`,
+        playlistId: browsePlaylistId,
+        title:
+          playlistDetailTitle ||
+          selectedPlaylistSource?.title ||
+          props.text.listen.groupPlaylist,
+        channel: selectedPlaylistSource?.channel || "",
+        description:
+          playlistDetailDescription || selectedPlaylistSource?.description || "",
+        thumbnailUrl:
+          playlistDetailThumbnailURL || selectedPlaylistSource?.thumbnailUrl,
+      }
+    : null;
   const selectedLocal =
     selectedLocalId
       ? (localTracks.find((item) => item.id === selectedLocalId) ?? null)
@@ -1840,8 +2147,20 @@ export function ListenPage(props: ListenPageProps) {
       return;
     }
     const nextVolume = clampVolume(musePlayback.volume);
+    const nextMuted = musePlayback.muted || nextVolume <= 0;
+    const nextKey = `${nextVolume}:${nextMuted}`;
+    if (
+      museVolumeDesiredKeyRef.current &&
+      museVolumeDesiredKeyRef.current !== nextKey
+    ) {
+      return;
+    }
+    if (museVolumeDesiredKeyRef.current === nextKey) {
+      museVolumeDesiredKeyRef.current = "";
+    }
+    museVolumeObservedKeyRef.current = nextKey;
     setVolume(nextVolume);
-    setMuted(musePlayback.muted || nextVolume <= 0);
+    setMuted(nextMuted);
     if (musePlayback.volumeBeforeMute > 0) {
       lastNonZeroVolumeRef.current = musePlayback.volumeBeforeMute;
     }
@@ -1857,8 +2176,36 @@ export function ListenPage(props: ListenPageProps) {
     if (!musePlayback.hydrated) {
       return;
     }
-    void callListenPlaybackSetVolume(volume, muted).catch(() => {});
-  }, [muted, musePlayback.hydrated, volume]);
+    const nextKey = `${volume}:${muted}`;
+    if (museVolumeObservedKeyRef.current === nextKey) {
+      return;
+    }
+    museVolumeDesiredKeyRef.current = nextKey;
+    if (museVolumeWriteTimerRef.current !== null) {
+      window.clearTimeout(museVolumeWriteTimerRef.current);
+    }
+    museVolumeWriteTimerRef.current = window.setTimeout(() => {
+      museVolumeWriteTimerRef.current = null;
+      void callListenPlaybackSetVolume(volume, muted)
+        .then((snapshot) => applyOnlinePlaybackSnapshot(snapshot))
+        .catch(() => {
+          if (museVolumeDesiredKeyRef.current === nextKey) {
+            museVolumeDesiredKeyRef.current = "";
+          }
+        });
+    }, 40);
+    return () => {
+      if (museVolumeWriteTimerRef.current !== null) {
+        window.clearTimeout(museVolumeWriteTimerRef.current);
+        museVolumeWriteTimerRef.current = null;
+      }
+    };
+  }, [
+    applyOnlinePlaybackSnapshot,
+    muted,
+    musePlayback.hydrated,
+    volume,
+  ]);
 
   React.useEffect(() => {
     const progress = musePlayback.progress;
@@ -1914,35 +2261,40 @@ export function ListenPage(props: ListenPageProps) {
     if (!hasVisibleSession) {
       return {
         state: "idle",
+        live: false,
+        mediaId: "",
         title: "",
         subtitle: "",
         artworkURL: "",
+        playbackSource: "unknown",
+        playbackSourceLabel: props.text.common.unknown,
         mode: playbackMode,
         canControl: false,
         progress: { currentTime: 0, duration: 0, bufferedTime: 0 },
+        muted,
+        volume,
       };
     }
     if (playbackMode === "linger") {
       return {
         state: localLoading ? "loading" : localPlaying ? "playing" : "paused",
+        live: false,
+        mediaId: activeLocal?.id ?? "",
         title: activeLocal?.title ?? props.text.listen.linger,
         subtitle: activeLocal?.author ?? "",
         artworkURL: activeLocal?.coverURL ?? "",
+        playbackSource: "local",
+        playbackSourceLabel: props.text.workspace.local,
         mode: playbackMode,
         canControl: Boolean(activeLocal),
         progress: localProgress,
+        muted,
+        volume,
       };
     }
-    const onlineArtworkURL = activeOnline
-      ? buildListenImageCacheURL(
-          props.httpBaseURL,
-          buildListenHighQualityThumbnailURL(activeOnline.thumbnailUrl ?? ""),
-        ) ||
-        buildListenImageCacheURL(
-          props.httpBaseURL,
-          buildYouTubePosterURL(activeOnline.videoId),
-        )
-      : "";
+    const onlineArtworkCandidates = activeOnline
+      ? buildListenPosterCandidates(props.httpBaseURL, activeOnline)
+      : [];
     return {
       state:
         onlineState === "error"
@@ -1954,12 +2306,32 @@ export function ListenPage(props: ListenPageProps) {
                 onlineState === "buffering"
               ? "playing"
               : "paused",
+      live: playbackMode === "hush" || activeOnline?.group === "live",
+      mediaId: activeOnline?.videoId ?? "",
       title: activeOnline?.title ?? activeModeTitle,
       subtitle: activeOnline?.channel ?? activeModeTitle,
-      artworkURL: onlineArtworkURL,
+      artists: normalizeListenTrackArtists(activeOnline?.artists),
+      artworkURL: onlineArtworkCandidates[0] ?? "",
+      artworkCandidates: onlineArtworkCandidates,
+      playbackSource: playbackMode === "hush" ? "radio" : "youtube_music",
+      playbackSourceLabel:
+        playbackMode === "hush"
+          ? props.text.workspace.radio
+          : props.text.workspace.youtubeMusic,
       mode: playbackMode,
       canControl: Boolean(activeOnline),
       progress: onlineProgress,
+      muted,
+      volume,
+      sourceURL: activeOnline?.videoId
+        ? `${playbackMode === "muse" ? "https://music.youtube.com" : "https://www.youtube.com"}/watch?v=${encodeURIComponent(activeOnline.videoId)}`
+        : undefined,
+      favoriteActive: activeOnline
+        ? onlineFavoriteByVideoId[activeOnline.videoId] === true
+        : false,
+      canFavorite:
+        playbackMode === "muse" &&
+        Boolean(activeOnline && activeOnline.group !== "live"),
     };
   }, [
     activeModeTitle,
@@ -1970,16 +2342,23 @@ export function ListenPage(props: ListenPageProps) {
     localProgress.bufferedTime,
     localProgress.currentTime,
     localProgress.duration,
+    muted,
     onlinePlayerCommand?.command,
     onlinePlaying,
     onlineProgress.bufferedTime,
     onlineProgress.currentTime,
     onlineProgress.duration,
+    onlineFavoriteByVideoId,
     onlineState,
     playbackSessionStarted,
     playbackMode,
     props.text.listen.linger,
+    props.text.common.unknown,
+    props.text.workspace.local,
+    props.text.workspace.radio,
+    props.text.workspace.youtubeMusic,
     props.httpBaseURL,
+    volume,
   ]);
 
   React.useEffect(() => {
@@ -2042,7 +2421,10 @@ export function ListenPage(props: ListenPageProps) {
   ]);
 
   React.useEffect(() => {
-    if (mode !== "muse" || !onlineFavoriteSeedKey) {
+    if (
+      !museBrowseActive ||
+      !onlineFavoriteSeedKey
+    ) {
       return;
     }
     const controller = new AbortController();
@@ -2070,11 +2452,11 @@ export function ListenPage(props: ListenPageProps) {
       .catch(() => undefined);
     return () => controller.abort();
   }, [
-    mode,
     listenLanguage,
     museAccountReloadToken,
     onlineFavoriteSeedKey,
     onlineFavoriteSeedVideoIds,
+    museBrowseActive,
     props.httpBaseURL,
     shouldIgnoreObservedFavorite,
   ]);
@@ -2118,10 +2500,14 @@ export function ListenPage(props: ListenPageProps) {
   }, [activeOnline, listenLanguage, museAccountReloadToken, playbackMode, onlineFavoriteByVideoId, props.httpBaseURL, shouldIgnoreObservedFavorite]);
 
   React.useEffect(() => {
-    if (mode !== "muse" && browsePlaylistId === "") {
+    playlistQueueLoadRef.current?.controller.abort();
+    playlistQueueLoadRef.current = null;
+    setPlaylistAppending(false);
+    if (!museBrowseActive) {
       setMuseManualRefreshKind((current) =>
         current === "playlist" ? "" : current,
       );
+      setPlaylistLoading(false);
       return;
     }
     if (browsePlaylistId === "") {
@@ -2130,8 +2516,10 @@ export function ListenPage(props: ListenPageProps) {
       );
       setPlaylistTracks([]);
       setPlaylistContinuation("");
-      setPlaylistDetailAuthor("");
+      setPlaylistDetailAuthor(""); setPlaylistDetailMetadata({ authorBrowseId: "", trackCountLabel: "", durationLabel: "" });
       setPlaylistDetailTitle("");
+      setPlaylistDetailDescription("");
+      setPlaylistDetailThumbnailURL("");
       setPlaylistLoading(false);
       setPlaylistAppending(false);
       return;
@@ -2139,6 +2527,10 @@ export function ListenPage(props: ListenPageProps) {
     const controller = new AbortController();
     setPlaylistLoading(true);
     setPlaylistContinuation("");
+    setPlaylistDetailAuthor(""); setPlaylistDetailMetadata({ authorBrowseId: "", trackCountLabel: "", durationLabel: "" });
+    setPlaylistDetailTitle("");
+    setPlaylistDetailDescription("");
+    setPlaylistDetailThumbnailURL("");
     void fetchListenPlaylistPage(
       props.httpBaseURL,
       browsePlaylistId,
@@ -2150,16 +2542,20 @@ export function ListenPage(props: ListenPageProps) {
         if (!controller.signal.aborted) {
           setPlaylistTracks(payload.items);
           setPlaylistContinuation(payload.continuation);
-          setPlaylistDetailAuthor(payload.author);
+          setPlaylistDetailAuthor(payload.author); setPlaylistDetailMetadata({ authorBrowseId: payload.authorBrowseId, trackCountLabel: payload.trackCountLabel, durationLabel: payload.durationLabel });
           setPlaylistDetailTitle(payload.title);
+          setPlaylistDetailDescription(payload.description);
+          setPlaylistDetailThumbnailURL(payload.thumbnailUrl);
         }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setPlaylistTracks([]);
           setPlaylistContinuation("");
-          setPlaylistDetailAuthor("");
+          setPlaylistDetailAuthor(""); setPlaylistDetailMetadata({ authorBrowseId: "", trackCountLabel: "", durationLabel: "" });
           setPlaylistDetailTitle("");
+          setPlaylistDetailDescription("");
+          setPlaylistDetailThumbnailURL("");
         }
       })
       .finally(() => {
@@ -2171,24 +2567,27 @@ export function ListenPage(props: ListenPageProps) {
         }
       });
     return () => controller.abort();
-  }, [browsePlaylistId, listenLanguage, mode, museAccountReloadToken, props.httpBaseURL]);
+  }, [
+    browsePlaylistId,
+    listenLanguage,
+    museBrowseActive,
+    museAccountConnected,
+    museAccountReloadToken,
+    props.httpBaseURL,
+  ]);
 
   const currentQueue =
     playbackMode === "hush"
       ? liveQueue
       : playbackMode === "muse"
         ? onlinePlaybackQueue
-        : localTracks;
+        : localPlaybackQueue;
   const currentIndex =
     playbackMode === "hush"
       ? resolveQueueIndex(liveQueue, liveSelectionArmed ? selectedLiveId : "")
       : playbackMode === "muse"
         ? resolveQueueIndex(onlinePlaybackQueue, selectedOnlineId)
-        : resolveQueueIndex(localTracks, selectedLocalId);
-  const clearForwardSkipNavigationStack = React.useCallback(() => {
-    forwardSkipIndexStackRef.current = [];
-  }, []);
-
+        : resolveQueueIndex(localPlaybackQueue, selectedLocalId);
   React.useEffect(() => {
     clearForwardSkipNavigationStack();
   }, [clearForwardSkipNavigationStack, playbackMode]);
@@ -2199,6 +2598,7 @@ export function ListenPage(props: ListenPageProps) {
       options: {
         clearForwardStack?: boolean;
         loading?: boolean;
+        reportError?: boolean;
         syncVolume?: boolean;
       } = {},
     ) => {
@@ -2208,6 +2608,7 @@ export function ListenPage(props: ListenPageProps) {
       const epoch = onlinePlaybackActionEpochRef.current + 1;
       onlinePlaybackActionEpochRef.current = epoch;
       onlinePlaybackActionPendingRef.current = true;
+      setOnlinePlaybackActionPending(true);
       setOnlinePlayerCommand(null);
       setPlaybackMode("muse");
       if (options.loading) {
@@ -2225,51 +2626,50 @@ export function ListenPage(props: ListenPageProps) {
       } catch {
         if (onlinePlaybackActionEpochRef.current === epoch) {
           onlinePlaybackActionPendingRef.current = false;
+          setOnlinePlaybackActionPending(false);
         }
-        return;
+        return null;
       }
-      void request
+      const result = request
         .then((snapshot) => {
           if (onlinePlaybackActionEpochRef.current === epoch) {
             applyOnlinePlaybackSnapshot(snapshot);
           }
+          return snapshot;
         })
-        .catch(() => {})
+        .catch((error: unknown) => {
+          if (
+            (options.reportError ?? options.loading === true) &&
+            onlinePlaybackActionEpochRef.current === epoch
+          ) {
+            messageBus.publishToast({
+              id: "listen-playback-start-error",
+              intent: "danger",
+              title: props.text.listen.errorStatus,
+              description:
+                getListenErrorMessage(error) || props.text.listen.errorStatus,
+              source: "listen",
+            });
+          }
+          return null;
+        })
         .finally(() => {
           if (onlinePlaybackActionEpochRef.current === epoch) {
             onlinePlaybackActionPendingRef.current = false;
+            setOnlinePlaybackActionPending(false);
           }
         });
+      const completed = result.then((snapshot) => snapshot !== null);
+      void result;
+      return { epoch, completed, result };
     },
-    [applyOnlinePlaybackSnapshot, clearForwardSkipNavigationStack, muted, volume],
-  );
-
-  const selectLocalQueueTrack = React.useCallback(
-    (
-      item: { id: string },
-      options: { forcePlay?: boolean; preserveForwardSkipStack?: boolean } = {
-        forcePlay: true,
-      },
-    ) => {
-      if (!item.id) {
-        return;
-      }
-      if (
-        options.forcePlay !== false &&
-        options.preserveForwardSkipStack !== true
-      ) {
-        clearForwardSkipNavigationStack();
-      }
-      setSelectedLocalId(item.id);
-      setPlaybackMode("linger");
-      if (localPlaying || options.forcePlay) {
-        setLocalPlayerCommand({
-          id: Date.now(),
-          command: "play",
-        });
-      }
-    },
-    [clearForwardSkipNavigationStack, localPlaying],
+    [
+      applyOnlinePlaybackSnapshot,
+      clearForwardSkipNavigationStack,
+      muted,
+      props.text.listen.errorStatus,
+      volume,
+    ],
   );
 
   const replayCurrent = React.useCallback(() => {
@@ -2338,6 +2738,54 @@ export function ListenPage(props: ListenPageProps) {
     });
   }, [activeLocal?.path, activeOnline, playbackMode, runOnlinePlaybackCommand]);
 
+  const seekCurrentToPosition = React.useCallback(
+    (seconds: number) => {
+      const target = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+      if (playbackMode === "linger") {
+        if (!activeLocal?.path) {
+          return;
+        }
+        setLocalProgress((current) => ({
+          ...current,
+          currentTime:
+            current.duration > 0 ? Math.min(target, current.duration) : target,
+        }));
+        setLocalProgressByPath((current) =>
+          updateListenProgressMap(current, activeLocal.path, target),
+        );
+        setLocalPlayerCommand({
+          id: Date.now(),
+          command: "seek",
+          startSeconds: target,
+        });
+        return;
+      }
+      if (!activeOnline || activeOnline.group === "live") {
+        return;
+      }
+      setOnlineProgressByVideoId((current) =>
+        updateListenProgressMap(current, activeOnline.videoId, target),
+      );
+      if (playbackMode === "muse") {
+        runOnlinePlaybackCommand(() => callListenPlaybackSeek(target), {
+          clearForwardStack: false,
+        });
+        return;
+      }
+      setLiveProgress((current) =>
+        current.videoId === activeOnline.videoId
+          ? { ...current, currentTime: target }
+          : current,
+      );
+      setOnlinePlayerCommand({
+        id: Date.now(),
+        command: "seek",
+        startSeconds: target,
+      });
+    },
+    [activeLocal?.path, activeOnline, playbackMode, runOnlinePlaybackCommand],
+  );
+
   const playNext = React.useCallback((_options: { forcePlay?: boolean } = {}) => {
     if (currentQueue.length === 0) {
       return;
@@ -2369,7 +2817,7 @@ export function ListenPage(props: ListenPageProps) {
         }
         return;
       }
-      const next = localTracks[action.index];
+      const next = localPlaybackQueue[action.index];
       if (next) {
         selectLocalQueueTrack(next, {
           forcePlay: true,
@@ -2384,7 +2832,7 @@ export function ListenPage(props: ListenPageProps) {
     currentIndex,
     currentQueue.length,
     liveQueue,
-    localTracks,
+    localPlaybackQueue,
     playMode,
     playbackMode,
     replayCurrent,
@@ -2422,7 +2870,7 @@ export function ListenPage(props: ListenPageProps) {
         }
         return;
       }
-      const next = localTracks[action.index];
+      const next = localPlaybackQueue[action.index];
       if (next) {
         selectLocalQueueTrack(next, {
           forcePlay: true,
@@ -2439,7 +2887,7 @@ export function ListenPage(props: ListenPageProps) {
     currentIndex,
     currentQueue.length,
     liveQueue,
-    localTracks,
+    localPlaybackQueue,
     localProgress.currentTime,
     onlineProgress.currentTime,
     playbackMode,
@@ -2577,7 +3025,9 @@ export function ListenPage(props: ListenPageProps) {
               thumbnailUrl: seed.thumbnailUrl,
             }),
           );
-          void callListenPlaybackMergeTrackMetadata(incoming).catch(() => {});
+          void callListenPlaybackMergeTrackMetadata(incoming)
+            .then((snapshot) => applyOnlinePlaybackSnapshot(snapshot))
+            .catch(() => {});
         })
         .catch(() => undefined)
         .finally(() => {
@@ -2586,7 +3036,7 @@ export function ListenPage(props: ListenPageProps) {
           }
         });
     },
-    [listenLanguage, props.httpBaseURL],
+    [applyOnlinePlaybackSnapshot, listenLanguage, props.httpBaseURL],
   );
 
   React.useEffect(() => {
@@ -2669,7 +3119,7 @@ export function ListenPage(props: ListenPageProps) {
           Number.isFinite(bufferedTime) ? bufferedTime : 0,
           true,
         );
-        setMode("hush");
+        setLegacyBrowseMode("hush");
         setPlaybackMode("hush");
         setSelectedLiveId(liveItem.id);
         setLiveSelectionArmed(true);
@@ -2688,19 +3138,20 @@ export function ListenPage(props: ListenPageProps) {
           Number.isFinite(bufferedTime) ? bufferedTime : 0,
           true,
         );
-        setMode("hush");
+        setLegacyBrowseMode("hush");
         setPlaybackMode("hush");
         setSelectedLiveId(videoId);
         setLiveSelectionArmed(false);
         return;
       }
 
-      setMode("muse");
+      setLegacyBrowseMode("muse");
       void callListenPlaybackObserveNativeEvent(event).catch(() => {});
     },
     [
       handleOnlineProgressChange,
       liveQueue,
+      setLegacyBrowseMode,
       shouldIgnoreObservedFavorite,
     ],
   );
@@ -2720,9 +3171,13 @@ export function ListenPage(props: ListenPageProps) {
     nativeStatusRestoreAttemptedRef.current = true;
     let cancelled = false;
     void Promise.allSettled([
-      Call.ByName(`${LISTEN_LIVE_PLAYER_SERVICE}.Status`).then((status) =>
-        nativeStatusToPlayerEvent(status, "listen-youtube-live-player"),
-      ),
+      Call.ByName(`${LISTEN_LIVE_PLAYER_SERVICE}.Status`).then((status) => {
+        const event = nativeStatusToPlayerEvent(
+          status,
+          "listen-youtube-live-player",
+        );
+        return isListenLiveEventForSession(event, "stream") ? event : null;
+      }),
       Call.ByName(`${LISTEN_NATIVE_PLAYER_SERVICE}.Status`).then((status) =>
         nativeStatusToPlayerEvent(status, "listen-youtube-music-player"),
       ),
@@ -2851,7 +3306,7 @@ export function ListenPage(props: ListenPageProps) {
         reason: "ended",
       });
       if (action.type === "select") {
-        const next = localTracks[action.index];
+        const next = localPlaybackQueue[action.index];
         if (next) {
           selectLocalQueueTrack(next, { forcePlay: true });
           return;
@@ -2871,7 +3326,7 @@ export function ListenPage(props: ListenPageProps) {
     activeLocal?.path,
     currentIndex,
     currentQueue.length,
-    localTracks,
+    localPlaybackQueue,
     playbackMode,
     playMode,
     replayCurrent,
@@ -2882,7 +3337,7 @@ export function ListenPage(props: ListenPageProps) {
     const timer = window.setTimeout(() => {
       writeListenStorageState({
         version: 2,
-        mode,
+        mode: activeViewMode,
         playbackMode,
         listOpen,
         playMode,
@@ -2890,6 +3345,7 @@ export function ListenPage(props: ListenPageProps) {
         selectedOnlineId,
         browsePlaylistId,
         selectedLocalId,
+        localPlaybackQueueIds,
         onlineQueueKind: onlineQueueState.kind,
         onlineQueueTitle: onlineQueueState.title,
         onlineQueueSeedVideoId:
@@ -2908,8 +3364,9 @@ export function ListenPage(props: ListenPageProps) {
     return () => window.clearTimeout(timer);
   }, [
     listOpen,
+    localPlaybackQueueIds,
     localProgressByPath,
-    mode,
+    activeViewMode,
     playbackMode,
     muted,
     onlineQueueState,
@@ -2922,44 +3379,59 @@ export function ListenPage(props: ListenPageProps) {
     volume,
   ]);
 
+  const pausePlayback = React.useCallback(() => {
+    if (playbackMode === "linger") {
+      if (activeLocal) {
+        setLocalPlayerCommand({ id: Date.now(), command: "pause" });
+      }
+      return;
+    }
+    if (!activeOnline) return;
+    if (playbackMode === "muse") {
+      runOnlinePlaybackCommand(() => callListenPlaybackPause());
+      return;
+    }
+    setOnlinePlayerCommand({ id: Date.now(), command: "pause" });
+  }, [activeLocal, activeOnline, playbackMode, runOnlinePlaybackCommand]);
+
   const togglePlayback = React.useCallback(() => {
     setPlaybackSessionStarted(true);
     if (playbackMode === "linger") {
       if (!activeLocal) {
         return;
       }
-      setLocalPlayerCommand({
-        id: Date.now(),
-        command: localPlaying ? "pause" : "play",
-      });
+      const localPlaybackActive =
+        localPlaying || listenNowPlayingStatus.state === "loading";
+      if (localPlaybackActive) {
+        pausePlayback();
+        return;
+      }
+      setLocalPlayerCommand({ id: Date.now(), command: "play" });
       return;
     }
     if (!activeOnline) {
       return;
     }
+    const onlinePlaybackActive =
+      onlinePlaying || resolveListenPlaybackActivity(onlineState).transportActive;
+    if (onlinePlaybackActive) {
+      pausePlayback();
+      return;
+    }
     if (playbackMode === "muse") {
       runOnlinePlaybackCommand(
         () =>
-          onlinePlaying
-            ? callListenPlaybackPause()
-            : onlineState === "paused"
-              ? callListenPlaybackResume()
-              : callListenPlaybackPlayPause(),
-        { loading: !onlinePlaying },
+          onlineState === "paused"
+            ? callListenPlaybackResume()
+            : callListenPlaybackPlayPause(),
+        { loading: true },
       );
       return;
     }
-    const command = onlinePlaying
-      ? "pause"
-      : onlineState === "paused"
-        ? "resume"
-        : "play";
-    const commandId = Date.now();
-    if (!onlinePlaying) {
-      setLiveState(command === "resume" ? "buffering" : "loading");
-    }
+    const command = onlineState === "paused" ? "resume" : "play";
+    setLiveState(command === "resume" ? "buffering" : "loading");
     setOnlinePlayerCommand({
-      id: commandId,
+      id: Date.now(),
       command,
       startSeconds:
         command === "play" && activeOnline.group !== "live"
@@ -2971,46 +3443,12 @@ export function ListenPage(props: ListenPageProps) {
     activeOnlineResumeTime,
     activeLocal,
     localPlaying,
+    listenNowPlayingStatus.state,
     onlinePlaying,
     onlineState,
+    pausePlayback,
     playbackMode,
     runOnlinePlaybackCommand,
-  ]);
-
-  React.useEffect(() => {
-    const command = props.controlCommand;
-    if (!command || handledExternalCommandRef.current === command.id) {
-      return;
-    }
-    handledExternalCommandRef.current = command.id;
-    const isPlaying = playbackMode === "linger" ? localPlaying : onlinePlaying;
-    if (command.command === "previous") {
-      playPrevious();
-      return;
-    }
-    if (command.command === "next") {
-      playNext();
-      return;
-    }
-    if (command.command === "toggle") {
-      togglePlayback();
-      return;
-    }
-    if (command.command === "play" && !isPlaying) {
-      togglePlayback();
-      return;
-    }
-    if (command.command === "pause" && isPlaying) {
-      togglePlayback();
-    }
-  }, [
-    localPlaying,
-    onlinePlaying,
-    playbackMode,
-    playNext,
-    playPrevious,
-    props.controlCommand,
-    togglePlayback,
   ]);
 
   const toggleMute = React.useCallback(() => {
@@ -3033,6 +3471,128 @@ export function ListenPage(props: ListenPageProps) {
       lastNonZeroVolumeRef.current = nextVolume;
     }
   }, []);
+
+  React.useEffect(() => {
+    const command = props.controlCommand;
+    if (!command || handledExternalCommandRef.current === command.id) {
+      return;
+    }
+    handledExternalCommandRef.current = command.id;
+    const playbackActive =
+      playbackMode === "linger"
+        ? localPlaying || listenNowPlayingStatus.state === "loading"
+        : onlinePlaying ||
+          resolveListenPlaybackActivity(onlineState).transportActive;
+    if (command.command === "stop") {
+      const clearStoppedPlayback = () => {
+        setPlaybackSessionStarted(false);
+        setOnlinePlayerCommand(null);
+        setLocalPlaying(false);
+        setLocalPlayerCommand(null);
+        setLocalProgress({
+          currentTime: 0,
+          duration: 0,
+          bufferedTime: 0,
+        });
+        setLivePlaying(false);
+        setLiveState("idle");
+        setLiveProgress({
+          videoId: "",
+          currentTime: 0,
+          duration: 0,
+          bufferedTime: 0,
+        });
+        resetOnlinePlaybackProjection();
+      };
+      if (command.backendStopped) {
+        clearStoppedPlayback();
+        return;
+      }
+      if (playbackMode === "linger") {
+        console.warn("[Listen] local stop requires an active coordinator session");
+        return;
+      }
+      const service =
+        playbackMode === "hush"
+          ? LISTEN_LIVE_PLAYER_SERVICE
+          : LISTEN_NATIVE_PLAYER_SERVICE;
+      void Call.ByName(`${service}.Reset`)
+        .then(clearStoppedPlayback)
+        .catch((error) => {
+          console.warn("[Listen] stop playback unavailable", error);
+        });
+      return;
+    }
+    if (command.command === "previous") {
+      playPrevious();
+      return;
+    }
+    if (command.command === "next") {
+      playNext();
+      return;
+    }
+    if (command.command === "toggle") {
+      togglePlayback();
+      return;
+    }
+    if (command.command === "shuffle") {
+      updatePlayMode(playMode === "shuffle" ? "order" : "shuffle");
+      return;
+    }
+    if (command.command === "repeat") {
+      updatePlayMode(playMode === "repeat" ? "order" : "repeat");
+      return;
+    }
+    if (command.command === "favorite") {
+      toggleOnlineFavorite();
+      return;
+    }
+    if (command.command === "toggle-mute") {
+      toggleMute();
+      return;
+    }
+    if (
+      command.command === "set-volume" &&
+      typeof command.value === "number" &&
+      Number.isFinite(command.value)
+    ) {
+      handleVolumeChange(command.value);
+      return;
+    }
+    if (
+      command.command === "seek" &&
+      typeof command.value === "number" &&
+      Number.isFinite(command.value)
+    ) {
+      seekCurrentToPosition(command.value);
+      return;
+    }
+    if (command.command === "pause") {
+      pausePlayback();
+      return;
+    }
+    if (command.command === "play" && !playbackActive) {
+      togglePlayback();
+    }
+  }, [
+    handleVolumeChange,
+    localPlaying,
+    listenNowPlayingStatus.state,
+    onlinePlaying,
+    onlineState,
+    playbackMode,
+    playMode,
+    playNext,
+    playPrevious,
+    pausePlayback,
+    props.controlCommand,
+    resetOnlinePlaybackProjection,
+    seekCurrentToPosition,
+    toggleMute,
+    togglePlayback,
+    toggleOnlineFavorite,
+    updatePlayMode,
+  ]);
 
   const undoOnlineQueueEdit = React.useCallback(() => {
     if (!onlineQueueCanUndo) {
@@ -3072,12 +3632,13 @@ export function ListenPage(props: ListenPageProps) {
             tracks: queueItems,
             startingAt: Math.max(0, queueItems.indexOf(selectedQueueItem)),
             title,
+            language: listenLanguage,
             kind: "radio",
           }),
         { loading: true },
       );
     },
-    [runOnlinePlaybackCommand],
+    [listenLanguage, runOnlinePlaybackCommand],
   );
 
   const playOnlineRadioSeed = React.useCallback(
@@ -3088,12 +3649,13 @@ export function ListenPage(props: ListenPageProps) {
             tracks: [item],
             startingAt: 0,
             title: props.text.listen.groupRadio,
+            language: listenLanguage,
             kind: "radio",
           }),
         { loading: true },
       );
     },
-    [props.text.listen.groupRadio, runOnlinePlaybackCommand],
+    [listenLanguage, props.text.listen.groupRadio, runOnlinePlaybackCommand],
   );
 
   const playOnlineShelfTrack = React.useCallback(
@@ -3168,45 +3730,88 @@ export function ListenPage(props: ListenPageProps) {
 
   const loadMoreSearch = React.useCallback(() => {
     const continuation = searchContinuation.trim();
-    if (!continuation || searchAppending || searchLoading || normalizedQuery.length < 2) {
+    if (
+      !museBrowseActive ||
+      !continuation ||
+      searchAppending ||
+      searchLoading ||
+      normalizedQuery.length < 2
+    ) {
       return;
     }
-    const controller = new AbortController();
+    const request = beginListenPaginationRequest(
+      paginationRequestsRef.current,
+      "search",
+      searchPaginationContext,
+      continuation,
+    );
+    if (!request) {
+      return;
+    }
     setSearchAppending(true);
     void fetchListenSearch(
       props.httpBaseURL,
       query,
-      controller.signal,
+      request.controller.signal,
       listenLanguage,
       continuation,
     )
       .then((payload) => {
-        if (controller.signal.aborted) {
+        if (
+          request.controller.signal.aborted ||
+          !isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.search,
+          )
+        ) {
           return;
         }
         setSearchItems((current) =>
           dedupeOnlineItems([...current, ...payload.items]),
         );
-        setSearchContinuation(payload.continuation);
+        setSearchContinuation(
+          resolveListenNextContinuation(
+            continuation,
+            payload.continuation,
+          ),
+        );
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.search,
+          )
+        ) {
           setSearchContinuation("");
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        finishListenPaginationRequest(
+          paginationRequestsRef.current,
+          request,
+        );
+        if (
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.search,
+          )
+        ) {
           setSearchAppending(false);
         }
       });
   }, [
     listenLanguage,
+    museBrowseActive,
     normalizedQuery.length,
     props.httpBaseURL,
     query,
     searchAppending,
     searchContinuation,
     searchLoading,
+    searchPaginationContext,
   ]);
 
   const selectOnlineQueueTrack = React.useCallback(
@@ -3219,27 +3824,17 @@ export function ListenPage(props: ListenPageProps) {
           (queueItem) => queueItem.videoId === item.videoId,
         );
       }
-      const queueItems = queueIndex >= 0 ? onlinePlaybackQueue : [item];
       runOnlinePlaybackCommand(
         () =>
-          queueItems.length > 1 || queueIndex >= 0
-            ? callListenPlaybackPlayQueue({
-                tracks: queueItems,
-                startingAt: Math.max(0, queueIndex),
-                title: onlineQueueState.title,
-                kind: onlineQueueState.kind === "radio" ? "radio" : "playlist",
-                playlistId:
-                  onlineQueueState.kind === "playlist"
-                    ? onlineQueueState.playlistId
-                    : "",
-              })
-            : callListenPlaybackPlayTrack(item),
+          queueIndex >= 0
+            ? callListenPlaybackPlayFromQueue(queueIndex, item, listenLanguage)
+            : callListenPlaybackPlayTrack(item, { language: listenLanguage }),
         { loading: true },
       );
     },
     [
       onlinePlaybackQueue,
-      onlineQueueState,
+      listenLanguage,
       runOnlinePlaybackCommand,
     ],
   );
@@ -3298,8 +3893,13 @@ export function ListenPage(props: ListenPageProps) {
           candidate.name.trim() === artistName
         );
       });
+      invalidateListenArtistRequests(
+        artistRequestsRef.current,
+        createListenArtistIdentity({ id: artistBrowseId, name: artistName }),
+      );
+      setArtistActionBusy("");
       setListOpen(true);
-      setMode("muse");
+      setLegacyBrowseMode("muse");
       setSidebarView("browse");
       setBrowsePlaylistId("");
       setQuery("");
@@ -3308,7 +3908,9 @@ export function ListenPage(props: ListenPageProps) {
         name: artistName,
         title: artistName,
         subtitle: "",
+        description: "",
         thumbnailUrl: artist?.thumbnailUrl,
+        heroThumbnailUrl: artist?.thumbnailUrl,
         channelId: "",
         isSubscribed: false,
         mixPlaylistId: "",
@@ -3321,7 +3923,25 @@ export function ListenPage(props: ListenPageProps) {
         error: false,
       });
     },
-    [],
+    [setLegacyBrowseMode],
+  );
+
+  const openOnlineArtistFromPlayer = React.useCallback(
+    (item: ListenOnlineItem) => {
+      openListenArtistFromPlayerSurface({
+        workspaceActive: props.active,
+        workspaceLayout: props.workspaceLayout === true,
+        openPlaybackSource: props.onOpenPlaybackSource,
+        openArtist: () => openOnlineArtistBrowse(item),
+        schedule: (openArtist) => window.requestAnimationFrame(openArtist),
+      });
+    },
+    [
+      openOnlineArtistBrowse,
+      props.active,
+      props.onOpenPlaybackSource,
+      props.workspaceLayout,
+    ],
   );
 
   const openSearchArtistBrowse = React.useCallback(
@@ -3331,7 +3951,12 @@ export function ListenPage(props: ListenPageProps) {
       if (!artistName && !artistId) {
         return;
       }
-      setMode("muse");
+      invalidateListenArtistRequests(
+        artistRequestsRef.current,
+        createListenArtistIdentity({ id: artistId, name: artistName }),
+      );
+      setArtistActionBusy("");
+      setLegacyBrowseMode("muse");
       setSidebarView("browse");
       setBrowsePlaylistId("");
       setQuery("");
@@ -3340,7 +3965,9 @@ export function ListenPage(props: ListenPageProps) {
         name: artistName,
         title: artistName || artistId,
         subtitle: item.subtitle,
+        description: "",
         thumbnailUrl: item.thumbnailUrl,
+        heroThumbnailUrl: item.thumbnailUrl,
         channelId: "",
         isSubscribed: false,
         mixPlaylistId: "",
@@ -3353,10 +3980,12 @@ export function ListenPage(props: ListenPageProps) {
         error: false,
       });
     },
-    [],
+    [setLegacyBrowseMode],
   );
 
   const closeArtistBrowse = React.useCallback(() => {
+    invalidateListenArtistRequests(artistRequestsRef.current, "");
+    setArtistActionBusy("");
     setBrowsePlaylistId("");
     setArtistBrowsePage(null);
   }, []);
@@ -3374,12 +4003,13 @@ export function ListenPage(props: ListenPageProps) {
             tracks: page.items,
             startingAt: index,
             title: page.title || page.name,
+            language: listenLanguage,
             kind: "radio",
           }),
         { loading: true },
       );
     },
-    [artistBrowsePage, runOnlinePlaybackCommand],
+    [artistBrowsePage, listenLanguage, runOnlinePlaybackCommand],
   );
 
   const shuffleArtist = React.useCallback(() => {
@@ -3398,36 +4028,57 @@ export function ListenPage(props: ListenPageProps) {
           tracks: items,
           startingAt: 0,
           title: page.title || page.name,
+          language: listenLanguage,
           kind: "radio",
         }),
       { loading: true },
     );
-  }, [artistBrowsePage, runOnlinePlaybackCommand]);
+  }, [artistBrowsePage, listenLanguage, runOnlinePlaybackCommand]);
 
   const loadMoreArtist = React.useCallback(() => {
     const page = artistBrowsePage;
     const continuation = page?.continuation.trim() ?? "";
-    if (!page || !continuation || page.appending || page.loading) {
+    if (
+      !museBrowseActive ||
+      !page ||
+      !continuation ||
+      page.appending ||
+      page.loading
+    ) {
       return;
     }
-    const controller = new AbortController();
+    const request = beginListenPaginationRequest(
+      paginationRequestsRef.current,
+      "artist",
+      artistPaginationContext,
+      continuation,
+    );
+    if (!request) {
+      return;
+    }
     setArtistBrowsePage((current) =>
-      current && current.id === page.id
+      current && isSameListenArtistBrowseIdentity(current, page)
         ? { ...current, appending: true }
         : current,
     );
     void fetchListenArtist(
       props.httpBaseURL,
       { id: page.id, name: page.name },
-      controller.signal,
+      request.controller.signal,
       { continuation, language: listenLanguage },
     )
       .then((payload) => {
-        if (controller.signal.aborted) {
+        if (
+          request.controller.signal.aborted ||
+          !isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.artist,
+          )
+        ) {
           return;
         }
         setArtistBrowsePage((current) =>
-          current && current.id === page.id
+          current && isSameListenArtistBrowseIdentity(current, page)
             ? {
                 ...current,
                 items: dedupeOnlineItems([...current.items, ...payload.items]),
@@ -3435,115 +4086,162 @@ export function ListenPage(props: ListenPageProps) {
                   ...current.shelves,
                   ...payload.shelves,
                 ]),
-                continuation: payload.continuation,
+                continuation: resolveListenNextContinuation(
+                  continuation,
+                  payload.continuation,
+                ),
                 appending: false,
               }
             : current,
         );
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.artist,
+          )
+        ) {
           setArtistBrowsePage((current) =>
-            current && current.id === page.id
+            current && isSameListenArtistBrowseIdentity(current, page)
               ? { ...current, continuation: "", appending: false }
               : current,
           );
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        finishListenPaginationRequest(
+          paginationRequestsRef.current,
+          request,
+        );
+        if (
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.artist,
+          )
+        ) {
           setArtistBrowsePage((current) =>
-            current && current.id === page.id
+            current && isSameListenArtistBrowseIdentity(current, page)
               ? { ...current, appending: false }
               : current,
           );
         }
       });
-  }, [artistBrowsePage, listenLanguage, props.httpBaseURL]);
+  }, [artistBrowsePage, artistPaginationContext, listenLanguage, museBrowseActive, props.httpBaseURL]);
 
   const loadArtistShelfTracks = React.useCallback(
     async (shelf: ListenLibraryShelf) => {
+      if (!museBrowseActive) {
+        return shelf.tracks;
+      }
       const page = artistBrowsePage;
       if (!page) {
         return shelf.tracks;
       }
-      const controller = new AbortController();
-      const fetchedTracks: ListenOnlineItem[] = [];
-      const fetchedShelves: ListenLibraryShelf[] = [];
-      const seenContinuations = new Set<string>();
-      let nextContinuation = shelf.continuation.trim();
-      if (shelf.browseId.trim()) {
-        const payload = await fetchListenArtist(
-          props.httpBaseURL,
-          { id: page.id, name: page.name },
-          controller.signal,
-          {
-            browseId: shelf.browseId,
-            params: shelf.params,
-            language: listenLanguage,
-          },
-        );
-        fetchedTracks.push(...payload.items);
-        fetchedShelves.push(...payload.shelves);
-        nextContinuation = payload.continuation.trim();
-      } else if (!nextContinuation) {
-        nextContinuation = page.continuation.trim();
-      }
-
-      for (
-        let pageIndex = 0;
-        nextContinuation && pageIndex < LISTEN_ARTIST_SHELF_CONTINUATION_MAX_PAGES;
-        pageIndex += 1
-      ) {
-        if (seenContinuations.has(nextContinuation)) {
-          nextContinuation = "";
-          break;
+      const artistIdentity = createListenArtistIdentity(page);
+      const request = beginListenArtistRequest(
+        artistRequestsRef.current,
+        "shelf",
+        artistIdentity,
+      );
+      const assertCurrent = () => {
+        if (!isListenArtistRequestCurrent(artistRequestsRef.current, request)) {
+          throw new DOMException("", "AbortError");
         }
-        seenContinuations.add(nextContinuation);
-        const payload = await fetchListenArtist(
-          props.httpBaseURL,
-          { id: page.id, name: page.name },
-          controller.signal,
-          { continuation: nextContinuation, language: listenLanguage },
-        );
-        fetchedTracks.push(...payload.items);
-        fetchedShelves.push(...payload.shelves);
-        nextContinuation = payload.continuation.trim();
-      }
-
-      const fetchedTrackItems = dedupeOnlineItems([
-        ...fetchedTracks,
-        ...fetchedShelves.flatMap((item) =>
-          item.kind === "tracks" ? item.tracks : [],
-        ),
-      ]);
-      if (fetchedTrackItems.length === 0) {
-        return shelf.tracks;
-      }
-      const tracks = dedupeOnlineItems([...shelf.tracks, ...fetchedTrackItems]);
-      setArtistBrowsePage((current) => {
-        if (!current || current.id !== page.id) {
-          return current;
+      };
+      try {
+        const fetchedTracks: ListenOnlineItem[] = [];
+        const fetchedShelves: ListenLibraryShelf[] = [];
+        const seenContinuations = new Set<string>();
+        let nextContinuation = shelf.continuation.trim();
+        if (shelf.browseId.trim()) {
+          const payload = await fetchListenArtist(
+            props.httpBaseURL,
+            { id: page.id, name: page.name },
+            request.controller.signal,
+            {
+              browseId: shelf.browseId,
+              params: shelf.params,
+              language: listenLanguage,
+            },
+          );
+          assertCurrent();
+          fetchedTracks.push(...payload.items);
+          fetchedShelves.push(...payload.shelves);
+          nextContinuation = payload.continuation.trim();
+        } else if (!nextContinuation) {
+          nextContinuation = page.continuation.trim();
         }
-        const shelves = current.shelves.map((item) =>
-          item.id === shelf.id
-            ? {
-                ...item,
-                tracks,
-                continuation: nextContinuation,
-              }
-            : item,
-        );
-        return {
-          ...current,
-          items: dedupeOnlineItems([...current.items, ...tracks]),
-          shelves,
-          continuation: nextContinuation || current.continuation,
-        };
-      });
-      return tracks;
+
+        for (
+          let pageIndex = 0;
+          nextContinuation && pageIndex < LISTEN_ARTIST_SHELF_CONTINUATION_MAX_PAGES;
+          pageIndex += 1
+        ) {
+          if (seenContinuations.has(nextContinuation)) {
+            nextContinuation = "";
+            break;
+          }
+          seenContinuations.add(nextContinuation);
+          const payload = await fetchListenArtist(
+            props.httpBaseURL,
+            { id: page.id, name: page.name },
+            request.controller.signal,
+            { continuation: nextContinuation, language: listenLanguage },
+          );
+          assertCurrent();
+          fetchedTracks.push(...payload.items);
+          fetchedShelves.push(...payload.shelves);
+          nextContinuation = payload.continuation.trim();
+        }
+
+        const fetchedTrackItems = dedupeOnlineItems([
+          ...fetchedTracks,
+          ...fetchedShelves.flatMap((item) =>
+            item.kind === "tracks" ? item.tracks : [],
+          ),
+        ]);
+        assertCurrent();
+        if (fetchedTrackItems.length === 0) {
+          return shelf.tracks;
+        }
+        const tracks = dedupeOnlineItems([
+          ...shelf.tracks,
+          ...fetchedTrackItems,
+        ]);
+        setArtistBrowsePage((current) => {
+          if (
+            !isListenArtistRequestCurrent(artistRequestsRef.current, request) ||
+            !current ||
+            !isSameListenArtistBrowseIdentity(current, page)
+          ) {
+            return current;
+          }
+          const shelves = current.shelves.map((item) =>
+            item.id === shelf.id
+              ? {
+                  ...item,
+                  tracks,
+                  continuation: nextContinuation,
+                }
+              : item,
+          );
+          return {
+            ...current,
+            items: dedupeOnlineItems([...current.items, ...tracks]),
+            shelves,
+            continuation: nextContinuation || current.continuation,
+          };
+        });
+        assertCurrent();
+        return tracks;
+      } finally {
+        finishListenArtistRequest(artistRequestsRef.current, request);
+      }
     },
-    [artistBrowsePage, listenLanguage, props.httpBaseURL],
+    [artistBrowsePage, listenLanguage, museBrowseActive, props.httpBaseURL],
   );
 
   const playArtistMix = React.useCallback(() => {
@@ -3552,15 +4250,22 @@ export function ListenPage(props: ListenPageProps) {
     if (!page || !playlistId) {
       return;
     }
-    const controller = new AbortController();
+    const request = beginListenArtistRequest(
+      artistRequestsRef.current,
+      "action",
+      createListenArtistIdentity(page),
+    );
     setArtistActionBusy("mix");
     void fetchListenPlaylistQueue(
       props.httpBaseURL,
       playlistId,
-      controller.signal,
+      request.controller.signal,
       listenLanguage,
     )
       .then((items) => {
+        if (!isListenArtistRequestCurrent(artistRequestsRef.current, request)) {
+          return;
+        }
         const nextItems = items.length > 0 ? items : page.items;
         const first = nextItems[0];
         if (!first) {
@@ -3572,6 +4277,7 @@ export function ListenPage(props: ListenPageProps) {
               tracks: nextItems,
               startingAt: 0,
               title: page.title || page.name,
+              language: listenLanguage,
               kind: "mix",
               playlistId,
               startVideoId: page.mixVideoId,
@@ -3581,9 +4287,10 @@ export function ListenPage(props: ListenPageProps) {
       })
       .catch(() => {})
       .finally(() => {
-        if (!controller.signal.aborted) {
+        if (isListenArtistRequestCurrent(artistRequestsRef.current, request)) {
           setArtistActionBusy("");
         }
+        finishListenArtistRequest(artistRequestsRef.current, request);
       });
   }, [
     artistBrowsePage,
@@ -3599,10 +4306,14 @@ export function ListenPage(props: ListenPageProps) {
       return;
     }
     const nextSubscribed = !page.isSubscribed;
-    const controller = new AbortController();
+    const request = beginListenArtistRequest(
+      artistRequestsRef.current,
+      "action",
+      createListenArtistIdentity(page),
+    );
     setArtistActionBusy("subscribe");
     setArtistBrowsePage((current) =>
-      current && current.id === page.id
+      current && isSameListenArtistBrowseIdentity(current, page)
         ? { ...current, isSubscribed: nextSubscribed }
         : current,
     );
@@ -3610,69 +4321,245 @@ export function ListenPage(props: ListenPageProps) {
       props.httpBaseURL,
       channelId,
       nextSubscribed,
-      controller.signal,
+      request.controller.signal,
     )
       .then((subscribed) => {
-        if (!controller.signal.aborted) {
+        if (isListenArtistRequestCurrent(artistRequestsRef.current, request)) {
           setArtistBrowsePage((current) =>
-            current && current.id === page.id
+            current && isSameListenArtistBrowseIdentity(current, page)
               ? { ...current, isSubscribed: subscribed }
               : current,
           );
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (isListenArtistRequestCurrent(artistRequestsRef.current, request)) {
           setArtistBrowsePage((current) =>
-            current && current.id === page.id
+            current && isSameListenArtistBrowseIdentity(current, page)
               ? { ...current, isSubscribed: page.isSubscribed }
               : current,
           );
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        if (isListenArtistRequestCurrent(artistRequestsRef.current, request)) {
           setArtistActionBusy("");
         }
+        finishListenArtistRequest(artistRequestsRef.current, request);
       });
   }, [artistBrowsePage, props.httpBaseURL]);
+
+  const loadCompleteSelectedPlaylistTracks = React.useCallback(
+    (): Promise<ListenOnlineItem[]> => {
+      const playlistId = browsePlaylistId.trim();
+      if (!playlistId || playlistTracks.length === 0) {
+        return Promise.resolve([]);
+      }
+      const continuation = playlistContinuation.trim();
+      if (!continuation) {
+        return Promise.resolve(playlistTracks);
+      }
+      const activeLoad = playlistQueueLoadRef.current;
+      if (activeLoad?.context === playlistPaginationContext) {
+        return activeLoad.promise;
+      }
+      activeLoad?.controller.abort();
+      playlistQueueLoadRef.current = null;
+
+      paginationRequestsRef.current.forEach((request, key) => {
+        if (
+          request.kind === "playlist" &&
+          request.context === playlistPaginationContext
+        ) {
+          request.controller.abort();
+          paginationRequestsRef.current.delete(key);
+        }
+      });
+
+      const controller = new AbortController();
+      const expectedContext = playlistPaginationContext;
+      const seedTracks = playlistTracks;
+      const load: {
+        context: string;
+        controller: AbortController;
+        promise: Promise<ListenOnlineItem[]>;
+      } = {
+        context: expectedContext,
+        controller,
+        promise: Promise.resolve([]),
+      };
+      setPlaylistAppending(true);
+      load.promise = (async () => {
+        try {
+          const result = await fetchCompleteListenPlaylistQueue(
+            props.httpBaseURL,
+            playlistId,
+            controller.signal,
+            {
+              continuation,
+              initialItems: seedTracks,
+              language: listenLanguage,
+            },
+          );
+          if (
+            controller.signal.aborted ||
+            !isListenPaginationContextCurrent(
+              expectedContext,
+              paginationContextsRef.current.playlist,
+            )
+          ) {
+            return [];
+          }
+          setPlaylistTracks(result.items);
+          setPlaylistContinuation(result.continuation);
+          if (result.continuation) {
+            messageBus.publishToast({
+              intent: "danger",
+              title: props.text.library.progressDetail.operationFailed,
+              description:
+                playlistDetailTitle || props.text.listen.groupPlaylist,
+            });
+            return [];
+          }
+          return result.items;
+        } catch {
+          if (
+            controller.signal.aborted ||
+            !isListenPaginationContextCurrent(
+              expectedContext,
+              paginationContextsRef.current.playlist,
+            )
+          ) {
+            return [];
+          }
+          return seedTracks;
+        } finally {
+          if (playlistQueueLoadRef.current === load) {
+            playlistQueueLoadRef.current = null;
+            setPlaylistAppending(false);
+          }
+        }
+      })();
+      playlistQueueLoadRef.current = load;
+      return load.promise;
+    },
+    [
+      browsePlaylistId,
+      listenLanguage,
+      playlistContinuation,
+      playlistDetailTitle,
+      playlistPaginationContext,
+      playlistTracks,
+      props.httpBaseURL,
+      props.text.library.progressDetail.operationFailed,
+      props.text.listen.groupPlaylist,
+    ],
+  );
 
   const playPlaylistFromIndex = React.useCallback(
     (index: number) => {
       const playlist = selectedPlaylist;
-      const next = playlistTracks[index];
-      if (!playlist || !next) {
+      if (!playlist) {
         return;
       }
-      const queueItems = applyListenPlaylistPlaybackFallback(
-        playlistTracks,
-        resolveListenPlaylistPlaybackFallbackArtist(
-          playlist,
-          playlistDetailAuthor,
+      const fallbackArtist = resolveListenPlaylistPlaybackFallbackArtist(
+        playlist,
+        playlistDetailAuthor,
+      );
+      startListenPlaylistPlaybackFromIndex({
+        initialItems: applyListenPlaylistPlaybackFallback(
+          playlistTracks,
+          fallbackArtist,
         ),
-      );
-      const selectedQueueItem =
-        queueItems.find((item) => item.id === next.id) ?? next;
-      runOnlinePlaybackCommand(
-        () =>
-          callListenPlaybackPlayQueue({
-            tracks: queueItems,
-            startingAt: Math.max(0, queueItems.indexOf(selectedQueueItem)),
-            title: playlistDetailTitle || playlist.title,
-            kind: "playlist",
-            playlistId: playlist.playlistId,
-          }),
-        { loading: true },
-      );
+        startingAt: index,
+        hasContinuation: Boolean(playlistContinuation.trim()),
+        title: playlistDetailTitle || playlist.title,
+        language: listenLanguage,
+        playlistId: playlist.playlistId,
+        loadComplete: () =>
+          loadCompleteSelectedPlaylistTracks().then((tracks) =>
+            applyListenPlaylistPlaybackFallback(tracks, fallbackArtist),
+          ),
+        isCurrent: (epoch) =>
+          onlinePlaybackActionEpochRef.current === epoch,
+        runCommand: runOnlinePlaybackCommand,
+      });
     },
     [
+      loadCompleteSelectedPlaylistTracks,
       playlistDetailAuthor,
       playlistDetailTitle,
+      playlistContinuation,
       playlistTracks,
+      listenLanguage,
       runOnlinePlaybackCommand,
       selectedPlaylist,
     ],
   );
+
+  const shufflePlaylist = React.useCallback(() => {
+    const playlist = selectedPlaylist;
+    if (!playlist || playlistTracks.length === 0) {
+      return;
+    }
+    const fallbackArtist = resolveListenPlaylistPlaybackFallbackArtist(
+      playlist,
+      playlistDetailAuthor,
+    );
+    const visibleItems = shuffleListenOnlineItems(
+      applyListenPlaylistPlaybackFallback(playlistTracks, fallbackArtist),
+    );
+    const queueIdentity = createListenPlaybackQueueIdentity();
+    startListenPlaylistPlayback({
+      initialItems: visibleItems,
+      hasContinuation: Boolean(playlistContinuation.trim()),
+      playInitial: (items) => {
+        const command = runOnlinePlaybackCommand(
+          () =>
+            callListenPlaybackPlayQueue({
+              tracks: items,
+              startingAt: 0,
+              title: playlistDetailTitle || playlist.title,
+              language: listenLanguage,
+              kind: "playlist",
+              playlistId: playlist.playlistId,
+              queueIdentity,
+            }),
+          { loading: true },
+        );
+        return command ? { ...command, queueIdentity } : null;
+      },
+      loadComplete: () =>
+        loadCompleteSelectedPlaylistTracks().then((tracks) =>
+          shuffleListenOnlineItems(
+            applyListenPlaylistPlaybackFallback(tracks, fallbackArtist),
+          ),
+        ),
+      isCurrent: (epoch) => onlinePlaybackActionEpochRef.current === epoch,
+      appendRemaining: (items, expectedQueueIdentity) => {
+        runOnlinePlaybackCommand(
+          () =>
+            callListenPlaybackAppendToQueue(items, {
+              expectedQueueIdentity,
+            }),
+          {
+            clearForwardStack: false,
+            reportError: true,
+            syncVolume: false,
+          },
+        );
+      },
+    });
+  }, [
+    loadCompleteSelectedPlaylistTracks,
+    playlistDetailAuthor,
+    playlistDetailTitle,
+    playlistContinuation,
+    playlistTracks,
+    listenLanguage,
+    runOnlinePlaybackCommand,
+    selectedPlaylist,
+  ]);
 
   const queueSelectedPlaylistTracks = React.useCallback(
     (placement: "next" | "end") => {
@@ -3680,54 +4567,85 @@ export function ListenPage(props: ListenPageProps) {
       if (!playlist || playlistTracks.length === 0) {
         return;
       }
-      const queueItems = applyListenPlaylistPlaybackFallback(
-        playlistTracks,
-        resolveListenPlaylistPlaybackFallbackArtist(
-          playlist,
-          playlistDetailAuthor,
-        ),
+      const fallbackArtist = resolveListenPlaylistPlaybackFallbackArtist(
+        playlist,
+        playlistDetailAuthor,
       );
-      const firstItem = queueItems[0];
-      if (!firstItem) {
+      const visibleItems = applyListenPlaylistPlaybackFallback(
+        playlistTracks,
+        fallbackArtist,
+      );
+      const action = resolveListenPlaylistQueueAction({
+        items: visibleItems,
+        hasActiveQueue:
+          playbackModeRef.current === "muse" &&
+          onlineQueueStateRef.current.items.length > 0,
+        placement,
+      });
+      if (!action) {
         return;
       }
-      const shouldStartQueuedItems =
-        playbackMode !== "muse" || onlineQueueState.items.length === 0;
-      const existingIDs = new Set(onlineQueueState.items.map((item) => item.id));
-      const existingVideoIDs = new Set(
-        onlineQueueState.items.map((item) => item.videoId).filter(Boolean),
-      );
-      const queueItemsToAdd = queueItems.filter(
-        (item) =>
-          !existingIDs.has(item.id) &&
-          (!item.videoId || !existingVideoIDs.has(item.videoId)),
-      );
-      if (shouldStartQueuedItems) {
-        runOnlinePlaybackCommand(
-          () =>
-            callListenPlaybackPlayQueue({
-              tracks: queueItems,
-              startingAt: 0,
-              title: playlistDetailTitle || playlist.title,
-              kind: "playlist",
-              playlistId: playlist.playlistId,
-            }),
-          { loading: true },
-        );
-      } else if (queueItemsToAdd.length > 0) {
-        runOnlinePlaybackCommand(() =>
-          placement === "next"
-            ? callListenPlaybackInsertNextInQueue(queueItemsToAdd)
-            : callListenPlaybackAppendToQueue(queueItemsToAdd),
-        );
-      }
+      const queueIdentity =
+        action.kind === "start" ? createListenPlaybackQueueIdentity() : "";
+      startListenPlaylistQueueAction({
+        initialItems: action.items,
+        hasContinuation: Boolean(playlistContinuation.trim()),
+        enqueueInitial: (items) => {
+          const command = runOnlinePlaybackCommand(
+            () => {
+              if (action.kind === "start") {
+                return callListenPlaybackPlayQueue({
+                  tracks: items,
+                  startingAt: 0,
+                  title: playlistDetailTitle || playlist.title,
+                  language: listenLanguage,
+                  kind: "playlist",
+                  playlistId: playlist.playlistId,
+                  queueIdentity,
+                });
+              }
+              return action.kind === "insert-next"
+                ? callListenPlaybackInsertNextInQueue(items)
+                : callListenPlaybackAppendToQueue(items);
+            },
+            action.kind === "start"
+              ? { loading: true }
+              : { reportError: true, syncVolume: false },
+          );
+          return command
+            ? { epoch: command.epoch, result: command.result }
+            : null;
+        },
+        loadComplete: () =>
+          loadCompleteSelectedPlaylistTracks().then((tracks) =>
+            applyListenPlaylistPlaybackFallback(tracks, fallbackArtist),
+          ),
+        isCurrent: (epoch) => onlinePlaybackActionEpochRef.current === epoch,
+        enqueueRemaining: (items, initialSnapshot) => {
+          runOnlinePlaybackCommand(
+            () =>
+              placeListenPlaylistQueueContinuation({
+                kind: action.kind,
+                initialItemCount: action.items.length,
+                remainingItems: items,
+                initialSnapshot,
+              }),
+            {
+              clearForwardStack: false,
+              reportError: true,
+              syncVolume: false,
+            },
+          );
+        },
+      });
     },
     [
-      onlineQueueState.items,
+      loadCompleteSelectedPlaylistTracks,
       playlistDetailAuthor,
       playlistDetailTitle,
+      playlistContinuation,
       playlistTracks,
-      playbackMode,
+      listenLanguage,
       runOnlinePlaybackCommand,
       selectedPlaylist,
     ],
@@ -3744,43 +4662,87 @@ export function ListenPage(props: ListenPageProps) {
   const loadMorePlaylist = React.useCallback(() => {
     const continuation = playlistContinuation.trim();
     const playlistId = browsePlaylistId.trim();
-    if (!continuation || playlistAppending || playlistLoading) {
+    if (
+      !museBrowseActive ||
+      !playlistId ||
+      !continuation ||
+      playlistAppending ||
+      playlistLoading ||
+      playlistQueueLoadRef.current
+    ) {
       return;
     }
-    const controller = new AbortController();
+    const request = beginListenPaginationRequest(
+      paginationRequestsRef.current,
+      "playlist",
+      playlistPaginationContext,
+      continuation,
+    );
+    if (!request) {
+      return;
+    }
     setPlaylistAppending(true);
     void fetchListenPlaylistPage(
       props.httpBaseURL,
       playlistId,
-      controller.signal,
+      request.controller.signal,
       continuation,
       listenLanguage,
     )
       .then((payload) => {
-        if (controller.signal.aborted) {
+        if (
+          request.controller.signal.aborted ||
+          !isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.playlist,
+          )
+        ) {
           return;
         }
         setPlaylistTracks((current) =>
           dedupeOnlineItems([...current, ...payload.items]),
         );
-        setPlaylistContinuation(payload.continuation);
+        setPlaylistContinuation(
+          resolveListenNextContinuation(
+            continuation,
+            payload.continuation,
+          ),
+        );
       })
       .catch(() => {
-        if (!controller.signal.aborted) {
+        if (
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.playlist,
+          )
+        ) {
           setPlaylistContinuation("");
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        finishListenPaginationRequest(
+          paginationRequestsRef.current,
+          request,
+        );
+        if (
+          !request.controller.signal.aborted &&
+          isListenPaginationContextCurrent(
+            request.context,
+            paginationContextsRef.current.playlist,
+          )
+        ) {
           setPlaylistAppending(false);
         }
       });
   }, [
     browsePlaylistId,
     listenLanguage,
+    museBrowseActive,
     playlistAppending,
     playlistContinuation,
     playlistLoading,
+    playlistPaginationContext,
     props.httpBaseURL,
   ]);
 
@@ -3872,14 +4834,14 @@ export function ListenPage(props: ListenPageProps) {
   );
 
   const selectFirstResult = React.useCallback(() => {
-    if (mode === "hush") {
+    if (activeViewMode === "hush") {
       const first = curatedLiveItems[0];
       if (first) {
         activateLiveSelection(first);
       }
       return;
     }
-    if (mode === "muse") {
+    if (activeViewMode === "muse") {
       if (artistBrowsePage) {
         const firstArtistTrack =
           filteredArtistTracks[0] ?? artistBrowsePage.items[0];
@@ -3944,7 +4906,7 @@ export function ListenPage(props: ListenPageProps) {
     homeRecommendations,
     homeShelfPlaylists,
     homeShelfCategories,
-    mode,
+    activeViewMode,
     normalizedQuery,
     openPlaylistBrowse,
     openOnlineBrowseCategory,
@@ -3961,11 +4923,11 @@ export function ListenPage(props: ListenPageProps) {
   ]);
 
   const liveSearchNotice =
-    mode === "hush" && normalizedQuery && curatedLiveItems.length === 0
+    activeViewMode === "hush" && normalizedQuery && curatedLiveItems.length === 0
       ? props.text.listen.searchEmpty
       : "";
   const onlineSearchNotice =
-    mode === "muse" && !artistBrowsePage && normalizedQuery
+    activeViewMode === "muse" && !artistBrowsePage && normalizedQuery
       ? searchLoading
         ? props.text.listen.searchLoading
         : searchError
@@ -3977,19 +4939,6 @@ export function ListenPage(props: ListenPageProps) {
             ? props.text.listen.searchEmpty
             : ""
       : "";
-  const filteredPlaylistTracks = React.useMemo(
-    () =>
-      playlistTracks.filter((item) =>
-        matchesQuery(normalizedQuery, [
-          item.title,
-          item.channel,
-          item.description,
-          item.durationLabel,
-          item.playCountLabel ?? "",
-        ]),
-      ),
-    [normalizedQuery, playlistTracks],
-  );
   const filteredOnlineQueueItems = React.useMemo(
     () =>
       onlinePlaybackQueue.filter((item) =>
@@ -4012,20 +4961,20 @@ export function ListenPage(props: ListenPageProps) {
         ? onlineQueueState.title || props.text.listen.groupRadio
         : props.text.listen.upNext;
   const effectiveSidebarView: ListenSidebarView =
-    mode === "muse" ? sidebarView : "browse";
+    activeViewMode === "muse" ? sidebarView : "browse";
   const showArtistDetail =
-    mode === "muse" &&
+    activeViewMode === "muse" &&
     effectiveSidebarView === "browse" &&
     artistBrowsePage !== null &&
     browsePlaylistId === "";
   const showPlaylistDetail =
-    mode === "muse" &&
+    activeViewMode === "muse" &&
     effectiveSidebarView === "browse" &&
     browsePlaylistId !== "";
   const searchPlaceholder =
-    mode === "hush"
+    activeViewMode === "hush"
       ? props.text.listen.searchLive
-      : mode === "muse"
+      : activeViewMode === "muse"
         ? props.text.listen.searchOnline
         : props.text.listen.searchLocal;
 
@@ -4033,8 +4982,8 @@ export function ListenPage(props: ListenPageProps) {
     <>
       <ListenPageView
         page={props}
-        state={{ isWindows, isMac, listOpen, query, searchPlaceholder, mode, playbackMode, sidebarView, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, selectedLiveGroupId, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistTracks, filteredPlaylistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localTracksLoading: localTrackIndex.loading, localTracksRefreshing: localTrackIndex.refreshing, localTracksClearingMissing: localTrackIndex.clearingMissing, activeOnline, selectedLocal: activeLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems: playbackMode === "hush" ? liveQueue : onlinePlaybackQueue, onlinePlaying, onlinePlaybackArmed, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, onlineObservedPlaybackAudioQuality, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy: youtubeConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind }}
-        actions={{ setListOpen, setQuery, selectFirstResult, setMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary: () => setLibraryReloadToken((current) => current + 1), changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, setSelectedLocalId, setLocalPlayerCommand, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, playOnlineSearchResults, shuffleOnlineSearchResults, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, openRepairMissingLocalTracks: () => setLocalRelinkDialogOpen(true), handlePlaybackEnded, setOnlinePlaying: setLivePlaying, setOnlineState: setLiveState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode: setPlayModeFromView, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse, openSelectedLocalDirectory }}
+        state={{ isWindows, isMac, listOpen, query, searchPlaceholder, mode: activeViewMode, playbackMode, sidebarView, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, selectedLiveGroupId, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistDetailAuthorBrowseId: playlistDetailMetadata.authorBrowseId, playlistDetailTrackCountLabel: playlistDetailMetadata.trackCountLabel, playlistDetailDurationLabel: playlistDetailMetadata.durationLabel, playlistDetailTitle, playlistDetailDescription, playlistDetailThumbnailURL, playlistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, libraryErrorRetryable, libraryRequestReady, librarySettled, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localPlaybackQueue, localQueueCanUndo, localQueueCanRedo, localTracksLoading: localTrackIndex.loading, localTracksRefreshing: localTrackIndex.refreshing, localTracksClearingMissing: localTrackIndex.clearingMissing, localTracksError: localTrackIndex.error, activeOnline, selectedLocal: activeLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems: playbackMode === "hush" ? liveQueue : onlinePlaybackQueue, onlinePlaying, onlinePlaybackArmed, onlinePlaybackActionPending, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, onlineObservedPlaybackAudioQuality, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy: youtubeConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind }}
+        actions={{ setListOpen, setQuery, selectFirstResult, setMode: setLegacyBrowseMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary: () => setLibraryReloadToken((current) => current + 1), changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, clearLocalQueue, removeLocalQueueItem, moveLocalQueueItem, undoLocalQueueEdit, redoLocalQueueEdit, retryLocalTracks: localTrackIndex.retry, playLocalBrowseTrack, setSelectedLocalId, setLocalPlayerCommand, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, shufflePlaylist, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, playOnlineSearchResults, shuffleOnlineSearchResults, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks: localTrackIndex.refresh, openRepairMissingLocalTracks: () => setLocalRelinkDialogOpen(true), handlePlaybackEnded, setOnlinePlaying: setLivePlaying, setOnlineState: setLiveState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode: setPlayModeFromView, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse: openOnlineArtistFromPlayer, openSelectedLocalDirectory }}
       />
       <ListenLocalRelinkRepair
         open={localRelinkDialogOpen}

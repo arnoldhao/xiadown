@@ -2,6 +2,7 @@ package wails
 
 import (
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -14,6 +15,7 @@ import (
 )
 
 type trayActions interface {
+	ToggleMiniPlayer() bool
 	OpenMainWindow()
 	OpenNewDownload()
 	OpenSettings()
@@ -27,23 +29,55 @@ type SystemTrayController struct {
 	tray            *application.SystemTray
 	icon            []byte
 	actions         trayActions
+	stateMu         sync.RWMutex
 	miniPlayer      application.Window
 	updateAvailable bool
 	updateState     update.Info
 }
 
-func NewSystemTrayController(app *application.App, actions trayActions, icon []byte, miniPlayer application.Window) *SystemTrayController {
+func NewSystemTrayController(app *application.App, actions trayActions, icon []byte) *SystemTrayController {
 	return &SystemTrayController{
-		app:        app,
-		icon:       icon,
-		actions:    actions,
-		miniPlayer: miniPlayer,
+		app:     app,
+		icon:    icon,
+		actions: actions,
 	}
+}
+
+// AttachMiniPlayer binds the lazily-created player to the already-running tray.
+// Wails permits replacing the attachment after the native tray has started.
+func (controller *SystemTrayController) AttachMiniPlayer(window application.Window) {
+	if controller == nil || window == nil {
+		return
+	}
+	controller.stateMu.Lock()
+	controller.miniPlayer = window
+	tray := controller.tray
+	controller.stateMu.Unlock()
+	if tray != nil {
+		tray.AttachWindow(window).WindowOffset(10)
+	}
+}
+
+func (controller *SystemTrayController) ToggleMiniPlayer() bool {
+	if controller == nil {
+		return false
+	}
+	controller.stateMu.RLock()
+	miniPlayer := controller.miniPlayer
+	tray := controller.tray
+	controller.stateMu.RUnlock()
+	if tray == nil || miniPlayer == nil {
+		return false
+	}
+	tray.ToggleWindow()
+	applyTrayMiniPlayerWindowShape(miniPlayer)
+	return true
 }
 
 func (controller *SystemTrayController) Update(current dto.Settings) {
 	controller.ensureTray()
-	if controller.tray == nil {
+	tray := controller.traySnapshot()
+	if tray == nil {
 		return
 	}
 
@@ -52,7 +86,7 @@ func (controller *SystemTrayController) Update(current dto.Settings) {
 		lang = settings.DefaultLanguage
 	}
 	strings := i18n.TrayMenu(lang)
-	controller.tray.SetTooltip(i18n.WindowTitles(lang).Main)
+	tray.SetTooltip(i18n.WindowTitles(lang).Main)
 	visibilityLabel := strings.ShowInMenuBar
 	if runtime.GOOS == "windows" {
 		visibilityLabel = strings.ShowTrayIcon
@@ -114,12 +148,12 @@ func (controller *SystemTrayController) Update(current dto.Settings) {
 		}
 	})
 
-	controller.tray.SetMenu(menu)
+	tray.SetMenu(menu)
 
 	if menuBarVisibility == settings.MenuBarVisibilityNever.String() {
-		controller.tray.Hide()
+		tray.Hide()
 	} else {
-		controller.tray.Show()
+		tray.Show()
 	}
 }
 
@@ -145,7 +179,6 @@ func (controller *SystemTrayController) appendUpdateMenuItem(menu *application.M
 	if state.IsUpdateAvailable() || state.Status == update.StatusReadyToRestart || state.Status == update.StatusInstalling {
 		menu.Add(strings.InstallUpdate).OnClick(func(_ *application.Context) {
 			if controller.actions != nil {
-				controller.actions.OpenSettings()
 				controller.actions.OpenUpdate()
 			}
 		})
@@ -155,7 +188,6 @@ func (controller *SystemTrayController) appendUpdateMenuItem(menu *application.M
 	if controller.updateAvailable {
 		menu.Add(strings.InstallUpdate).OnClick(func(_ *application.Context) {
 			if controller.actions != nil {
-				controller.actions.OpenSettings()
 				controller.actions.OpenUpdate()
 			}
 		})
@@ -166,44 +198,56 @@ func (controller *SystemTrayController) appendUpdateMenuItem(menu *application.M
 }
 
 func (controller *SystemTrayController) ensureTray() {
+	controller.stateMu.Lock()
 	if controller.tray != nil {
+		controller.stateMu.Unlock()
 		return
 	}
-	controller.tray = controller.app.SystemTray.New()
-	controller.tray.SetTooltip("XiaDown")
+	tray := controller.app.SystemTray.New()
+	controller.tray = tray
+	miniPlayer := controller.miniPlayer
+	controller.stateMu.Unlock()
+	tray.SetTooltip("XiaDown")
 
 	if controller.icon != nil {
 		if runtime.GOOS == "darwin" {
-			controller.tray.SetTemplateIcon(controller.icon)
+			tray.SetTemplateIcon(controller.icon)
 		} else {
-			controller.tray.SetIcon(controller.icon)
-			controller.tray.SetDarkModeIcon(controller.icon)
+			tray.SetIcon(controller.icon)
+			tray.SetDarkModeIcon(controller.icon)
 		}
 	} else if runtime.GOOS == "darwin" {
-		controller.tray.SetTemplateIcon(icons.SystrayMacTemplate)
+		tray.SetTemplateIcon(icons.SystrayMacTemplate)
 	} else {
-		controller.tray.SetIcon(icons.SystrayLight)
-		controller.tray.SetDarkModeIcon(icons.SystrayDark)
+		tray.SetIcon(icons.SystrayLight)
+		tray.SetDarkModeIcon(icons.SystrayDark)
 	}
 
-	if controller.miniPlayer != nil {
-		controller.tray.AttachWindow(controller.miniPlayer).WindowOffset(10)
+	if miniPlayer != nil {
+		tray.AttachWindow(miniPlayer).WindowOffset(10)
 	}
 
-	controller.tray.OnClick(func() {
-		if controller.miniPlayer != nil {
-			controller.tray.ToggleWindow()
-			applyTrayMiniPlayerWindowShape(controller.miniPlayer)
+	tray.OnClick(func() {
+		if controller.actions != nil && controller.actions.ToggleMiniPlayer() {
 			return
 		}
-		controller.tray.OpenMenu()
+		tray.OpenMenu()
 	})
-	controller.tray.OnRightClick(func() {
-		controller.tray.OpenMenu()
+	tray.OnRightClick(func() {
+		tray.OpenMenu()
 	})
-	controller.tray.OnDoubleClick(func() {
+	tray.OnDoubleClick(func() {
 		if controller.actions != nil {
 			controller.actions.OpenMainWindow()
 		}
 	})
+}
+
+func (controller *SystemTrayController) traySnapshot() *application.SystemTray {
+	if controller == nil {
+		return nil
+	}
+	controller.stateMu.RLock()
+	defer controller.stateMu.RUnlock()
+	return controller.tray
 }

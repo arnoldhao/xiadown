@@ -1,19 +1,29 @@
-export type XiaSettingsTabId = "general" | "appearance" | "player" | "download" | "about";
+export type XiaSettingsTabId = "general" | "network" | "appearance" | "player" | "download" | "ai" | "about";
 
 const STORAGE_KEY = "xiadown:settings-tab";
 
 export function isSettingsTab(value: string | null | undefined): value is XiaSettingsTabId {
-  return value === "general" || value === "appearance" || value === "player" || value === "download" || value === "about";
+  return value === "general" || value === "network" || value === "appearance" || value === "player" || value === "download" || value === "ai" || value === "about";
 }
 
 export function resolveSettingsTab(value: string | null | undefined): XiaSettingsTabId {
-  if (value === "proxy") {
-    return "general";
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "proxy"
+    || normalized === "network"
+    || normalized === "library"
+    || normalized === "library-access"
+    || normalized === "library_access"
+    || normalized === "libraryaccess"
+    || normalized === "remote-access"
+    || normalized === "tailscale"
+  ) {
+    return "network";
   }
-  if (value === "equalizer") {
+  if (normalized === "equalizer") {
     return "player";
   }
-  return isSettingsTab(value) ? value : "general";
+  return isSettingsTab(normalized) ? normalized : "general";
 }
 
 export function setPendingSettingsTab(tab: XiaSettingsTabId) {

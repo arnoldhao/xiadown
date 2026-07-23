@@ -3,11 +3,17 @@ import * as React from "react";
 import type { CurrentUserProfile } from "@/shared/query/system";
 import { cn } from "@/lib/utils";
 
+export const APP_USER_AVATAR_TONES = ["neutral", "theme"] as const;
+export type UserAvatarTone = (typeof APP_USER_AVATAR_TONES)[number];
+export const APP_USER_AVATAR_SHAPES = ["rounded", "circle"] as const;
+export type UserAvatarShape = (typeof APP_USER_AVATAR_SHAPES)[number];
+
 export interface UserAvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   profile?: CurrentUserProfile | null;
   imageClassName?: string;
   fallbackClassName?: string;
-  tone?: "neutral" | "theme";
+  tone?: UserAvatarTone;
+  shape?: UserAvatarShape;
 }
 
 export function UserAvatar({
@@ -16,6 +22,7 @@ export function UserAvatar({
   imageClassName,
   fallbackClassName,
   tone = "neutral",
+  shape = "rounded",
   ...props
 }: UserAvatarProps) {
   const avatarSrc = resolveUserAvatarSrc(profile);
@@ -26,12 +33,11 @@ export function UserAvatar({
   return (
     <div
       className={cn(
-        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl",
-        themed
-          ? "isolate bg-[radial-gradient(circle_at_32%_18%,hsl(var(--background)/0.62),transparent_40%),linear-gradient(135deg,hsl(var(--sidebar-accent)),hsl(var(--primary)/0.18))] text-sidebar-accent-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.28),inset_0_1px_0_hsl(var(--background)/0.42),0_12px_26px_-22px_hsl(var(--primary)/0.75)]"
-          : "bg-muted text-muted-foreground dark:bg-muted/80 dark:text-foreground/80",
+        "app-user-avatar",
         className
       )}
+      data-tone={tone}
+      data-shape={shape}
       aria-label={label}
       {...props}
     >
@@ -41,14 +47,13 @@ export function UserAvatar({
             src={avatarSrc}
             alt={label}
             className={cn(
-              "h-full w-full object-cover",
-              themed ? "contrast-[1.02] saturate-[0.9]" : null,
+              "app-user-avatar__image",
               imageClassName,
             )}
           />
           {themed ? (
             <span
-              className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--primary)/0.24),transparent_48%,hsl(var(--sidebar-accent)/0.28))] mix-blend-soft-light"
+              className="app-user-avatar__wash"
               aria-hidden="true"
             />
           ) : null}
@@ -56,8 +61,7 @@ export function UserAvatar({
       ) : (
         <span
           className={cn(
-            "relative z-10 text-sm font-semibold tracking-[0.16em]",
-            themed ? "text-sidebar-accent-foreground" : null,
+            "app-user-avatar__fallback",
             fallbackClassName,
           )}
         >
@@ -66,7 +70,7 @@ export function UserAvatar({
       )}
       {themed ? (
         <span
-          className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.24),inset_0_-10px_18px_hsl(var(--primary)/0.10)]"
+          className="app-user-avatar__rim"
           aria-hidden="true"
         />
       ) : null}

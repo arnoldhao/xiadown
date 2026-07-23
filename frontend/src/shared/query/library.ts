@@ -8,6 +8,7 @@ import type {
   CancelOperationRequest,
   CancelResourceSniffRequest,
   ClearResourceSniffResourcesRequest,
+  CurrentResourceSniffBrowserStatus,
   ApplyLibraryRelinksRequest,
   ApplyLibraryRelinksResponse,
   CreateTranscodeJobRequest,
@@ -15,11 +16,17 @@ import type {
   CreateYTDLPBatchJobsResponse,
   CreateYTDLPJobRequest,
   DeleteFilesRequest,
+  DeletedLibraryItemMutationRequest,
+  DeletedLibraryItemMutationResponse,
+  DeleteOperationOutputRequest,
   DeleteOperationRequest,
   DeleteOperationsRequest,
   LibraryDTO,
   LibraryOperationDTO,
+  ListDeletedLibraryItemsRequest,
+  ListDeletedLibraryItemsResponse,
   GetResourceSniffPreviewRequest,
+  CurrentResourceSniffBrowserStatusRequest,
   ListMissingLibraryFilesResponse,
   ListResourceSniffResourcesRequest,
   ListResourceSniffResourcesResponse,
@@ -31,8 +38,6 @@ import type {
   GetResourceSniffSessionRequest,
   ParseYTDLPDownloadRequest,
   ParseYTDLPDownloadResponse,
-  ParseResourceSniffRequest,
-  ParseResourceSniffResponse,
   PrepareResourceSniffRawDownloadRequest,
   PrepareResourceSniffRawPreviewRequest,
   PrepareResourceSniffRawPreviewResponse,
@@ -52,28 +57,53 @@ import type {
   StopCDPBrowserRuntimeRequest,
   TranscodePreset,
 } from "@/shared/contracts/library";
+import { collectCompleteOperations } from "@/shared/query/complete-operations";
+import { normalizeCurrentResourceSniffBrowserStatus } from "@/shared/query/currentResourceSniffBrowserStatus";
+import {
+  LIBRARY_RESOURCE_SNIFF_QUERY_KEY,
+  LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY,
+  LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY,
+  removeCanceledResourceSniffSessionQueries,
+} from "@/shared/query/resourceSniffQueryCache";
+
+export { normalizeCurrentResourceSniffBrowserStatus } from "@/shared/query/currentResourceSniffBrowserStatus";
+export {
+  LIBRARY_RESOURCE_SNIFF_QUERY_KEY,
+  LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY,
+  LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY,
+  removeCanceledResourceSniffSessionQueries,
+} from "@/shared/query/resourceSniffQueryCache";
 
 export const LIBRARY_LIST_QUERY_KEY = ["library", "libraries"] as const;
 export const LIBRARY_DETAIL_QUERY_KEY = ["library", "detail"] as const;
 export const LIBRARY_OPERATIONS_QUERY_KEY = ["library", "operations"] as const;
+export const LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY = ["library", "complete-operations"] as const;
 export const LIBRARY_HISTORY_QUERY_KEY = ["library", "history"] as const;
 export const LIBRARY_FILE_EVENTS_QUERY_KEY = ["library", "file-events"] as const;
+export const LIBRARY_DELETED_ITEMS_QUERY_KEY = ["library", "deleted-items"] as const;
 export const LIBRARY_WORKSPACE_QUERY_KEY = ["library", "workspace"] as const;
 export const LIBRARY_WORKSPACE_PROJECT_QUERY_KEY = ["library", "workspace-project"] as const;
 export const LIBRARY_TRANSCODE_PRESETS_QUERY_KEY = ["library", "transcode-presets"] as const;
 export const LIBRARY_TRANSCODE_PRESETS_FOR_DOWNLOAD_QUERY_KEY = ["library", "transcode-presets-download"] as const;
 export const LIBRARY_TRANSCODE_PROBE_QUERY_KEY = ["library", "transcode-probe"] as const;
-export const LIBRARY_RESOURCE_SNIFF_QUERY_KEY = ["library", "resource-sniff"] as const;
-export const LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY = ["library", "resource-sniff", "sessions"] as const;
-export const LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY = ["library", "resource-sniff", "resources"] as const;
 export const LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY = ["library", "cdp-browser-status"] as const;
+export const LIBRARY_CURRENT_RESOURCE_SNIFF_BROWSER_STATUS_QUERY_KEY = [
+  "library",
+  "resource-sniff",
+  "current-browser-status",
+] as const;
 const LIBRARY_HANDLER_SERVICE = "xiadown/internal/presentation/wails.LibraryHandler";
 
 export function invalidateLibraryQueries(queryClient: ReturnType<typeof useQueryClient>, libraryId?: string) {
+  // File lifecycle and task cascades are reflected into the Catalog service by
+  // the backend. Invalidate both projections together so Library cards do not
+  // retain a stale primary asset after a successful mutation.
+  queryClient.invalidateQueries({ queryKey: ["catalog"] });
   queryClient.invalidateQueries({ queryKey: LIBRARY_LIST_QUERY_KEY });
   queryClient.invalidateQueries({ queryKey: LIBRARY_OPERATIONS_QUERY_KEY });
   queryClient.invalidateQueries({ queryKey: LIBRARY_HISTORY_QUERY_KEY });
   queryClient.invalidateQueries({ queryKey: LIBRARY_FILE_EVENTS_QUERY_KEY });
+  queryClient.invalidateQueries({ queryKey: LIBRARY_DELETED_ITEMS_QUERY_KEY });
   if (libraryId) {
     queryClient.invalidateQueries({ queryKey: [...LIBRARY_DETAIL_QUERY_KEY, libraryId] });
     queryClient.invalidateQueries({ queryKey: [...LIBRARY_WORKSPACE_QUERY_KEY, libraryId] });
@@ -83,6 +113,14 @@ export function invalidateLibraryQueries(queryClient: ReturnType<typeof useQuery
   queryClient.invalidateQueries({ queryKey: LIBRARY_DETAIL_QUERY_KEY });
   queryClient.invalidateQueries({ queryKey: LIBRARY_WORKSPACE_QUERY_KEY });
   queryClient.invalidateQueries({ queryKey: LIBRARY_WORKSPACE_PROJECT_QUERY_KEY });
+}
+
+export function invalidateOperationQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  libraryId?: string,
+) {
+  invalidateLibraryQueries(queryClient, libraryId);
+  queryClient.invalidateQueries({ queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY });
 }
 
 export function useListLibraries() {
@@ -107,6 +145,20 @@ export function useListOperations(request: ListOperationsRequest) {
   });
 }
 
+export function useCompleteOperations(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
+    queryFn: () => collectCompleteOperations({}, async (pageRequest) => (
+      (await LibraryHandler.ListOperations(
+        LibraryBindings.ListOperationsRequest.createFrom(pageRequest),
+      )) ?? []
+    ) as OperationListItemDTO[]),
+    enabled: options.enabled === true,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useCancelOperation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -115,7 +167,7 @@ export function useCancelOperation() {
         LibraryBindings.CancelOperationRequest.createFrom(request),
       )) as LibraryOperationDTO;
     },
-    onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+    onSuccess: (operation) => invalidateOperationQueries(queryClient, operation.libraryId),
   });
 }
 
@@ -127,7 +179,7 @@ export function useResumeOperation() {
         LibraryBindings.ResumeOperationRequest.createFrom(request),
       )) as LibraryOperationDTO;
     },
-    onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+    onSuccess: (operation) => invalidateOperationQueries(queryClient, operation.libraryId),
   });
 }
 
@@ -139,7 +191,7 @@ export function useRenameOperation() {
         LibraryBindings.RenameOperationRequest.createFrom(request),
       )) as LibraryOperationDTO;
     },
-    onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+    onSuccess: (operation) => invalidateOperationQueries(queryClient, operation.libraryId),
   });
 }
 
@@ -162,7 +214,7 @@ export function useDeleteOperation() {
       await LibraryHandler.DeleteOperation(LibraryBindings.DeleteOperationRequest.createFrom(request));
     },
     onSuccess: () => {
-      invalidateLibraryQueries(queryClient);
+      invalidateOperationQueries(queryClient);
     },
   });
 }
@@ -174,7 +226,24 @@ export function useDeleteOperations() {
       await LibraryHandler.DeleteOperations(LibraryBindings.DeleteOperationsRequest.createFrom(request));
     },
     onSuccess: () => {
-      invalidateLibraryQueries(queryClient);
+      invalidateOperationQueries(queryClient);
+    },
+  });
+}
+
+export function useDeleteOperationOutput() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (request: DeleteOperationOutputRequest): Promise<LibraryOperationDTO> => {
+      return (await LibraryHandler.DeleteOperationOutput(
+        LibraryBindings.DeleteOperationOutputRequest.createFrom(request),
+      )) as LibraryOperationDTO;
+    },
+    // Reconcile every projection after both success and failure. In particular,
+    // an OS/file-store failure remains visible in the confirmation dialog while
+    // a refetch prevents partially completed lower-level work from going stale.
+    onSettled: (operation) => {
+      invalidateOperationQueries(queryClient, operation?.libraryId);
     },
   });
 }
@@ -188,6 +257,86 @@ export function useDeleteFiles() {
     onSuccess: () => {
       invalidateLibraryQueries(queryClient);
     },
+  });
+}
+
+export async function listDeletedLibraryItems(
+  request: ListDeletedLibraryItemsRequest = {},
+): Promise<ListDeletedLibraryItemsResponse> {
+  const response = await Call.ByName(
+    `${LIBRARY_HANDLER_SERVICE}.ListDeletedLibraryItems`,
+    request,
+  ) as Partial<ListDeletedLibraryItemsResponse> | undefined;
+  const items = Array.isArray(response?.items) ? response.items : [];
+  return {
+    items,
+    total: Number.isFinite(response?.total) ? Number(response?.total) : items.length,
+    limit: Number.isFinite(response?.limit)
+      ? Number(response?.limit)
+      : request.limit ?? items.length,
+    offset: Number.isFinite(response?.offset)
+      ? Number(response?.offset)
+      : request.offset ?? 0,
+  };
+}
+
+export function useDeletedLibraryItems(
+  request: ListDeletedLibraryItemsRequest = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...LIBRARY_DELETED_ITEMS_QUERY_KEY, request],
+    queryFn: () => listDeletedLibraryItems(request),
+    enabled,
+    staleTime: 3_000,
+  });
+}
+
+export async function listCompleteDeletedLibraryItems(
+  request: Omit<ListDeletedLibraryItemsRequest, "limit" | "offset"> = {},
+): Promise<ListDeletedLibraryItemsResponse> {
+  const pageSize = 500;
+  const items: ListDeletedLibraryItemsResponse["items"] = [];
+  let offset = 0;
+  let total = 0;
+  for (;;) {
+    const page = await listDeletedLibraryItems({ ...request, limit: pageSize, offset });
+    total = page.total;
+    items.push(...page.items);
+    if (page.items.length === 0 || items.length >= total) {
+      return { items, total, limit: items.length, offset: 0 };
+    }
+    offset += page.items.length;
+  }
+}
+
+export function useCompleteDeletedLibraryItems(
+  request: Omit<ListDeletedLibraryItemsRequest, "limit" | "offset"> = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: [...LIBRARY_DELETED_ITEMS_QUERY_KEY, "complete", request],
+    queryFn: () => listCompleteDeletedLibraryItems(request),
+    enabled,
+    staleTime: 3_000,
+  });
+}
+
+export function useRestoreDeletedLibraryItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      request: DeletedLibraryItemMutationRequest,
+    ): Promise<DeletedLibraryItemMutationResponse> => (
+      await Call.ByName(
+        `${LIBRARY_HANDLER_SERVICE}.RestoreDeletedLibraryItem`,
+        request,
+      )
+    ) as DeletedLibraryItemMutationResponse,
+    // A lower layer may commit the restore and still surface a warning
+    // while completing follow-up work. Reconcile every projection after either
+    // outcome so Deleted and the normal Library/Catalog views cannot diverge.
+    onSettled: () => invalidateOperationQueries(queryClient),
   });
 }
 
@@ -291,24 +440,43 @@ export function useStartResourceSniff() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (request: StartResourceSniffRequest): Promise<StartResourceSniffResult> => {
-      return (await LibraryHandler.StartResourceSniff(
-        LibraryBindings.StartResourceSniffRequest.createFrom(request),
+      return (await Call.ByName(
+        `${LIBRARY_HANDLER_SERVICE}.StartResourceSniff`,
+        request,
       )) as StartResourceSniffResult;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY });
+      queryClient.invalidateQueries({
+        queryKey: LIBRARY_CURRENT_RESOURCE_SNIFF_BROWSER_STATUS_QUERY_KEY,
+      });
     },
   });
 }
 
-export function useParseResourceSniff() {
-  return useMutation({
-    mutationFn: async (request: ParseResourceSniffRequest): Promise<ParseResourceSniffResponse> => {
-      return (await LibraryHandler.ParseResourceSniff(
-        LibraryBindings.ParseResourceSniffRequest.createFrom(request),
-      )) as ParseResourceSniffResponse;
+export function useCurrentResourceSniffBrowserStatus(
+  request: CurrentResourceSniffBrowserStatusRequest,
+  enabled: boolean,
+) {
+  const browserId = request.browserId.trim().toLowerCase();
+  return useQuery({
+    queryKey: [
+      ...LIBRARY_CURRENT_RESOURCE_SNIFF_BROWSER_STATUS_QUERY_KEY,
+      browserId,
+    ],
+    enabled: enabled && browserId === "chrome",
+    queryFn: async (): Promise<CurrentResourceSniffBrowserStatus> => {
+      const result = await Call.ByName(
+        `${LIBRARY_HANDLER_SERVICE}.GetCurrentResourceSniffBrowserStatus`,
+        { browserId },
+      );
+      return normalizeCurrentResourceSniffBrowserStatus(result, browserId);
     },
+    refetchInterval: enabled ? 1_500 : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
+    staleTime: 0,
   });
 }
 
@@ -320,10 +488,22 @@ export function useCancelResourceSniff() {
         LibraryBindings.CancelResourceSniffRequest.createFrom(request),
       );
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: LIBRARY_RESOURCE_SNIFF_RESOURCES_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY });
+    onSuccess: async (_result, request) => {
+      await removeCanceledResourceSniffSessionQueries(
+        queryClient,
+        request.sessionId,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: LIBRARY_RESOURCE_SNIFF_SESSIONS_QUERY_KEY,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: LIBRARY_CDP_BROWSER_STATUS_QUERY_KEY,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: LIBRARY_CURRENT_RESOURCE_SNIFF_BROWSER_STATUS_QUERY_KEY,
+        }),
+      ]);
     },
   });
 }
@@ -472,7 +652,7 @@ export function useCreateYTDLPJob() {
         LibraryBindings.CreateYTDLPJobRequest.createFrom(request),
       )) as LibraryOperationDTO;
     },
-    onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+    onSuccess: (operation) => invalidateOperationQueries(queryClient, operation.libraryId),
   });
 }
 
@@ -494,11 +674,11 @@ export function useCreateYTDLPBatchJobs() {
           .filter(Boolean),
       );
       if (libraryIds.size === 0) {
-        invalidateLibraryQueries(queryClient);
+        invalidateOperationQueries(queryClient);
         return;
       }
       for (const libraryId of libraryIds) {
-        invalidateLibraryQueries(queryClient, libraryId);
+        invalidateOperationQueries(queryClient, libraryId);
       }
     },
   });
@@ -512,7 +692,7 @@ export function useCreateTranscodeJob() {
         LibraryBindings.CreateTranscodeJobRequest.createFrom(request),
       )) as LibraryOperationDTO;
     },
-    onSuccess: (operation) => invalidateLibraryQueries(queryClient, operation.libraryId),
+    onSuccess: (operation) => invalidateOperationQueries(queryClient, operation.libraryId),
   });
 }
 

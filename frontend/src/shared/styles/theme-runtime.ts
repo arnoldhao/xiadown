@@ -1,47 +1,109 @@
-import { System } from "@wailsio/runtime";
-import type * as React from "react";
-
 import {
   deriveAccentTokens,
+  deriveFunctionalAccentTokens,
   hexToHsl,
   hexToHslColor,
-  pickAccessibleForeground,
+  parseHslToken,
   pickAccessibleForegroundForHslColor,
   toHslToken,
+  type FunctionalAccentTokens,
+  type HslColor,
 } from "@/lib/color";
 import type { Settings } from "@/shared/contracts/settings";
 import {
   readXiaAppearance,
-  resolveThemePackAccentColor,
   resolveThemePack,
 } from "@/shared/styles/xiadown-theme";
+import { readWailsRuntimeOS } from "@/shared/styles/window-material";
 
-function isWailsRuntimeReady() {
-  return typeof window !== "undefined" && typeof (window as any)._wails?.dispatchWailsEvent === "function";
-}
+const LEGACY_THEME_INLINE_VARIABLES = [
+  "--background",
+  "--foreground",
+  "--card",
+  "--card-foreground",
+  "--popover",
+  "--popover-foreground",
+  "--primary",
+  "--primary-foreground",
+  "--secondary",
+  "--secondary-foreground",
+  "--muted",
+  "--muted-foreground",
+  "--accent",
+  "--accent-foreground",
+  "--border",
+  "--input",
+  "--ring",
+  "--sidebar-background",
+  "--sidebar-foreground",
+  "--sidebar-primary",
+  "--sidebar-primary-foreground",
+  "--sidebar-accent",
+  "--sidebar-accent-foreground",
+  "--sidebar-border",
+  "--sidebar-ring",
+  "--chart-1",
+  "--chart-2",
+  "--chart-3",
+  "--chart-4",
+  "--chart-5",
+  "--app-accent-brand",
+  "--app-accent-text",
+  "--app-accent-solid",
+  "--app-accent-on-solid",
+  "--app-accent-surface",
+  "--app-accent-ring",
+  "--tray-control-color",
+  "--tray-control-foreground",
+] as const;
+
+const USER_ACCENT_VARIABLES = [
+  "--app-user-accent-brand",
+  "--app-user-accent-text",
+  "--app-user-accent-solid",
+  "--app-user-accent-on-solid",
+  "--app-user-accent-surface",
+  "--app-user-accent-surface-foreground",
+  "--app-user-accent-ring",
+  "--app-user-secondary",
+  "--app-user-secondary-foreground",
+  "--app-user-sidebar-accent",
+  "--app-user-sidebar-accent-foreground",
+  "--app-user-tray-control-color",
+  "--app-user-tray-control-foreground",
+] as const;
+
+const STARTUP_THEME_STORAGE_KEY = "xiadown:startup-theme";
 
 function applyTheme(effectiveAppearance: string | undefined) {
-  if (effectiveAppearance === "dark") {
+  const isDark = effectiveAppearance === "dark";
+  if (isDark) {
     document.documentElement.classList.add("dark");
   } else {
     document.documentElement.classList.remove("dark");
   }
+  if (effectiveAppearance === "light" || effectiveAppearance === "dark") {
+    document.documentElement.dataset.startupTheme = effectiveAppearance;
+    try {
+      window.localStorage.setItem(
+        STARTUP_THEME_STORAGE_KEY,
+        effectiveAppearance,
+      );
+    } catch {
+      // Storage may be unavailable in hardened or ephemeral WebViews. The
+      // inline startup shell still falls back to the system media query.
+    }
+  }
 }
 
-function clearColorScheme() {
+function clearInlineVariables(names: readonly string[]) {
+  for (const name of names) {
+    document.documentElement.style.removeProperty(name);
+  }
+}
+
+function clearLegacyColorSchemeSelection() {
   delete document.documentElement.dataset.colorScheme;
-}
-
-function systemFontStack() {
-  return [
-    "system-ui",
-    "-apple-system",
-    "BlinkMacSystemFont",
-    '"Segoe UI"',
-    '"PingFang SC"',
-    '"Microsoft YaHei"',
-    "sans-serif",
-  ].join(", ");
 }
 
 function quoteFontFamily(value: string) {
@@ -52,20 +114,28 @@ function quoteFontFamily(value: string) {
 function buildFontStack(fontFamily: string | undefined) {
   const trimmed = (fontFamily ?? "").trim();
   if (!trimmed) {
-    return systemFontStack();
+    return undefined;
   }
-  return `${quoteFontFamily(trimmed)}, ${systemFontStack()}`;
+  return `${quoteFontFamily(trimmed)}, var(--app-font-system)`;
 }
 
 function applyFont(fontFamily: string | undefined) {
   const stack = buildFontStack(fontFamily);
+  if (!stack) {
+    document.documentElement.style.removeProperty("--app-font-body");
+    document.documentElement.style.removeProperty("--app-font-display");
+    return;
+  }
   document.documentElement.style.setProperty("--app-font-body", stack);
   document.documentElement.style.setProperty("--app-font-display", stack);
 }
 
 function applyFontSize(fontSize: number | undefined) {
-  const safeSize = fontSize && fontSize > 0 ? fontSize : 15;
-  document.documentElement.style.setProperty("--app-font-size", `${safeSize}px`);
+  if (!fontSize || !Number.isFinite(fontSize) || fontSize <= 0) {
+    document.documentElement.style.removeProperty("--app-font-size");
+    return;
+  }
+  document.documentElement.style.setProperty("--app-font-size", `${fontSize}px`);
 }
 
 function resolveThemeColor(themeColor: string | undefined, systemThemeColor: string | undefined) {
@@ -100,46 +170,78 @@ function deriveListenTrayControlTokens(color: string | undefined, isDark: boolea
   const foreground = pickAccessibleForegroundForHslColor(surface);
 
   return {
-    line: toHslToken(base),
     surface: toHslToken(surface),
-    foreground: hexToHsl(foreground) ?? "0 0% 100%",
+    foreground: hexToHsl(foreground)!,
   };
 }
 
-function resolveIsDarkAppearance(effectiveAppearance?: string) {
-  if (effectiveAppearance) {
-    return effectiveAppearance === "dark";
+function resolveContrastSurfaces() {
+  const computed = getComputedStyle(document.documentElement);
+  const surfaces = [
+    "--background",
+    "--card",
+    "--popover",
+    "--sidebar-background",
+  ]
+    .map((name) => computed.getPropertyValue(name).trim())
+    .map(parseHslToken)
+    .filter((color): color is HslColor => color !== null);
+  if (surfaces.length > 0) {
+    return surfaces;
   }
-  return document.documentElement.classList.contains("dark");
+  return [];
+}
+
+function applyFunctionalAccent(
+  tokens: FunctionalAccentTokens,
+  accentSurface?: string,
+) {
+  document.documentElement.style.setProperty("--app-user-accent-brand", tokens.brand);
+  document.documentElement.style.setProperty("--app-user-accent-text", tokens.text);
+  document.documentElement.style.setProperty("--app-user-accent-solid", tokens.solid);
+  document.documentElement.style.setProperty("--app-user-accent-on-solid", tokens.onSolid);
+  document.documentElement.style.setProperty("--app-user-accent-ring", tokens.ring);
+  if (accentSurface) {
+    document.documentElement.style.setProperty("--app-user-accent-surface", accentSurface);
+  }
 }
 
 function applyPrimaryColor(
   color: string | undefined,
   systemThemeColor?: string,
   effectiveAppearance?: string,
+  contrastSurfaces?: readonly HslColor[],
+  accentSurface?: string,
 ) {
   const resolved = resolveThemeColor(color, systemThemeColor);
-  const hsl = hexToHsl(resolved);
-  const fgHex = pickAccessibleForeground(resolved);
-  const fgHsl = hexToHsl(fgHex ?? undefined);
+  if (!contrastSurfaces?.length) {
+    return false;
+  }
+  const functionalTokens = deriveFunctionalAccentTokens(
+    resolved,
+    contrastSurfaces,
+  );
   const trayTokens = deriveListenTrayControlTokens(
     resolved,
-    resolveIsDarkAppearance(effectiveAppearance),
+    effectiveAppearance
+      ? effectiveAppearance === "dark"
+      : document.documentElement.classList.contains("dark"),
   );
 
-  if (!hsl || !fgHsl || !trayTokens) {
-    return;
+  if (!functionalTokens || !trayTokens) {
+    return false;
   }
 
-  document.documentElement.style.setProperty("--primary", hsl);
-  document.documentElement.style.setProperty("--primary-foreground", fgHsl);
-  document.documentElement.style.setProperty("--listen-hover-line", trayTokens.line);
-  document.documentElement.style.setProperty("--tray-control-color", trayTokens.surface);
-  document.documentElement.style.setProperty("--tray-control-foreground", trayTokens.foreground);
-  document.documentElement.style.setProperty("--ring", hsl);
-  document.documentElement.style.setProperty("--sidebar-primary", hsl);
-  document.documentElement.style.setProperty("--sidebar-primary-foreground", fgHsl);
-  document.documentElement.style.setProperty("--sidebar-ring", hsl);
+  applyFunctionalAccent(functionalTokens, accentSurface);
+  document.documentElement.style.setProperty(
+    "--app-user-tray-control-color",
+    trayTokens.surface,
+  );
+  document.documentElement.style.setProperty(
+    "--app-user-tray-control-foreground",
+    trayTokens.foreground,
+  );
+  return true;
 }
 
 function applyThemeColor(
@@ -147,6 +249,7 @@ function applyThemeColor(
   systemThemeColor: string | undefined,
   effectiveAppearance: string | undefined,
   accentMode: string | undefined,
+  contrastSurfaces: readonly HslColor[],
 ) {
   if (accentMode !== "color") {
     return;
@@ -156,50 +259,63 @@ function applyThemeColor(
   const accentTokens = deriveAccentTokens(color, effectiveAppearance === "dark");
 
   if (!accentTokens) {
+    document.documentElement.dataset.xiadownAccentMode = "theme";
     return;
   }
 
-  applyPrimaryColor(color, undefined, effectiveAppearance);
-  document.documentElement.style.setProperty("--secondary", accentTokens.secondary);
+  if (!applyPrimaryColor(
+    color,
+    undefined,
+    effectiveAppearance,
+    contrastSurfaces,
+    accentTokens.accent,
+  )) {
+    document.documentElement.dataset.xiadownAccentMode = "theme";
+    return;
+  }
+  document.documentElement.style.setProperty("--app-user-secondary", accentTokens.secondary);
   document.documentElement.style.setProperty(
-    "--secondary-foreground",
+    "--app-user-secondary-foreground",
     accentTokens.secondaryForeground,
   );
-  document.documentElement.style.setProperty("--accent", accentTokens.accent);
-  document.documentElement.style.setProperty("--accent-foreground", accentTokens.accentForeground);
-  document.documentElement.style.setProperty("--sidebar-accent", accentTokens.sidebarAccent);
-  document.documentElement.style.setProperty("--sidebar-accent-foreground", accentTokens.sidebarAccentForeground);
+  document.documentElement.style.setProperty(
+    "--app-user-accent-surface-foreground",
+    accentTokens.accentForeground,
+  );
+  document.documentElement.style.setProperty(
+    "--app-user-sidebar-accent",
+    accentTokens.sidebarAccent,
+  );
+  document.documentElement.style.setProperty(
+    "--app-user-sidebar-accent-foreground",
+    accentTokens.sidebarAccentForeground,
+  );
 }
 
-function applyThemePack(themePackId: string | undefined, effectiveAppearance: string | undefined) {
+function applyThemePack(themePackId: string | undefined) {
   const pack = resolveThemePack(themePackId);
-  const variant = effectiveAppearance === "dark" ? pack.dark : pack.light;
-  Object.entries(variant).forEach(([key, value]) => {
-    document.documentElement.style.setProperty(`--${key}`, value);
-  });
+  clearInlineVariables(LEGACY_THEME_INLINE_VARIABLES);
   document.documentElement.dataset.xiadownThemePack = pack.id;
 }
 
 function applyAppearanceAttributes(appearance: ReturnType<typeof readXiaAppearance>) {
-  document.documentElement.dataset.xiadownSidebarStyle = appearance.sidebarStyle;
+  document.documentElement.dataset.xiadownSurfaceStyle = appearance.surfaceStyle;
+  delete document.documentElement.dataset.xiadownSidebarStyle;
   document.documentElement.dataset.xiadownAccentMode = appearance.accentMode;
 }
 
 function detectPlatform() {
-  try {
-    if (isWailsRuntimeReady()) {
-      if (System.IsWindows()) {
-        return "windows";
-      }
-      if (System.IsMac()) {
-        return "macos";
-      }
-      if (System.IsLinux()) {
-        return "linux";
-      }
-    }
-  } catch {
-    // Runtime platform detection falls back to the browser UA below.
+  const runtimeOS = readWailsRuntimeOS(
+    typeof window === "undefined" ? undefined : window,
+  );
+  if (runtimeOS === "windows" || runtimeOS === "win32") {
+    return "windows";
+  }
+  if (runtimeOS === "darwin" || runtimeOS === "macos") {
+    return "macos";
+  }
+  if (runtimeOS === "linux") {
+    return "linux";
   }
 
   const platform = typeof navigator === "undefined" ? "" : `${navigator.platform} ${navigator.userAgent}`.toLowerCase();
@@ -222,14 +338,10 @@ export function applyPlatformChrome() {
 export function applyXiaTheme(settings: Settings) {
   const appearance = readXiaAppearance(settings);
   applyTheme(settings.effectiveAppearance);
-  applyThemePack(appearance.themePackId, settings.effectiveAppearance);
+  applyThemePack(appearance.themePackId);
   applyAppearanceAttributes(appearance);
-  applyPrimaryColor(
-    resolveThemePackAccentColor(appearance.themePackId, settings.effectiveAppearance),
-    undefined,
-    settings.effectiveAppearance,
-  );
-  clearColorScheme();
+  clearInlineVariables(USER_ACCENT_VARIABLES);
+  clearLegacyColorSchemeSelection();
   applyFont(settings.fontFamily);
   applyFontSize(settings.fontSize);
   applyThemeColor(
@@ -237,6 +349,7 @@ export function applyXiaTheme(settings: Settings) {
     settings.systemThemeColor,
     settings.effectiveAppearance,
     appearance.accentMode,
+    resolveContrastSurfaces(),
   );
 }
 
@@ -249,51 +362,14 @@ export function applyXiaAppearanceChange(
     return;
   }
   const appearance = readXiaAppearance(settings);
-  applyThemePack(appearance.themePackId, effectiveAppearance);
+  applyThemePack(appearance.themePackId);
   applyAppearanceAttributes(appearance);
-  applyPrimaryColor(
-    resolveThemePackAccentColor(appearance.themePackId, effectiveAppearance),
-    undefined,
-    effectiveAppearance,
-  );
+  clearInlineVariables(USER_ACCENT_VARIABLES);
   applyThemeColor(
     settings.themeColor,
     settings.systemThemeColor,
     effectiveAppearance,
     appearance.accentMode,
+    resolveContrastSurfaces(),
   );
-}
-
-function resolveTrayThemeColor(settings?: Settings | null) {
-  const appearance = readXiaAppearance(settings);
-  const packColor = resolveThemePackAccentColor(
-    appearance.themePackId,
-    settings?.effectiveAppearance,
-  );
-  const themeColor = (settings?.themeColor ?? "").trim();
-  const configuredColor =
-    appearance.accentMode === "color"
-      ? themeColor.toLowerCase() === "system"
-        ? (settings?.systemThemeColor ?? "").trim()
-        : themeColor
-      : "";
-  return hexToHsl(configuredColor) ? configuredColor : packColor;
-}
-
-export function createListenTrayControlStyle(settings?: Settings | null) {
-  const color = resolveTrayThemeColor(settings);
-  const accentHsl = hexToHsl(color) ?? "22 90% 52%";
-  const accentForegroundHsl =
-    hexToHsl(pickAccessibleForeground(color) ?? "#ffffff") ?? "0 0% 100%";
-  const trayTokens = deriveListenTrayControlTokens(
-    color,
-    settings?.effectiveAppearance === "dark",
-  );
-  return {
-    "--listen-hover-line": trayTokens?.line ?? accentHsl,
-    "--tray-control-color": trayTokens?.surface ?? accentHsl,
-    "--tray-control-foreground": trayTokens?.foreground ?? accentForegroundHsl,
-    "--sidebar-primary": accentHsl,
-    "--sidebar-primary-foreground": accentForegroundHsl,
-  } as React.CSSProperties;
 }

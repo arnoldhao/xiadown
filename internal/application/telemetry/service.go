@@ -3,7 +3,6 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"math"
 	"runtime"
 	"strings"
 	"sync"
@@ -12,7 +11,6 @@ import (
 	settingsdto "xiadown/internal/application/settings/dto"
 
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
 type State struct {
@@ -21,23 +19,16 @@ type State struct {
 	LaunchCount               int
 	DistinctDaysUsed          int
 	DistinctDaysUsedLastMonth int
-	CompletedSessionCount     int
-	TotalSessionSeconds       float64
-	PreviousSessionSeconds    *float64
-	FirstLibraryCompletedAt   *time.Time
 }
 
 type StateRepository interface {
 	Ensure(ctx context.Context) (State, error)
 	IncrementLaunchCount(ctx context.Context, at time.Time) (State, error)
-	RecordSessionSummary(ctx context.Context, endedAt time.Time, durationSeconds float64) (State, error)
-	MarkFirstLibraryCompleted(ctx context.Context, at time.Time) (State, bool, error)
 }
 
 type Signal struct {
-	Type       string         `json:"type"`
-	FloatValue *float64       `json:"floatValue,omitempty"`
-	Payload    map[string]any `json:"payload,omitempty"`
+	Type    string         `json:"type"`
+	Payload map[string]any `json:"payload,omitempty"`
 }
 
 type Bootstrap struct {
@@ -57,10 +48,6 @@ type SettingsReader interface {
 	GetSettings(ctx context.Context) (settingsdto.Settings, error)
 }
 
-type AppLaunchContext struct {
-	LaunchedByAutoStart bool
-}
-
 type Service struct {
 	repo       StateRepository
 	emitter    Emitter
@@ -68,38 +55,30 @@ type Service struct {
 	appID      string
 	appVersion string
 	sessionID  string
-	startedAt  time.Time
 	now        func() time.Time
 
-	mu       sync.Mutex
-	launched bool
-	flushed  bool
-	session  sessionMetrics
-	state    *State
-	language string
+	mu                  sync.Mutex
+	launched            bool
+	launching           bool
+	launchAttemptDone   chan struct{}
+	state               *State
+	language            string
+	pendingStationOpens []string
+	openedStations      map[string]struct{}
 }
 
-type sessionMetrics struct {
-	libraryCompleted     int
-	appSessionConnected  int
-	dependencyInstalled  int
-	updateReadyToRestart int
-	operationIDs         map[string]struct{}
-}
+const maxPendingStationOpens = 16
 
 func NewService(repo StateRepository, emitter Emitter, settings SettingsReader, appID string, appVersion string) *Service {
 	return &Service{
-		repo:       repo,
-		emitter:    emitter,
-		settings:   settings,
-		appID:      strings.TrimSpace(appID),
-		appVersion: strings.TrimSpace(appVersion),
-		sessionID:  uuid.NewString(),
-		startedAt:  time.Now(),
-		now:        time.Now,
-		session: sessionMetrics{
-			operationIDs: make(map[string]struct{}),
-		},
+		repo:           repo,
+		emitter:        emitter,
+		settings:       settings,
+		appID:          strings.TrimSpace(appID),
+		appVersion:     strings.TrimSpace(appVersion),
+		sessionID:      uuid.NewString(),
+		now:            time.Now,
+		openedStations: make(map[string]struct{}),
 	}
 }
 
@@ -129,31 +108,40 @@ func (service *Service) Bootstrap(ctx context.Context) (Bootstrap, error) {
 	}, nil
 }
 
-func (service *Service) TrackAppLaunch(ctx context.Context, launch AppLaunchContext) (int, error) {
+func (service *Service) TrackAppLaunch(ctx context.Context) (int, error) {
 	if !service.Enabled() {
 		return 0, nil
 	}
-	service.mu.Lock()
-	if service.launched {
+	for {
+		service.mu.Lock()
+		if service.launched {
+			service.mu.Unlock()
+			return 0, nil
+		}
+		if !service.launching {
+			service.launching = true
+			service.launchAttemptDone = make(chan struct{})
+			service.mu.Unlock()
+			break
+		}
+		done := service.launchAttemptDone
 		service.mu.Unlock()
-		return 0, nil
+		select {
+		case <-done:
+			continue
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
 	}
-	service.launched = true
-	service.mu.Unlock()
 
 	state, err := service.repo.IncrementLaunchCount(ctx, service.now())
 	if err != nil {
+		service.abortLaunchAttempt()
 		return 0, err
 	}
 	service.cacheState(state)
 
 	payload := service.buildPayload(ctx, state)
-	payload["XiaDown.App.launchCount"] = state.LaunchCount
-	payload["XiaDown.App.launchOrdinalBucket"] = bucketLaunchOrdinal(state.LaunchCount)
-	payload["XiaDown.App.launchedByAutoStart"] = launch.LaunchedByAutoStart
-	payload["XiaDown.App.startMode"] = startMode(launch)
-	payload["XiaDown.Install.firstLaunch"] = state.LaunchCount == 1
-
 	signals := []Signal{{
 		Type:    "TelemetryDeck.Session.started",
 		Payload: payload,
@@ -167,171 +155,105 @@ func (service *Service) TrackAppLaunch(ctx context.Context, launch AppLaunchCont
 	for _, signal := range signals {
 		service.emit(signal)
 	}
+	service.flushPendingStationOpens(ctx, state)
 	return len(signals), nil
 }
 
-func (service *Service) TrackAppSessionConnected(ctx context.Context, siteKey string) {
+// TrackStationOpened records only the coarse product station. Calls that arrive
+// before the frontend telemetry listener has subscribed are retained in a
+// small bounded queue and flushed after TrackAppLaunch emits the launch signal.
+func (service *Service) TrackStationOpened(ctx context.Context, station string) bool {
 	if !service.Enabled() {
-		return
-	}
-	normalizedSiteKey := strings.TrimSpace(siteKey)
-	if normalizedSiteKey == "" {
-		return
-	}
-	service.incrementCounter(func(metrics *sessionMetrics) {
-		metrics.appSessionConnected++
-	})
-	state, err := service.repo.Ensure(ctx)
-	if err != nil {
-		zap.L().Debug("telemetry: app session state ensure failed", zap.Error(err))
-		return
-	}
-	service.cacheState(state)
-	payload := service.buildPayload(ctx, state)
-	payload["XiaDown.Setup.appSessionSiteKey"] = normalizedSiteKey
-	service.emitAsync(Signal{Type: "XiaDown.Setup.appSessionConnected", Payload: payload})
-}
-
-func (service *Service) TrackDependencyInstalled(ctx context.Context, dependencyName string) {
-	if !service.Enabled() {
-		return
-	}
-	normalizedDependencyName := strings.TrimSpace(dependencyName)
-	if normalizedDependencyName == "" {
-		return
-	}
-	service.incrementCounter(func(metrics *sessionMetrics) {
-		metrics.dependencyInstalled++
-	})
-	state, err := service.repo.Ensure(ctx)
-	if err != nil {
-		zap.L().Debug("telemetry: dependency state ensure failed", zap.Error(err))
-		return
-	}
-	service.cacheState(state)
-	payload := service.buildPayload(ctx, state)
-	payload["XiaDown.Setup.dependency"] = normalizedDependencyName
-	service.emitAsync(Signal{Type: "XiaDown.Setup.dependencyInstalled", Payload: payload})
-}
-
-func (service *Service) TrackLibraryOperationCompleted(ctx context.Context, operationID string, kind string) {
-	if !service.Enabled() {
-		return
-	}
-	normalizedOperationID := strings.TrimSpace(operationID)
-	if normalizedOperationID == "" {
-		return
-	}
-	if !service.markLibraryOperationCompleted(normalizedOperationID) {
-		return
-	}
-
-	state, first, err := service.repo.MarkFirstLibraryCompleted(ctx, service.now())
-	if err != nil {
-		zap.L().Debug("telemetry: library completion state update failed", zap.Error(err))
-		return
-	}
-	service.cacheState(state)
-	if !first {
-		return
-	}
-	payload := service.buildPayload(ctx, state)
-	if normalizedKind := strings.TrimSpace(kind); normalizedKind != "" {
-		payload["XiaDown.Library.operationKind"] = normalizedKind
-	}
-	service.emitAsync(Signal{Type: "XiaDown.Activation.firstLibraryCompleted", Payload: payload})
-}
-
-func (service *Service) TrackUpdateReadyToRestart(ctx context.Context, latestVersion string) {
-	if !service.Enabled() {
-		return
-	}
-	normalizedVersion := strings.TrimSpace(latestVersion)
-	if normalizedVersion == "" {
-		return
-	}
-	service.incrementCounter(func(metrics *sessionMetrics) {
-		metrics.updateReadyToRestart++
-	})
-	state, err := service.repo.Ensure(ctx)
-	if err != nil {
-		zap.L().Debug("telemetry: update state ensure failed", zap.Error(err))
-		return
-	}
-	service.cacheState(state)
-	payload := service.buildPayload(ctx, state)
-	payload["XiaDown.App.targetVersion"] = normalizedVersion
-	service.emitAsync(Signal{Type: "XiaDown.App.updateReadyToRestart", Payload: payload})
-}
-
-func (service *Service) FlushSessionSummary(ctx context.Context) error {
-	signal, ok, err := service.FlushSessionSummarySignal(ctx)
-	if err != nil || !ok {
-		return err
-	}
-	service.emit(signal)
-	return nil
-}
-
-func (service *Service) FlushSessionSummarySignal(ctx context.Context) (Signal, bool, error) {
-	if !service.Enabled() {
-		return Signal{}, false, nil
-	}
-
-	service.mu.Lock()
-	if service.flushed || !service.launched {
-		service.mu.Unlock()
-		return Signal{}, false, nil
-	}
-	service.flushed = true
-	snapshot := service.session
-	startedAt := service.startedAt
-	service.mu.Unlock()
-
-	durationSeconds := service.now().Sub(startedAt).Seconds()
-	if durationSeconds < 0 {
-		durationSeconds = 0
-	}
-	durationSeconds = roundSeconds(durationSeconds)
-
-	state, err := service.repo.RecordSessionSummary(ctx, service.now(), durationSeconds)
-	if err != nil {
-		return Signal{}, false, err
-	}
-	service.cacheState(state)
-
-	payload := service.buildPayload(ctx, state)
-	payload["TelemetryDeck.Signal.durationInSeconds"] = durationSeconds
-	payload["XiaDown.Session.durationBucket"] = bucketSessionDuration(time.Duration(durationSeconds * float64(time.Second)))
-	payload["XiaDown.Session.libraryCompletedBucket"] = bucketCount(snapshot.libraryCompleted)
-	payload["XiaDown.Session.appSessionConnectedBucket"] = bucketCount(snapshot.appSessionConnected)
-	payload["XiaDown.Session.dependencyInstalledBucket"] = bucketCount(snapshot.dependencyInstalled)
-	payload["XiaDown.Session.updateReadyToRestartBucket"] = bucketCount(snapshot.updateReadyToRestart)
-	return Signal{
-		Type:       "XiaDown.Session.summaryRecorded",
-		FloatValue: float64Ptr(durationSeconds),
-		Payload:    payload,
-	}, true, nil
-}
-
-func (service *Service) markLibraryOperationCompleted(operationID string) bool {
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	if _, exists := service.session.operationIDs[operationID]; exists {
 		return false
 	}
-	service.session.operationIDs[operationID] = struct{}{}
-	service.session.libraryCompleted++
+	normalizedStation := normalizeStationName(station)
+	if normalizedStation == "" {
+		return false
+	}
+
+	service.mu.Lock()
+	if _, alreadyOpened := service.openedStations[normalizedStation]; alreadyOpened {
+		service.mu.Unlock()
+		return true
+	}
+	service.openedStations[normalizedStation] = struct{}{}
+	if !service.launched {
+		service.enqueuePendingStationOpenLocked(normalizedStation)
+		service.mu.Unlock()
+		return true
+	}
+	service.mu.Unlock()
+
+	state, err := service.resolveState(ctx)
+	if err != nil {
+		service.mu.Lock()
+		delete(service.openedStations, normalizedStation)
+		service.mu.Unlock()
+		return false
+	}
+	service.emit(service.stationOpenedSignal(ctx, state, normalizedStation))
 	return true
 }
 
-func (service *Service) incrementCounter(update func(metrics *sessionMetrics)) {
-	if service == nil || update == nil {
+func (service *Service) flushPendingStationOpens(ctx context.Context, state State) {
+	for {
+		service.mu.Lock()
+		if len(service.pendingStationOpens) == 0 {
+			service.launched = true
+			service.finishLaunchAttemptLocked()
+			service.mu.Unlock()
+			return
+		}
+		pending := append([]string(nil), service.pendingStationOpens...)
+		service.pendingStationOpens = service.pendingStationOpens[:0]
+		service.mu.Unlock()
+
+		for _, station := range pending {
+			service.emit(service.stationOpenedSignal(ctx, state, station))
+		}
+	}
+}
+
+func (service *Service) stationOpenedSignal(ctx context.Context, state State, station string) Signal {
+	payload := service.buildPayload(ctx, state)
+	payload["XiaDown.Station.name"] = station
+	return Signal{Type: "XiaDown.Station.opened", Payload: payload}
+}
+
+func (service *Service) enqueuePendingStationOpenLocked(station string) {
+	if len(service.pendingStationOpens) >= maxPendingStationOpens {
+		dropped := service.pendingStationOpens[0]
+		copy(service.pendingStationOpens, service.pendingStationOpens[1:])
+		service.pendingStationOpens[len(service.pendingStationOpens)-1] = station
+		delete(service.openedStations, dropped)
 		return
 	}
+	service.pendingStationOpens = append(service.pendingStationOpens, station)
+}
+
+func (service *Service) abortLaunchAttempt() {
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	update(&service.session)
+	service.finishLaunchAttemptLocked()
+}
+
+func (service *Service) finishLaunchAttemptLocked() {
+	service.launching = false
+	if service.launchAttemptDone != nil {
+		close(service.launchAttemptDone)
+		service.launchAttemptDone = nil
+	}
+}
+
+func normalizeStationName(station string) string {
+	switch normalized := strings.ToLower(strings.TrimSpace(station)); normalized {
+	case "library", "music", "sniff", "rss", "youtube":
+		return normalized
+	case "":
+		return ""
+	default:
+		return "other"
+	}
 }
 
 func (service *Service) buildPayload(ctx context.Context, state State) map[string]any {
@@ -339,7 +261,6 @@ func (service *Service) buildPayload(ctx context.Context, state State) map[strin
 	buildNumber := buildNumberFromVersion(service.appVersion)
 	platform := normalizedPlatform(runtime.GOOS)
 	now := service.now()
-	timeZone := service.timeZoneName(now)
 	timeZoneOffset := utcOffsetName(now)
 	isDebugBuild := releaseChannel(service.appVersion) == "dev"
 	distinctDaysUsed := state.DistinctDaysUsed
@@ -364,40 +285,19 @@ func (service *Service) buildPayload(ctx context.Context, state State) map[strin
 		"TelemetryDeck.Retention.distinctDaysUsed":          distinctDaysUsed,
 		"TelemetryDeck.Retention.distinctDaysUsedLastMonth": distinctDaysUsedLastMonth,
 		"TelemetryDeck.Retention.totalSessionsCount":        state.LaunchCount,
-		"XiaDown.App.version":                               appVersion,
-		"XiaDown.App.channel":                               releaseChannel(service.appVersion),
-		"XiaDown.App.isDebugBuild":                          isDebugBuild,
-		"XiaDown.Platform.os":                               platform,
-		"XiaDown.Platform.arch":                             runtime.GOARCH,
-		"XiaDown.Locale.timeZone":                           timeZone,
-		"XiaDown.Install.ageBucket":                         bucketInstallAge(now.Sub(state.InstallCreatedAt)),
-	}
-	for key, value := range calendarPayload(now) {
-		payload[key] = value
 	}
 	if buildNumber != "" {
 		payload["TelemetryDeck.AppInfo.buildNumber"] = buildNumber
 		payload["TelemetryDeck.AppInfo.versionAndBuildNumber"] = appVersion + " " + buildNumber
-		payload["XiaDown.App.buildNumber"] = buildNumber
-		payload["XiaDown.App.versionAndBuildNumber"] = appVersion + " " + buildNumber
-	}
-	if state.CompletedSessionCount > 0 {
-		payload["TelemetryDeck.Retention.averageSessionSeconds"] = roundSeconds(state.TotalSessionSeconds / float64(state.CompletedSessionCount))
-	}
-	if state.PreviousSessionSeconds != nil {
-		payload["TelemetryDeck.Retention.previousSessionSeconds"] = roundSeconds(*state.PreviousSessionSeconds)
 	}
 	if locale := normalizeLocale(service.currentLanguage(ctx)); locale != "" {
 		payload["TelemetryDeck.RunContext.locale"] = locale
-		payload["XiaDown.Locale.language"] = locale
 		if language := primaryLanguage(locale); language != "" {
 			payload["TelemetryDeck.RunContext.language"] = language
 			payload["TelemetryDeck.UserPreference.language"] = language
-			payload["XiaDown.Locale.primaryLanguage"] = language
 		}
 		if region := regionFromLocale(locale); region != "" {
 			payload["TelemetryDeck.UserPreference.region"] = region
-			payload["XiaDown.Locale.region"] = region
 		}
 	}
 	return payload
@@ -406,6 +306,12 @@ func (service *Service) buildPayload(ctx context.Context, state State) map[strin
 func (service *Service) currentLanguage(ctx context.Context) string {
 	if service == nil {
 		return ""
+	}
+	service.mu.Lock()
+	cachedLanguage := service.language
+	service.mu.Unlock()
+	if cachedLanguage != "" {
+		return cachedLanguage
 	}
 	if service.settings != nil {
 		settings, err := service.settings.GetSettings(ctx)
@@ -424,35 +330,11 @@ func (service *Service) currentLanguage(ctx context.Context) string {
 	return service.language
 }
 
-func (service *Service) timeZoneName(at time.Time) string {
-	if service == nil {
-		return ""
-	}
-	location := at.Location()
-	if location == nil {
-		return ""
-	}
-	return location.String()
-}
-
-func startMode(launch AppLaunchContext) string {
-	if launch.LaunchedByAutoStart {
-		return "autostart"
-	}
-	return "manual"
-}
-
 func (service *Service) emit(signal Signal) {
 	if !service.Enabled() || service.emitter == nil {
 		return
 	}
 	service.emitter.Emit(signal)
-}
-
-func (service *Service) emitAsync(signal Signal) {
-	go func() {
-		service.emit(signal)
-	}()
 }
 
 func (service *Service) resolveState(ctx context.Context) (State, error) {
@@ -542,27 +424,6 @@ func dateInLocation(value time.Time, location *time.Location) string {
 	return value.In(location).Format("2006-01-02")
 }
 
-func calendarPayload(value time.Time) map[string]any {
-	if value.IsZero() {
-		value = time.Now()
-	}
-	weekday := int(value.Weekday())
-	if weekday == 0 {
-		weekday = 7
-	}
-	_, week := value.ISOWeek()
-	return map[string]any{
-		"TelemetryDeck.Calendar.dayOfMonth":    value.Day(),
-		"TelemetryDeck.Calendar.dayOfWeek":     weekday,
-		"TelemetryDeck.Calendar.dayOfYear":     value.YearDay(),
-		"TelemetryDeck.Calendar.weekOfYear":    week,
-		"TelemetryDeck.Calendar.isWeekend":     value.Weekday() == time.Saturday || value.Weekday() == time.Sunday,
-		"TelemetryDeck.Calendar.monthOfYear":   int(value.Month()),
-		"TelemetryDeck.Calendar.quarterOfYear": ((int(value.Month()) - 1) / 3) + 1,
-		"TelemetryDeck.Calendar.hourOfDay":     value.Hour() + 1,
-	}
-}
-
 func utcOffsetName(value time.Time) string {
 	if value.IsZero() {
 		value = time.Now()
@@ -621,76 +482,4 @@ func releaseChannel(version string) string {
 	default:
 		return "stable"
 	}
-}
-
-func bucketInstallAge(duration time.Duration) string {
-	if duration < 0 {
-		duration = 0
-	}
-	days := int(duration.Hours() / 24)
-	switch {
-	case days <= 0:
-		return "day0"
-	case days < 7:
-		return "day1-6"
-	case days < 30:
-		return "day7-29"
-	case days < 90:
-		return "day30-89"
-	default:
-		return "day90+"
-	}
-}
-
-func bucketLaunchOrdinal(launchCount int) string {
-	switch {
-	case launchCount <= 1:
-		return "1"
-	case launchCount <= 3:
-		return "2-3"
-	case launchCount <= 9:
-		return "4-9"
-	case launchCount <= 29:
-		return "10-29"
-	default:
-		return "30+"
-	}
-}
-
-func bucketSessionDuration(duration time.Duration) string {
-	switch {
-	case duration < time.Minute:
-		return "lt1m"
-	case duration < 5*time.Minute:
-		return "1m-5m"
-	case duration < 15*time.Minute:
-		return "5m-15m"
-	case duration < time.Hour:
-		return "15m-60m"
-	default:
-		return "60m+"
-	}
-}
-
-func bucketCount(value int) string {
-	switch {
-	case value <= 0:
-		return "0"
-	case value == 1:
-		return "1"
-	case value <= 3:
-		return "2-3"
-	case value <= 9:
-		return "4-9"
-	default:
-		return "10+"
-	}
-}
-
-func roundSeconds(value float64) float64 {
-	return math.Round(value*1000) / 1000
-}
-
-func float64Ptr(value float64) *float64 {
-	return &value
 }

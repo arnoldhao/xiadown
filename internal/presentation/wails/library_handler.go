@@ -71,6 +71,42 @@ func (handler *LibraryHandler) ListMissingLibraryFiles(ctx context.Context) (dto
 	return handler.service.ListMissingLibraryFiles(ctx)
 }
 
+func (handler *LibraryHandler) GetLibraryMaintenanceSnapshot(ctx context.Context) (dto.LibraryMaintenanceSnapshotDTO, error) {
+	return handler.service.GetLibraryMaintenanceSnapshot(ctx)
+}
+
+func (handler *LibraryHandler) GetDatabaseIntegrityStatus(ctx context.Context) dto.DatabaseIntegrityStatusDTO {
+	return handler.service.GetDatabaseIntegrityStatus(ctx)
+}
+
+func (handler *LibraryHandler) ListDeletedLibraryItems(
+	ctx context.Context,
+	request dto.ListDeletedLibraryItemsRequest,
+) (dto.ListDeletedLibraryItemsResponse, error) {
+	return handler.service.ListDeletedLibraryItems(ctx, request)
+}
+
+func (handler *LibraryHandler) RestoreDeletedLibraryItem(
+	ctx context.Context,
+	request dto.DeletedLibraryItemMutationRequest,
+) (dto.DeletedLibraryItemMutationResponse, error) {
+	return handler.service.RestoreDeletedLibraryItem(ctx, request)
+}
+
+func (handler *LibraryHandler) RestoreDeletedLibraryFiles(
+	ctx context.Context,
+	request dto.RestoreDeletedLibraryFilesRequest,
+) (dto.RestoreDeletedLibraryFilesResponse, error) {
+	return handler.service.RestoreDeletedLibraryFiles(ctx, request)
+}
+
+func (handler *LibraryHandler) ClearSelectedMissingLibraryFiles(
+	ctx context.Context,
+	request dto.ClearSelectedMissingLibraryFilesRequest,
+) (dto.ClearMissingLibraryFilesResponse, error) {
+	return handler.service.ClearSelectedMissingLibraryFiles(ctx, request)
+}
+
 func (handler *LibraryHandler) ScanMissingLibraryFiles(ctx context.Context, request dto.ScanMissingLibraryFilesRequest) (dto.ScanMissingLibraryFilesResponse, error) {
 	return handler.service.ScanMissingLibraryFiles(ctx, request)
 }
@@ -112,6 +148,10 @@ func (handler *LibraryHandler) DeleteOperation(ctx context.Context, request dto.
 
 func (handler *LibraryHandler) DeleteOperations(ctx context.Context, request dto.DeleteOperationsRequest) error {
 	return handler.service.DeleteOperations(ctx, request)
+}
+
+func (handler *LibraryHandler) DeleteOperationOutput(ctx context.Context, request dto.DeleteOperationOutputRequest) (dto.LibraryOperationDTO, error) {
+	return handler.service.DeleteOperationOutput(ctx, request)
 }
 
 func (handler *LibraryHandler) DeleteFile(ctx context.Context, request dto.DeleteFileRequest) error {
@@ -166,6 +206,13 @@ func (handler *LibraryHandler) StartResourceSniff(ctx context.Context, request d
 	return handler.service.StartResourceSniff(ctx, request)
 }
 
+func (handler *LibraryHandler) GetCurrentResourceSniffBrowserStatus(
+	ctx context.Context,
+	request dto.CurrentResourceSniffBrowserStatusRequest,
+) (dto.CurrentResourceSniffBrowserStatus, error) {
+	return handler.service.GetCurrentResourceSniffBrowserStatus(ctx, request), nil
+}
+
 func (handler *LibraryHandler) GetResourceSniffSession(ctx context.Context, request dto.GetResourceSniffSessionRequest) (dto.ResourceSniffSession, error) {
 	return handler.service.GetResourceSniffSession(ctx, request)
 }
@@ -194,16 +241,16 @@ func (handler *LibraryHandler) PrepareResourceSniffRawDownload(ctx context.Conte
 	return handler.service.PrepareResourceSniffRawDownload(ctx, request)
 }
 
-func (handler *LibraryHandler) ParseResourceSniff(ctx context.Context, request dto.ParseResourceSniffRequest) (dto.ParseResourceSniffResponse, error) {
-	return handler.service.ParseResourceSniff(ctx, request)
-}
-
 func (handler *LibraryHandler) CancelResourceSniff(ctx context.Context, request dto.CancelResourceSniffRequest) error {
 	return handler.service.CancelResourceSniff(ctx, request)
 }
 
 func (handler *LibraryHandler) GetCDPBrowserStatus(ctx context.Context) (dto.CDPBrowserStatus, error) {
 	return handler.service.GetCDPBrowserStatus(ctx)
+}
+
+func (handler *LibraryHandler) GetResourceSniffStatus(ctx context.Context) (dto.ResourceSniffStatusSnapshot, error) {
+	return handler.service.GetResourceSniffStatus(ctx)
 }
 
 func (handler *LibraryHandler) StopCDPBrowserRuntime(ctx context.Context, request dto.StopCDPBrowserRuntimeRequest) error {

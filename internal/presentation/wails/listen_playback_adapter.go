@@ -22,16 +22,21 @@ func (transport listenPlaybackTransport) LoadVideo(_ context.Context, request li
 	if transport.player == nil {
 		return nil
 	}
-	return transport.player.Play(ListenPlayerPlayRequest{
+	return transport.player.Play(listenPlayerPlayRequestFromPlaybackRequest(request, strategy))
+}
+
+func listenPlayerPlayRequestFromPlaybackRequest(request listenplayback.PlayRequest, strategy listenplayback.VideoLoadStrategy) ListenPlayerPlayRequest {
+	return ListenPlayerPlayRequest{
 		VideoID:          request.Track.VideoID,
 		Title:            request.Track.Title,
 		Artist:           request.Track.Artist,
+		Language:         request.Language,
 		StartSeconds:     request.StartSeconds,
 		RestartFromStart: request.RestartFromStart,
 		ForceReload:      request.ForceReload || strategy == listenplayback.VideoLoadForceFullPageWhenSameVideoID,
 		Volume:           request.Volume,
 		Muted:            request.Muted,
-	})
+	}
 }
 
 func (transport listenPlaybackTransport) Play(context.Context) error {

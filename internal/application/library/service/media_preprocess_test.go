@@ -43,11 +43,21 @@ func TestParseFFprobeMediaProbe(t *testing.T) {
 					"tags": {"language": "eng"}
 				}
 			],
-		"format": {
-			"format_name": "mov,mp4,m4a,3gp,3g2,mj2",
-			"duration": "12.345",
-			"size": "1048576",
-			"bit_rate": "512000"
+			"format": {
+				"format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+				"duration": "12.345",
+				"size": "1048576",
+				"bit_rate": "512000",
+				"tags": {
+					"title": "Example Song",
+					"artist": "Example Artist",
+					"album": "Example Album",
+					"album_artist": "Various Artists",
+					"genre": "Ambient",
+					"track": "3/12",
+					"disc": "2/2",
+					"date": "2025-08-01"
+				}
 		}
 	}`)
 
@@ -93,6 +103,12 @@ func TestParseFFprobeMediaProbe(t *testing.T) {
 	}
 	if got.AttachedPicCount != 1 {
 		t.Fatalf("expected one attached picture, got %d", got.AttachedPicCount)
+	}
+	if got.Title != "Example Song" || got.Artist != "Example Artist" || got.Album != "Example Album" || got.AlbumArtist != "Various Artists" || got.Genre != "Ambient" {
+		t.Fatalf("unexpected tag metadata: %#v", got)
+	}
+	if got.TrackNumber != 3 || got.DiscNumber != 2 || got.Year != 2025 {
+		t.Fatalf("unexpected numeric tag metadata: track=%d disc=%d year=%d", got.TrackNumber, got.DiscNumber, got.Year)
 	}
 	if len(got.SubtitleStreams) != 1 || got.SubtitleStreams[0].Index != 3 || got.SubtitleStreams[0].Codec != "subrip" || got.SubtitleStreams[0].Language != "eng" {
 		t.Fatalf("expected subtitle stream metadata, got %#v", got.SubtitleStreams)

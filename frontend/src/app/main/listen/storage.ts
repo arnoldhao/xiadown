@@ -2,6 +2,7 @@ import { LISTEN_DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 
 import { LISTEN_STORAGE_KEY } from "@/app/main/listen/catalog";
 import { clampVolume } from "@/app/main/listen/local-library";
+import { normalizeListenLocalQueueIds } from "@/app/main/listen/local-queue";
 import type { ListenLibraryShelf,ListenLibraryShelfKind,ListenLivePlaybackKind,ListenMode,ListenOnlineGroup,ListenOnlineItem,ListenOnlineQueueKind,ListenOnlineQueueState,ListenPlayMode,ListenPlaylistItem,ListenStorageState,ListenTrackArtist } from "@/app/main/listen/types";
 import { doesListenThumbnailSuggestVideoContent,hasListenMusicVideoContent,isListenMusicVideoKnownNoVideo } from "@/app/main/listen/video-types";
 
@@ -9,6 +10,7 @@ const LISTEN_IMAGE_CACHE_AVATAR_SIZE = 96;
 const LISTEN_IMAGE_CACHE_ARTWORK_SIZE = 320;
 const LISTEN_IMAGE_CACHE_POSTER_SIZE = 640;
 const LISTEN_STORED_QUEUE_ITEM_LIMIT = 250;
+const LISTEN_STORED_LOCAL_QUEUE_ITEM_LIMIT = 10_000;
 
 export type ListenImageCacheOptions = {
   size?: number;
@@ -135,13 +137,20 @@ export function buildListenTrackThumbnailCandidates(
 export function buildListenPosterCandidates(
   httpBaseURL: string,
   item: {
-    videoId: string;
+    videoId?: string;
     thumbnailUrl?: string;
   },
   options: ListenImageCacheOptions = { size: LISTEN_IMAGE_CACHE_POSTER_SIZE },
 ) {
   return dedupeListenImageCandidates([
-    ...buildListenTrackThumbnailCandidates(httpBaseURL, item, options),
+    ...buildListenTrackThumbnailCandidates(
+      httpBaseURL,
+      {
+        videoId: item.videoId ?? "",
+        thumbnailUrl: item.thumbnailUrl,
+      },
+      options,
+    ),
     LISTEN_DEFAULT_COVER_IMAGE_URL,
   ]);
 }
@@ -215,6 +224,7 @@ export function createDefaultListenStorageState(): ListenStorageState {
     selectedOnlineId: "",
     browsePlaylistId: "",
     selectedLocalId: "",
+    localPlaybackQueueIds: null,
     onlineQueueKind: "none",
     onlineQueueTitle: "",
     onlineQueueSeedVideoId: "",
@@ -356,6 +366,20 @@ export function sanitizeListenOnlineItems(value: unknown): ListenOnlineItem[] {
   );
 }
 
+export function sanitizeListenLocalQueueIds(value: unknown): string[] | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return normalizeListenLocalQueueIds(
+    value
+      .slice(0, LISTEN_STORED_LOCAL_QUEUE_ITEM_LIMIT)
+      .filter((id): id is string => typeof id === "string"),
+  );
+}
+
 export function readListenStorageState(): ListenStorageState {
   const fallback = createDefaultListenStorageState();
   if (typeof window === "undefined") {
@@ -414,6 +438,9 @@ export function readListenStorageState(): ListenStorageState {
         typeof parsed.selectedLocalId === "string"
           ? parsed.selectedLocalId
           : "",
+      localPlaybackQueueIds: sanitizeListenLocalQueueIds(
+        (parsed as { localPlaybackQueueIds?: unknown }).localPlaybackQueueIds,
+      ),
       onlineQueueKind,
       onlineQueueTitle:
         typeof parsed.onlineQueueTitle === "string"

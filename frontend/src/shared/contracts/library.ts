@@ -45,6 +45,114 @@ export interface ListMissingLibraryFilesResponse {
   missing: MissingLibraryFileDTO[]
 }
 
+export interface DeletedLibraryFileDTO {
+  fileId: string
+  libraryId: string
+  name: string
+  kind: string
+  oldPath?: string
+  format?: string
+  canRestore: boolean
+  updatedAt?: string
+}
+
+export interface LibraryTaskMaintenanceDTO {
+  operationId: string
+  name: string
+  executionStatus: string
+  health: "unavailable" | string
+  outputCount: number
+  availableOutputCount: number
+  deletedOutputCount: number
+  unavailableOutputCount: number
+}
+
+export interface LibraryMaintenanceSnapshotDTO {
+  checkedFiles: number
+  missingFiles: MissingLibraryFileDTO[]
+  deletedFiles: DeletedLibraryFileDTO[]
+  checkedTasks: number
+  taskIssues: LibraryTaskMaintenanceDTO[]
+  databaseIntegrity: DatabaseIntegrityStatusDTO
+}
+
+export interface DatabaseIntegrityStatusDTO {
+  state: "pending" | "healthy" | "failed" | "unavailable" | string
+  checkedAt?: string
+  detail?: string
+}
+
+export interface RestoreDeletedLibraryFilesRequest {
+  fileIds: string[]
+}
+
+export interface RestoreDeletedLibraryFilesResponse {
+  checked: number
+  restored: number
+  skipped: number
+}
+
+export type DeletedLibraryItemKind = "task" | "file"
+
+/**
+ * One immutable deletion projection used by the Library's Deleted companion.
+ * Exactly one detail branch is populated for each Library-owned item kind.
+ * Revisioned Catalog trash remains owned by the Catalog service.
+ */
+export interface DeletedLibraryItemDetail {
+  taskHistory?: LibraryHistoryRecordDTO
+  file?: LibraryFileDTO
+}
+
+export interface DeletedLibraryItemDTO {
+  id: string
+  kind: DeletedLibraryItemKind
+  source: string
+  libraryId: string
+  title: string
+  category: string
+  status: string
+  deletedAt: string
+  canRestore: boolean
+  detail: DeletedLibraryItemDetail
+}
+
+export interface ListDeletedLibraryItemsRequest {
+  kinds?: DeletedLibraryItemKind[]
+  libraryId?: string
+  category?: string
+  query?: string
+  limit?: number
+  offset?: number
+}
+
+export interface ListDeletedLibraryItemsResponse {
+  items: DeletedLibraryItemDTO[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface DeletedLibraryItemMutationRequest {
+  kind: DeletedLibraryItemKind
+  id: string
+}
+
+export interface DeletedLibraryItemMutationResponse {
+  kind: DeletedLibraryItemKind
+  id: string
+  restored: boolean
+}
+
+export interface ClearSelectedMissingLibraryFilesRequest {
+  fileIds: string[]
+}
+
+export interface ClearMissingLibraryFilesResponse {
+  checked: number
+  removed: number
+}
+
 export interface ScanMissingLibraryFilesRequest {
   directory: string
   fileIds?: string[]
@@ -238,6 +346,7 @@ export interface LibraryOperationDTO {
   request?: OperationRequestPreviewDTO
   progress?: OperationProgressDTO
   outputFiles?: OperationOutputFileDTO[]
+  detachedOutputFileIds?: string[]
   thumbnailPreviewPath?: string
   metrics: OperationMetricsDTO
   errorCode?: string
@@ -263,6 +372,7 @@ export interface OperationListItemDTO {
   request?: OperationRequestPreviewDTO
   progress?: OperationProgressDTO
   outputFiles?: OperationOutputFileDTO[]
+  detachedOutputFileIds?: string[]
   thumbnailPreviewPath?: string
   metrics: OperationMetricsDTO
   errorCode?: string
@@ -396,6 +506,7 @@ export interface FileEventDetailDTO {
   after?: FileEventFileSnapshotDTO
   changes?: FileFieldChangeDTO[]
   import?: LibraryImportOriginDTO
+  deleteFile?: boolean
 }
 
 export interface FileEventRecordDTO {
@@ -405,6 +516,7 @@ export interface FileEventRecordDTO {
   operationId?: string
   eventType: string
   detail: FileEventDetailDTO
+  occurredAt?: string
   createdAt: string
 }
 
@@ -482,6 +594,12 @@ export interface DeleteOperationRequest {
 export interface DeleteOperationsRequest {
   operationIds: string[]
   cascadeFiles?: boolean
+}
+
+export interface DeleteOperationOutputRequest {
+  operationId: string
+  fileId: string
+  deleteFile?: boolean
 }
 
 export interface DeleteFileRequest {
@@ -782,47 +900,46 @@ export interface StopCDPBrowserRuntimeRequest {
   runtimeId: string
 }
 
+export type CurrentResourceSniffBrowserState =
+  | "ready"
+  | "not_installed"
+  | "not_running"
+  | "remote_debugging_disabled"
+  | "permission_denied"
+  | "unsupported_version"
+  | "endpoint_unavailable"
+  | "unsupported_browser"
+
+export interface CurrentResourceSniffBrowserStatusRequest {
+  browserId: string
+}
+
+export interface CurrentResourceSniffBrowserStatus {
+  browserId: string
+  state: CurrentResourceSniffBrowserState
+  installed: boolean
+  running: boolean
+  supported: boolean
+  ready: boolean
+  version?: string
+  minimumVersion?: number
+  profileName?: string
+  detail?: string
+}
+
 export interface StartResourceSniffRequest {
   url: string
+  mode?: "browser_profile" | "current_browser" | "managed_profile"
+  browserId?: string
+  profileId?: string
 }
 
 export interface StartResourceSniffResult {
   session?: ResourceSniffSession
-  failure?: ResourceSniffFailure
 }
 
 export interface GetResourceSniffSessionRequest {
   sessionId: string
-}
-
-export interface ParseResourceSniffRequest {
-  sessionId: string
-}
-
-export type ResourceSniffFailureCode =
-  | "profile_connection_required"
-  | "verification_required"
-  | "no_media_detected"
-  | "unsupported_douyin_lvdetail"
-  | "douyin_recommend_login_required"
-
-export type ResourceSniffFailureAction =
-  | "connect_profile"
-  | "complete_verification"
-  | "play_page"
-  | "none"
-
-export interface ResourceSniffFailure {
-  code: ResourceSniffFailureCode
-  site?: string
-  action?: ResourceSniffFailureAction
-  retryable: boolean
-  detail?: string
-}
-
-export interface ParseResourceSniffResponse {
-  media?: ParseYTDLPDownloadResponse
-  failure?: ResourceSniffFailure
 }
 
 export interface CancelResourceSniffRequest {
@@ -838,10 +955,24 @@ export interface ResourceSniffSession {
   title?: string
   activeTargetId?: string
   tabCount?: number
-  unoptimizedDomain?: string
-  authStatus?: "logged_in" | "logged_out" | "unknown"
-  authUser?: string
-  authSite?: string
+  mode?: string
+  browserId?: string
+  profileId?: string
+}
+
+export interface ResourceSniffStatusSnapshot {
+  runtime: string
+  state: string
+  sessionId?: string
+  runtimeId?: string
+  title?: string
+  url?: string
+  favicon?: string
+  resourceCount: number
+  downloadableCount: number
+  lastCaptureAt?: string
+  canClear: boolean
+  canStop: boolean
 }
 
 export interface CreateVideoImportRequest {

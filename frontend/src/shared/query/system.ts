@@ -15,8 +15,25 @@ export const FONT_FAMILIES_QUERY_KEY = ["system", "font-families"];
 export const LYRICS_TRANSCRIPTION_AVAILABLE_QUERY_KEY = ["system", "lyrics-transcription-available"];
 const SYSTEM_HANDLER_SERVICE = "xiadown/internal/presentation/wails.SystemHandler";
 
+export function isExternalHTTPURL(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return false;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && Boolean(parsed.host);
+  } catch {
+    return false;
+  }
+}
+
 export async function openExternalURL(url: string): Promise<void> {
-  await Call.ByName(`${SYSTEM_HANDLER_SERVICE}.OpenURL`, { url });
+  const trimmed = url.trim();
+  if (!isExternalHTTPURL(trimmed)) {
+    throw new Error("external URL must use http or https");
+  }
+  await Call.ByName(`${SYSTEM_HANDLER_SERVICE}.OpenURL`, { url: trimmed });
 }
 
 export function useCurrentUserProfile() {

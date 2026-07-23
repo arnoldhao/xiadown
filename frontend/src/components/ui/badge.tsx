@@ -4,17 +4,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none",
+  "app-base-badge",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground",
-        outline: "text-foreground",
-        subtle: "border-border bg-muted text-muted-foreground",
-        ghost: "border-transparent bg-transparent text-foreground",
+        default: "app-base-badge--default",
+        secondary: "app-base-badge--secondary",
+        destructive: "app-base-badge--destructive",
+        outline: "app-base-badge--outline",
+        subtle: "app-base-badge--subtle",
+        ghost: "app-base-badge--ghost",
       },
     },
     defaultVariants: {
@@ -28,8 +27,13 @@ function Badge({
   variant,
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof badgeVariants>) {
+  const resolvedVariant = variant ?? "default";
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <div
+      className={cn(badgeVariants({ variant: resolvedVariant }), className)}
+      {...props}
+      data-variant={resolvedVariant}
+    />
   );
 }
 

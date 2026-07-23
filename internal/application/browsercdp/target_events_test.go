@@ -61,6 +61,41 @@ func TestPageTargetWatcherIgnoresNonPageTargets(t *testing.T) {
 	}
 }
 
+func TestPageTargetWatcherIgnoresManagedNetworkProbeLifecycle(t *testing.T) {
+	t.Parallel()
+
+	watcher := &PageTargetWatcher{targetBySession: map[string]string{}}
+	called := false
+	handler := func(TargetEvent) { called = true }
+	watcher.handleEvent(handler, &targetpkg.EventTargetCreated{
+		TargetInfo: &targetpkg.Info{
+			TargetID: "probe-target",
+			Type:     "page",
+			URL:      newManagedNetworkProbePageURL(),
+		},
+	})
+	watcher.handleEvent(handler, &targetpkg.EventTargetInfoChanged{
+		TargetInfo: &targetpkg.Info{
+			TargetID: "probe-target",
+			Type:     "page",
+			URL:      "about:blank",
+		},
+	})
+	watcher.handleEvent(handler, &targetpkg.EventAttachedToTarget{
+		SessionID: "probe-session",
+		TargetInfo: &targetpkg.Info{
+			TargetID: "probe-target",
+			Type:     "page",
+			URL:      "about:blank",
+		},
+	})
+	watcher.handleEvent(handler, &targetpkg.EventTargetDestroyed{TargetID: "probe-target"})
+
+	if called {
+		t.Fatal("expected managed network probe lifecycle to be ignored")
+	}
+}
+
 func TestPageTargetManagerTracksPageTargetLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -105,6 +140,57 @@ func TestPageTargetManagerTracksPageTargetLifecycle(t *testing.T) {
 
 	if manager.PageTargetExists("target-1") {
 		t.Fatal("expected destroyed target to be removed")
+	}
+}
+
+func TestPageTargetManagerExcludesManagedNetworkProbeMarkerAndID(t *testing.T) {
+	t.Parallel()
+
+	manager := &PageTargetManager{
+		targets:         map[string]*targetpkg.Info{},
+		targetBySession: map[string]string{},
+		excludedTargets: map[string]struct{}{},
+		listeners:       map[uint64]func(TargetEvent){},
+		waiters:         map[uint64]pageTargetWaiter{},
+	}
+	events := make([]TargetEvent, 0)
+	manager.Watch(func(event TargetEvent) { events = append(events, event) })
+	manager.handleEvent(nil, &targetpkg.EventTargetCreated{
+		TargetInfo: &targetpkg.Info{
+			TargetID: "probe-target",
+			Type:     "page",
+			URL:      newManagedNetworkProbePageURL(),
+		},
+	})
+	if manager.PageTargetExists("probe-target") {
+		t.Fatal("marker target must not be tracked")
+	}
+
+	// The explicit ID exclusion remains authoritative if Chromium later reports
+	// a normalized or changed URL for the same hidden target.
+	manager.ExcludeTargetID("probe-target")
+	manager.handleEvent(nil, &targetpkg.EventTargetInfoChanged{
+		TargetInfo: &targetpkg.Info{
+			TargetID: "probe-target",
+			Type:     "page",
+			URL:      "about:blank",
+		},
+	})
+	manager.handleEvent(nil, &targetpkg.EventAttachedToTarget{
+		SessionID: "probe-session",
+		TargetInfo: &targetpkg.Info{
+			TargetID: "probe-target",
+			Type:     "page",
+			URL:      "about:blank",
+		},
+	})
+	manager.handleEvent(nil, &targetpkg.EventTargetDestroyed{TargetID: "probe-target"})
+
+	if manager.PageTargetExists("probe-target") {
+		t.Fatal("excluded target ID must not be restored")
+	}
+	if len(events) != 0 {
+		t.Fatalf("excluded probe emitted events: %#v", events)
 	}
 }
 

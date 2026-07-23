@@ -17,14 +17,14 @@ type SQLiteRepository struct {
 	db *bun.DB
 }
 
-type siteAppSessionRow = sqlitedto.SiteAppSessionRow
+type appSessionRow = sqlitedto.AppSessionRow
 
 func NewSQLiteRepository(db *bun.DB) *SQLiteRepository {
 	return &SQLiteRepository{db: db}
 }
 
 func (repo *SQLiteRepository) List(ctx context.Context) ([]appsessions.Session, error) {
-	rows := []siteAppSessionRow{}
+	rows := []appSessionRow{}
 	if err := repo.db.NewSelect().Model(&rows).Order("site_key ASC").Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (repo *SQLiteRepository) List(ctx context.Context) ([]appsessions.Session, 
 }
 
 func (repo *SQLiteRepository) Get(ctx context.Context, id string) (appsessions.Session, error) {
-	row := new(siteAppSessionRow)
+	row := new(appSessionRow)
 	if err := repo.db.NewSelect().Model(row).Where("id = ?", strings.TrimSpace(id)).Scan(ctx); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appsessions.Session{}, appsessions.ErrSessionNotFound
@@ -51,7 +51,7 @@ func (repo *SQLiteRepository) Get(ctx context.Context, id string) (appsessions.S
 }
 
 func (repo *SQLiteRepository) GetBySiteKey(ctx context.Context, siteKey string) (appsessions.Session, error) {
-	row := new(siteAppSessionRow)
+	row := new(appSessionRow)
 	if err := repo.db.NewSelect().Model(row).Where("site_key = ?", strings.TrimSpace(siteKey)).Scan(ctx); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return appsessions.Session{}, appsessions.ErrSessionNotFound
@@ -70,7 +70,7 @@ func (repo *SQLiteRepository) Save(ctx context.Context, session appsessions.Sess
 	if updatedAt.IsZero() {
 		updatedAt = createdAt
 	}
-	row := siteAppSessionRow{
+	row := appSessionRow{
 		ID:                           session.ID,
 		SiteKey:                      session.SiteKey,
 		Status:                       string(session.Status),
@@ -85,6 +85,10 @@ func (repo *SQLiteRepository) Save(ctx context.Context, session appsessions.Sess
 		AccountVerificationError:     nullString(session.AccountVerificationError),
 		AccountVerificationStartedAt: nullTime(session.AccountVerificationStartedAt),
 		LastVerifiedAt:               nullTime(session.LastVerifiedAt),
+		SourceType:                   nullString(string(session.SourceType)),
+		SourceBrowser:                nullString(session.SourceBrowser),
+		SourceProfile:                nullString(session.SourceProfile),
+		LastSyncedAt:                 nullTime(session.LastSyncedAt),
 		CreatedAt:                    createdAt,
 		UpdatedAt:                    updatedAt,
 	}
@@ -103,17 +107,21 @@ func (repo *SQLiteRepository) Save(ctx context.Context, session appsessions.Sess
 		Set("account_verification_error = EXCLUDED.account_verification_error").
 		Set("account_verification_started_at = EXCLUDED.account_verification_started_at").
 		Set("last_verified_at = EXCLUDED.last_verified_at").
+		Set("source_type = EXCLUDED.source_type").
+		Set("source_browser = EXCLUDED.source_browser").
+		Set("source_profile = EXCLUDED.source_profile").
+		Set("last_synced_at = EXCLUDED.last_synced_at").
 		Set("updated_at = EXCLUDED.updated_at").
 		Exec(ctx)
 	return err
 }
 
 func (repo *SQLiteRepository) Delete(ctx context.Context, id string) error {
-	_, err := repo.db.NewDelete().Model((*siteAppSessionRow)(nil)).Where("id = ?", strings.TrimSpace(id)).Exec(ctx)
+	_, err := repo.db.NewDelete().Model((*appSessionRow)(nil)).Where("id = ?", strings.TrimSpace(id)).Exec(ctx)
 	return err
 }
 
-func rowToSession(row siteAppSessionRow) (appsessions.Session, error) {
+func rowToSession(row appSessionRow) (appsessions.Session, error) {
 	return appsessions.NewSession(appsessions.SessionParams{
 		ID:                           row.ID,
 		SiteKey:                      row.SiteKey,
@@ -129,6 +137,10 @@ func rowToSession(row siteAppSessionRow) (appsessions.Session, error) {
 		AccountVerificationError:     stringOrEmpty(row.AccountVerificationError),
 		AccountVerificationStartedAt: timeOrNil(row.AccountVerificationStartedAt),
 		LastVerifiedAt:               timeOrNil(row.LastVerifiedAt),
+		SourceType:                   stringOrEmpty(row.SourceType),
+		SourceBrowser:                stringOrEmpty(row.SourceBrowser),
+		SourceProfile:                stringOrEmpty(row.SourceProfile),
+		LastSyncedAt:                 timeOrNil(row.LastSyncedAt),
 		CreatedAt:                    &row.CreatedAt,
 		UpdatedAt:                    &row.UpdatedAt,
 	})

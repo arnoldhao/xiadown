@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -171,10 +172,12 @@ func TestApplyLibraryRelinksUpdatesStoredPathAndOperationOutput(t *testing.T) {
 	files := &deleteRuleFileRepo{items: map[string]library.LibraryFile{fileItem.ID: fileItem}}
 	operations := &deleteRuleOperationRepo{items: map[string]library.LibraryOperation{operation.ID: operation}}
 	libraries := &deleteRuleLibraryRepo{items: map[string]library.Library{"lib-1": mustNewLibrary(t, "lib-1", now)}}
+	fileEvents := &deleteRuleFileEventRepo{}
 	service := &LibraryService{
 		libraries:  libraries,
 		files:      files,
 		operations: operations,
+		fileEvents: fileEvents,
 		nowFunc: func() time.Time {
 			return now
 		},
@@ -199,6 +202,18 @@ func TestApplyLibraryRelinksUpdatesStoredPathAndOperationOutput(t *testing.T) {
 	updatedOperation := operations.items[operation.ID]
 	if !strings.Contains(updatedOperation.OutputJSON, newPath) || strings.Contains(updatedOperation.OutputJSON, oldPath) {
 		t.Fatalf("expected operation output to reference new path only, got %s", updatedOperation.OutputJSON)
+	}
+	if len(fileEvents.items) != 1 || fileEvents.items[0].EventType != libraryFileEventRelinked ||
+		fileEvents.items[0].OperationID != operation.ID {
+		t.Fatalf("expected one relink event, got %#v", fileEvents.items)
+	}
+	detail := dto.FileEventDetailDTO{}
+	if err := json.Unmarshal([]byte(fileEvents.items[0].DetailJSON), &detail); err != nil {
+		t.Fatalf("decode relink event: %v", err)
+	}
+	if detail.Before == nil || detail.After == nil || detail.Before.LocalPath != oldPath || detail.After.LocalPath != newPath ||
+		len(detail.Changes) == 0 || detail.Changes[0] != (dto.FileFieldChangeDTO{Field: "localPath", Before: oldPath, After: newPath}) {
+		t.Fatalf("unexpected relink event detail: %#v", detail)
 	}
 }
 

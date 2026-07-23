@@ -25,6 +25,7 @@ const (
 	petErrorCodeOnlineSessionRequired     = "pet_online_session_required"
 	petErrorCodeOnlineSessionNotFound     = "pet_online_session_not_found"
 	petErrorCodeOnlineUnsupportedSite     = "pet_online_unsupported_site"
+	petErrorCodeOnlineNetworkUnavailable  = "pet_online_network_unavailable"
 )
 
 type petError struct {

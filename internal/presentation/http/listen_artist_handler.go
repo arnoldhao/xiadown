@@ -29,17 +29,19 @@ type ListenArtistHandler struct {
 }
 
 type ListenArtistResponse struct {
-	ID            string               `json:"id"`
-	Title         string               `json:"title"`
-	Subtitle      string               `json:"subtitle,omitempty"`
-	ThumbnailURL  string               `json:"thumbnailUrl,omitempty"`
-	ChannelID     string               `json:"channelId,omitempty"`
-	IsSubscribed  bool                 `json:"isSubscribed,omitempty"`
-	MixPlaylistID string               `json:"mixPlaylistId,omitempty"`
-	MixVideoID    string               `json:"mixVideoId,omitempty"`
-	Items         []ListenSearchItem   `json:"items"`
-	Shelves       []ListenLibraryShelf `json:"shelves"`
-	Continuation  string               `json:"continuation,omitempty"`
+	ID               string               `json:"id"`
+	Title            string               `json:"title"`
+	Subtitle         string               `json:"subtitle,omitempty"`
+	Description      string               `json:"description,omitempty"`
+	ThumbnailURL     string               `json:"thumbnailUrl,omitempty"`
+	HeroThumbnailURL string               `json:"heroThumbnailUrl,omitempty"`
+	ChannelID        string               `json:"channelId,omitempty"`
+	IsSubscribed     bool                 `json:"isSubscribed,omitempty"`
+	MixPlaylistID    string               `json:"mixPlaylistId,omitempty"`
+	MixVideoID       string               `json:"mixVideoId,omitempty"`
+	Items            []ListenSearchItem   `json:"items"`
+	Shelves          []ListenLibraryShelf `json:"shelves"`
+	Continuation     string               `json:"continuation,omitempty"`
 }
 
 type listenArtistSubscriptionPayload struct {
@@ -130,17 +132,19 @@ func (handler *ListenArtistHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 			page.Tracks = enrichListenTrackDurations(ctx, handler.ytMusic, page.Tracks)
 			page.Shelves = enrichListenShelfTrackDurations(ctx, handler.ytMusic, page.Shelves)
 			writeListenArtistJSON(w, r, ListenArtistResponse{
-				ID:            page.ID,
-				Title:         firstNonEmptyString(page.Title, artistName, page.ID),
-				Subtitle:      page.Subtitle,
-				ThumbnailURL:  page.ThumbnailURL,
-				ChannelID:     page.ChannelID,
-				IsSubscribed:  page.IsSubscribed,
-				MixPlaylistID: page.MixPlaylistID,
-				MixVideoID:    page.MixVideoID,
-				Items:         mapYouTubeMusicTracksToListenItems(page.Tracks, "ytmusic-artist"),
-				Shelves:       mapYouTubeMusicShelvesToListenShelvesWithPrefixes(page.Shelves, "ytmusic-artist", "ytmusic-artist-playlist"),
-				Continuation:  page.Continuation,
+				ID:               page.ID,
+				Title:            firstNonEmptyString(page.Title, artistName, page.ID),
+				Subtitle:         page.Subtitle,
+				Description:      page.Description,
+				ThumbnailURL:     page.ThumbnailURL,
+				HeroThumbnailURL: page.HeroThumbnailURL,
+				ChannelID:        page.ChannelID,
+				IsSubscribed:     page.IsSubscribed,
+				MixPlaylistID:    page.MixPlaylistID,
+				MixVideoID:       page.MixVideoID,
+				Items:            mapYouTubeMusicTracksToListenItems(page.Tracks, "ytmusic-artist"),
+				Shelves:          mapYouTubeMusicShelvesToListenShelvesWithPrefixes(page.Shelves, "ytmusic-artist", "ytmusic-artist-playlist"),
+				Continuation:     page.Continuation,
 			})
 			return
 		}
@@ -168,17 +172,19 @@ func (handler *ListenArtistHandler) ServeHTTP(w http.ResponseWriter, r *http.Req
 		page.Tracks = enrichListenTrackDurations(ctx, handler.ytMusic, page.Tracks)
 		page.Shelves = enrichListenShelfTrackDurations(ctx, handler.ytMusic, page.Shelves)
 		writeListenArtistJSON(w, r, ListenArtistResponse{
-			ID:            page.ID,
-			Title:         firstNonEmptyString(page.Title, artistName, page.ID),
-			Subtitle:      page.Subtitle,
-			ThumbnailURL:  page.ThumbnailURL,
-			ChannelID:     page.ChannelID,
-			IsSubscribed:  page.IsSubscribed,
-			MixPlaylistID: page.MixPlaylistID,
-			MixVideoID:    page.MixVideoID,
-			Items:         mapYouTubeMusicTracksToListenItems(page.Tracks, "ytmusic-artist"),
-			Shelves:       mapYouTubeMusicShelvesToListenShelvesWithPrefixes(page.Shelves, "ytmusic-artist", "ytmusic-artist-playlist"),
-			Continuation:  page.Continuation,
+			ID:               page.ID,
+			Title:            firstNonEmptyString(page.Title, artistName, page.ID),
+			Subtitle:         page.Subtitle,
+			Description:      page.Description,
+			ThumbnailURL:     page.ThumbnailURL,
+			HeroThumbnailURL: page.HeroThumbnailURL,
+			ChannelID:        page.ChannelID,
+			IsSubscribed:     page.IsSubscribed,
+			MixPlaylistID:    page.MixPlaylistID,
+			MixVideoID:       page.MixVideoID,
+			Items:            mapYouTubeMusicTracksToListenItems(page.Tracks, "ytmusic-artist"),
+			Shelves:          mapYouTubeMusicShelvesToListenShelvesWithPrefixes(page.Shelves, "ytmusic-artist", "ytmusic-artist-playlist"),
+			Continuation:     page.Continuation,
 		})
 		return
 	}

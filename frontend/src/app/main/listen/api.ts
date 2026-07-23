@@ -113,11 +113,16 @@ export function getListenErrorCode(error: unknown) {
   if (error instanceof ListenAPIError) {
     return error.code.trim();
   }
+  if (error instanceof Error && "code" in error) {
+    return String(error.code ?? "").trim();
+  }
   return "";
 }
 
 export function getListenErrorRetryable(error: unknown) {
-  return error instanceof ListenAPIError && error.retryable;
+  return error instanceof Error &&
+    "retryable" in error &&
+    error.retryable === true;
 }
 
 async function buildListenAPIError(response: Response, fallbackMessage: string) {
@@ -771,6 +776,62 @@ export async function fetchListenPlaylistQueue(
   return page.items;
 }
 
+const LISTEN_COMPLETE_PLAYLIST_MAX_PAGES = 128;
+const LISTEN_COMPLETE_PLAYLIST_MAX_TRACKS = 5_000;
+
+export async function fetchCompleteListenPlaylistQueue(
+  httpBaseURL: string,
+  playlistId: string,
+  signal: AbortSignal,
+  options: {
+    continuation: string;
+    initialItems: ListenOnlineItem[];
+    language?: string;
+  },
+): Promise<{ items: ListenOnlineItem[]; continuation: string }> {
+  let continuation = options.continuation.trim();
+  const seenContinuations = new Set<string>(
+    continuation ? [continuation] : [],
+  );
+  let items = dedupeOnlineItems(options.initialItems);
+  let pageCount = 0;
+
+  while (
+    continuation &&
+    pageCount < LISTEN_COMPLETE_PLAYLIST_MAX_PAGES &&
+    items.length < LISTEN_COMPLETE_PLAYLIST_MAX_TRACKS
+  ) {
+    signal.throwIfAborted();
+    const page = await fetchListenPlaylistPage(
+      httpBaseURL,
+      playlistId,
+      signal,
+      continuation,
+      options.language,
+    );
+    items = dedupeOnlineItems([...items, ...page.items]);
+    pageCount += 1;
+
+    const nextContinuation = page.continuation.trim();
+    if (
+      !nextContinuation ||
+      nextContinuation === continuation ||
+      seenContinuations.has(nextContinuation)
+    ) {
+      continuation = "";
+      break;
+    }
+    seenContinuations.add(nextContinuation);
+    continuation = nextContinuation;
+  }
+
+  signal.throwIfAborted();
+  return {
+    items: items.slice(0, LISTEN_COMPLETE_PLAYLIST_MAX_TRACKS),
+    continuation,
+  };
+}
+
 export async function fetchListenPlaylistPage(
   httpBaseURL: string,
   playlistId: string,
@@ -782,12 +843,27 @@ export async function fetchListenPlaylistPage(
   continuation: string;
   title: string;
   author: string;
+  authorBrowseId: string;
+  trackCountLabel: string;
+  durationLabel: string;
+  description: string;
+  thumbnailUrl: string;
 }> {
   const baseURL = httpBaseURL.trim().replace(/\/+$/, "");
   const trimmedPlaylistId = playlistId.trim();
   const trimmedContinuation = continuation.trim();
   if (!baseURL || (!trimmedPlaylistId && !trimmedContinuation)) {
-    return { items: [], continuation: "", title: "", author: "" };
+    return {
+      items: [],
+      continuation: "",
+      title: "",
+      author: "",
+      authorBrowseId: "",
+      trackCountLabel: "",
+      durationLabel: "",
+      description: "",
+      thumbnailUrl: "",
+    };
   }
   const requestQuery = new URLSearchParams();
   if (trimmedPlaylistId) {
@@ -820,6 +896,11 @@ export async function fetchListenPlaylistPage(
     continuation: payload.continuation?.trim() ?? "",
     title: payload.title?.trim() ?? "",
     author: payload.author?.trim() ?? "",
+    authorBrowseId: payload.authorBrowseId?.trim() ?? "",
+    trackCountLabel: payload.trackCountLabel?.trim() ?? "",
+    durationLabel: payload.durationLabel?.trim() ?? "",
+    description: payload.description?.trim() ?? "",
+    thumbnailUrl: payload.thumbnailUrl?.trim() ?? "",
   };
 }
 
@@ -837,7 +918,9 @@ export async function fetchListenArtist(
   id: string;
   title: string;
   subtitle: string;
+  description: string;
   thumbnailUrl: string;
+  heroThumbnailUrl: string;
   channelId: string;
   isSubscribed: boolean;
   mixPlaylistId: string;
@@ -857,7 +940,9 @@ export async function fetchListenArtist(
       id: artistId,
       title: artistName,
       subtitle: "",
+      description: "",
       thumbnailUrl: "",
+      heroThumbnailUrl: "",
       channelId: "",
       isSubscribed: false,
       mixPlaylistId: "",
@@ -922,7 +1007,10 @@ export async function fetchListenArtist(
     id: payload.id?.trim() || artistId,
     title: payload.title?.trim() || artistName || artistId,
     subtitle: payload.subtitle?.trim() || "",
+    description: payload.description?.trim() || "",
     thumbnailUrl: payload.thumbnailUrl?.trim() || "",
+    heroThumbnailUrl:
+      payload.heroThumbnailUrl?.trim() || payload.thumbnailUrl?.trim() || "",
     channelId: payload.channelId?.trim() || "",
     isSubscribed: payload.isSubscribed === true,
     mixPlaylistId: payload.mixPlaylistId?.trim() || "",
@@ -1029,6 +1117,8 @@ export async function fetchListenTrackLyrics(
     title: string;
     channel?: string;
     artist?: string;
+    album?: string;
+    localPath?: string;
     durationLabel?: string;
   },
   signal: AbortSignal,
@@ -1057,11 +1147,15 @@ export async function fetchListenTrackLyrics(
   }
   const title = track.title.trim();
   const artist = (track.artist ?? track.channel ?? "").trim();
+  const album = track.album?.trim() ?? "";
   if (title) {
     requestQuery.set("title", title);
   }
   if (artist) {
     requestQuery.set("artist", artist);
+  }
+  if (album) {
+    requestQuery.set("album", album);
   }
   const duration =
     durationSeconds > 0
@@ -1133,23 +1227,75 @@ function mapListenLyricsResponse(
     videoId: payload.videoId?.trim() || fallbackVideoId,
     kind,
     source: payload.source?.trim() ?? "",
+    providerId: payload.providerId?.trim() || undefined,
+    providerTrackId: payload.providerTrackId?.trim() || undefined,
+    attribution: payload.attribution?.trim() || undefined,
+    timingQuality: normalizeListenLyricTimingQuality(payload.timingQuality),
+    confidence: normalizeListenLyricConfidence(payload.confidence),
     text: payload.text ?? "",
     lines: (payload.lines ?? [])
       .map((line) => ({
         startMs: finitePositiveNumber(line.startMs),
         durationMs: finitePositiveNumber(line.durationMs),
+        endEstimated: line.endEstimated === true || undefined,
         text: line.text ?? "",
+        translationText: line.translationText?.trim() || undefined,
         romanizedText: line.romanizedText?.trim() || undefined,
         romanizedKind: normalizeListenLyricRomanizedKind(line.romanizedKind),
-        words: (line.words ?? [])
-          .map((word) => ({
-            startMs: finitePositiveNumber(word.startMs),
-            text: word.text ?? "",
+        alternateTexts: (line.alternateTexts ?? [])
+          .map((alternate) => ({
+            role: alternate.role?.trim() ?? "",
+            language: alternate.language?.trim() || undefined,
+            text: alternate.text?.trim() ?? "",
           }))
-          .filter((word) => word.text.trim()),
+          .filter((alternate) => alternate.role && alternate.text),
+        words: mapListenLyricWords(line.words),
       }))
       .filter((line) => line.text.trim() || kind === "synced"),
   };
+}
+
+function mapListenLyricWords(
+  words: ListenLyricsData["lines"][number]["words"],
+): ListenLyricsData["lines"][number]["words"] {
+  if (!words?.length) {
+    return undefined;
+  }
+  const normalized = words
+    .map((word) => ({
+      startMs: finitePositiveNumber(word.startMs),
+      endMs:
+        word.endMs === undefined
+          ? undefined
+          : finitePositiveNumber(word.endMs),
+      text: word.text ?? "",
+      endsWithSpace:
+        typeof word.endsWithSpace === "boolean"
+          ? word.endsWithSpace
+          : undefined,
+      syllables: mapListenLyricWords(word.syllables),
+    }))
+    .filter((word) => word.text.trim());
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeListenLyricTimingQuality(
+  value: unknown,
+): ListenLyricsData["timingQuality"] {
+  return value === "plain" ||
+    value === "line" ||
+    value === "word" ||
+    value === "syllable" ||
+    value === "estimated"
+    ? value
+    : undefined;
+}
+
+function normalizeListenLyricConfidence(value: unknown): number | undefined {
+  const confidence = Number(value);
+  return Number.isFinite(confidence)
+    ? Math.min(100, Math.max(0, Math.round(confidence)))
+    : undefined;
 }
 
 function normalizeListenLyricRomanizedKind(

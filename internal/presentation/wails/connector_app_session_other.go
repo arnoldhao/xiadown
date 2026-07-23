@@ -16,6 +16,10 @@ func connectorAppSessionNativeSupported() bool {
 	return false
 }
 
+func loadNativeYouTubeRuntimeCookies() ([]appcookies.Record, error) {
+	return nil, appsessions.ErrUnsupported
+}
+
 func connectorAppSessionCaptureBeforeClose() bool {
 	return false
 }
@@ -42,18 +46,6 @@ func readConnectorAppSessionNativeCookies(_ context.Context, _ unsafe.Pointer) (
 
 func readConnectorAppSessionNativeWindowCookies(_ context.Context, _ *application.WebviewWindow, _ []string) ([]appcookies.Record, error) {
 	return nil, appsessions.ErrUnsupported
-}
-
-func saveSiteAppSessionStoredCookies(_ string, _ []appcookies.Record) error {
-	return appsessions.ErrUnsupported
-}
-
-func loadSiteAppSessionStoredCookies(_ string) ([]appcookies.Record, error) {
-	return nil, appsessions.ErrUnsupported
-}
-
-func clearSiteAppSessionStoredCookies(_ string, _ []string) error {
-	return appsessions.ErrUnsupported
 }
 
 func clearConnectorAppSessionNativeRuntimeData(_ context.Context, _ *application.App, _ string, _ []string) error {

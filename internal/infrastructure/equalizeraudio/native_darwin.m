@@ -1414,17 +1414,11 @@ int xia_equalizer_supported(void) {
 }
 
 int xia_equalizer_has_capture_permission(void) {
-	if (@available(macOS 10.15, *)) {
-		return CGPreflightScreenCaptureAccess() ? 1 : 0;
-	}
-	return 1;
+	return CGPreflightScreenCaptureAccess() ? 1 : 0;
 }
 
 int xia_equalizer_request_capture_permission(void) {
-	if (@available(macOS 10.15, *)) {
-		return CGRequestScreenCaptureAccess() ? 1 : 0;
-	}
-	return 1;
+	return CGRequestScreenCaptureAccess() ? 1 : 0;
 }
 
 int xia_equalizer_is_running(void) {

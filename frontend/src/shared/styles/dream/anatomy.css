@@ -1,0 +1,1022 @@
+/* Shared anatomy vocabulary. TypeScript publishes semantic class names only;
+   Dream owns their reusable geometry, typography, and visual treatment. */
+.app-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.app-base-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-button-gap, var(--app-space-2));
+  border-radius: var(--app-radius-md);
+  font-size: var(--app-button-font-size, var(--app-font-size-sm));
+  font-weight: var(--app-button-font-weight, 500);
+  text-decoration-offset: var(--app-space-1);
+  white-space: nowrap;
+  transition:
+    background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    border-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    opacity var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-base-button:focus-visible {
+  outline: none;
+}
+
+.app-base-button:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.app-base-button > svg {
+  width: var(--app-button-icon-size, 1rem);
+  height: var(--app-button-icon-size, 1rem);
+  flex: 0 0 var(--app-button-icon-size, 1rem);
+  pointer-events: none;
+}
+
+.app-base-button-size--default {
+  height: var(--app-button-block-size, 1.75rem);
+  padding: var(
+    --app-button-padding,
+    var(--app-space-1) var(--app-space-3)
+  );
+}
+
+.app-base-button-size--sm {
+  height: var(--app-button-block-size, 1.75rem);
+  padding: var(--app-button-padding, 0 0.625rem);
+}
+
+.app-base-button-size--lg {
+  height: var(--app-button-block-size, 2rem);
+  padding: var(--app-button-padding, 0 var(--app-space-4));
+}
+
+.app-base-button-size--icon {
+  width: var(--app-button-inline-size, 1.75rem);
+  height: var(--app-button-block-size, 1.75rem);
+  padding: var(--app-button-padding, 0);
+}
+
+.app-base-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--app-radius-capsule);
+  padding: 0.125rem 0.625rem;
+  font-size: var(--app-font-size-xs);
+  font-weight: 600;
+  transition:
+    background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    border-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-base-badge:focus {
+  outline: none;
+}
+
+.app-base-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1-5);
+  padding: var(--app-space-6);
+}
+
+.app-base-card__title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.025em;
+}
+
+.app-base-card__description {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-size-sm);
+}
+
+.app-base-card__content {
+  padding: 0 var(--app-space-6) var(--app-space-6);
+}
+
+.app-base-card__footer {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--app-space-6) var(--app-space-6);
+}
+
+.app-base-input {
+  display: flex;
+  width: 100%;
+  height: 1.75rem;
+  border-radius: var(--app-radius-md);
+  padding: var(--app-space-1) var(--app-space-3);
+  font-size: var(--app-font-size-sm);
+}
+
+.app-base-input::file-selector-button {
+  border: 0;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.app-base-input:focus-visible {
+  outline: none;
+}
+
+.app-base-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app-progress {
+  position: relative;
+  width: 100%;
+  height: var(--app-space-2);
+  overflow: hidden;
+  border-radius: var(--app-radius-capsule);
+}
+
+.app-progress__indicator {
+  width: 100%;
+  height: 100%;
+  transform: translateX(var(--app-progress-offset, -100%));
+  transition: transform var(--app-motion-duration-base)
+    var(--app-motion-ease-standard);
+}
+
+.app-separator {
+  flex: 0 0 auto;
+}
+
+.app-separator[data-orientation="horizontal"] {
+  width: 100%;
+  height: 1px;
+}
+
+.app-separator[data-orientation="vertical"] {
+  width: 1px;
+  height: 100%;
+}
+
+.app-sidebar-menu {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--app-space-1);
+}
+
+.app-sidebar-menu__item {
+  position: relative;
+  list-style: none;
+}
+
+.app-sidebar-menu__button {
+  display: flex;
+  width: 100%;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: var(--app-space-3);
+  border-radius: var(--app-radius-xl);
+  padding: var(--app-space-2) var(--app-space-3);
+  font-size: var(--app-font-size-sm);
+  font-weight: 500;
+  text-align: left;
+  transition:
+    background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-sidebar-menu__button:focus-visible {
+  outline: none;
+}
+
+.app-dialog-overlay-base {
+  position: fixed;
+  z-index: var(--app-layer-modal-overlay);
+  inset: 0;
+}
+
+.app-dialog-content-base {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: var(--app-layer-modal);
+  display: grid;
+  width: 100%;
+  max-width: 32rem;
+  gap: var(--app-space-4);
+  padding: var(--app-space-6);
+  transform: translate(-50%, -50%);
+}
+
+.app-dialog-close-base {
+  position: absolute;
+  top: var(--app-space-4);
+  right: var(--app-space-4);
+}
+
+.app-dialog-close-base:disabled {
+  pointer-events: none;
+}
+
+.app-dialog-close__icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.app-dialog-header-base {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1-5);
+  text-align: center;
+}
+
+.app-dialog-footer-base {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.app-dialog-title-base {
+  font-size: var(--app-font-size-sm);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.025em;
+}
+
+.app-dialog-description-base {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-size-sm);
+}
+
+@media (min-width: 640px) {
+  .app-dialog-header-base {
+    text-align: left;
+  }
+
+  .app-dialog-footer-base {
+    flex-direction: row;
+    justify-content: flex-end;
+    gap: var(--app-space-2);
+  }
+}
+
+.app-main-sidebar-action {
+  width: var(--app-main-sidebar-action-size);
+  height: var(--app-main-sidebar-action-size);
+}
+
+.app-main-sidebar-action-icon {
+  width: var(--app-main-sidebar-icon-size);
+  height: var(--app-main-sidebar-icon-size);
+}
+
+.app-menu-content-fit,
+.app-sidebar-dropdown-content,
+.app-pet-gallery-context-menu-content {
+  width: max-content;
+  min-width: fit-content;
+  max-width: calc(100vw - (var(--app-space-4) * 2));
+}
+
+.app-sidebar-dropdown-item,
+.app-pet-gallery-context-menu-item {
+  width: 100%;
+  outline: none;
+  white-space: nowrap;
+}
+
+.app-sidebar-dropdown-icon-slot,
+.app-pet-gallery-context-menu-icon-slot {
+  display: flex;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-sidebar-dropdown-icon-slot {
+  color: var(--app-text-secondary);
+}
+
+.app-settings-list-card {
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--dream-radius-xl);
+  background: var(--dream-surface-card);
+  box-shadow: var(--dream-card-shadow);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.app-settings-list-card-content {
+  padding: var(--app-settings-card-padding);
+}
+
+.app-settings-list-card-compact {
+  overflow: hidden;
+}
+
+.app-settings-list-card-content-compact {
+  padding: 0;
+}
+
+.app-settings-row {
+  display: flex;
+  min-height: var(--app-settings-row-min-height);
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-4);
+  font-size: 0.8125rem;
+}
+
+.app-settings-row-start {
+  align-items: flex-start;
+}
+
+.app-settings-row-compact {
+  min-height: var(--app-settings-row-compact-height);
+  padding: 0 var(--app-settings-row-padding-x);
+}
+
+@media (max-width: 420px) {
+  .app-settings-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: var(--app-space-1-5);
+  }
+
+  .app-settings-row > :last-child {
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+}
+
+.app-settings-row-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-settings-row-description {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-size-xs);
+}
+
+.app-settings-row-content {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+  margin-left: auto;
+  color: var(--app-text-primary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.app-settings-row-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.app-settings-row-summary[data-has-description="true"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
+}
+
+.app-settings-row-content[data-align="start"] {
+  align-items: flex-start;
+}
+
+.app-settings-row-content[data-align="center"] {
+  align-items: center;
+}
+
+.app-settings-row-content-compact {
+  font-size: 0.8125rem;
+}
+
+.app-settings-control-width,
+.app-settings-control-width-wide {
+  min-width: 0;
+}
+
+.app-settings-control-width {
+  width: var(--app-settings-control-width);
+}
+
+.app-settings-control-width-wide {
+  width: var(--app-settings-control-width-wide);
+}
+
+.app-completed-preview-shell {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-completed-preview-control-button {
+  border-radius: var(--app-radius-capsule);
+}
+
+.app-completed-preview-range {
+  height: 1.5rem;
+  cursor: pointer;
+  accent-color: hsl(var(--app-accent-solid));
+}
+
+.app-completed-preview-volume-range {
+  width: 6.5rem;
+  transform: rotate(-90deg);
+}
+
+/* Shared primitive anatomy. React publishes intent and state; the Dream
+   contract owns reusable measurements and type instead of Tailwind recipes. */
+.app-dream-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1-5);
+  padding: var(--app-space-6);
+}
+
+.app-dream-card__content {
+  padding: 0 var(--app-space-6) var(--app-space-6);
+}
+
+.app-dream-card__footer {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--app-space-6) var(--app-space-6);
+}
+
+:is(
+    .app-dream-card__header,
+    .app-dream-card__content,
+    .app-dream-card__footer
+  )[data-section-size="compact"] {
+  padding: var(--app-space-3);
+}
+
+.app-dream-card__title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.025em;
+}
+
+.app-dream-card__description {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-size-sm);
+}
+
+.app-dream-input {
+  font-size: var(--app-font-size-xs);
+}
+
+.app-dream-input::placeholder,
+.app-dream-input::file-selector-button {
+  font-size: inherit;
+}
+
+.app-dream-input[data-size="default"] {
+  height: 1.75rem;
+}
+
+.app-dream-input[data-size="compact"] {
+  height: var(--app-control-height-compact);
+}
+
+:is(.app-dream-input, .app-dream-select):disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app-menu-content {
+  font-size: var(--app-font-size-xs);
+}
+
+.app-menu-content-base {
+  z-index: var(--app-layer-popover);
+  min-width: 10rem;
+  outline: none;
+}
+
+/* Compact action menus opt out of the generic menu width floor. Keep this
+   after the base rule so both sidebar actions and feature context menus that
+   adopt the shared contract size themselves from their localized content. */
+.app-menu-content-base.app-menu-content-fit,
+.app-menu-content-base.app-sidebar-dropdown-content {
+  width: max-content;
+  min-width: fit-content;
+  max-width: calc(100vw - (var(--app-space-4) * 2));
+}
+
+:is(.app-dream-menu-item, .app-menu-item) {
+  position: relative;
+  display: flex;
+  min-height: var(--app-menu-item-min-height);
+  align-items: center;
+  gap: var(--app-space-2);
+  border-radius: var(--app-radius-sm);
+  padding: var(--app-space-1-5) var(--app-space-2-5);
+  outline: none;
+  cursor: default;
+  font-size: var(--app-font-size-xs);
+  line-height: 1.35;
+  user-select: none;
+  transition:
+    background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    color var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-menu-item[data-disabled] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.app-menu-indicator {
+  position: absolute;
+  left: var(--app-space-2);
+  display: flex;
+  width: 0.875rem;
+  height: 0.875rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-menu-indicator__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.app-menu-item--radio {
+  padding-left: 1.75rem;
+}
+
+.app-menu-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-menu-shortcut {
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+}
+
+.app-menu-separator {
+  height: 1px;
+}
+
+.app-dialog-title {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: normal;
+}
+
+.app-dialog-content {
+  gap: var(--app-space-3);
+  padding: var(--app-space-4);
+}
+
+.app-dialog-footer {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+  padding-top: 0;
+}
+
+.app-dialog-description {
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-size-xs);
+}
+
+.app-dream-checkbox[data-app-checkbox="true"] {
+  position: relative;
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  min-width: 1rem;
+  flex: 0 0 1rem;
+  place-content: center;
+  margin: 0;
+}
+
+.app-dream-checkbox__control {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+}
+
+.app-dream-checkbox__visual {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-content: center;
+  pointer-events: none;
+}
+
+.app-dream-checkbox__visual svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.app-sheet-content {
+  position: fixed;
+  z-index: var(--app-layer-modal);
+  display: flex;
+  width: min(30rem, calc(100vw - 1.5rem));
+  max-width: calc(100vw - 1.5rem);
+  flex-direction: column;
+  overflow: hidden;
+  outline: none;
+}
+
+.app-sheet-content[data-size="sm"] {
+  width: min(24rem, calc(100vw - 1.5rem));
+}
+
+.app-sheet-content[data-size="lg"] {
+  width: min(40rem, calc(100vw - 1.5rem));
+}
+
+.app-sheet-content[data-centered="true"] {
+  top: 50%;
+  left: 50%;
+  max-height: calc(100vh - 1.5rem);
+  transform: translate(-50%, -50%);
+}
+
+.app-sheet-content[data-centered="true"][data-window-chrome-safe-area="true"] {
+  top: calc((100vh + var(--app-titlebar-height)) / 2);
+  max-height: calc(100vh - var(--app-titlebar-height) - 1.5rem);
+}
+
+.app-sheet-content[data-centered="false"] {
+  top: 0.75rem;
+  bottom: 0.75rem;
+}
+
+.app-sheet-content[data-centered="false"][data-side="left"] {
+  left: 0.75rem;
+}
+
+.app-sheet-content[data-centered="false"][data-side="right"] {
+  right: 0.75rem;
+}
+
+.app-sheet-content[data-centered="false"][data-window-chrome-safe-area="true"] {
+  top: calc(var(--app-titlebar-height) + 0.75rem);
+}
+
+.app-sheet-header {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: var(--app-space-4);
+  border-bottom: 0;
+  padding: var(--app-space-5) var(--app-space-5) var(--app-space-4);
+}
+
+.app-sheet-heading {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.app-sheet-description {
+  max-width: 42em;
+  margin-top: var(--app-space-1-5);
+  line-height: 1.625;
+}
+
+.app-sheet-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--app-space-4) var(--app-space-5);
+}
+
+.app-sheet-footer {
+  display: flex;
+  flex: 0 0 auto;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+  border-top: 0;
+  padding: 0.875rem var(--app-space-5);
+}
+
+.app-sheet-close {
+  flex: 0 0 auto;
+}
+
+.app-sheet-close__icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.app-dream-tooltip {
+  pointer-events: none;
+  position: fixed;
+  z-index: var(--app-layer-tooltip);
+  max-width: min(28rem, calc(100vw - 1rem));
+  overflow: hidden;
+  padding: var(--app-space-1) var(--app-space-2);
+  text-overflow: ellipsis;
+  user-select: none;
+  white-space: nowrap;
+  animation: app-dream-tooltip-enter var(--app-motion-duration-fast)
+    var(--app-motion-ease-enter) both;
+}
+
+.app-dream-tooltip[data-multiline="true"] {
+  max-width: min(22rem, calc(100vw - 1rem));
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: pre-line;
+}
+
+.app-dream-tooltip[data-side="bottom"][data-align="start"],
+.app-dream-tooltip[data-side="right"][data-align="start"] {
+  transform: translate(0, 0);
+}
+
+.app-dream-tooltip[data-side="bottom"][data-align="center"] {
+  transform: translate(-50%, 0);
+}
+
+.app-dream-tooltip[data-side="bottom"][data-align="end"] {
+  transform: translate(-100%, 0);
+}
+
+.app-dream-tooltip[data-side="left"][data-align="start"] {
+  transform: translate(-100%, 0);
+}
+
+.app-dream-tooltip[data-side="left"][data-align="center"] {
+  transform: translate(-100%, -50%);
+}
+
+.app-dream-tooltip[data-side="left"][data-align="end"],
+.app-dream-tooltip[data-side="top"][data-align="end"] {
+  transform: translate(-100%, -100%);
+}
+
+.app-dream-tooltip[data-side="right"][data-align="center"] {
+  transform: translate(0, -50%);
+}
+
+.app-dream-tooltip[data-side="right"][data-align="end"] {
+  transform: translate(0, -100%);
+}
+
+.app-dream-tooltip[data-side="top"][data-align="start"] {
+  transform: translate(0, -100%);
+}
+
+.app-dream-tooltip[data-side="top"][data-align="center"] {
+  transform: translate(-50%, -100%);
+}
+
+.app-dream-tooltip__arrow {
+  position: absolute;
+  width: var(--app-space-2);
+  height: var(--app-space-2);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.app-dream-tooltip__arrow[data-side="top"] {
+  top: 100%;
+  left: 50%;
+}
+
+.app-dream-tooltip__arrow[data-side="bottom"] {
+  top: 0;
+  left: 50%;
+}
+
+.app-dream-tooltip__arrow[data-side="left"] {
+  top: 50%;
+  left: 100%;
+}
+
+.app-dream-tooltip__arrow[data-side="right"] {
+  top: 50%;
+  left: 0;
+}
+
+.app-dream-inline-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app-pet-display {
+  position: relative;
+  display: flex;
+  width: var(--app-pet-display-size, 5rem);
+  height: var(--app-pet-display-size, 5rem);
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  user-select: none;
+}
+
+.app-pet-display__sprite {
+  position: relative;
+  z-index: 10;
+  flex: 0 0 auto;
+  user-select: none;
+}
+
+.app-pet-player {
+  width: var(--app-pet-player-size, 4rem);
+  height: var(--app-pet-player-size, 4rem);
+}
+
+.app-pet-player--fallback {
+  object-fit: contain;
+  opacity: 0.9;
+}
+
+.app-site-brand-glyph {
+  display: block;
+  flex: 0 0 auto;
+}
+
+@keyframes app-dream-tooltip-enter {
+  from {
+    opacity: 0;
+    scale: 0.95;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes app-sheet-centered-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes app-sheet-centered-exit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+}
+
+@keyframes app-sheet-left-enter {
+  from {
+    opacity: 0;
+    transform: translateX(calc(-100% - 0.75rem));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes app-sheet-left-exit {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(calc(-100% - 0.75rem));
+  }
+}
+
+@keyframes app-sheet-right-enter {
+  from {
+    opacity: 0;
+    transform: translateX(calc(100% + 0.75rem));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes app-sheet-right-exit {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(calc(100% + 0.75rem));
+  }
+}
+
+.app-sheet-content[data-centered="true"][data-state="open"] {
+  animation: app-sheet-centered-enter var(--app-motion-duration-base)
+    var(--app-motion-ease-enter) both;
+}
+
+.app-sheet-content[data-centered="true"][data-state="closed"] {
+  animation: app-sheet-centered-exit var(--app-motion-duration-base)
+    var(--app-motion-ease-standard) both;
+}
+
+.app-sheet-content[data-centered="false"][data-side="left"][data-state="open"] {
+  animation: app-sheet-left-enter var(--app-motion-duration-base)
+    var(--app-motion-ease-enter) both;
+}
+
+.app-sheet-content[data-centered="false"][data-side="left"][data-state="closed"] {
+  animation: app-sheet-left-exit var(--app-motion-duration-base)
+    var(--app-motion-ease-standard) both;
+}
+
+.app-sheet-content[data-centered="false"][data-side="right"][data-state="open"] {
+  animation: app-sheet-right-enter var(--app-motion-duration-base)
+    var(--app-motion-ease-enter) both;
+}
+
+.app-sheet-content[data-centered="false"][data-side="right"][data-state="closed"] {
+  animation: app-sheet-right-exit var(--app-motion-duration-base)
+    var(--app-motion-ease-standard) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-dream-tooltip,
+  .app-sheet-content[data-state] {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .app-settings-list-card,
+  .app-sidebar-dropdown-item,
+  .app-pet-gallery-context-menu-item {
+    forced-color-adjust: auto;
+  }
+}
+.tray-mini-player-root {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 1.375rem;
+  clip-path: inset(0 round 1.375rem);
+  background: transparent;
+  color: var(--app-text-primary);
+}
+
+/* Legacy clipboard fallback nodes are transient application anatomy. Keeping
+   their off-screen placement here prevents static DOM styles from bypassing
+   the Dream inventory. */
+.app-clipboard-fallback-textarea {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+}

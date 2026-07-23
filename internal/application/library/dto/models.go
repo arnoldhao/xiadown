@@ -97,27 +97,28 @@ type LibraryFileStateDTO struct {
 }
 
 type LibraryOperationDTO struct {
-	ID                   string                      `json:"id"`
-	LibraryID            string                      `json:"libraryId"`
-	Kind                 string                      `json:"kind"`
-	Status               string                      `json:"status"`
-	DisplayName          string                      `json:"displayName"`
-	Correlation          OperationCorrelationDTO     `json:"correlation"`
-	InputJSON            string                      `json:"inputJson"`
-	OutputJSON           string                      `json:"outputJson"`
-	SourceDomain         string                      `json:"sourceDomain,omitempty"`
-	SourceIcon           string                      `json:"sourceIcon,omitempty"`
-	Meta                 OperationMetaDTO            `json:"meta"`
-	Request              *OperationRequestPreviewDTO `json:"request,omitempty"`
-	Progress             *OperationProgressDTO       `json:"progress,omitempty"`
-	OutputFiles          []OperationOutputFileDTO    `json:"outputFiles,omitempty"`
-	ThumbnailPreviewPath string                      `json:"thumbnailPreviewPath,omitempty"`
-	Metrics              OperationMetricsDTO         `json:"metrics"`
-	ErrorCode            string                      `json:"errorCode,omitempty"`
-	ErrorMessage         string                      `json:"errorMessage,omitempty"`
-	CreatedAt            string                      `json:"createdAt"`
-	StartedAt            string                      `json:"startedAt,omitempty"`
-	FinishedAt           string                      `json:"finishedAt,omitempty"`
+	ID                    string                      `json:"id"`
+	LibraryID             string                      `json:"libraryId"`
+	Kind                  string                      `json:"kind"`
+	Status                string                      `json:"status"`
+	DisplayName           string                      `json:"displayName"`
+	Correlation           OperationCorrelationDTO     `json:"correlation"`
+	InputJSON             string                      `json:"inputJson"`
+	OutputJSON            string                      `json:"outputJson"`
+	SourceDomain          string                      `json:"sourceDomain,omitempty"`
+	SourceIcon            string                      `json:"sourceIcon,omitempty"`
+	Meta                  OperationMetaDTO            `json:"meta"`
+	Request               *OperationRequestPreviewDTO `json:"request,omitempty"`
+	Progress              *OperationProgressDTO       `json:"progress,omitempty"`
+	OutputFiles           []OperationOutputFileDTO    `json:"outputFiles,omitempty"`
+	DetachedOutputFileIDs []string                    `json:"detachedOutputFileIds,omitempty"`
+	ThumbnailPreviewPath  string                      `json:"thumbnailPreviewPath,omitempty"`
+	Metrics               OperationMetricsDTO         `json:"metrics"`
+	ErrorCode             string                      `json:"errorCode,omitempty"`
+	ErrorMessage          string                      `json:"errorMessage,omitempty"`
+	CreatedAt             string                      `json:"createdAt"`
+	StartedAt             string                      `json:"startedAt,omitempty"`
+	FinishedAt            string                      `json:"finishedAt,omitempty"`
 }
 
 type OperationMetaDTO struct {
@@ -188,28 +189,29 @@ type OperationMetricsDTO struct {
 }
 
 type OperationListItemDTO struct {
-	OperationID          string                      `json:"operationId"`
-	LibraryID            string                      `json:"libraryId"`
-	LibraryName          string                      `json:"libraryName,omitempty"`
-	Name                 string                      `json:"name"`
-	Kind                 string                      `json:"kind"`
-	Status               string                      `json:"status"`
-	Correlation          OperationCorrelationDTO     `json:"correlation"`
-	Domain               string                      `json:"domain,omitempty"`
-	SourceIcon           string                      `json:"sourceIcon,omitempty"`
-	Platform             string                      `json:"platform,omitempty"`
-	Uploader             string                      `json:"uploader,omitempty"`
-	PublishTime          string                      `json:"publishTime,omitempty"`
-	Request              *OperationRequestPreviewDTO `json:"request,omitempty"`
-	Progress             *OperationProgressDTO       `json:"progress,omitempty"`
-	OutputFiles          []OperationOutputFileDTO    `json:"outputFiles,omitempty"`
-	ThumbnailPreviewPath string                      `json:"thumbnailPreviewPath,omitempty"`
-	Metrics              OperationMetricsDTO         `json:"metrics"`
-	ErrorCode            string                      `json:"errorCode,omitempty"`
-	ErrorMessage         string                      `json:"errorMessage,omitempty"`
-	StartedAt            string                      `json:"startedAt,omitempty"`
-	FinishedAt           string                      `json:"finishedAt,omitempty"`
-	CreatedAt            string                      `json:"createdAt"`
+	OperationID           string                      `json:"operationId"`
+	LibraryID             string                      `json:"libraryId"`
+	LibraryName           string                      `json:"libraryName,omitempty"`
+	Name                  string                      `json:"name"`
+	Kind                  string                      `json:"kind"`
+	Status                string                      `json:"status"`
+	Correlation           OperationCorrelationDTO     `json:"correlation"`
+	Domain                string                      `json:"domain,omitempty"`
+	SourceIcon            string                      `json:"sourceIcon,omitempty"`
+	Platform              string                      `json:"platform,omitempty"`
+	Uploader              string                      `json:"uploader,omitempty"`
+	PublishTime           string                      `json:"publishTime,omitempty"`
+	Request               *OperationRequestPreviewDTO `json:"request,omitempty"`
+	Progress              *OperationProgressDTO       `json:"progress,omitempty"`
+	OutputFiles           []OperationOutputFileDTO    `json:"outputFiles,omitempty"`
+	DetachedOutputFileIDs []string                    `json:"detachedOutputFileIds,omitempty"`
+	ThumbnailPreviewPath  string                      `json:"thumbnailPreviewPath,omitempty"`
+	Metrics               OperationMetricsDTO         `json:"metrics"`
+	ErrorCode             string                      `json:"errorCode,omitempty"`
+	ErrorMessage          string                      `json:"errorMessage,omitempty"`
+	StartedAt             string                      `json:"startedAt,omitempty"`
+	FinishedAt            string                      `json:"finishedAt,omitempty"`
+	CreatedAt             string                      `json:"createdAt"`
 }
 
 type LibraryRecordsDTO struct {
@@ -323,7 +325,11 @@ type FileEventRecordDTO struct {
 	EventType   string             `json:"eventType"`
 	OperationID string             `json:"operationId,omitempty"`
 	Detail      FileEventDetailDTO `json:"detail"`
-	CreatedAt   string             `json:"createdAt"`
+	// OccurredAt is the immutable business-event timestamp. CreatedAt remains
+	// available for wire compatibility; file events are append-only today, so
+	// both values intentionally refer to the same instant.
+	OccurredAt string `json:"occurredAt"`
+	CreatedAt  string `json:"createdAt"`
 }
 
 type FileEventDetailDTO struct {
@@ -332,6 +338,9 @@ type FileEventDetailDTO struct {
 	After   *FileEventFileSnapshotDTO `json:"after,omitempty"`
 	Changes []FileFieldChangeDTO      `json:"changes,omitempty"`
 	Import  *LibraryImportOriginDTO   `json:"import,omitempty"`
+	// DeleteFile distinguishes a metadata/association-only mutation from an
+	// explicit request to remove the local file as part of the same action.
+	DeleteFile bool `json:"deleteFile"`
 }
 
 type FileEventCauseDTO struct {
@@ -421,6 +430,15 @@ type DeleteOperationsRequest struct {
 	CascadeFiles bool     `json:"cascadeFiles,omitempty"`
 }
 
+// DeleteOperationOutputRequest removes one output from a task without
+// implicitly deleting the Library file. DeleteFile opts into the destructive
+// file lifecycle as a separate, explicit choice.
+type DeleteOperationOutputRequest struct {
+	OperationID string `json:"operationId"`
+	FileID      string `json:"fileId"`
+	DeleteFile  bool   `json:"deleteFile,omitempty"`
+}
+
 type DeleteFileRequest struct {
 	FileID      string `json:"fileId"`
 	DeleteFiles bool   `json:"deleteFiles,omitempty"`
@@ -468,28 +486,107 @@ type OpenPathRequest struct {
 
 type ListListenLocalTracksRequest struct {
 	Query              string `json:"query,omitempty"`
+	Artist             string `json:"artist,omitempty"`
+	Album              string `json:"album,omitempty"`
+	Sort               string `json:"sort,omitempty"`
 	IncludeUnavailable bool   `json:"includeUnavailable,omitempty"`
 	Limit              int    `json:"limit,omitempty"`
 	Offset             int    `json:"offset,omitempty"`
 }
 
 type ListenLocalTrackDTO struct {
-	ID             string `json:"id"`
-	FileID         string `json:"fileId"`
-	LibraryID      string `json:"libraryId"`
-	Title          string `json:"title"`
-	Author         string `json:"author,omitempty"`
-	LocalPath      string `json:"localPath"`
-	CoverLocalPath string `json:"coverLocalPath,omitempty"`
-	Format         string `json:"format,omitempty"`
-	AudioCodec     string `json:"audioCodec,omitempty"`
-	DurationMs     *int64 `json:"durationMs,omitempty"`
-	SizeBytes      *int64 `json:"sizeBytes,omitempty"`
-	ModTimeUnix    int64  `json:"modTimeUnix,omitempty"`
-	Availability   string `json:"availability"`
-	LastCheckedAt  string `json:"lastCheckedAt,omitempty"`
-	ProbeError     string `json:"probeError,omitempty"`
-	UpdatedAt      string `json:"updatedAt,omitempty"`
+	ID               string `json:"id"`
+	FileID           string `json:"fileId"`
+	LibraryID        string `json:"libraryId"`
+	Title            string `json:"title"`
+	Author           string `json:"author,omitempty"`
+	Album            string `json:"album,omitempty"`
+	AlbumArtist      string `json:"albumArtist,omitempty"`
+	Genre            string `json:"genre,omitempty"`
+	TrackNumber      int    `json:"trackNumber,omitempty"`
+	DiscNumber       int    `json:"discNumber,omitempty"`
+	Year             int    `json:"year,omitempty"`
+	LocalPath        string `json:"localPath"`
+	CoverLocalPath   string `json:"coverLocalPath,omitempty"`
+	Format           string `json:"format,omitempty"`
+	AudioCodec       string `json:"audioCodec,omitempty"`
+	DurationMs       *int64 `json:"durationMs,omitempty"`
+	SizeBytes        *int64 `json:"sizeBytes,omitempty"`
+	ModTimeUnix      int64  `json:"modTimeUnix,omitempty"`
+	Availability     string `json:"availability"`
+	LastCheckedAt    string `json:"lastCheckedAt,omitempty"`
+	ProbeError       string `json:"probeError,omitempty"`
+	CreatedAt        string `json:"createdAt,omitempty"`
+	UpdatedAt        string `json:"updatedAt,omitempty"`
+	MetadataWritable bool   `json:"metadataWritable"`
+}
+
+type UpdateListenLocalTrackMetadataRequest struct {
+	FileID      string `json:"fileId"`
+	Title       string `json:"title"`
+	Author      string `json:"author,omitempty"`
+	Album       string `json:"album,omitempty"`
+	AlbumArtist string `json:"albumArtist,omitempty"`
+	Genre       string `json:"genre,omitempty"`
+	TrackNumber int    `json:"trackNumber,omitempty"`
+	DiscNumber  int    `json:"discNumber,omitempty"`
+	Year        int    `json:"year,omitempty"`
+}
+
+type ListenLocalPlaylistDTO struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Revision  int64  `json:"revision"`
+	ItemCount int    `json:"itemCount"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+type ListenLocalPlaylistItemDTO struct {
+	ID       string              `json:"id"`
+	Position int                 `json:"position"`
+	AddedAt  string              `json:"addedAt"`
+	Track    ListenLocalTrackDTO `json:"track"`
+}
+
+type ListenLocalPlaylistDetailDTO struct {
+	Playlist ListenLocalPlaylistDTO       `json:"playlist"`
+	Items    []ListenLocalPlaylistItemDTO `json:"items"`
+}
+
+type CreateListenLocalPlaylistRequest struct {
+	Name string `json:"name"`
+}
+
+type UpdateListenLocalPlaylistRequest struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
+type DeleteListenLocalPlaylistRequest struct {
+	ID               string `json:"id"`
+	ExpectedRevision int64  `json:"expectedRevision"`
+}
+
+type AddListenLocalPlaylistItemsRequest struct {
+	ID               string   `json:"id"`
+	FileIDs          []string `json:"fileIds"`
+	ExpectedRevision int64    `json:"expectedRevision"`
+}
+
+type ReplaceListenLocalPlaylistItemsRequest struct {
+	ID               string   `json:"id"`
+	FileIDs          []string `json:"fileIds"`
+	ItemIDs          []string `json:"itemIds,omitempty"`
+	ExpectedRevision int64    `json:"expectedRevision"`
+}
+
+type RemoveListenLocalPlaylistItemRequest struct {
+	ID               string `json:"id"`
+	FileID           string `json:"fileId"`
+	ItemID           string `json:"itemId,omitempty"`
+	ExpectedRevision int64  `json:"expectedRevision"`
 }
 
 type RefreshListenLocalIndexRequest struct {
@@ -524,6 +621,13 @@ type ClearMissingLibraryFilesResponse struct {
 	Removed int `json:"removed"`
 }
 
+// ClearSelectedMissingLibraryFilesRequest deliberately carries only durable
+// file identities. The service reloads every record and rechecks the current
+// path while holding the per-file mutation lock before clearing it.
+type ClearSelectedMissingLibraryFilesRequest struct {
+	FileIDs []string `json:"fileIds"`
+}
+
 type MissingLibraryFileDTO struct {
 	FileID      string `json:"fileId"`
 	LibraryID   string `json:"libraryId"`
@@ -541,6 +645,108 @@ type MissingLibraryFileDTO struct {
 type ListMissingLibraryFilesResponse struct {
 	Checked int                     `json:"checked"`
 	Missing []MissingLibraryFileDTO `json:"missing"`
+}
+
+type DeletedLibraryFileDTO struct {
+	FileID     string `json:"fileId"`
+	LibraryID  string `json:"libraryId"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	OldPath    string `json:"oldPath,omitempty"`
+	Format     string `json:"format,omitempty"`
+	CanRestore bool   `json:"canRestore"`
+	UpdatedAt  string `json:"updatedAt,omitempty"`
+}
+
+// LibraryTaskMaintenanceDTO keeps historical execution status separate from
+// current output availability. A succeeded task is only actionable when none
+// of its playable outputs remain available; deleted intermediate sources and
+// auxiliary artwork do not make an otherwise playable task unhealthy.
+type LibraryTaskMaintenanceDTO struct {
+	OperationID            string `json:"operationId"`
+	Name                   string `json:"name"`
+	ExecutionStatus        string `json:"executionStatus"`
+	Health                 string `json:"health"`
+	OutputCount            int    `json:"outputCount"`
+	AvailableOutputCount   int    `json:"availableOutputCount"`
+	DeletedOutputCount     int    `json:"deletedOutputCount"`
+	UnavailableOutputCount int    `json:"unavailableOutputCount"`
+}
+
+type LibraryMaintenanceSnapshotDTO struct {
+	CheckedFiles      int                         `json:"checkedFiles"`
+	MissingFiles      []MissingLibraryFileDTO     `json:"missingFiles"`
+	DeletedFiles      []DeletedLibraryFileDTO     `json:"deletedFiles"`
+	CheckedTasks      int                         `json:"checkedTasks"`
+	TaskIssues        []LibraryTaskMaintenanceDTO `json:"taskIssues"`
+	DatabaseIntegrity DatabaseIntegrityStatusDTO  `json:"databaseIntegrity"`
+}
+
+// DatabaseIntegrityStatusDTO exposes the background SQLite integrity result
+// without rerunning an expensive full check from the UI.
+type DatabaseIntegrityStatusDTO struct {
+	State     string `json:"state"`
+	CheckedAt string `json:"checkedAt,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+type RestoreDeletedLibraryFilesRequest struct {
+	FileIDs []string `json:"fileIds"`
+}
+
+type RestoreDeletedLibraryFilesResponse struct {
+	Checked  int `json:"checked"`
+	Restored int `json:"restored"`
+	Skipped  int `json:"skipped"`
+}
+
+// DeletedLibraryItemDTO is the read model for the user-facing Deleted
+// companion. Task entries are immutable operation-deletion snapshots; file
+// entries are recoverable legacy file tombstones. Catalog trash remains owned
+// by CatalogHandler and is intentionally not folded into this boundary.
+type DeletedLibraryItemDTO struct {
+	ID         string                   `json:"id"`
+	Kind       string                   `json:"kind"`
+	Source     string                   `json:"source"`
+	LibraryID  string                   `json:"libraryId"`
+	Title      string                   `json:"title"`
+	Category   string                   `json:"category"`
+	Status     string                   `json:"status"`
+	DeletedAt  string                   `json:"deletedAt"`
+	CanRestore bool                     `json:"canRestore"`
+	Detail     DeletedLibraryItemDetail `json:"detail"`
+}
+
+type DeletedLibraryItemDetail struct {
+	TaskHistory *LibraryHistoryRecordDTO `json:"taskHistory,omitempty"`
+	File        *LibraryFileDTO          `json:"file,omitempty"`
+}
+
+type ListDeletedLibraryItemsRequest struct {
+	Kinds     []string `json:"kinds,omitempty"`
+	LibraryID string   `json:"libraryId,omitempty"`
+	Category  string   `json:"category,omitempty"`
+	Query     string   `json:"query,omitempty"`
+	Limit     int      `json:"limit,omitempty"`
+	Offset    int      `json:"offset,omitempty"`
+}
+
+type ListDeletedLibraryItemsResponse struct {
+	Items  []DeletedLibraryItemDTO `json:"items"`
+	Total  int                     `json:"total"`
+	Limit  int                     `json:"limit"`
+	Offset int                     `json:"offset"`
+}
+
+type DeletedLibraryItemMutationRequest struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+type DeletedLibraryItemMutationResponse struct {
+	Kind     string `json:"kind"`
+	ID       string `json:"id"`
+	Restored bool   `json:"restored"`
 }
 
 type ScanMissingLibraryFilesRequest struct {
@@ -615,6 +821,10 @@ type CreateYTDLPJobRequest struct {
 	UseAppSession                  bool     `json:"useAppSession,omitempty"`
 	ResourceSessionID              string   `json:"resourceSessionId,omitempty"`
 	ResourceMediaID                string   `json:"resourceMediaId,omitempty"`
+	// RestrictedProxyURL is execution-only state. It is deliberately excluded
+	// from persisted operation input so queued/retried public API jobs must
+	// establish a fresh enforcing proxy at the real fetch boundary.
+	RestrictedProxyURL string `json:"-"`
 }
 
 type CreateYTDLPBatchJobsRequest struct {
@@ -744,12 +954,31 @@ type ParseYTDLPDownloadResponse struct {
 }
 
 type StartResourceSniffRequest struct {
-	URL string `json:"url"`
+	URL       string `json:"url"`
+	Mode      string `json:"mode,omitempty"`
+	BrowserID string `json:"browserId,omitempty"`
+	ProfileID string `json:"profileId,omitempty"`
+}
+
+type CurrentResourceSniffBrowserStatusRequest struct {
+	BrowserID string `json:"browserId"`
+}
+
+type CurrentResourceSniffBrowserStatus struct {
+	BrowserID      string `json:"browserId"`
+	State          string `json:"state"`
+	Installed      bool   `json:"installed"`
+	Running        bool   `json:"running"`
+	Supported      bool   `json:"supported"`
+	Ready          bool   `json:"ready"`
+	Version        string `json:"version,omitempty"`
+	MinimumVersion int    `json:"minimumVersion"`
+	ProfileName    string `json:"profileName,omitempty"`
+	Detail         string `json:"detail,omitempty"`
 }
 
 type StartResourceSniffResult struct {
 	Session *ResourceSniffSession `json:"session,omitempty"`
-	Failure *ResourceSniffFailure `json:"failure,omitempty"`
 }
 
 type GetResourceSniffSessionRequest struct {
@@ -828,40 +1057,40 @@ type PrepareResourceSniffRawDownloadRequest struct {
 	ResourceID string `json:"resourceId"`
 }
 
-type ParseResourceSniffRequest struct {
-	SessionID string `json:"sessionId"`
-}
-
-type ParseResourceSniffResponse struct {
-	Media   *ParseYTDLPDownloadResponse `json:"media,omitempty"`
-	Failure *ResourceSniffFailure       `json:"failure,omitempty"`
-}
-
-type ResourceSniffFailure struct {
-	Code      string `json:"code"`
-	Site      string `json:"site,omitempty"`
-	Action    string `json:"action,omitempty"`
-	Retryable bool   `json:"retryable"`
-	Detail    string `json:"detail,omitempty"`
-}
-
 type CancelResourceSniffRequest struct {
 	SessionID string `json:"sessionId"`
 }
 
 type ResourceSniffSession struct {
-	SessionID         string `json:"sessionId"`
+	SessionID      string `json:"sessionId"`
+	State          string `json:"state"`
+	BrowserStatus  string `json:"browserStatus"`
+	URL            string `json:"url"`
+	CurrentURL     string `json:"currentUrl,omitempty"`
+	Title          string `json:"title,omitempty"`
+	ActiveTargetID string `json:"activeTargetId,omitempty"`
+	TabCount       int    `json:"tabCount"`
+	Mode           string `json:"mode,omitempty"`
+	BrowserID      string `json:"browserId,omitempty"`
+	ProfileID      string `json:"profileId,omitempty"`
+}
+
+// ResourceSniffStatusSnapshot is the lightweight, global activity projection
+// used by workspace status surfaces. It intentionally excludes raw resources
+// and preview bodies.
+type ResourceSniffStatusSnapshot struct {
+	Runtime           string `json:"runtime"`
 	State             string `json:"state"`
-	BrowserStatus     string `json:"browserStatus"`
-	URL               string `json:"url"`
-	CurrentURL        string `json:"currentUrl,omitempty"`
+	SessionID         string `json:"sessionId,omitempty"`
+	RuntimeID         string `json:"runtimeId,omitempty"`
 	Title             string `json:"title,omitempty"`
-	ActiveTargetID    string `json:"activeTargetId,omitempty"`
-	TabCount          int    `json:"tabCount"`
-	UnoptimizedDomain string `json:"unoptimizedDomain,omitempty"`
-	AuthStatus        string `json:"authStatus,omitempty"`
-	AuthUser          string `json:"authUser,omitempty"`
-	AuthSite          string `json:"authSite,omitempty"`
+	URL               string `json:"url,omitempty"`
+	Favicon           string `json:"favicon,omitempty"`
+	ResourceCount     int    `json:"resourceCount"`
+	DownloadableCount int    `json:"downloadableCount"`
+	LastCaptureAt     string `json:"lastCaptureAt,omitempty"`
+	CanClear          bool   `json:"canClear"`
+	CanStop           bool   `json:"canStop"`
 }
 
 type CDPBrowserStatus struct {

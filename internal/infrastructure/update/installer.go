@@ -13,15 +13,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"xiadown/internal/application/softwareupdate"
 	domainupdate "xiadown/internal/domain/update"
 )
 
-var ErrPreparedUpdateNotFound = fmt.Errorf("prepared update not found")
+var (
+	ErrPreparedUpdateNotFound = errors.New("prepared update not found")
+	errPlistKeyNotFound       = errors.New("plist key not found")
+)
 
 type installKind string
 
@@ -89,18 +92,19 @@ func NewInstaller(statePath string) (*PlatformInstaller, error) {
 	}, nil
 }
 
-func (installer *PlatformInstaller) SelectDownloadURLs(_ context.Context, urls []string) []string {
-	if installer == nil || installer.goos != "windows" || len(urls) == 0 {
-		return slices.Clone(urls)
+func (installer *PlatformInstaller) SelectDownloadAsset(_ context.Context, asset softwareupdate.Asset) softwareupdate.Asset {
+	if installer == nil || installer.goos != "windows" {
+		return asset
 	}
 	currentExe, err := installer.currentExecutable()
 	if err != nil {
-		return preferWindowsPortableDownloadURLs(urls)
+		return softwareupdate.Asset{}
 	}
-	if detectWindowsInstallKind(currentExe) == installKindInstalled {
-		return preferWindowsInstallerDownloadURLs(urls)
+	selected, ok := selectWindowsDownloadAsset(detectWindowsInstallKind(currentExe), asset)
+	if !ok {
+		return softwareupdate.Asset{}
 	}
-	return preferWindowsPortableDownloadURLs(urls)
+	return selected
 }
 
 func (installer *PlatformInstaller) Install(ctx context.Context, artifactPath string, prepared domainupdate.Info) error {
@@ -131,12 +135,12 @@ func (installer *PlatformInstaller) Install(ctx context.Context, artifactPath st
 		return installErr
 	}
 	if hasPreviousPlan && strings.TrimSpace(previousPlan.StageDir) != "" {
-		_ = os.RemoveAll(previousPlan.StageDir)
+		_ = installer.removeStageDir(previousPlan.StageDir)
 	}
 	return nil
 }
 
-func (installer *PlatformInstaller) RestartToApply(_ context.Context) error {
+func (installer *PlatformInstaller) RestartToApply(ctx context.Context) error {
 	if installer == nil {
 		return fmt.Errorf("installer not configured")
 	}
@@ -147,9 +151,9 @@ func (installer *PlatformInstaller) RestartToApply(_ context.Context) error {
 
 	switch plan.Platform {
 	case "windows":
-		return installer.restartWindows(plan)
+		return installer.restartWindows(ctx, plan)
 	case "darwin":
-		return installer.restartDarwin(plan)
+		return installer.restartDarwin(ctx, plan)
 	default:
 		return fmt.Errorf("unsupported update platform %q", plan.Platform)
 	}
@@ -165,6 +169,12 @@ func (installer *PlatformInstaller) prepareWindowsUpdate(artifactPath string, pr
 	if err != nil {
 		return err
 	}
+	keepStageDir := false
+	defer func() {
+		if !keepStageDir {
+			_ = installer.removeStageDir(stageDir)
+		}
+	}()
 
 	artifactName := filepath.Base(artifactPath)
 	plan := stagedPlan{
@@ -197,7 +207,11 @@ func (installer *PlatformInstaller) prepareWindowsUpdate(artifactPath string, pr
 		return fmt.Errorf("unsupported windows update artifact %q", artifactName)
 	}
 
-	return installer.savePlan(plan)
+	if err := installer.savePlan(plan); err != nil {
+		return err
+	}
+	keepStageDir = true
+	return nil
 }
 
 func (installer *PlatformInstaller) prepareMacUpdate(ctx context.Context, artifactPath string, prepared domainupdate.Info) error {
@@ -214,6 +228,12 @@ func (installer *PlatformInstaller) prepareMacUpdate(ctx context.Context, artifa
 	if err != nil {
 		return err
 	}
+	keepStageDir := false
+	defer func() {
+		if !keepStageDir {
+			_ = installer.removeStageDir(stageDir)
+		}
+	}()
 	extractDir := filepath.Join(stageDir, "bundle")
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		return err
@@ -231,7 +251,7 @@ func (installer *PlatformInstaller) prepareMacUpdate(ctx context.Context, artifa
 	}
 	targetBundle := resolveMacTargetBundle(currentBundle)
 
-	return installer.savePlan(stagedPlan{
+	if err := installer.savePlan(stagedPlan{
 		Platform:     "darwin",
 		Mode:         "bundle",
 		StageDir:     stageDir,
@@ -243,7 +263,11 @@ func (installer *PlatformInstaller) prepareMacUpdate(ctx context.Context, artifa
 		TeamID:       validation.TeamID,
 		Version:      strings.TrimSpace(prepared.LatestVersion),
 		Changelog:    prepared.Changelog,
-	})
+	}); err != nil {
+		return err
+	}
+	keepStageDir = true
+	return nil
 }
 
 func (installer *PlatformInstaller) PreparedUpdate(_ context.Context) (domainupdate.Info, bool, error) {
@@ -347,7 +371,13 @@ func (installer *PlatformInstaller) MarkWhatsNewSeen(_ context.Context, version 
 	return nil
 }
 
-func (installer *PlatformInstaller) restartWindows(plan stagedPlan) error {
+func (installer *PlatformInstaller) restartWindows(ctx context.Context, plan stagedPlan) error {
+	validated, err := installer.validateRestartPlan(ctx, plan, "windows")
+	if err != nil {
+		return err
+	}
+	plan = validated
+
 	scriptPath := filepath.Join(installer.stateDir, "apply_update.ps1")
 	if err := os.WriteFile(scriptPath, []byte(windowsApplyScript), 0o600); err != nil {
 		return err
@@ -369,7 +399,13 @@ func (installer *PlatformInstaller) restartWindows(plan stagedPlan) error {
 	return installer.startDetached("powershell.exe", args)
 }
 
-func (installer *PlatformInstaller) restartDarwin(plan stagedPlan) error {
+func (installer *PlatformInstaller) restartDarwin(ctx context.Context, plan stagedPlan) error {
+	validated, err := installer.validateRestartPlan(ctx, plan, "darwin")
+	if err != nil {
+		return err
+	}
+	plan = validated
+
 	scriptPath := filepath.Join(installer.stateDir, "apply_update.sh")
 	if err := os.WriteFile(scriptPath, []byte(darwinApplyScript), 0o700); err != nil {
 		return err
@@ -411,8 +447,13 @@ func (installer *PlatformInstaller) currentExecutable() (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("executable path is empty")
 	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve executable path: %w", err)
+	}
+	path = filepath.Clean(absolutePath)
 	if resolved, err := filepath.EvalSymlinks(path); err == nil && strings.TrimSpace(resolved) != "" {
-		path = resolved
+		path = filepath.Clean(resolved)
 	}
 	return path, nil
 }
@@ -430,11 +471,295 @@ func defaultCommandOutput(ctx context.Context, name string, args ...string) ([]b
 }
 
 func (installer *PlatformInstaller) newStageDir() (string, error) {
-	stageRoot := filepath.Join(installer.stateDir, "update-stage")
+	stageRoot, err := installer.stageRoot()
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(stageRoot, 0o755); err != nil {
 		return "", err
 	}
-	return os.MkdirTemp(stageRoot, "prepared-*")
+	stageDir, err := os.MkdirTemp(stageRoot, "prepared-*")
+	if err != nil {
+		return "", err
+	}
+	validated, err := installer.validateStageDir(stageDir)
+	if err != nil {
+		return "", err
+	}
+	return validated, nil
+}
+
+func (installer *PlatformInstaller) stageRoot() (string, error) {
+	if installer == nil {
+		return "", fmt.Errorf("installer not configured")
+	}
+	stateDir := strings.TrimSpace(installer.stateDir)
+	if stateDir == "" {
+		return "", fmt.Errorf("installer state directory is empty")
+	}
+	root, err := filepath.Abs(filepath.Join(stateDir, "update-stage"))
+	if err != nil {
+		return "", fmt.Errorf("resolve update stage root: %w", err)
+	}
+	return filepath.Clean(root), nil
+}
+
+func (installer *PlatformInstaller) validateStageDir(rawStageDir string) (string, error) {
+	stageDir, err := absoluteDeclaredPath(rawStageDir, "stage directory")
+	if err != nil {
+		return "", err
+	}
+	stageRoot, err := installer.stageRoot()
+	if err != nil {
+		return "", err
+	}
+	if !isWithinDir(stageDir, stageRoot) {
+		return "", fmt.Errorf("stage directory %q is outside update stage root %q", stageDir, stageRoot)
+	}
+	if err := rejectSymlinkDescendant(stageRoot, stageDir); err != nil {
+		return "", fmt.Errorf("validate stage directory path: %w", err)
+	}
+
+	rootInfo, err := os.Stat(stageRoot)
+	if err != nil {
+		return "", fmt.Errorf("inspect update stage root: %w", err)
+	}
+	if !rootInfo.IsDir() {
+		return "", fmt.Errorf("update stage root %q is not a directory", stageRoot)
+	}
+	stageInfo, err := os.Stat(stageDir)
+	if err != nil {
+		return "", fmt.Errorf("inspect stage directory: %w", err)
+	}
+	if !stageInfo.IsDir() {
+		return "", fmt.Errorf("stage path %q is not a directory", stageDir)
+	}
+
+	resolvedRoot, err := filepath.EvalSymlinks(stageRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve update stage root: %w", err)
+	}
+	resolvedStage, err := filepath.EvalSymlinks(stageDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve stage directory: %w", err)
+	}
+	if !isWithinDir(resolvedStage, resolvedRoot) {
+		return "", fmt.Errorf("resolved stage directory %q escapes update stage root %q", resolvedStage, resolvedRoot)
+	}
+	return stageDir, nil
+}
+
+func (installer *PlatformInstaller) validateStagedPlan(plan stagedPlan) (stagedPlan, error) {
+	plan.Platform = strings.ToLower(strings.TrimSpace(plan.Platform))
+	plan.Mode = strings.ToLower(strings.TrimSpace(plan.Mode))
+	targetPath, err := absoluteDeclaredPath(plan.TargetPath, "target path")
+	if err != nil {
+		return stagedPlan{}, err
+	}
+	plan.TargetPath = targetPath
+
+	stageDir, err := installer.validateStageDir(plan.StageDir)
+	if err != nil {
+		return stagedPlan{}, err
+	}
+	sourcePath, sourceInfo, err := validateExistingStageDescendant(plan.SourcePath, stageDir)
+	if err != nil {
+		return stagedPlan{}, fmt.Errorf("validate staged source: %w", err)
+	}
+	plan.StageDir = stageDir
+	plan.SourcePath = sourcePath
+
+	switch plan.Platform {
+	case "windows":
+		if plan.Mode != "installer" && plan.Mode != "portable" {
+			return stagedPlan{}, fmt.Errorf("unsupported windows update mode %q", plan.Mode)
+		}
+		if !sourceInfo.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(sourcePath), ".exe") {
+			return stagedPlan{}, fmt.Errorf("windows staged source must be a regular .exe file")
+		}
+		if plan.Mode == "installer" {
+			if !samePath(filepath.Dir(sourcePath), stageDir, true) {
+				return stagedPlan{}, fmt.Errorf("windows installer must be stored directly in the stage directory")
+			}
+		} else {
+			portableRoot := filepath.Join(stageDir, "portable")
+			if !isWithinDir(sourcePath, portableRoot) {
+				return stagedPlan{}, fmt.Errorf("portable executable must be stored below %q", portableRoot)
+			}
+		}
+	case "darwin":
+		if plan.Mode != "bundle" {
+			return stagedPlan{}, fmt.Errorf("unsupported macOS update mode %q", plan.Mode)
+		}
+		bundleRoot := filepath.Join(stageDir, "bundle")
+		if !isWithinDir(sourcePath, bundleRoot) || !sourceInfo.IsDir() || !strings.EqualFold(filepath.Ext(sourcePath), ".app") {
+			return stagedPlan{}, fmt.Errorf("macOS staged source must be an .app bundle below %q", bundleRoot)
+		}
+		info, err := os.Stat(filepath.Join(sourcePath, "Contents", "Info.plist"))
+		if err != nil {
+			return stagedPlan{}, fmt.Errorf("inspect staged app Info.plist: %w", err)
+		}
+		if !info.Mode().IsRegular() {
+			return stagedPlan{}, fmt.Errorf("staged app Info.plist is not a regular file")
+		}
+	default:
+		return stagedPlan{}, fmt.Errorf("unsupported update platform %q", plan.Platform)
+	}
+	return plan, nil
+}
+
+func (installer *PlatformInstaller) validateRestartPlan(ctx context.Context, plan stagedPlan, expectedPlatform string) (stagedPlan, error) {
+	validated, err := installer.validateStagedPlan(plan)
+	if err != nil {
+		return stagedPlan{}, fmt.Errorf("validate restart plan: %w", err)
+	}
+	if validated.Platform != expectedPlatform {
+		return stagedPlan{}, fmt.Errorf("prepared update platform %q does not match restart helper %q", validated.Platform, expectedPlatform)
+	}
+	if installer.goos != expectedPlatform {
+		return stagedPlan{}, fmt.Errorf("prepared update platform %q does not match current platform %q", validated.Platform, installer.goos)
+	}
+
+	currentExe, err := installer.currentExecutable()
+	if err != nil {
+		return stagedPlan{}, fmt.Errorf("resolve current executable for prepared update: %w", err)
+	}
+	switch expectedPlatform {
+	case "windows":
+		if !strings.EqualFold(filepath.Ext(currentExe), ".exe") {
+			return stagedPlan{}, fmt.Errorf("current Windows executable %q is not an .exe", currentExe)
+		}
+		if !sameDeclaredPath(validated.TargetPath, currentExe, true) {
+			return stagedPlan{}, fmt.Errorf("prepared update target %q does not match current executable %q", validated.TargetPath, currentExe)
+		}
+		validated.TargetPath = currentExe
+		validated.RelaunchPath = currentExe
+		validated.FallbackPath = ""
+		validated.InstallDir = filepath.Dir(currentExe)
+	case "darwin":
+		currentBundle, err := resolveAppBundle(currentExe)
+		if err != nil {
+			return stagedPlan{}, fmt.Errorf("resolve current app bundle for prepared update: %w", err)
+		}
+		targetBundle := resolveMacTargetBundle(currentBundle)
+		if !sameDeclaredPath(validated.TargetPath, targetBundle, false) {
+			return stagedPlan{}, fmt.Errorf("prepared update target %q does not match current app target %q", validated.TargetPath, targetBundle)
+		}
+		bundleValidation, err := installer.validateMacUpdateBundle(ctx, currentBundle, validated.SourcePath)
+		if err != nil {
+			return stagedPlan{}, fmt.Errorf("revalidate prepared macOS update: %w", err)
+		}
+		validated.TargetPath = targetBundle
+		validated.RelaunchPath = targetBundle
+		validated.FallbackPath = currentBundle
+		validated.InstallDir = filepath.Dir(targetBundle)
+		validated.BundleID = bundleValidation.BundleID
+		validated.TeamID = bundleValidation.TeamID
+	default:
+		return stagedPlan{}, fmt.Errorf("unsupported update platform %q", expectedPlatform)
+	}
+	return validated, nil
+}
+
+func (installer *PlatformInstaller) removeStageDir(rawStageDir string) error {
+	stageDir, err := installer.validateStageDir(rawStageDir)
+	if err != nil {
+		return fmt.Errorf("refuse unsafe staged update cleanup: %w", err)
+	}
+	if err := os.RemoveAll(stageDir); err != nil {
+		return fmt.Errorf("remove staged update %q: %w", stageDir, err)
+	}
+	return nil
+}
+
+func validateExistingStageDescendant(rawPath string, stageDir string) (string, fs.FileInfo, error) {
+	path, err := absoluteDeclaredPath(rawPath, "staged source path")
+	if err != nil {
+		return "", nil, err
+	}
+	if !isWithinDir(path, stageDir) {
+		return "", nil, fmt.Errorf("path %q is outside stage directory %q", path, stageDir)
+	}
+	if err := rejectSymlinkDescendant(stageDir, path); err != nil {
+		return "", nil, err
+	}
+	resolvedStage, err := filepath.EvalSymlinks(stageDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve stage directory: %w", err)
+	}
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve staged source: %w", err)
+	}
+	if !isWithinDir(resolvedPath, resolvedStage) {
+		return "", nil, fmt.Errorf("resolved staged source %q escapes stage directory %q", resolvedPath, resolvedStage)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, info, nil
+}
+
+func absoluteDeclaredPath(rawPath string, label string) (string, error) {
+	trimmed := strings.TrimSpace(rawPath)
+	if trimmed == "" {
+		return "", fmt.Errorf("%s is empty", label)
+	}
+	if !filepath.IsAbs(trimmed) {
+		return "", fmt.Errorf("%s %q is not absolute", label, rawPath)
+	}
+	return filepath.Clean(trimmed), nil
+}
+
+func sameDeclaredPath(declared string, expected string, caseInsensitive bool) bool {
+	declaredPath, err := absoluteDeclaredPath(declared, "declared path")
+	if err != nil {
+		return false
+	}
+	expectedPath, err := absoluteDeclaredPath(expected, "expected path")
+	if err != nil {
+		return false
+	}
+	return samePath(declaredPath, expectedPath, caseInsensitive)
+}
+
+func samePath(left string, right string, caseInsensitive bool) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if caseInsensitive {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
+}
+
+func rejectSymlinkDescendant(root string, descendant string) error {
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		return err
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("symbolic link is not allowed in staged path %q", root)
+	}
+	relative, err := filepath.Rel(root, descendant)
+	if err != nil {
+		return err
+	}
+	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("path %q is not a strict descendant of %q", descendant, root)
+	}
+	current := root
+	for _, element := range strings.Split(relative, string(os.PathSeparator)) {
+		current = filepath.Join(current, element)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("symbolic link is not allowed in staged path %q", current)
+		}
+	}
+	return nil
 }
 
 func (installer *PlatformInstaller) cleanupStagedUpdate() error {
@@ -443,31 +768,63 @@ func (installer *PlatformInstaller) cleanupStagedUpdate() error {
 		if errors.Is(err, ErrPreparedUpdateNotFound) {
 			return nil
 		}
-		return err
+		// A corrupt plan must never turn into an arbitrary recursive delete. The
+		// fixed-name plan itself is safe to discard so the user can recover.
+		if removeErr := os.Remove(installer.planPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			return errors.Join(err, fmt.Errorf("remove invalid prepared update plan: %w", removeErr))
+		}
+		return nil
 	}
 	if strings.TrimSpace(plan.StageDir) != "" {
-		_ = os.RemoveAll(plan.StageDir)
+		if err := installer.removeStageDir(plan.StageDir); err != nil {
+			return err
+		}
 	}
-	_ = os.Remove(installer.planPath)
+	if err := os.Remove(installer.planPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 
 func (installer *PlatformInstaller) loadPlan() (stagedPlan, error) {
-	data, err := os.ReadFile(installer.planPath)
+	file, err := os.Open(installer.planPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return stagedPlan{}, ErrPreparedUpdateNotFound
 		}
 		return stagedPlan{}, err
 	}
-	var plan stagedPlan
-	if err := json.Unmarshal(data, &plan); err != nil {
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
 		return stagedPlan{}, err
 	}
-	if strings.TrimSpace(plan.SourcePath) == "" || strings.TrimSpace(plan.TargetPath) == "" {
-		return stagedPlan{}, fmt.Errorf("prepared update plan is incomplete")
+	if !info.Mode().IsRegular() {
+		return stagedPlan{}, fmt.Errorf("prepared update plan is not a regular file")
 	}
-	return plan, nil
+	const maxPreparedPlanSize = 4 << 20
+	if info.Size() > maxPreparedPlanSize {
+		return stagedPlan{}, fmt.Errorf("prepared update plan exceeds %d bytes", maxPreparedPlanSize)
+	}
+
+	var plan stagedPlan
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&plan); err != nil {
+		return stagedPlan{}, fmt.Errorf("decode prepared update plan: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return stagedPlan{}, fmt.Errorf("prepared update plan contains trailing JSON data")
+		}
+		return stagedPlan{}, fmt.Errorf("decode prepared update plan trailing data: %w", err)
+	}
+	validated, err := installer.validateStagedPlan(plan)
+	if err != nil {
+		return stagedPlan{}, fmt.Errorf("validate prepared update plan: %w", err)
+	}
+	return validated, nil
 }
 
 func (installer *PlatformInstaller) savePlan(plan stagedPlan) error {
@@ -547,6 +904,7 @@ func readXMLPlistString(path string, key string) (string, error) {
 
 	decoder := xml.NewDecoder(file)
 	var lastKey string
+	sawPlist := false
 	for {
 		token, err := decoder.Token()
 		if err != nil {
@@ -560,6 +918,8 @@ func readXMLPlistString(path string, key string) (string, error) {
 			continue
 		}
 		switch start.Name.Local {
+		case "plist":
+			sawPlist = true
 		case "key":
 			var value string
 			if err := decoder.DecodeElement(&value, &start); err != nil {
@@ -581,7 +941,10 @@ func readXMLPlistString(path string, key string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("plist key %q not found", key)
+	if !sawPlist {
+		return "", fmt.Errorf("invalid XML plist")
+	}
+	return "", fmt.Errorf("%w: %q", errPlistKeyNotFound, key)
 }
 
 func (installer *PlatformInstaller) verifyMacCodeSignature(ctx context.Context, bundlePath string) error {
@@ -810,89 +1173,65 @@ func copyFile(src string, dst string) error {
 	return out.Close()
 }
 
-func preferWindowsInstallerDownloadURLs(urls []string) []string {
-	result := make([]string, 0, len(urls)*2)
-	seen := make(map[string]struct{}, len(urls)*2)
-	add := func(raw string) {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return
-		}
-		if _, ok := seen[trimmed]; ok {
-			return
-		}
-		seen[trimmed] = struct{}{}
-		result = append(result, trimmed)
+func selectWindowsDownloadAsset(kind installKind, asset softwareupdate.Asset) (softwareupdate.Asset, bool) {
+	variantName := ""
+	switch kind {
+	case installKindInstalled:
+		variantName = "installer"
+	case installKindPortable:
+		variantName = "portable"
+	default:
+		return softwareupdate.Asset{}, false
 	}
 
-	for _, raw := range urls {
-		if strings.Contains(strings.ToLower(raw), "-installer.exe") {
-			add(raw)
-			continue
-		}
-		if installerURL := installerWindowsDownloadURL(raw); installerURL != "" {
-			add(installerURL)
-		}
+	if windowsDownloadAssetKind(asset) == kind && len(asset.DownloadURLs()) > 0 {
+		return asset, true
 	}
-	if len(result) == 0 {
-		return slices.Clone(urls)
+
+	if variant, ok := asset.Variants[variantName]; ok &&
+		windowsDownloadAssetKind(variant) == kind && len(variant.DownloadURLs()) > 0 {
+		return variant, true
 	}
-	return result
+	return softwareupdate.Asset{}, false
 }
 
-func preferWindowsPortableDownloadURLs(urls []string) []string {
-	result := make([]string, 0, len(urls)*2)
-	seen := make(map[string]struct{}, len(urls)*2)
-	add := func(raw string) {
-		trimmed := strings.TrimSpace(raw)
-		if trimmed == "" {
-			return
-		}
-		if _, ok := seen[trimmed]; ok {
-			return
-		}
-		seen[trimmed] = struct{}{}
-		result = append(result, trimmed)
+func windowsDownloadAssetKind(asset softwareupdate.Asset) installKind {
+	switch strings.ToLower(strings.TrimSpace(asset.ArtifactType)) {
+	case "exe":
+		return installKindInstalled
+	case "zip":
+		return installKindPortable
 	}
-
-	for _, raw := range urls {
-		if portable := portableWindowsDownloadURL(raw); portable != "" {
-			add(portable)
-			continue
-		}
-		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(raw)), ".zip") {
-			add(raw)
+	switch strings.ToLower(strings.TrimSpace(asset.InstallStrategy)) {
+	case "app-installer", "installer":
+		return installKindInstalled
+	case "archive", "portable":
+		return installKindPortable
+	}
+	if kind := windowsDownloadNameKind(asset.ArtifactName); kind != installKindUnknown {
+		return kind
+	}
+	for _, source := range asset.SortedSources() {
+		if kind := windowsDownloadNameKind(source.URL); kind != installKindUnknown {
+			return kind
 		}
 	}
-	if len(result) == 0 {
-		return slices.Clone(urls)
-	}
-	return result
+	return installKindUnknown
 }
 
-func installerWindowsDownloadURL(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return ""
+func windowsDownloadNameKind(raw string) installKind {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if index := strings.IndexAny(value, "?#"); index >= 0 {
+		value = value[:index]
 	}
-	const portableSuffix = ".zip"
-	if !strings.HasSuffix(strings.ToLower(trimmed), portableSuffix) {
-		return ""
+	switch {
+	case strings.HasSuffix(value, "-installer.exe"):
+		return installKindInstalled
+	case strings.HasSuffix(value, ".zip"):
+		return installKindPortable
+	default:
+		return installKindUnknown
 	}
-	return trimmed[:len(trimmed)-len(portableSuffix)] + "-installer.exe"
-}
-
-func portableWindowsDownloadURL(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return ""
-	}
-	const installerSuffix = "-installer.exe"
-	index := strings.LastIndex(strings.ToLower(trimmed), installerSuffix)
-	if index < 0 {
-		return ""
-	}
-	return trimmed[:index] + ".zip" + trimmed[index+len(installerSuffix):]
 }
 
 const windowsApplyScript = `param(
@@ -1189,7 +1528,7 @@ rm -rf "$STAGE_DIR"
 var _ interface {
 	Install(context.Context, string, domainupdate.Info) error
 	RestartToApply(context.Context) error
-	SelectDownloadURLs(context.Context, []string) []string
+	SelectDownloadAsset(context.Context, softwareupdate.Asset) softwareupdate.Asset
 	PreparedUpdate(context.Context) (domainupdate.Info, bool, error)
 	ClearPreparedUpdate(context.Context) error
 	PendingWhatsNew(context.Context) (domainupdate.WhatsNew, bool, error)

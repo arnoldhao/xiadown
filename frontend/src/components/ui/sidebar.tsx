@@ -8,7 +8,7 @@ const SidebarMenu = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <ul
     ref={ref}
-    className={cn("flex w-full min-w-0 flex-col gap-1", className)}
+    className={cn("app-sidebar-menu", className)}
     {...props}
   />
 ));
@@ -18,7 +18,7 @@ const SidebarMenuItem = React.forwardRef<
   HTMLLIElement,
   React.ComponentPropsWithoutRef<"li">
 >(({ className, ...props }, ref) => (
-  <li ref={ref} className={cn("relative list-none", className)} {...props} />
+  <li ref={ref} className={cn("app-sidebar-menu__item", className)} {...props} />
 ));
 SidebarMenuItem.displayName = "SidebarMenuItem";
 
@@ -30,12 +30,7 @@ const SidebarMenuButton = React.forwardRef<
     ref={ref}
     type={type}
     data-active={isActive ? "true" : "false"}
-    className={cn(
-      "flex min-h-10 w-full items-center gap-3 rounded-2xl px-3 py-2 text-left text-sm font-medium text-muted-foreground transition",
-      "hover:bg-muted/70 hover:text-foreground focus-visible:outline-none",
-      "data-[active=true]:bg-primary/10 data-[active=true]:text-primary",
-      className,
-    )}
+    className={cn("app-sidebar-menu__button", className)}
     {...props}
   />
 ));

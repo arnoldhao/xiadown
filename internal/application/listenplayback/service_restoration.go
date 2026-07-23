@@ -6,6 +6,24 @@ import (
 )
 
 func (service *PlayerService) UpdatePlaybackState(ctx context.Context, isPlaying bool, progress float64, duration float64) error {
+	observedState := PlaybackStatePaused
+	if isPlaying {
+		observedState = PlaybackStatePlaying
+	}
+	return service.UpdateObservedPlaybackState(ctx, observedState, isPlaying, progress, duration)
+}
+
+// UpdateObservedPlaybackState keeps the provider's observable playback state
+// separate from the transport's play/pause intent. Buffering is still an
+// active play intent, but callers need the snapshot to remain buffering until
+// media actually resumes.
+func (service *PlayerService) UpdateObservedPlaybackState(
+	ctx context.Context,
+	observedState PlaybackState,
+	isPlaying bool,
+	progress float64,
+	duration float64,
+) error {
 	progress = clampSeconds(progress)
 	duration = clampSeconds(duration)
 
@@ -16,7 +34,7 @@ func (service *PlayerService) UpdatePlaybackState(ctx context.Context, isPlaying
 	}
 	previousProgress := service.progress
 	if service.restoringPlaybackSession {
-		actions := service.reconcileRestoredPlaybackStateLocked(isPlaying, progress, duration, previousProgress)
+		actions := service.reconcileRestoredPlaybackStateLocked(observedState, isPlaying, progress, duration, previousProgress)
 		shouldPublish := service.playbackSnapshotChangedLocked()
 		service.mu.Unlock()
 		if err := service.executeActions(ctx, actions...); err != nil {
@@ -27,7 +45,7 @@ func (service *PlayerService) UpdatePlaybackState(ctx context.Context, isPlaying
 		}
 		return nil
 	}
-	service.applyObservedPlaybackStateLocked(isPlaying, progress, duration, previousProgress)
+	service.applyObservedPlaybackStateLocked(observedState, isPlaying, progress, duration, previousProgress)
 	shouldPublish := service.playbackSnapshotChangedLocked()
 	service.mu.Unlock()
 	if shouldPublish {
@@ -81,6 +99,7 @@ func (service *PlayerService) applyRestoredPlaybackSession(
 	defer service.mu.Unlock()
 	service.clearRestoredPlaybackSessionStateLocked()
 	service.clearForwardSkipNavigationStackLocked()
+	service.replaceQueueIdentityLocked("")
 	service.queue = tracks
 	switch queueKind {
 	case QueueKindRadio, QueueKindPlaylist, QueueKindMix:
@@ -96,6 +115,7 @@ func (service *PlayerService) applyRestoredPlaybackSession(
 	service.showMiniPlayer = false
 	service.songNearingEnd = false
 	service.appInitiatedPlayback = false
+	service.restartCurrentLoad = false
 	service.progress = clampedProgress
 	service.currentTimeMs = int(clampedProgress*1000 + 0.5)
 	service.duration = resolvedDuration
@@ -150,13 +170,20 @@ func (service *PlayerService) shouldLoadPendingVideoBeforePlaybackLocked(ctx con
 	return service.transport.CurrentVideoID(ctx) != service.pendingPlayVideoID
 }
 
-func (service *PlayerService) applyObservedPlaybackStateLocked(isPlaying bool, progress float64, duration float64, previousProgress float64) {
+func (service *PlayerService) applyObservedPlaybackStateLocked(
+	observedState PlaybackState,
+	isPlaying bool,
+	progress float64,
+	duration float64,
+	previousProgress float64,
+) {
 	service.progress = progress
 	service.currentTimeMs = int(progress*1000 + 0.5)
 	service.duration = duration
 	if isPlaying {
-		service.confirmPlaybackStartedLocked()
-	} else if service.state == PlaybackStatePlaying {
+		service.recordPlaybackIntentLocked()
+		service.state = activeObservedPlaybackState(observedState)
+	} else if service.state == PlaybackStatePlaying || service.state == PlaybackStateBuffering {
 		service.state = PlaybackStatePaused
 	}
 	if duration > 0 && progress >= duration-2 && previousProgress < duration-2 {
@@ -183,6 +210,7 @@ func playbackSecondsChanged(previous float64, next float64) bool {
 }
 
 func (service *PlayerService) reconcileRestoredPlaybackStateLocked(
+	observedState PlaybackState,
 	isPlaying bool,
 	progress float64,
 	duration float64,
@@ -191,6 +219,7 @@ func (service *PlayerService) reconcileRestoredPlaybackStateLocked(
 	resolvedDuration := service.resolveRestoredDurationLocked(duration)
 	if service.pendingRestoredSeek > 0 {
 		return service.reconcilePendingRestoredSeekLocked(
+			observedState,
 			isPlaying,
 			progress,
 			service.pendingRestoredSeek,
@@ -204,7 +233,7 @@ func (service *PlayerService) reconcileRestoredPlaybackStateLocked(
 		service.progress = previousProgress
 		service.currentTimeMs = int(previousProgress*1000 + 0.5)
 	}
-	return service.reconcileRestoredPlaybackWithoutPendingSeekLocked(isPlaying, resolvedDuration)
+	return service.reconcileRestoredPlaybackWithoutPendingSeekLocked(observedState, isPlaying, resolvedDuration)
 }
 
 func (service *PlayerService) resolveRestoredDurationLocked(duration float64) float64 {
@@ -217,6 +246,7 @@ func (service *PlayerService) resolveRestoredDurationLocked(duration float64) fl
 }
 
 func (service *PlayerService) reconcilePendingRestoredSeekLocked(
+	observedState PlaybackState,
 	isPlaying bool,
 	progress float64,
 	targetProgress float64,
@@ -239,12 +269,13 @@ func (service *PlayerService) reconcilePendingRestoredSeekLocked(
 		actions = append(actions, transportAction{kind: "seek", seconds: clampedTarget})
 	}
 	if service.autoResumeAfterRestoredSeek {
-		return append(actions, service.finishRestoredAutoResumeLoadLocked(isPlaying, progress, clampedTarget, atRestoredPosition)...)
+		return append(actions, service.finishRestoredAutoResumeLoadLocked(observedState, isPlaying, progress, clampedTarget, atRestoredPosition)...)
 	}
 	return append(actions, service.finishRestoredPausedLoadLocked(isPlaying, progress, clampedTarget, atRestoredPosition)...)
 }
 
 func (service *PlayerService) finishRestoredAutoResumeLoadLocked(
+	observedState PlaybackState,
 	isPlaying bool,
 	observedProgress float64,
 	targetProgress float64,
@@ -269,7 +300,7 @@ func (service *PlayerService) finishRestoredAutoResumeLoadLocked(
 	if shouldIssuePlay {
 		return []transportAction{{kind: "play"}}
 	}
-	service.state = PlaybackStatePlaying
+	service.state = activeObservedPlaybackState(observedState)
 	return nil
 }
 
@@ -297,12 +328,16 @@ func (service *PlayerService) finishRestoredPausedLoadLocked(
 	return nil
 }
 
-func (service *PlayerService) reconcileRestoredPlaybackWithoutPendingSeekLocked(isPlaying bool, resolvedDuration float64) []transportAction {
+func (service *PlayerService) reconcileRestoredPlaybackWithoutPendingSeekLocked(
+	observedState PlaybackState,
+	isPlaying bool,
+	resolvedDuration float64,
+) []transportAction {
 	if service.autoResumeAfterRestoredSeek {
 		service.state = PlaybackStateLoading
 		if isPlaying {
 			service.clearRestoredPlaybackSessionStateLocked()
-			service.state = PlaybackStatePlaying
+			service.state = activeObservedPlaybackState(observedState)
 			return nil
 		}
 		if resolvedDuration > 0 {
@@ -316,6 +351,13 @@ func (service *PlayerService) reconcileRestoredPlaybackWithoutPendingSeekLocked(
 		service.clearRestoredPlaybackSessionStateLocked()
 	}
 	return nil
+}
+
+func activeObservedPlaybackState(observedState PlaybackState) PlaybackState {
+	if observedState == PlaybackStateBuffering {
+		return PlaybackStateBuffering
+	}
+	return PlaybackStatePlaying
 }
 
 func (service *PlayerService) clampedRestoredProgress(progress float64, duration float64) float64 {

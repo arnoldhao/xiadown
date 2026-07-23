@@ -16,6 +16,15 @@ func loadAppIcon(assets fs.FS) []byte {
 	return data
 }
 
+func loadStartupIcon(assets fs.FS) []byte {
+	data, err := fs.ReadFile(assets, "frontend/dist/appicon_startup.png")
+	if err != nil {
+		zap.L().Debug("startup icon not found, fallback to app icon", zap.Error(err))
+		return loadAppIcon(assets)
+	}
+	return data
+}
+
 func appIconAssetPath(goos string) string {
 	if goos == "windows" {
 		return "frontend/dist/appicon_windows.png"

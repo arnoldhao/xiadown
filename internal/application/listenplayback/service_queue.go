@@ -6,6 +6,14 @@ import (
 )
 
 func (service *PlayerService) PlayQueue(ctx context.Context, tracks []Track, startingAt int, title string) error {
+	return service.PlayQueueWithIdentity(ctx, tracks, startingAt, title, "")
+}
+
+// PlayQueueWithIdentity binds a caller-owned operation identity to the new
+// queue before the transport load begins. The caller keeps this identity even
+// if this method's eventual snapshot is superseded by another window while the
+// transport is blocked.
+func (service *PlayerService) PlayQueueWithIdentity(ctx context.Context, tracks []Track, startingAt int, title string, queueIdentity string) error {
 	defer service.PublishSnapshot(ctx)
 	normalized := normalizeTracks(tracks)
 	normalized = assignUniqueQueueTrackIDs(normalized)
@@ -16,6 +24,7 @@ func (service *PlayerService) PlayQueue(ctx context.Context, tracks []Track, sta
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
+	service.replaceQueueIdentityLocked(queueIdentity)
 	service.queueKind = QueueKindPlaylist
 	service.queueTitle = stringsTrim(title)
 	service.mixContinuationToken = ""
@@ -32,6 +41,11 @@ func (service *PlayerService) PlayQueue(ctx context.Context, tracks []Track, sta
 	if err != nil {
 		return err
 	}
+	// Loading the hidden YouTube Music transport can take long enough to make a
+	// user-initiated queue selection look like it was ignored. Publish the
+	// prepared queue and loading track before entering the transport so every
+	// window can render Now Playing immediately while the native load continues.
+	service.PublishSnapshot(ctx)
 	if err := service.executeActions(ctx, action); err != nil {
 		return err
 	}
@@ -49,6 +63,7 @@ func (service *PlayerService) PlayWithRadio(ctx context.Context, track Track, ti
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
+	service.replaceQueueIdentityLocked("")
 	service.queue = []Track{track}
 	service.queueOrderBeforeShuffle = nil
 	service.queueKind = QueueKindRadio
@@ -60,6 +75,7 @@ func (service *PlayerService) PlayWithRadio(ctx context.Context, track Track, ti
 	if err != nil {
 		return err
 	}
+	service.PublishSnapshot(ctx)
 	if err := service.executeActions(ctx, action); err != nil {
 		return err
 	}
@@ -86,6 +102,7 @@ func (service *PlayerService) PlayRadioQueue(ctx context.Context, tracks []Track
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
+	service.replaceQueueIdentityLocked("")
 	service.queueKind = QueueKindRadio
 	service.queueTitle = stringsTrim(title)
 	service.mixContinuationToken = ""
@@ -102,6 +119,7 @@ func (service *PlayerService) PlayRadioQueue(ctx context.Context, tracks []Track
 	if err != nil {
 		return err
 	}
+	service.PublishSnapshot(ctx)
 	if err := service.executeActions(ctx, action); err != nil {
 		return err
 	}
@@ -128,6 +146,7 @@ func (service *PlayerService) PlayWithMix(ctx context.Context, playlistID string
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
+	service.replaceQueueIdentityLocked("")
 	service.queue = tracks
 	service.queueOrderBeforeShuffle = nil
 	service.queueKind = QueueKindMix
@@ -147,9 +166,10 @@ func (service *PlayerService) PlayWithMix(ctx context.Context, playlistID string
 	return nil
 }
 
-func (service *PlayerService) PlayFromQueue(ctx context.Context, index int) error {
+func (service *PlayerService) PlayFromQueue(ctx context.Context, selection QueueSelection) error {
 	defer service.PublishSnapshot(ctx)
 	service.mu.Lock()
+	index := service.resolveQueueSelectionIndexLocked(selection)
 	if index < 0 || index >= len(service.queue) {
 		service.mu.Unlock()
 		return nil
@@ -157,7 +177,12 @@ func (service *PlayerService) PlayFromQueue(ctx context.Context, index int) erro
 	service.clearForwardSkipNavigationStackLocked()
 	service.currentIndex = index
 	track := service.queue[index]
-	action, err := service.preparePlayTrackLocked(track, VideoLoadStandard, PlayOptions{})
+	// Selecting an item from the active queue is navigation, not a request to
+	// reopen YouTube's remembered watch position. Make the music-player
+	// contract explicit so a previously played video always starts at 0:00.
+	action, err := service.preparePlayTrackLocked(track, VideoLoadStandard, PlayOptions{
+		RestartFromStart: true,
+	})
 	service.mu.Unlock()
 	if err != nil {
 		return err
@@ -171,6 +196,34 @@ func (service *PlayerService) PlayFromQueue(ctx context.Context, index int) erro
 	}
 	service.saveCurrentSession(ctx)
 	return nil
+}
+
+func (service *PlayerService) resolveQueueSelectionIndexLocked(selection QueueSelection) int {
+	trackID := stringsTrim(selection.TrackID)
+	videoID := normalizedVideoID(selection.VideoID)
+	matches := func(track Track) bool {
+		if trackID != "" {
+			return track.ID == trackID
+		}
+		return videoID != "" && track.VideoID == videoID
+	}
+	if selection.Index >= 0 && selection.Index < len(service.queue) {
+		if trackID == "" && videoID == "" {
+			return selection.Index
+		}
+		if matches(service.queue[selection.Index]) {
+			return selection.Index
+		}
+	}
+	if trackID == "" && videoID == "" {
+		return -1
+	}
+	for index, track := range service.queue {
+		if matches(track) {
+			return index
+		}
+	}
+	return -1
 }
 
 func (service *PlayerService) Next(ctx context.Context) error {
@@ -312,6 +365,7 @@ func (service *PlayerService) ClearQueueEntirely(ctx context.Context) {
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
+	service.replaceQueueIdentityLocked("")
 	service.mixContinuationToken = ""
 	service.queue = nil
 	service.queueOrderBeforeShuffle = nil
@@ -327,6 +381,7 @@ func (service *PlayerService) ClearQueue(ctx context.Context) {
 	service.mu.Lock()
 	service.clearForwardSkipNavigationStackLocked()
 	service.recordQueueStateForUndoLocked()
+	service.replaceQueueIdentityLocked("")
 	service.mixContinuationToken = ""
 	service.queueOrderBeforeShuffle = nil
 	if service.hasCurrentTrack {
@@ -362,19 +417,83 @@ func (service *PlayerService) InsertNextInQueue(ctx context.Context, tracks []Tr
 	service.saveCurrentSession(ctx)
 }
 
-func (service *PlayerService) AppendToQueue(ctx context.Context, tracks []Track) {
-	defer service.PublishSnapshot(ctx)
+// InsertAfterQueueItemIfCurrent atomically inserts continuation rows after a
+// stable queue row. The identity guard prevents a late playlist pagination
+// response from mutating a queue that was replaced while the request was in
+// flight.
+func (service *PlayerService) InsertAfterQueueItemIfCurrent(
+	ctx context.Context,
+	tracks []Track,
+	anchorTrackID string,
+	expectedQueueIdentity string,
+) bool {
 	tracks = normalizeTracks(tracks)
-	if len(tracks) == 0 {
-		return
+	anchorTrackID = stringsTrim(anchorTrackID)
+	expectedQueueIdentity = stringsTrim(expectedQueueIdentity)
+	if len(tracks) == 0 || anchorTrackID == "" || expectedQueueIdentity == "" {
+		return false
 	}
 	service.mu.Lock()
+	if service.queueIdentity != expectedQueueIdentity {
+		service.mu.Unlock()
+		return false
+	}
+	anchorIndex := -1
+	for index, track := range service.queue {
+		if stringsTrim(track.ID) == anchorTrackID {
+			anchorIndex = index
+			break
+		}
+	}
+	if anchorIndex < 0 {
+		service.mu.Unlock()
+		return false
+	}
+	service.clearForwardSkipNavigationStackLocked()
+	service.recordQueueStateForUndoLocked()
+	tracks = assignUniqueIncomingQueueTrackIDs(service.queue, tracks)
+	insertIndex := anchorIndex + 1
+	service.queue = append(
+		service.queue[:insertIndex],
+		append(tracks, service.queue[insertIndex:]...)...,
+	)
+	if insertIndex <= service.currentIndex {
+		service.currentIndex += len(tracks)
+	}
+	service.mu.Unlock()
+	service.requestTracksMetadataEnrichment(tracks)
+	service.saveCurrentSession(ctx)
+	service.PublishSnapshot(ctx)
+	return true
+}
+
+func (service *PlayerService) AppendToQueue(ctx context.Context, tracks []Track) {
+	service.AppendToQueueIfCurrent(ctx, tracks, "")
+}
+
+// AppendToQueueIfCurrent appends tracks only when expectedQueueIdentity still
+// names the active queue. An empty identity preserves the explicit, unguarded
+// Add to Queue behavior; background playlist continuation always supplies the
+// opaque identity sent with PlayQueue.
+func (service *PlayerService) AppendToQueueIfCurrent(ctx context.Context, tracks []Track, expectedQueueIdentity string) bool {
+	tracks = normalizeTracks(tracks)
+	if len(tracks) == 0 {
+		return false
+	}
+	expectedQueueIdentity = stringsTrim(expectedQueueIdentity)
+	service.mu.Lock()
+	if expectedQueueIdentity != "" && service.queueIdentity != expectedQueueIdentity {
+		service.mu.Unlock()
+		return false
+	}
 	service.recordQueueStateForUndoLocked()
 	tracks = assignUniqueIncomingQueueTrackIDs(service.queue, tracks)
 	service.queue = append(service.queue, tracks...)
 	service.mu.Unlock()
 	service.requestTracksMetadataEnrichment(tracks)
 	service.saveCurrentSession(ctx)
+	service.PublishSnapshot(ctx)
+	return true
 }
 
 func (service *PlayerService) RemoveFromQueue(ctx context.Context, trackIDs map[string]struct{}, videoIDs map[string]struct{}) {
@@ -545,6 +664,7 @@ func (service *PlayerService) UndoQueue(ctx context.Context) {
 		CurrentIndex: service.currentIndex,
 	})
 	service.queue = cloneTracks(previous.Queue)
+	service.replaceQueueIdentityLocked("")
 	service.currentIndex = safeQueueIndex(previous.CurrentIndex, len(service.queue))
 	service.clearForwardSkipNavigationStackLocked()
 	service.realignCurrentTrackLocked()
@@ -567,6 +687,7 @@ func (service *PlayerService) RedoQueue(ctx context.Context) {
 		CurrentIndex: service.currentIndex,
 	})
 	service.queue = cloneTracks(next.Queue)
+	service.replaceQueueIdentityLocked("")
 	service.currentIndex = safeQueueIndex(next.CurrentIndex, len(service.queue))
 	service.clearForwardSkipNavigationStackLocked()
 	service.realignCurrentTrackLocked()
@@ -726,7 +847,13 @@ func (service *PlayerService) playQueueIndexLocked(index int, rememberForwardSki
 		service.pushForwardSkipStackIfLeavingIndexLocked(index)
 	}
 	service.currentIndex = index
-	return service.preparePlayTrackLocked(service.queue[index], strategy, PlayOptions{})
+	// Every transition between queue rows (manual next/previous, automatic
+	// advance, repeat-all wraparound, or a synchronized remote skip) starts the
+	// destination as a song. YouTube's per-video resume history must not leak
+	// into queue playback.
+	return service.preparePlayTrackLocked(service.queue[index], strategy, PlayOptions{
+		RestartFromStart: true,
+	})
 }
 
 func (service *PlayerService) applyRadioQueue(ctx context.Context, seed Track, tracks []Track) {

@@ -6,14 +6,14 @@
 name: "xiadown"
 arch: ${GOARCH}
 platform: "linux"
-version: "2.0.0"
+version: "${XIADOWN_PACKAGE_VERSION}"
 section: "default"
 priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "A xiadown application"
+description: "XiaDown desktop media downloader, library, and player"
 vendor: "DreamApp"
-homepage: "https://wails.io"
-license: "MIT"
+homepage: "https://github.com/arnoldhao/xiadown"
+license: "Apache-2.0"
 release: "1"
 
 contents:

@@ -23,6 +23,8 @@ import (
 
 const (
 	tiktokAccountInfoURL        = "https://www.tiktok.com/passport/web/account/info/?aid=1988&app_name=tiktok_web&device_platform=web_pc"
+	douyinAccountInfoURL        = "https://www.douyin.com/aweme/v1/web/user/profile/self/?device_platform=webapp&aid=6383&channel=channel_pc_web&cookie_enabled=true"
+	xiaohongshuAccountInfoURL   = "https://edith.xiaohongshu.com/api/sns/web/v2/user/me"
 	instagramCurrentUserURL     = "https://www.instagram.com/api/v1/accounts/current_user/?edit=true"
 	instagramEditFormURL        = "https://www.instagram.com/api/v1/accounts/edit/web_form_data/"
 	instagramWebProfileInfoURL  = "https://i.instagram.com/api/v1/users/web_profile_info/"
@@ -135,6 +137,159 @@ func fetchTikTokAppSessionAccountFromURL(ctx context.Context, client *http.Clien
 		Handle:      handle,
 		AvatarURL:   avatarURL,
 		Metadata:    metadata,
+	}, nil
+}
+
+func fetchDouyinAppSessionAccount(ctx context.Context, client *http.Client, records []appcookies.Record) (appsessionsdto.AppSessionAccount, error) {
+	return fetchDouyinAppSessionAccountFromURL(ctx, client, records, douyinAccountInfoURL)
+}
+
+func fetchDouyinAppSessionAccountFromURL(ctx context.Context, client *http.Client, records []appcookies.Record, endpoint string) (appsessionsdto.AppSessionAccount, error) {
+	const siteKey = "douyin"
+	// The account endpoint is on douyin.com. Keep iesdouyin.com cookies in the
+	// saved provider jar for downloads, but never send them across cookie-domain
+	// boundaries during verification.
+	domains := []string{"douyin.com"}
+	if !appSessionHasAnyCookie(records, domains, "sessionid", "sessionid_ss", "sid_tt", "sid_guard") {
+		return appsessionsdto.AppSessionAccount{}, appsessions.ErrNoCookies
+	}
+	data, err := appSessionJSON(ctx, client, siteKey, endpoint, records, domains, map[string]string{
+		"Referer":         "https://www.douyin.com/",
+		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+		"Sec-Fetch-Site":  "same-origin",
+		"Sec-Fetch-Mode":  "cors",
+		"Sec-Fetch-Dest":  "empty",
+	})
+	if err != nil {
+		return appsessionsdto.AppSessionAccount{}, err
+	}
+	if douyinAccountPayloadLooksLoggedOut(data) {
+		return appsessionsdto.AppSessionAccount{}, appsessions.ErrNoCookies
+	}
+	user := appSessionMap(data, "user")
+	if len(user) == 0 {
+		user = appSessionNestedMap(data, "data", "user")
+	}
+	if len(user) == 0 {
+		return appsessionsdto.AppSessionAccount{}, errors.New("douyin account info response missing user")
+	}
+	userID := firstNonEmpty(
+		appSessionString(user, "uid"),
+		appSessionString(user, "user_id"),
+		appSessionString(user, "user_id_str"),
+	)
+	secureUserID := firstNonEmpty(
+		appSessionString(user, "sec_uid"),
+		appSessionString(user, "sec_user_id"),
+	)
+	displayName := strings.TrimSpace(appSessionString(user, "nickname"))
+	if (userID == "" && secureUserID == "") || displayName == "" {
+		return appsessionsdto.AppSessionAccount{}, errors.New("douyin account info response missing identity")
+	}
+	handle := firstNonEmpty(
+		appSessionString(user, "unique_id"),
+		appSessionString(user, "short_id"),
+	)
+	avatarURL := normalizeAccountImageURL(firstNonEmpty(
+		appSessionNestedString(user, "avatar_thumb", "url_list"),
+		appSessionNestedString(user, "avatar_larger", "url_list"),
+		appSessionString(user, "avatar_url"),
+	))
+	metadata := map[string]any{"accountEndpoint": "aweme/v1/web/user/profile/self"}
+	if userID != "" {
+		metadata["userID"] = userID
+	}
+	if secureUserID != "" {
+		metadata["secureUserID"] = secureUserID
+	}
+	return appsessionsdto.AppSessionAccount{
+		DisplayName: displayName,
+		Handle:      handle,
+		AvatarURL:   avatarURL,
+		Metadata:    metadata,
+	}, nil
+}
+
+func fetchXiaohongshuAppSessionAccount(ctx context.Context, client *http.Client, records []appcookies.Record) (appsessionsdto.AppSessionAccount, error) {
+	return fetchXiaohongshuAppSessionAccountFromURL(ctx, client, records, xiaohongshuAccountInfoURL)
+}
+
+func fetchXiaohongshuAppSessionAccountFromURL(ctx context.Context, client *http.Client, records []appcookies.Record, endpoint string) (appsessionsdto.AppSessionAccount, error) {
+	const siteKey = "xiaohongshu"
+	domains := []string{"xiaohongshu.com"}
+	// The test endpoint can be local, but cookie applicability must always be
+	// evaluated against the real account API. This keeps host- and path-scoped
+	// browser cookies from crossing into edith.xiaohongshu.com.
+	accountRecords := appcookies.MatchURL(records, xiaohongshuAccountInfoURL)
+	// web_session is the authentication credential. a1 and the remaining XHS
+	// cookies are preserved for signed download requests, but device cookies
+	// alone must never make a browser profile look signed in.
+	if !appSessionHasAnyCookie(accountRecords, domains, "web_session") {
+		return appsessionsdto.AppSessionAccount{}, appsessions.ErrNoCookies
+	}
+	data, err := appSessionJSONStrictVerification(ctx, client, siteKey, endpoint, accountRecords, domains, map[string]string{
+		"Origin":          "https://www.xiaohongshu.com",
+		"Referer":         "https://www.xiaohongshu.com/",
+		"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+		"Sec-Fetch-Site":  "same-site",
+		"Sec-Fetch-Mode":  "cors",
+		"Sec-Fetch-Dest":  "empty",
+	})
+	if err != nil {
+		return appsessionsdto.AppSessionAccount{}, err
+	}
+	if xiaohongshuAccountPayloadLooksLoggedOut(data) {
+		return appsessionsdto.AppSessionAccount{}, appsessions.ErrNoCookies
+	}
+	code := appSessionInt(data, "code")
+	if code != 0 || !appSessionBool(data, "success") {
+		return appsessionsdto.AppSessionAccount{}, fmt.Errorf("xiaohongshu account info rejected verification (code %d)", code)
+	}
+	payload := appSessionMap(data, "data")
+	if len(payload) == 0 {
+		return appsessionsdto.AppSessionAccount{}, errors.New("xiaohongshu account info response missing data")
+	}
+	if appSessionBool(payload, "guest") {
+		return appsessionsdto.AppSessionAccount{}, appsessions.ErrNoCookies
+	}
+	basic := appSessionMap(payload, "basic_info")
+	if len(basic) == 0 {
+		basic = payload
+	}
+	userID := firstNonEmpty(
+		appSessionString(basic, "user_id"),
+		appSessionString(payload, "user_id"),
+		appSessionString(basic, "userid"),
+		appSessionString(payload, "userid"),
+	)
+	displayName := firstNonEmpty(
+		appSessionString(basic, "nickname"),
+		appSessionString(payload, "nickname"),
+		appSessionString(basic, "nick_name"),
+	)
+	if userID == "" || displayName == "" || strings.EqualFold(displayName, "unknown") {
+		return appsessionsdto.AppSessionAccount{}, errors.New("xiaohongshu account info response missing identity")
+	}
+	handle := firstNonEmpty(
+		appSessionString(basic, "red_id"),
+		appSessionString(payload, "red_id"),
+		appSessionString(basic, "redId"),
+	)
+	avatarURL := normalizeAccountImageURL(firstNonEmpty(
+		appSessionString(basic, "imageb"),
+		appSessionString(basic, "avatar"),
+		appSessionString(basic, "avatar_url"),
+		appSessionString(payload, "imageb"),
+		appSessionString(payload, "avatar"),
+	))
+	return appsessionsdto.AppSessionAccount{
+		DisplayName: displayName,
+		Handle:      handle,
+		AvatarURL:   avatarURL,
+		Metadata: map[string]any{
+			"accountEndpoint": "api/sns/web/v2/user/me",
+			"userID":          userID,
+		},
 	}, nil
 }
 
@@ -978,6 +1133,22 @@ func fetchNiconicoAppSessionAccountFromURL(ctx context.Context, client *http.Cli
 }
 
 func appSessionJSON(ctx context.Context, client *http.Client, siteKey string, endpoint string, records []appcookies.Record, domains []string, headers map[string]string) (map[string]any, error) {
+	return appSessionJSONWithOptions(ctx, client, siteKey, endpoint, records, domains, headers, appSessionJSONOptions{
+		forbiddenMeansNoCookies: true,
+		nonJSONMeansNoCookies:   true,
+	})
+}
+
+type appSessionJSONOptions struct {
+	forbiddenMeansNoCookies bool
+	nonJSONMeansNoCookies   bool
+}
+
+func appSessionJSONStrictVerification(ctx context.Context, client *http.Client, siteKey string, endpoint string, records []appcookies.Record, domains []string, headers map[string]string) (map[string]any, error) {
+	return appSessionJSONWithOptions(ctx, client, siteKey, endpoint, records, domains, headers, appSessionJSONOptions{})
+}
+
+func appSessionJSONWithOptions(ctx context.Context, client *http.Client, siteKey string, endpoint string, records []appcookies.Record, domains []string, headers map[string]string, options appSessionJSONOptions) (map[string]any, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -999,7 +1170,8 @@ func appSessionJSON(ctx context.Context, client *http.Client, siteKey string, en
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+	if resp.StatusCode == http.StatusUnauthorized ||
+		(resp.StatusCode == http.StatusForbidden && options.forbiddenMeansNoCookies) {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, appsessions.ErrNoCookies
 	}
@@ -1015,7 +1187,10 @@ func appSessionJSON(ctx context.Context, client *http.Client, siteKey string, en
 	}
 	contentType := strings.ToLower(resp.Header.Get("Content-Type"))
 	if contentType != "" && !strings.Contains(contentType, "json") {
-		return nil, appsessions.ErrNoCookies
+		if options.nonJSONMeansNoCookies {
+			return nil, appsessions.ErrNoCookies
+		}
+		return nil, fmt.Errorf("%s account info returned a non-JSON response", siteKey)
 	}
 	decoded, err := decodeAppSessionJSONObject(data)
 	if err != nil {
@@ -1200,18 +1375,24 @@ func appSessionHTML(ctx context.Context, client *http.Client, siteKey string, en
 }
 
 func appSessionAddCookies(req *http.Request, records []appcookies.Record, domains []string, endpoint string) {
-	var pairs []string
 	for _, record := range appSessionAccountCookies(records, domains, endpoint) {
-		name := strings.TrimSpace(record.Name)
-		value := record.Value
-		if name == "" || strings.ContainsAny(name, "=\r\n;") || strings.ContainsAny(value, "\r\n;") {
-			continue
-		}
-		pairs = append(pairs, name+"="+value)
+		appSessionAddCookie(req, record)
 	}
-	if len(pairs) > 0 {
-		req.Header.Set("Cookie", strings.Join(pairs, "; "))
+}
+
+// appSessionAddCookie validates browser-sourced cookie data before handing it
+// to net/http. Cookie.String logs rejected value bytes, so calling Valid first
+// is required to keep malformed (and potentially secret) values out of logs.
+func appSessionAddCookie(req *http.Request, record appcookies.Record) bool {
+	if req == nil {
+		return false
 	}
+	cookie := &http.Cookie{Name: record.Name, Value: record.Value}
+	if err := cookie.Valid(); err != nil {
+		return false
+	}
+	req.AddCookie(cookie)
+	return true
 }
 
 func appSessionAccountCookies(records []appcookies.Record, domains []string, endpoint string) []appcookies.Record {
@@ -1423,6 +1604,54 @@ func tiktokAccountPayloadLooksLoggedOut(payload map[string]any) bool {
 			return true
 		}
 		if strings.Contains(normalized, "session expired") ||
+			strings.Contains(normalized, "login required") ||
+			strings.Contains(normalized, "not logged in") {
+			return true
+		}
+	}
+	return false
+}
+
+func douyinAccountPayloadLooksLoggedOut(payload map[string]any) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	switch appSessionInt(payload, "status_code") {
+	case 8, 2483:
+		return true
+	}
+	for _, value := range []string{
+		appSessionString(payload, "status_msg"),
+		appSessionString(payload, "message"),
+	} {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if strings.Contains(normalized, "请先登录") ||
+			strings.Contains(normalized, "用户未登录") ||
+			strings.Contains(normalized, "login required") ||
+			strings.Contains(normalized, "not logged in") {
+			return true
+		}
+	}
+	return false
+}
+
+func xiaohongshuAccountPayloadLooksLoggedOut(payload map[string]any) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	switch appSessionInt(payload, "code") {
+	case -100, -101:
+		return true
+	}
+	for _, value := range []string{
+		appSessionString(payload, "msg"),
+		appSessionString(payload, "message"),
+	} {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if strings.Contains(normalized, "无登录信息") ||
+			strings.Contains(normalized, "登录信息为空") ||
+			strings.Contains(normalized, "登录已过期") ||
+			strings.Contains(normalized, "session expired") ||
 			strings.Contains(normalized, "login required") ||
 			strings.Contains(normalized, "not logged in") {
 			return true

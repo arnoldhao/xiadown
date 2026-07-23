@@ -1,12 +1,16 @@
+import { Clipboard } from "@wailsio/runtime";
 import {
   AudioLines,
   ChevronDown,
+  ClipboardPaste,
   Download,
   FileCog,
   FolderOpen,
+  LibraryBig,
   Loader2,
   Pencil,
   Radar,
+  Search,
   SlidersHorizontal,
   Video,
   X,
@@ -16,6 +20,7 @@ import * as React from "react";
 
 import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
+import type { BrowserSourceSelection } from "@/shared/contracts/browserSources";
 import type {
   CreateYTDLPJobRequest,
   LibraryMediaInfoDTO,
@@ -23,9 +28,9 @@ import type {
   PreparedYTDLPDownloadURL,
   PrepareYTDLPDownloadResponse,
   ProbeTranscodeInputRequest,
-  ResourceSniffFailure,
 } from "@/shared/contracts/library";
 import type { Settings } from "@/shared/contracts/settings";
+import { messageBus } from "@/shared/message";
 import {
   useDependencies,
   useDependencyInstallState,
@@ -38,10 +43,8 @@ import {
   useCreateYTDLPJob,
   useCancelResourceSniff,
   useParseYTDLPDownload,
-  useParseResourceSniff,
   usePrepareYTDLPDownload,
   useProbeTranscodeInput,
-  useResourceSniffSession,
   useStartResourceSniff,
   useTranscodePresets,
   useTranscodePresetsForDownload,
@@ -65,6 +68,7 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/ui/dropdown-menu";
 import { DreamSegmentSwitch } from "@/shared/ui/dream-segment-switch";
+import { DreamInlineSwitch } from "@/shared/ui/dream-inline-switch";
 import { Input } from "@/shared/ui/input";
 import { Select } from "@/shared/ui/select";
 import { SiteBrandIcon } from "@/shared/ui/site-brand-icon";
@@ -79,6 +83,13 @@ import {
   clampProgress,
   DependencyRepairCard,
 } from "@/app/main/dependency-repair-card";
+import { NewSniffSourceSteps } from "@/app/main/NewSniffSourceSteps";
+import {
+  attachSniffWorkspaceStartSession,
+  beginSniffWorkspaceStart,
+  clearSniffWorkspaceStart,
+} from "@/app/sniff-desk/workspace-filters";
+import { resolveSniffDeskErrorDescription } from "@/app/sniff-desk/error-prompts";
 import {
   AUDIO_FILE_EXTENSIONS,
   VIDEO_FILE_EXTENSIONS,
@@ -91,7 +102,7 @@ import {
   parseAppErrorMessage,
   resolveUnknownErrorMessage,
 } from "@/app/main/helpers";
-import { TASK_DIALOG_DEPENDENCIES } from "@/app/main/main-constants";
+import { TASK_DIALOG_DEPENDENCIES_BY_MODE } from "@/app/main/main-constants";
 import {
   applyTranscodePresetSelection,
   buildTranscodeCodecKey,
@@ -102,6 +113,8 @@ import {
   pickDefaultFormat,
   resolveResourceSniffStartResolution,
   resolveFormatMediaType,
+  alignPreparedDownloadTargets,
+  resolveDownloadTargetOrigin,
   resolveOpenFileName,
   resolvePreparedSiteKey,
   resolveTranscodeCodecLabel,
@@ -115,12 +128,11 @@ import type {
   DownloadDialogStep,
   DownloadDialogTab,
   DownloadQuality,
+  NewTaskDialogDownloadTarget,
   NewTaskDialogMode,
   NewTaskDialogTranscodeSource,
   SourceMediaType,
 } from "@/app/main/types";
-
-type DownloadEntryMode = "direct" | "sniff";
 
 type BatchDownloadItemState = {
   id: string;
@@ -134,6 +146,8 @@ type BatchDownloadItemState = {
   subtitles: boolean;
   transcodePresetId: string;
   deleteSourceFileAfterTranscode: boolean;
+  source?: string;
+  caller?: string;
 };
 
 function downloadAppSessionModeCanExportCookies(mode: string) {
@@ -144,6 +158,7 @@ function downloadAppSessionModeCanExportCookies(mode: string) {
 function preparedURLToBatchItem(
   item: PreparedYTDLPDownloadURL,
   index: number,
+  target?: NewTaskDialogDownloadTarget,
 ): BatchDownloadItemState {
   const canUseAppSession =
     Boolean(item.appSessionAvailable) &&
@@ -160,6 +175,8 @@ function preparedURLToBatchItem(
     subtitles: false,
     transcodePresetId: "",
     deleteSourceFileAfterTranscode: true,
+    source: target?.source,
+    caller: target?.caller,
   };
 }
 
@@ -228,22 +245,12 @@ export function InlineSwitch(props: {
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={props.checked}
-      aria-label={props.ariaLabel}
+    <DreamInlineSwitch
+      ariaLabel={props.ariaLabel}
+      checked={props.checked}
       disabled={props.disabled}
-      onClick={() => {
-        if (!props.disabled) {
-          props.onChange(!props.checked);
-        }
-      }}
-      className="app-dream-inline-switch disabled:cursor-not-allowed disabled:opacity-50"
-      data-state={props.checked ? "checked" : "unchecked"}
-    >
-      <span className="app-dream-inline-switch-knob" />
-    </button>
+      onCheckedChange={props.onChange}
+    />
   );
 }
 
@@ -303,41 +310,12 @@ function resolveParseErrorDescription(
   }
 }
 
-function resolveResourceSniffFailureDescription(
-  failure: ResourceSniffFailure,
-  text: ReturnType<typeof getXiaText>,
-) {
-  const descriptions: Record<ResourceSniffFailure["code"], string> = {
-    profile_connection_required: text.dialogs.profileConnectionRequired,
-    verification_required: text.dialogs.resourceVerificationRequired,
-    no_media_detected: text.dialogs.resourceNoMediaDetected,
-    unsupported_douyin_lvdetail: text.dialogs.resourceDouyinLVDetail,
-    douyin_recommend_login_required:
-      text.dialogs.resourceDouyinRecommendLoginRequired,
-  };
-  return descriptions[failure.code];
-}
-
 function noDownloadableMediaErrorMessage() {
   return "[resource_no_media_detected] no downloadable formats found";
 }
 
 function hasDownloadableFormats(parsed: ParseYTDLPDownloadResponse) {
   return (parsed.formats ?? []).some((format) => format.id.trim().length > 0);
-}
-
-function normalizeResourceSniffPageUrl(value?: string) {
-  const trimmed = (value ?? "").trim();
-  if (!trimmed) {
-    return "";
-  }
-  try {
-    const url = new URL(trimmed);
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return trimmed;
-  }
 }
 
 function stripLeadingWWW(value: string) {
@@ -461,7 +439,14 @@ export function NewTaskDialog(props: {
   onOpenChange: (open: boolean) => void;
   initialMode?: NewTaskDialogMode;
   initialUrl?: string;
+  initialDownloadSource?: string;
+  initialDownloadCaller?: string;
+  initialDownloadTargets?: readonly NewTaskDialogDownloadTarget[];
   initialTranscodeSource?: NewTaskDialogTranscodeSource | null;
+  transcodeLibrarySources?: readonly NewTaskDialogTranscodeSource[];
+  transcodeLibraryLoading?: boolean;
+  transcodeLibraryError?: string;
+  onRetryTranscodeLibrary?: () => void;
   settings: Settings | null;
   onOpenConnections?: () => void;
   onOpenSniffDesk?: () => void;
@@ -474,15 +459,12 @@ export function NewTaskDialog(props: {
   const installDependency = useInstallDependency();
   const ytdlpInstallState = useDependencyInstallState("yt-dlp", props.open);
   const ffmpegInstallState = useDependencyInstallState("ffmpeg", props.open);
-  const bunInstallState = useDependencyInstallState("bun", props.open);
   const prepareDownload = usePrepareYTDLPDownload();
   const parseDownload = useParseYTDLPDownload();
   const startResourceSniff = useStartResourceSniff();
-  const parseResourceSniff = useParseResourceSniff();
   const cancelResourceSniff = useCancelResourceSniff();
   const createYTDLP = useCreateYTDLPJob();
   const createYTDLPBatch = useCreateYTDLPBatchJobs();
-  const queueYTDLP = useCreateYTDLPJob();
   const presetsQuery = useTranscodePresets();
   const createTranscode = useCreateTranscodeJob();
   const [activeMode, setActiveMode] = React.useState<NewTaskDialogMode>(
@@ -500,8 +482,6 @@ export function NewTaskDialog(props: {
   const [downloadTab, setDownloadTab] =
     React.useState<DownloadDialogTab>("quick");
   const [downloadPrepareError, setDownloadPrepareError] = React.useState("");
-  const [downloadPrepareIntent, setDownloadPrepareIntent] =
-    React.useState<DownloadEntryMode | null>(null);
   const [downloadSubmitError, setDownloadSubmitError] = React.useState("");
   const [quickQuality, setQuickQuality] =
     React.useState<DownloadQuality>("best");
@@ -511,19 +491,12 @@ export function NewTaskDialog(props: {
     React.useState(true);
   const [customParseResult, setCustomParseResult] =
     React.useState<ParseYTDLPDownloadResponse | null>(null);
-  const [customParsePageUrl, setCustomParsePageUrl] = React.useState("");
   const [customFormatId, setCustomFormatId] = React.useState("");
   const [customAudioFormatId, setCustomAudioFormatId] = React.useState("");
   const [customSubtitleId, setCustomSubtitleId] = React.useState("");
   const [customPresetId, setCustomPresetId] = React.useState("");
   const [customParseError, setCustomParseError] = React.useState("");
   const [resourceSniffSessionId, setResourceSniffSessionId] =
-    React.useState("");
-  const [resourceSniffFailure, setResourceSniffFailure] =
-    React.useState<ResourceSniffFailure | null>(null);
-  const [resourceSniffTechnicalError, setResourceSniffTechnicalError] =
-    React.useState("");
-  const [resourceSniffFinalBrowserStatus, setResourceSniffFinalBrowserStatus] =
     React.useState("");
   const [transcodeInputPath, setTranscodeInputPath] = React.useState("");
   const [transcodeSourceFileId, setTranscodeSourceFileId] = React.useState("");
@@ -534,6 +507,8 @@ export function NewTaskDialog(props: {
   const [transcodeContainer, setTranscodeContainer] = React.useState("");
   const [transcodeCodec, setTranscodeCodec] = React.useState("");
   const [transcodeSubmitError, setTranscodeSubmitError] = React.useState("");
+  const [transcodeLibraryOpen, setTranscodeLibraryOpen] = React.useState(false);
+  const [transcodeLibraryQuery, setTranscodeLibraryQuery] = React.useState("");
   const [closingDialog, setClosingDialog] = React.useState(false);
   const autoPreparedInitialUrlRef = React.useRef("");
   const dialogOpenRef = React.useRef(props.open);
@@ -541,8 +516,8 @@ export function NewTaskDialog(props: {
   const preserveResourceSniffOnCloseRef = React.useRef(false);
   const parseRequestVersionRef = React.useRef(0);
   const resourceSniffStartVersionRef = React.useRef(0);
+  const resourceSniffConfirmingRef = React.useRef(false);
   const resourceSniffTransferStartVersionRef = React.useRef<number | null>(null);
-  const customParsePageObservedRef = React.useRef(false);
   const resourceSniffSessionIdRef = React.useRef("");
   const resourceSniffStartPromiseRef = React.useRef<Promise<string> | null>(
     null,
@@ -569,7 +544,6 @@ export function NewTaskDialog(props: {
       const trimmed = sessionId.trim();
       resourceSniffSessionIdRef.current = trimmed;
       setResourceSniffSessionId(trimmed);
-      setResourceSniffFinalBrowserStatus("");
     },
     [],
   );
@@ -645,29 +619,29 @@ export function NewTaskDialog(props: {
       new Map([
         ["yt-dlp", ytdlpInstallState.data],
         ["ffmpeg", ffmpegInstallState.data],
-        ["bun", bunInstallState.data],
       ]),
-    [bunInstallState.data, ffmpegInstallState.data, ytdlpInstallState.data],
+    [ffmpegInstallState.data, ytdlpInstallState.data],
   );
+  const taskDependencies = TASK_DIALOG_DEPENDENCIES_BY_MODE[activeMode];
   const installStagesByName = React.useMemo(
     () =>
-      new Map(
-        TASK_DIALOG_DEPENDENCIES.map((name) => [
+      new Map<string, string>(
+        taskDependencies.map((name) => [
           name,
           (installStatesByName.get(name)?.stage ?? "idle").toString(),
-        ]),
+        ] as [string, string]),
       ),
-    [installStatesByName],
+    [installStatesByName, taskDependencies],
   );
   const installProgressByName = React.useMemo(
     () =>
-      new Map(
-        TASK_DIALOG_DEPENDENCIES.map((name) => [
+      new Map<string, number>(
+        taskDependencies.map((name) => [
           name,
           clampProgress(installStatesByName.get(name)?.progress),
-        ]),
+        ] as [string, number]),
       ),
-    [installStatesByName],
+    [installStatesByName, taskDependencies],
   );
   const ytdlpInstalled =
     (toolsByName.get("yt-dlp")?.status ?? "").trim().toLowerCase() ===
@@ -675,7 +649,7 @@ export function NewTaskDialog(props: {
   const ffmpegInstalled =
     (toolsByName.get("ffmpeg")?.status ?? "").trim().toLowerCase() ===
     "installed";
-  const taskDependenciesReady = TASK_DIALOG_DEPENDENCIES.every(
+  const taskDependenciesReady = taskDependencies.every(
     (name) =>
       (toolsByName.get(name)?.status ?? "").trim().toLowerCase() ===
       "installed",
@@ -732,7 +706,6 @@ export function NewTaskDialog(props: {
   )
     .trim()
     .toLowerCase();
-  const downloadShowsSniffMode = downloadTab === "sniff" && !downloadIsBatch;
   const downloadMatchesCookieExportAppSession =
     Boolean(downloadPrepared?.appSessionId?.trim()) &&
     downloadAppSessionModeCanExportCookies(downloadAppSessionMode);
@@ -773,14 +746,8 @@ export function NewTaskDialog(props: {
       tooltip: batchDownloadCountLabel,
     },
   ] as const;
-  const activeDownloadMode =
-    activeMode === "download" || activeMode === "sniff";
-  const activeDownloadEntryMode: DownloadEntryMode =
-    activeMode === "sniff" ? "sniff" : "direct";
-  const activeDownloadActionLabel =
-    activeDownloadEntryMode === "sniff"
-      ? text.dialogs.startSniffMode
-      : text.dialogs.directDownload;
+  const activeDownloadMode = activeMode === "download";
+  const activeDownloadActionLabel = text.dialogs.directDownload;
   const customParseErrorDescription =
     resolveParseErrorDescription(
       customParseError,
@@ -930,162 +897,48 @@ export function NewTaskDialog(props: {
     [transcodeCodec, transcodeContainer, transcodePresets, transcodeScale],
   );
   const transcodeFileName = splitFileNameForDisplay(transcodeInputPath);
-  const resourceSniffSessionQuery = useResourceSniffSession(
-    resourceSniffSessionId ? { sessionId: resourceSniffSessionId } : null,
-    props.open &&
-      activeMode === "sniff" &&
-      downloadTab === "sniff" &&
-      Boolean(resourceSniffSessionId),
-  );
-  const resourceSniffPolledSession = resourceSniffSessionQuery.data ?? null;
-  React.useEffect(() => {
-    if (
-      !resourceSniffPolledSession ||
-      resourceSniffSessionId.trim().length === 0
-    ) {
-      return;
+  const transcodeLibraryGroups = React.useMemo(() => {
+    const query = transcodeLibraryQuery.trim().toLocaleLowerCase();
+    const grouped = new Map<string, NewTaskDialogTranscodeSource[]>();
+    for (const source of props.transcodeLibrarySources ?? []) {
+      if (!source.fileId?.trim()) {
+        continue;
+      }
+      const searchText = [
+        source.title,
+        source.author,
+        source.libraryName,
+        source.format,
+        source.displayLabel,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase();
+      if (query && !searchText.includes(query)) {
+        continue;
+      }
+      const group = source.libraryName?.trim() || text.workspace.libraryStation;
+      const items = grouped.get(group) ?? [];
+      items.push(source);
+      grouped.set(group, items);
     }
-    const browserStatus = resourceSniffPolledSession.browserStatus?.trim() ?? "";
-    if (browserStatus === "open") {
-      setResourceSniffFinalBrowserStatus("");
-      return;
-    }
-    if (browserStatus) {
-      setResourceSniffFinalBrowserStatus(browserStatus);
-      return;
-    }
-    if (
-      resourceSniffPolledSession.state &&
-      resourceSniffPolledSession.state !== "running"
-    ) {
-      setResourceSniffFinalBrowserStatus(resourceSniffPolledSession.state);
-    }
-  }, [resourceSniffPolledSession, resourceSniffSessionId]);
-  const startedResourceSniffSession = startResourceSniff.data?.session ?? null;
-  const resourceSniffStartedSession =
-    startedResourceSniffSession?.sessionId === resourceSniffSessionId
-      ? startedResourceSniffSession
-      : null;
-  const resourceSniffSession =
-    resourceSniffPolledSession ?? resourceSniffStartedSession;
-  React.useEffect(() => {
-    if (downloadTab !== "sniff" || !customParseResult?.resourceSessionId) {
-      customParsePageObservedRef.current = false;
-      return;
-    }
-    const parsedPageUrl = normalizeResourceSniffPageUrl(customParsePageUrl);
-    const currentPageUrl = normalizeResourceSniffPageUrl(
-      resourceSniffSession?.currentUrl,
-    );
-    if (!parsedPageUrl || !currentPageUrl) {
-      return;
-    }
-    if (parsedPageUrl === currentPageUrl) {
-      customParsePageObservedRef.current = true;
-      return;
-    }
-    if (!customParsePageObservedRef.current) {
-      return;
-    }
-    customParsePageObservedRef.current = false;
-    setCustomParseResult(null);
-    setCustomFormatId("");
-    setCustomAudioFormatId("");
-    setCustomSubtitleId("");
-    setCustomPresetId("");
-    setCustomParsePageUrl("");
-    setResourceSniffFailure(null);
-    setResourceSniffTechnicalError("");
-  }, [
-    customParsePageUrl,
-    customParseResult?.resourceSessionId,
-    downloadTab,
-    resourceSniffSession?.currentUrl,
-  ]);
-  const resourceSniffBrowserStatus =
-    resourceSniffPolledSession?.browserStatus ||
-    resourceSniffFinalBrowserStatus ||
-    resourceSniffStartedSession?.browserStatus ||
-    (resourceSniffSessionId ? "open" : "");
-  const resourceSniffBrowserOpen = resourceSniffBrowserStatus === "open";
-  const resourceSniffBrowserExited =
-    Boolean(resourceSniffSessionId) &&
-    Boolean(resourceSniffSession) &&
-    resourceSniffBrowserStatus === "browser_closed";
-  const resourceSniffHasActiveTab =
-    resourceSniffBrowserOpen &&
-    Boolean(resourceSniffSession?.activeTargetId) &&
-    (resourceSniffSession?.tabCount ?? 0) > 0;
-  const resourceSniffStatusLabel = resourceSniffBrowserExited
-    ? text.dialogs.sniffBrowserExited
-    : resourceSniffHasActiveTab
-      ? text.dialogs.sniffBrowserOpen
-      : resourceSniffSessionId
-        ? text.dialogs.sniffNoActiveTab
-        : text.dialogs.sniffReady;
-  const resourceSniffCurrentPageLabel = resourceSniffHasActiveTab
-    ? resourceSniffSession?.title || resourceSniffSession?.currentUrl || ""
-    : resourceSniffSessionId
-      ? text.dialogs.sniffNoActiveTab
-      : "";
-  const showResourceSniffCurrentPage =
-    Boolean(resourceSniffSessionId) &&
-    (resourceSniffHasActiveTab
-      ? Boolean(resourceSniffSession?.currentUrl || resourceSniffSession?.title)
-      : Boolean(resourceSniffSession));
-  const resourceSniffAuthStatus =
-    downloadTab === "sniff"
-      ? resourceSniffSession?.authStatus?.trim() ?? ""
-      : "";
-  const resourceSniffCurrentUserLabel =
-    resourceSniffAuthStatus === "logged_in"
-      ? resourceSniffSession?.authUser?.trim() || text.dialogs.loggedIn
-      : resourceSniffAuthStatus === "logged_out"
-        ? text.dialogs.notLoggedIn
-        : text.common.unknown;
-  const showResourceSniffCurrentUser =
-    resourceSniffHasActiveTab && Boolean(resourceSniffSession?.authSite?.trim());
-  const resourceSniffUnsupportedDomain =
-    downloadTab === "sniff"
-      ? resourceSniffSession?.unoptimizedDomain?.trim() ?? ""
-      : "";
-  const resourceSniffUnsupportedDomainHint = resourceSniffUnsupportedDomain
-    ? text.sniffDesk.urlUnsupportedDomain.replace(
-        "{domain}",
-        resourceSniffUnsupportedDomain,
-      )
-    : "";
-  const resourceSniffNeedsDesk = Boolean(resourceSniffUnsupportedDomain);
-  const downloadRequiresSniffDesk =
-    downloadTab === "sniff" && resourceSniffNeedsDesk;
-  const resourceSniffUnsupportedDomainNotice = resourceSniffUnsupportedDomainHint ? (
-    <div
-      className="app-dream-status-message app-new-task-sniff-unsupported-notice max-w-full px-3 py-1.5 text-center text-xs font-medium leading-5"
-      data-intent="warning"
-      role="note"
-      title={resourceSniffUnsupportedDomainHint}
-    >
-      {resourceSniffUnsupportedDomainHint}
-    </div>
-  ) : null;
-  const isSniffCardRefreshing =
-    downloadTab === "sniff" &&
-    parseResourceSniff.isPending &&
-    Boolean(customParseResult);
-  const resourceSniffIssueDescription = resourceSniffFailure
-    ? resolveResourceSniffFailureDescription(resourceSniffFailure, text)
-    : resourceSniffTechnicalError.trim();
-  const resourceSniffHasIssue = resourceSniffIssueDescription.length > 0;
-  const resourceSniffThumbnailUrl =
-    downloadTab === "sniff"
-      ? customParseResult?.thumbnailUrl?.trim() ?? ""
-      : "";
+    return [...grouped.entries()]
+      .sort(([left], [right]) => left.localeCompare(right, text.locale))
+      .map(([name, items]) => ({
+        name,
+        items: items.sort((left, right) =>
+          (left.title || left.displayLabel || "").localeCompare(
+            right.title || right.displayLabel || "",
+            text.locale,
+          ),
+        ),
+      }));
+  }, [props.transcodeLibrarySources, text.locale, text.workspace.libraryStation, transcodeLibraryQuery]);
   const showDownloadFooter =
     downloadStep === "config" &&
     (downloadIsBatch ||
       downloadTab === "quick" ||
-      ((downloadTab === "custom" || downloadTab === "sniff") &&
-        Boolean(customParseResult)));
+      (downloadTab === "custom" && Boolean(customParseResult)));
   const showTranscodeFooter =
     activeMode === "transcode" && Boolean(transcodeInputPath);
 
@@ -1117,9 +970,8 @@ export function NewTaskDialog(props: {
     setDownloadPrepared(null);
     setBatchDownloadItems([]);
     setDownloadUseAppSession(false);
-    setDownloadTab(initialMode === "sniff" ? "sniff" : "quick");
+    setDownloadTab("quick");
     setDownloadPrepareError("");
-    setDownloadPrepareIntent(null);
     setDownloadSubmitError("");
     setQuickQuality("best");
     setQuickSubtitle(false);
@@ -1133,13 +985,18 @@ export function NewTaskDialog(props: {
     setCustomParseError("");
     parseRequestVersionRef.current += 1;
     parseDownload.reset();
-    parseResourceSniff.reset();
     setActiveResourceSniffSessionId("");
-    setResourceSniffFailure(null);
-    setResourceSniffTechnicalError("");
-    if (initialMode === "transcode" && props.initialTranscodeSource?.inputPath.trim()) {
+    if (
+      initialMode === "transcode" &&
+      (props.initialTranscodeSource?.inputPath?.trim() ||
+        props.initialTranscodeSource?.fileId?.trim())
+    ) {
       applyTranscodeInputPath(
-        props.initialTranscodeSource.inputPath.trim(),
+        props.initialTranscodeSource.displayLabel?.trim() ||
+          props.initialTranscodeSource.inputPath?.trim() ||
+          props.initialTranscodeSource.title?.trim() ||
+          props.initialTranscodeSource.fileId?.trim() ||
+          "",
         props.initialTranscodeSource,
       );
     } else {
@@ -1152,6 +1009,8 @@ export function NewTaskDialog(props: {
       setTranscodeContainer("");
       setTranscodeCodec("");
     }
+    setTranscodeLibraryOpen(false);
+    setTranscodeLibraryQuery("");
     setTranscodeSubmitError("");
     autoPreparedInitialUrlRef.current = "";
   }, [
@@ -1159,6 +1018,7 @@ export function NewTaskDialog(props: {
     props.initialTranscodeSource?.author,
     props.initialTranscodeSource?.fileId,
     props.initialTranscodeSource?.inputPath,
+    props.initialTranscodeSource?.displayLabel,
     props.initialTranscodeSource?.title,
     props.initialUrl,
     props.open,
@@ -1171,7 +1031,6 @@ export function NewTaskDialog(props: {
     parseRequestVersionRef.current += 1;
     resourceSniffStartVersionRef.current += 1;
     parseDownload.reset();
-    parseResourceSniff.reset();
     if (preserveResourceSniffOnCloseRef.current) {
       setActiveResourceSniffSessionId("");
       return;
@@ -1320,13 +1179,11 @@ export function NewTaskDialog(props: {
   const resetDownloadConfig = () => {
     parseRequestVersionRef.current += 1;
     parseDownload.reset();
-    parseResourceSniff.reset();
     setDownloadPrepared(null);
     setBatchDownloadItems([]);
     setDownloadStep("input");
     setDownloadUseAppSession(false);
-    setDownloadTab(activeMode === "sniff" ? "sniff" : "quick");
-    setDownloadPrepareIntent(null);
+    setDownloadTab("quick");
     setDownloadSubmitError("");
     setDownloadKeepOnlyTranscodedFile(true);
     setCustomParseResult(null);
@@ -1335,14 +1192,11 @@ export function NewTaskDialog(props: {
     setCustomSubtitleId("");
     setCustomPresetId("");
     setCustomParseError("");
-    setResourceSniffFailure(null);
-    setResourceSniffTechnicalError("");
   };
 
   const resetParsedDownloadSelection = () => {
     parseRequestVersionRef.current += 1;
     parseDownload.reset();
-    parseResourceSniff.reset();
     setCustomParseResult(null);
     setCustomFormatId("");
     setCustomAudioFormatId("");
@@ -1351,56 +1205,60 @@ export function NewTaskDialog(props: {
     setCustomParseError("");
   };
 
-  const handleActiveModeChange = (nextMode: NewTaskDialogMode) => {
-    if (nextMode === activeMode) {
-      return;
-    }
-    setActiveMode(nextMode);
-    if (nextMode === "download") {
-      setDownloadTab("quick");
-      return;
-    }
-    if (nextMode === "sniff") {
-      setDownloadTab("sniff");
-    }
-  };
+  const transferResourceSniffToDesk = React.useCallback(
+    (requestVersion: number) => {
+      if (!props.onOpenSniffDesk) {
+        return;
+      }
+      resourceSniffTransferStartVersionRef.current = requestVersion;
+      preserveResourceSniffOnCloseRef.current = true;
+      parseRequestVersionRef.current += 1;
+      setActiveResourceSniffSessionId("");
+      dialogOpenRef.current = false;
+      props.onOpenChange(false);
+      props.onOpenSniffDesk();
+    },
+    [
+      props.onOpenChange,
+      props.onOpenSniffDesk,
+      setActiveResourceSniffSessionId,
+    ],
+  );
 
-  const startPreparedResourceSniff = React.useCallback(
-    async (prepared: PrepareYTDLPDownloadResponse) => {
+  const handleOpenSniffDesk = React.useCallback(() => {
+    transferResourceSniffToDesk(resourceSniffStartVersionRef.current);
+  }, [transferResourceSniffToDesk]);
+
+  const startResourceSniffFromSelection = React.useCallback(
+    async (
+      selection: BrowserSourceSelection,
+      options?: { transferToDesk?: boolean },
+    ) => {
       const existingSessionID = resourceSniffSessionIdRef.current.trim();
       if (existingSessionID) {
         await cancelResourceSniffSession(existingSessionID);
       }
       resetParsedDownloadSelection();
       const startVersion = ++resourceSniffStartVersionRef.current;
-      setResourceSniffFailure(null);
-      setResourceSniffTechnicalError("");
+      const handoffRequestId = options?.transferToDesk
+        ? beginSniffWorkspaceStart()
+        : "";
+      const currentBrowserMode = selection.mode === "current_browser";
       const startMutationPromise = startResourceSniff.mutateAsync({
-        url: prepared.url,
+        url: "",
+        mode: currentBrowserMode ? "current_browser" : "managed_profile",
+        browserId: selection.browserId,
+        ...(currentBrowserMode ? {} : { profileId: selection.profileId }),
       });
       const startPromise = startMutationPromise.then(
         (result) => result.session?.sessionId ?? "",
       );
       resourceSniffStartPromiseRef.current = startPromise;
+      if (options?.transferToDesk) {
+        transferResourceSniffToDesk(startVersion);
+      }
       try {
         const result = await startMutationPromise;
-        if (result.failure) {
-          if (
-            resolveResourceSniffStartResolution({
-              requestVersion: startVersion,
-              currentVersion: resourceSniffStartVersionRef.current,
-              dialogOpen: dialogOpenRef.current,
-              transferRequestVersion:
-                resourceSniffTransferStartVersionRef.current,
-            }) === "preserve"
-          ) {
-            resourceSniffTransferStartVersionRef.current = null;
-            return;
-          }
-          setResourceSniffFailure(result.failure);
-          setResourceSniffTechnicalError("");
-          return;
-        }
         const sessionId = result.session?.sessionId.trim() ?? "";
         if (!sessionId) {
           throw new Error("resource sniff start returned no session");
@@ -1413,9 +1271,11 @@ export function NewTaskDialog(props: {
         });
         if (startResolution === "preserve") {
           resourceSniffTransferStartVersionRef.current = null;
+          attachSniffWorkspaceStartSession(handoffRequestId, sessionId);
           return;
         }
         if (startResolution === "cancel") {
+          clearSniffWorkspaceStart(handoffRequestId);
           await cancelResourceSniffSession(sessionId);
           return;
         }
@@ -1431,15 +1291,22 @@ export function NewTaskDialog(props: {
           }) === "preserve"
         ) {
           resourceSniffTransferStartVersionRef.current = null;
+          clearSniffWorkspaceStart(handoffRequestId);
+          messageBus.publishToast({
+            intent: "danger",
+            title: text.sniffDesk.startFailed,
+            description: resolveSniffDeskErrorDescription(text, error),
+          });
           return;
         }
         if (!dialogOpenRef.current && !preserveResourceSniffOnCloseRef.current) {
           return;
         }
-        setResourceSniffFailure(null);
-        setResourceSniffTechnicalError(
-          resolveUnknownErrorMessage(error, text.common.unknown),
-        );
+        messageBus.publishToast({
+          intent: "danger",
+          title: text.sniffDesk.startFailed,
+          description: resolveSniffDeskErrorDescription(text, error),
+        });
       } finally {
         if (resourceSniffStartPromiseRef.current === startPromise) {
           resourceSniffStartPromiseRef.current = null;
@@ -1449,10 +1316,31 @@ export function NewTaskDialog(props: {
     [
       cancelResourceSniffSession,
       parseDownload,
-      parseResourceSniff,
       startResourceSniff,
-      text.common.unknown,
+      text,
+      transferResourceSniffToDesk,
     ],
+  );
+
+  const handleConfirmResourceSniffSource = React.useCallback(
+    async (selection: BrowserSourceSelection) => {
+      const supportedSelection = selection.mode === "current_browser"
+        ? selection.browserId === "chrome"
+        : selection.mode === "xiadown_profile" &&
+          selection.browserId.trim().length > 0;
+      if (!supportedSelection || resourceSniffConfirmingRef.current) {
+        return;
+      }
+      resourceSniffConfirmingRef.current = true;
+      try {
+        await startResourceSniffFromSelection(selection, {
+          transferToDesk: Boolean(props.onOpenSniffDesk),
+        });
+      } finally {
+        resourceSniffConfirmingRef.current = false;
+      }
+    },
+    [props.onOpenSniffDesk, startResourceSniffFromSelection],
   );
 
   const resolveDownloadErrorMessage = React.useCallback(
@@ -1485,22 +1373,33 @@ export function NewTaskDialog(props: {
     ],
   );
 
+  const handlePasteDownloadURL = React.useCallback(async () => {
+    try {
+      let value = "";
+      try {
+        value = await Clipboard.Text();
+      } catch {
+        value = (await navigator.clipboard?.readText?.()) ?? "";
+      }
+      if (!value.trim()) {
+        setDownloadPrepareError(text.dialogs.clipboardEmpty);
+        return;
+      }
+      setDownloadUrl(value.trim());
+      setDownloadPrepareError("");
+    } catch {
+      setDownloadPrepareError(text.dialogs.clipboardUnavailable);
+    }
+  }, [text.dialogs.clipboardEmpty, text.dialogs.clipboardUnavailable]);
+
   const handlePrepareDownload = React.useCallback(
-    async (
-      mode: DownloadEntryMode,
-      overrideUrl?: string,
-      options?: { autoStartSniff?: boolean },
-    ) => {
+    async (overrideUrl?: string) => {
       const url = (overrideUrl ?? downloadUrl).trim();
       if (!url) {
         return;
       }
-      const autoStartSniff = options?.autoStartSniff ?? true;
-      setDownloadPrepareIntent(mode);
       setDownloadPrepareError("");
       setDownloadSubmitError("");
-      setResourceSniffFailure(null);
-      setResourceSniffTechnicalError("");
       try {
         const prepared = await prepareDownload.mutateAsync({ url });
         const preparedURLs =
@@ -1521,7 +1420,13 @@ export function NewTaskDialog(props: {
                 ]
               : [];
         if (prepared.mode === "batch" || preparedURLs.length > 1) {
-          const batchItems = preparedURLs.map(preparedURLToBatchItem);
+          const alignedTargets = alignPreparedDownloadTargets(
+            preparedURLs,
+            props.initialDownloadTargets,
+          );
+          const batchItems = preparedURLs.map((item, index) =>
+            preparedURLToBatchItem(item, index, alignedTargets[index]),
+          );
           setActiveMode("download");
           setDownloadPrepared(prepared);
           setBatchDownloadItems(batchItems);
@@ -1538,8 +1443,7 @@ export function NewTaskDialog(props: {
           setCustomParseError("");
           return;
         }
-        const nextTab: DownloadDialogTab = mode === "sniff" ? "sniff" : "quick";
-        setActiveMode(nextTab === "sniff" ? "sniff" : "download");
+        setActiveMode("download");
         setDownloadPrepared(prepared);
         setBatchDownloadItems([]);
         setDownloadUrl(prepared.url || url);
@@ -1552,7 +1456,7 @@ export function NewTaskDialog(props: {
           ),
         );
         setDownloadStep("config");
-        setDownloadTab(nextTab);
+        setDownloadTab("quick");
         setCustomParseResult(null);
         setCustomFormatId("");
         setCustomAudioFormatId("");
@@ -1560,20 +1464,15 @@ export function NewTaskDialog(props: {
         setCustomPresetId("");
         setDownloadKeepOnlyTranscodedFile(true);
         setCustomParseError("");
-        if (nextTab === "sniff" && autoStartSniff) {
-          await startPreparedResourceSniff(prepared);
-        }
       } catch (error) {
         setDownloadPrepareError(resolveDownloadErrorMessage(error));
-      } finally {
-        setDownloadPrepareIntent(null);
       }
     },
     [
       downloadUrl,
       prepareDownload,
       resolveDownloadErrorMessage,
-      startPreparedResourceSniff,
+      props.initialDownloadTargets,
     ],
   );
 
@@ -1591,7 +1490,7 @@ export function NewTaskDialog(props: {
       return;
     }
     autoPreparedInitialUrlRef.current = initialUrl;
-    void handlePrepareDownload("direct", initialUrl, { autoStartSniff: false });
+    void handlePrepareDownload(initialUrl);
   }, [
     activeMode,
     downloadStep,
@@ -1628,7 +1527,9 @@ export function NewTaskDialog(props: {
           downloadPrepared,
           playlistItems,
         );
-        const batchItems = playlistItems.map(preparedURLToBatchItem);
+        const batchItems = playlistItems.map((item, index) =>
+          preparedURLToBatchItem(item, index),
+        );
         setActiveMode("download");
         setDownloadPrepared(playlistPrepared);
         setBatchDownloadItems(batchItems);
@@ -1683,8 +1584,6 @@ export function NewTaskDialog(props: {
     }
     setDownloadTab(nextTab);
     resetParsedDownloadSelection();
-    setResourceSniffFailure(null);
-    setResourceSniffTechnicalError("");
   };
 
   const handleOpenConnections = React.useCallback(() => {
@@ -1696,105 +1595,24 @@ export function NewTaskDialog(props: {
     });
   }, [closeDialogAfterResourceCleanup, props.onOpenConnections]);
 
-  const handleOpenSniffDesk = React.useCallback(() => {
-    if (!props.onOpenSniffDesk) {
+  React.useEffect(() => {
+    if (
+      !props.open ||
+      activeMode !== "sniff" ||
+      !resourceSniffSessionId.trim() ||
+      !props.onOpenSniffDesk
+    ) {
       return;
     }
-    resourceSniffTransferStartVersionRef.current =
-      resourceSniffStartVersionRef.current;
-    preserveResourceSniffOnCloseRef.current = true;
-    parseRequestVersionRef.current += 1;
-    setActiveResourceSniffSessionId("");
-    setResourceSniffFailure(null);
-    setResourceSniffTechnicalError("");
-    dialogOpenRef.current = false;
-    props.onOpenChange(false);
-    props.onOpenSniffDesk();
+    handleOpenSniffDesk();
   }, [
-    props.onOpenChange,
+    activeMode,
+    handleOpenSniffDesk,
     props.onOpenSniffDesk,
-    setActiveResourceSniffSessionId,
+    props.open,
+    resourceSniffSessionId,
   ]);
 
-  const handleStartResourceSniff = async () => {
-    if (!downloadPrepared) {
-      return;
-    }
-    await startPreparedResourceSniff(downloadPrepared);
-  };
-
-  const handleParseResourceSniff = async () => {
-    const sessionId = resourceSniffSessionId.trim();
-    if (!sessionId) {
-      return;
-    }
-    const requestVersion = ++parseRequestVersionRef.current;
-    const requestPageUrl = resourceSniffSession?.currentUrl?.trim() ?? "";
-    const hasCurrentResult = Boolean(customParseResult);
-    if (!hasCurrentResult) {
-      setCustomParseResult(null);
-      setCustomFormatId("");
-      setCustomAudioFormatId("");
-      setCustomSubtitleId("");
-      setCustomPresetId("");
-      setCustomParsePageUrl("");
-    }
-    setResourceSniffFailure(null);
-    setResourceSniffTechnicalError("");
-    try {
-      const response = await parseResourceSniff.mutateAsync({ sessionId });
-      if (
-        requestVersion !== parseRequestVersionRef.current ||
-        !dialogOpenRef.current
-      ) {
-        return;
-      }
-      if (response.failure) {
-        setCustomParseResult(null);
-        setCustomFormatId("");
-        setCustomAudioFormatId("");
-        setCustomSubtitleId("");
-        setCustomPresetId("");
-        setCustomParsePageUrl("");
-        setResourceSniffFailure(response.failure);
-        setResourceSniffTechnicalError("");
-        return;
-      }
-      const parsed = response.media;
-      if (!parsed) {
-        throw new Error("resource sniff parse returned no media");
-      }
-      if (!hasDownloadableFormats(parsed)) {
-        throw new Error("resource sniff parse returned media without formats");
-      }
-      const defaultFormat = pickDefaultFormat(parsed.formats);
-      const parsedPageUrl = parsed.pageUrl?.trim() || requestPageUrl;
-      customParsePageObservedRef.current = false;
-      setCustomParseResult(parsed);
-      setCustomParsePageUrl(parsedPageUrl);
-      setCustomFormatId(defaultFormat?.id ?? "");
-      setCustomAudioFormatId("");
-      setCustomSubtitleId("");
-      setCustomPresetId("");
-    } catch (error) {
-      if (
-        requestVersion !== parseRequestVersionRef.current ||
-        !dialogOpenRef.current
-      ) {
-        return;
-      }
-      setCustomParseResult(null);
-      setCustomFormatId("");
-      setCustomAudioFormatId("");
-      setCustomSubtitleId("");
-      setCustomPresetId("");
-      setCustomParsePageUrl("");
-      setResourceSniffFailure(null);
-      setResourceSniffTechnicalError(
-        resolveUnknownErrorMessage(error, text.common.unknown),
-      );
-    }
-  };
 
   const handleStartQuickDownload = async () => {
     if (!downloadPrepared) {
@@ -1804,8 +1622,8 @@ export function NewTaskDialog(props: {
     try {
       await createYTDLP.mutateAsync({
         url: downloadPrepared.url,
-        source: "xiadown.download.dialog",
-        caller: "main",
+        source: props.initialDownloadSource?.trim() || "xiadown.download.dialog",
+        caller: props.initialDownloadCaller?.trim() || "main",
         mode: "quick",
         quality: quickQuality,
         writeThumbnail: true,
@@ -1849,23 +1667,28 @@ export function NewTaskDialog(props: {
     setDownloadSubmitError("");
     try {
       await createYTDLPBatch.mutateAsync({
-        items: batchDownloadItems.map((item) => ({
-          url: item.url,
-          source: "xiadown.download.dialog",
-          caller: "main",
-          mode: "quick",
-          quality: item.quality,
-          writeThumbnail: true,
-          subtitleAll: item.subtitles,
-          subtitleAuto: item.subtitles,
-          transcodePresetId: item.transcodePresetId || undefined,
-          deleteSourceFileAfterTranscode: item.transcodePresetId
-            ? item.deleteSourceFileAfterTranscode
-            : undefined,
-          appSessionId: item.appSessionId || undefined,
-          useAppSession:
-            item.useAppSession && batchDownloadItemCanUseAppSession(item),
-        })),
+        items: batchDownloadItems.map((item) => {
+          const origin = resolveDownloadTargetOrigin(item, {
+            source: props.initialDownloadSource,
+            caller: props.initialDownloadCaller,
+          });
+          return {
+            url: item.url,
+            ...origin,
+            mode: "quick",
+            quality: item.quality,
+            writeThumbnail: true,
+            subtitleAll: item.subtitles,
+            subtitleAuto: item.subtitles,
+            transcodePresetId: item.transcodePresetId || undefined,
+            deleteSourceFileAfterTranscode: item.transcodePresetId
+              ? item.deleteSourceFileAfterTranscode
+              : undefined,
+            appSessionId: item.appSessionId || undefined,
+            useAppSession:
+              item.useAppSession && batchDownloadItemCanUseAppSession(item),
+          };
+        }),
       });
       await closeDialogAfterResourceCleanup();
     } catch (error) {
@@ -1873,9 +1696,7 @@ export function NewTaskDialog(props: {
     }
   };
 
-  const buildCustomDownloadRequest = (
-    resourceReference: "none" | "session" | "media",
-  ): CreateYTDLPJobRequest | null => {
+  const buildCustomDownloadRequest = (): CreateYTDLPJobRequest | null => {
     if (!downloadPrepared || !customParseResult || !customSelectedFormat) {
       return null;
     }
@@ -1884,8 +1705,8 @@ export function NewTaskDialog(props: {
       customSelectedFormat.hasVideo && !customSelectedFormat.hasAudio;
     return {
       url: downloadPrepared.url,
-      source: "xiadown.download.dialog",
-      caller: "main",
+      source: props.initialDownloadSource?.trim() || "xiadown.download.dialog",
+      caller: props.initialDownloadCaller?.trim() || "main",
       mode: "custom",
       title: customParseResult.title || undefined,
       extractor: customParseResult.extractor || undefined,
@@ -1906,49 +1727,20 @@ export function NewTaskDialog(props: {
         : undefined,
       appSessionId: downloadPrepared.appSessionId || undefined,
       useAppSession: downloadUseAppSession && downloadAppSessionCanExportCookies,
-      resourceSessionId:
-        resourceReference === "session"
-          ? customParseResult.resourceSessionId || undefined
-          : undefined,
-      resourceMediaId:
-        resourceReference === "media"
-          ? customParseResult.resourceMediaId || undefined
-          : undefined,
     };
-  };
-
-  const handleQueueResourceDownload = async () => {
-    const request = buildCustomDownloadRequest("media");
-    if (!request?.resourceMediaId) {
-      return;
-    }
-    setDownloadSubmitError("");
-    try {
-      await queueYTDLP.mutateAsync(request);
-      resetParsedDownloadSelection();
-      setResourceSniffFailure(null);
-      setResourceSniffTechnicalError("");
-    } catch (error) {
-      setDownloadSubmitError(resolveDownloadErrorMessage(error));
-    }
   };
 
   const handleStartCustomDownload = async () => {
     if (!customParseResult || !customSelectedFormat) {
       return;
     }
-    const request = buildCustomDownloadRequest(
-      customParseResult.resourceSessionId ? "session" : "none",
-    );
+    const request = buildCustomDownloadRequest();
     if (!request) {
       return;
     }
     setDownloadSubmitError("");
     try {
       await createYTDLP.mutateAsync(request);
-      if (customParseResult.resourceSessionId) {
-        setActiveResourceSniffSessionId("");
-      }
       await closeDialogAfterResourceCleanup();
     } catch (error) {
       setDownloadSubmitError(resolveDownloadErrorMessage(error));
@@ -1988,6 +1780,24 @@ export function NewTaskDialog(props: {
       return;
     }
     applyTranscodeInputPath(path, null);
+    setTranscodeLibraryOpen(false);
+  };
+
+  const handleChooseLibrarySource = (
+    source: NewTaskDialogTranscodeSource,
+  ) => {
+    const displayLabel =
+      source.displayLabel?.trim() ||
+      source.inputPath?.trim() ||
+      source.title?.trim() ||
+      source.fileId?.trim() ||
+      "";
+    if (!displayLabel || !source.fileId?.trim()) {
+      return;
+    }
+    applyTranscodeInputPath(displayLabel, source);
+    setTranscodeLibraryOpen(false);
+    setTranscodeLibraryQuery("");
   };
 
   const handleCreateTranscode = async () => {
@@ -2014,7 +1824,7 @@ export function NewTaskDialog(props: {
   };
 
   const handleInstallTaskDependencies = async () => {
-    for (const name of TASK_DIALOG_DEPENDENCIES) {
+    for (const name of taskDependencies) {
       const status = (toolsByName.get(name)?.status ?? "").trim().toLowerCase();
       if (status === "installed") {
         continue;
@@ -2026,14 +1836,17 @@ export function NewTaskDialog(props: {
   return (
     <Dialog open={props.open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
-        className="max-w-[min(92vw,32rem)] gap-4 overflow-hidden"
+        className="app-new-task-dialog gap-4 overflow-hidden"
+        data-library-open={activeMode === "transcode" && transcodeLibraryOpen ? "true" : undefined}
         showCloseButton={false}
         onEscapeKeyDown={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
       >
         <button
           type="button"
-          className="app-dialog-close app-new-task-browser-close absolute right-4 top-4 transition-[background,color,box-shadow] focus:outline-none disabled:pointer-events-none"
+          aria-label={text.actions.close}
+          title={text.actions.close}
+          className="app-dialog-close app-new-task-browser-close absolute right-4 top-4 disabled:pointer-events-none"
           data-closing={closingDialog ? "true" : undefined}
           disabled={closingDialog}
           onClick={() => {
@@ -2041,53 +1854,40 @@ export function NewTaskDialog(props: {
           }}
         >
           {closingDialog ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 app-motion-spin" />
           ) : (
             <X className="h-4 w-4" />
           )}
           {closingDialog ? <span>{text.actions.closeBrowser}</span> : null}
         </button>
         <DialogHeader
-          className={cn("space-y-0 text-left", closingDialog ? "pr-28" : "pr-10")}
+          className={cn("app-new-task-header space-y-0", closingDialog ? "pr-28" : "pr-10")}
         >
-          <DialogTitle className="sr-only">
-            {activeMode === "transcode"
-              ? text.dialogs.transcodeTitle
-              : activeMode === "sniff"
-                ? text.dialogs.sniffMode
-                : text.dialogs.downloadTitle}
+          <DialogTitle className="app-new-task-title flex items-center gap-2">
+            {activeMode === "transcode" ? (
+              <FileCog className="app-new-task-title-icon h-4 w-4" />
+            ) : activeMode === "sniff" ? (
+              <Radar className="app-new-task-title-icon h-4 w-4" />
+            ) : (
+              <Download className="app-new-task-title-icon h-4 w-4" />
+            )}
+            <span>
+              {activeMode === "transcode"
+                ? text.dialogs.transcodeTitle
+                : activeMode === "sniff"
+                  ? text.dialogs.sniffTitle
+                  : text.dialogs.downloadTitle}
+            </span>
           </DialogTitle>
           <DialogDescription className="sr-only">
             {text.productSubtitle}
           </DialogDescription>
-          <DreamSegmentSwitch
-            value={activeMode}
-            className="app-new-task-mode-switch mr-auto"
-            items={[
-              {
-                value: "download",
-                label: text.actions.download,
-                icon: <Download className="h-3.5 w-3.5" />,
-              },
-              {
-                value: "sniff",
-                label: text.dialogs.sniffMode,
-                icon: <Radar className="h-3.5 w-3.5" />,
-              },
-              {
-                value: "transcode",
-                label: text.actions.transcode,
-                icon: <FileCog className="h-3.5 w-3.5" />,
-              },
-            ]}
-            onValueChange={handleActiveModeChange}
-          />
         </DialogHeader>
 
         {!taskDependenciesReady ? (
           <DependencyRepairCard
             text={text}
-            dependencyNames={TASK_DIALOG_DEPENDENCIES}
+            dependencyNames={taskDependencies}
             toolsByName={toolsByName}
             updatesByName={updatesByName}
             installStagesByName={installStagesByName}
@@ -2106,20 +1906,37 @@ export function NewTaskDialog(props: {
                     className="flex gap-2"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      void handlePrepareDownload(activeDownloadEntryMode);
+                      void handlePrepareDownload();
                     }}
                   >
-                    <Input
-                      value={downloadUrl}
-                      onChange={(event) => {
-                        setDownloadUrl(event.target.value);
-                        if (downloadPrepareError) {
-                          setDownloadPrepareError("");
-                        }
-                      }}
-                      placeholder={text.dialogs.downloadPlaceholder}
-                      className="app-new-task-url-input min-w-0 flex-1"
-                    />
+                    <div className="app-new-task-field-strip flex min-w-0 flex-1 items-center overflow-hidden">
+                      <Input
+                        value={downloadUrl}
+                        onChange={(event) => {
+                          setDownloadUrl(event.target.value);
+                          if (downloadPrepareError) {
+                            setDownloadPrepareError("");
+                          }
+                        }}
+                        placeholder={text.dialogs.downloadPlaceholder}
+                        className="app-new-task-url-input h-full min-w-0 flex-1"
+                      />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="compactIcon"
+                            className="app-new-task-field-action !h-full !w-9 shrink-0"
+                            aria-label={text.actions.paste}
+                            onClick={() => void handlePasteDownloadURL()}
+                          >
+                            <ClipboardPaste className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{text.actions.paste}</TooltipContent>
+                      </Tooltip>
+                    </div>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="inline-flex shrink-0">
@@ -2134,11 +1951,8 @@ export function NewTaskDialog(props: {
                               prepareDownload.isPending
                             }
                           >
-                            {prepareDownload.isPending &&
-                            downloadPrepareIntent === activeDownloadEntryMode ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : activeDownloadEntryMode === "sniff" ? (
-                              <Radar className="h-4 w-4" />
+                            {prepareDownload.isPending ? (
+                              <Loader2 className="h-4 w-4 app-motion-spin" />
                             ) : (
                               <Download className="h-4 w-4" />
                             )}
@@ -2151,7 +1965,7 @@ export function NewTaskDialog(props: {
                     </Tooltip>
                   </form>
                   {!ytdlpInstalled ? (
-                    <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="warning">
+                    <div className="app-dream-status-message mt-2 px-3 py-2" data-intent="warning">
                       {text.dependencies.missingDependency.replace(
                         "{name}",
                         "yt-dlp",
@@ -2159,12 +1973,19 @@ export function NewTaskDialog(props: {
                     </div>
                   ) : null}
                   {downloadPrepareError ? (
-                    <div className="app-dream-status-message mt-2 px-3 py-2 text-xs" data-intent="danger">
+                    <div className="app-dream-status-message mt-2 px-3 py-2" data-intent="danger">
                       {downloadPrepareError}
                     </div>
                   ) : null}
                 </DialogListCardContent>
               </DialogListCard>
+            ) : null}
+
+            {activeMode === "sniff" ? (
+              <NewSniffSourceSteps
+                confirming={startResourceSniff.isPending}
+                onConfirm={handleConfirmResourceSniffSource}
+              />
             ) : null}
 
             {activeDownloadMode && downloadStep === "config" ? (
@@ -2174,9 +1995,7 @@ export function NewTaskDialog(props: {
                     <DialogListCardContent className="p-3">
                       <div
                         className="app-new-task-field-strip app-new-task-url-card-strip h-9 w-full min-w-0 overflow-hidden"
-                        data-mode={
-                          downloadShowsSniffMode ? "sniff" : "app-session"
-                        }
+                        data-mode="app-session"
                       >
                         <div className="app-new-task-url-card-link flex h-full min-w-0 items-center">
                           <div
@@ -2235,12 +2054,7 @@ export function NewTaskDialog(props: {
                           <div
                             className="app-new-task-url-card-mode-panel"
                             data-panel="app-session"
-                            data-visible={
-                              downloadShowsSniffMode ? "false" : "true"
-                            }
-                            aria-hidden={
-                              downloadShowsSniffMode ? "true" : undefined
-                            }
+                            data-visible="true"
                           >
                             <span className="app-new-task-url-card-mode-label">
                               {downloadAppSessionStatusLabel}
@@ -2285,21 +2099,6 @@ export function NewTaskDialog(props: {
                               </Tooltip>
                             ) : null}
                           </div>
-                          <div
-                            className="app-new-task-url-card-mode-panel app-new-task-url-card-mode-panel-sniff"
-                            data-panel="sniff"
-                            data-visible={
-                              downloadShowsSniffMode ? "true" : "false"
-                            }
-                            aria-hidden={
-                              downloadShowsSniffMode ? undefined : "true"
-                            }
-                          >
-                            <Radar className="h-3.5 w-3.5 shrink-0" />
-                            <span className="app-new-task-url-card-mode-label">
-                              {text.dialogs.sniffMode}
-                            </span>
-                          </div>
                         </div>
                       </div>
                     </DialogListCardContent>
@@ -2315,7 +2114,7 @@ export function NewTaskDialog(props: {
                       onValueChange={() => undefined}
                     />
                   </div>
-                ) : downloadTab !== "sniff" ? (
+                ) : (
                   <div className="flex justify-center">
                     <DreamSegmentSwitch
                       value={downloadTab}
@@ -2324,26 +2123,26 @@ export function NewTaskDialog(props: {
                       onValueChange={handleDownloadTabChange}
                     />
                   </div>
-                ) : null}
+                )}
 
                 {downloadIsBatch ? (
                   <DialogListCard className="app-new-task-panel app-new-task-list-panel">
                     <DialogListCardContent className="max-h-[12.25rem] overflow-y-auto">
-                      <table className="w-full table-fixed text-sm">
+                      <table className="app-new-task-batch-table w-full table-fixed">
                         <colgroup>
                           <col />
                           <col className="w-[6.25rem]" />
                           <col className="w-[6.75rem]" />
                         </colgroup>
-                        <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur">
-                          <tr className="border-b border-border/60 text-[11px] font-medium text-muted-foreground">
-                            <th className="px-3 py-2 text-center font-medium" scope="col">
+                        <thead className="app-new-task-batch-table-head sticky top-0 z-10">
+                          <tr className="app-new-task-batch-table-head-row">
+                            <th className="px-3 py-2" scope="col">
                               {text.completed.taskDataFields.url}
                             </th>
-                            <th className="px-3 py-2 text-center font-medium" scope="col">
+                            <th className="px-3 py-2" scope="col">
                               {text.dialogs.useAppSession}
                             </th>
-                            <th className="px-3 py-2 text-center font-medium" scope="col">
+                            <th className="px-3 py-2" scope="col">
                               {text.dialogs.quality}
                             </th>
                           </tr>
@@ -2386,25 +2185,25 @@ export function NewTaskDialog(props: {
                             return (
                               <tr
                                 key={item.id}
-                                className="border-b border-border/60 transition-colors last:border-b-0 hover:bg-muted/30"
+                                className="app-new-task-batch-row"
                               >
                                 <td className="px-3 py-3 align-middle">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <div
-                                        className="min-w-0 truncate text-xs"
+                                        className="app-new-task-batch-url min-w-0 truncate"
                                         dir="ltr"
                                       >
                                         {displayParts.prefix ? (
-                                          <span className="text-muted-foreground">
+                                          <span className="app-new-task-secondary-text">
                                             {displayParts.prefix}
                                           </span>
                                         ) : null}
-                                        <span className="font-medium text-foreground">
+                                        <span className="app-new-task-primary-text">
                                           {displayParts.domain || item.url}
                                         </span>
                                         {displayParts.suffix ? (
-                                          <span className="text-muted-foreground">
+                                          <span className="app-new-task-secondary-text">
                                             {displayParts.suffix}
                                           </span>
                                         ) : null}
@@ -2412,7 +2211,7 @@ export function NewTaskDialog(props: {
                                     </TooltipTrigger>
                                     <TooltipContent
                                       align="start"
-                                      className="font-mono"
+                                      className="app-new-task-monospace"
                                       multiline
                                       side="bottom"
                                     >
@@ -2420,7 +2219,7 @@ export function NewTaskDialog(props: {
                                     </TooltipContent>
                                   </Tooltip>
                                 </td>
-                                <td className="px-3 py-3 text-center align-middle">
+                                <td className="app-new-task-batch-toggle-cell px-3 py-3 align-middle">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <span className="inline-flex items-center justify-center">
@@ -2447,7 +2246,7 @@ export function NewTaskDialog(props: {
                                     </TooltipContent>
                                   </Tooltip>
                                 </td>
-                                <td className="px-3 py-3 text-right align-middle">
+                                <td className="app-new-task-batch-actions-cell px-3 py-3 align-middle">
                                   <div className="flex justify-end">
                                     <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
@@ -2459,10 +2258,10 @@ export function NewTaskDialog(props: {
                                           title={selectedBatchParamsSummary}
                                           aria-label={text.dialogs.quality}
                                         >
-                                          <span className="min-w-0 flex-1 truncate text-left">
+                                          <span className="app-new-task-batch-control-label min-w-0 flex-1 truncate">
                                             {selectedBatchQualityLabel}
                                           </span>
-                                          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                                          <ChevronDown className="app-new-task-disclosure-icon h-3.5 w-3.5 shrink-0" />
                                         </Button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent
@@ -2470,8 +2269,8 @@ export function NewTaskDialog(props: {
                                         className="w-[18rem] p-2"
                                       >
                                         <div className="space-y-1.5">
-                                          <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
-                                            <span className="text-muted-foreground">
+                                          <div className="app-new-task-detail-row flex items-center justify-between gap-3 px-2 py-1.5">
+                                            <span className="app-new-task-secondary-text">
                                               {text.dialogs.quality}
                                             </span>
                                             <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -2528,8 +2327,8 @@ export function NewTaskDialog(props: {
                                               </Button>
                                             </div>
                                           </div>
-                                          <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
-                                            <span className="text-muted-foreground">
+                                          <div className="app-new-task-detail-row flex items-center justify-between gap-3 px-2 py-1.5">
+                                            <span className="app-new-task-secondary-text">
                                               {text.dialogs.subtitles}
                                             </span>
                                             <InlineSwitch
@@ -2542,8 +2341,8 @@ export function NewTaskDialog(props: {
                                               ariaLabel={text.dialogs.subtitles}
                                             />
                                           </div>
-                                          <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
-                                            <span className="text-muted-foreground">
+                                          <div className="app-new-task-detail-row flex items-center justify-between gap-3 px-2 py-1.5">
+                                            <span className="app-new-task-secondary-text">
                                               {text.actions.transcode}
                                             </span>
                                             <Select
@@ -2554,7 +2353,7 @@ export function NewTaskDialog(props: {
                                                     event.target.value,
                                                 })
                                               }
-                                              className="h-8 w-40 text-xs"
+                                              className="app-new-task-compact-select h-8 w-40"
                                               aria-label={text.actions.transcode}
                                             >
                                               <option value="">
@@ -2571,8 +2370,8 @@ export function NewTaskDialog(props: {
                                             </Select>
                                           </div>
                                           {item.transcodePresetId ? (
-                                            <div className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5">
-                                              <span className="text-muted-foreground">
+                                            <div className="app-new-task-detail-row flex items-center justify-between gap-3 px-2 py-1.5">
+                                              <span className="app-new-task-secondary-text">
                                                 {
                                                   text.dialogs
                                                     .keepOnlyTranscodedFile
@@ -2615,8 +2414,8 @@ export function NewTaskDialog(props: {
                 {downloadTab === "quick" && !downloadIsBatch ? (
                   <DialogListCard className="app-new-task-panel app-new-task-list-panel">
                     <DialogListCardContent>
-                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                        <span className="text-muted-foreground">
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                        <span className="app-new-task-row-label">
                           {text.dialogs.quality}
                         </span>
                         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -2652,8 +2451,8 @@ export function NewTaskDialog(props: {
                           </Button>
                         </div>
                       </DialogRow>
-                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                        <span className="text-muted-foreground">
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                        <span className="app-new-task-row-label">
                           {text.dialogs.subtitles}
                         </span>
                         <InlineSwitch
@@ -2662,8 +2461,8 @@ export function NewTaskDialog(props: {
                           ariaLabel={text.dialogs.subtitles}
                         />
                       </DialogRow>
-                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                        <span className="text-muted-foreground">
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                        <span className="app-new-task-row-label">
                           {text.actions.transcode}
                         </span>
                         <Select
@@ -2682,8 +2481,8 @@ export function NewTaskDialog(props: {
                         </Select>
                       </DialogRow>
                       {quickPresetId ? (
-                        <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                          <div className="text-muted-foreground">
+                        <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                          <div className="app-new-task-row-label">
                             {text.dialogs.keepOnlyTranscodedFile}
                           </div>
                           <InlineSwitch
@@ -2697,365 +2496,107 @@ export function NewTaskDialog(props: {
                   </DialogListCard>
                 ) : null}
 
-                {downloadTab === "custom" || downloadTab === "sniff" ? (
+                {downloadTab === "custom" ? (
                   customParseResult ? (
-                    <>
-                      <DialogListCard
-                        className={`app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden ${
-                          downloadTab === "sniff" ? "app-new-task-media-card" : ""
-                        }`}
-                        data-has-cover={
-                          resourceSniffThumbnailUrl ? "true" : "false"
-                        }
-                        data-refreshing={
-                          isSniffCardRefreshing ? "true" : "false"
-                        }
-                      >
-                        <div
-                          className="app-new-task-media-card-visuals"
-                          data-refreshing={
-                            isSniffCardRefreshing ? "true" : undefined
-                          }
-                          aria-hidden="true"
-                        >
-                          {resourceSniffThumbnailUrl ? (
-                            <div
-                              className="app-new-task-media-card-cover-stage"
-                              data-refreshing={
-                                isSniffCardRefreshing ? "true" : undefined
-                              }
-                            >
-                              <img
-                                src={resourceSniffThumbnailUrl}
-                                alt=""
-                                className="app-new-task-media-card-cover-blur"
-                                loading="lazy"
-                                decoding="async"
-                                draggable={false}
-                              />
-                              <div className="app-new-task-media-card-cover-detail-wrap">
-                                <img
-                                  src={resourceSniffThumbnailUrl}
-                                  alt=""
-                                  className="app-new-task-media-card-cover-detail"
-                                  loading="lazy"
-                                  decoding="async"
-                                  draggable={false}
-                                />
-                              </div>
-                              <div className="app-new-task-media-card-cover-softener" />
-                              <div className="app-new-task-media-card-cover-gradient" />
-                              <div className="app-new-task-media-card-cover-texture" />
-                              <div className="app-new-task-media-card-cover-sweep" />
-                            </div>
-                          ) : null}
-                        </div>
-                        <DialogListCardContent
-                          className={
-                            downloadTab === "sniff"
-                              ? "app-new-task-media-card-content"
-                              : undefined
-                          }
-                        >
-                          {downloadTab === "sniff" ? (
-                            <>
-                              <DialogRow className="app-new-task-row app-new-task-media-meta-row flex items-center justify-between gap-4 p-3 text-sm">
-                                <span className="text-muted-foreground">
-                                  {text.dialogs.mediaTitle}
-                                </span>
-                                <span
-                                  className="min-w-0 max-w-[68%] truncate text-right font-medium text-foreground"
-                                  title={
-                                    customParseResult.title ||
-                                    text.common.unknown
-                                  }
-                                >
-                                  {customParseResult.title ||
-                                    text.common.unknown}
-                                </span>
-                              </DialogRow>
-                              <DialogRow className="app-new-task-row app-new-task-media-meta-row flex items-center justify-between gap-4 p-3 text-sm">
-                                <span className="text-muted-foreground">
-                                  {text.dialogs.mediaAuthor}
-                                </span>
-                                <span
-                                  className="min-w-0 max-w-[68%] truncate text-right font-medium text-foreground"
-                                  title={
-                                    customParseResult.author ||
-                                    text.common.unknown
-                                  }
-                                >
-                                  {customParseResult.author ||
-                                    text.common.unknown}
-                                </span>
-                              </DialogRow>
-                            </>
-                          ) : null}
-                          <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
-                            <span className="app-new-task-select-row-label text-muted-foreground">
-                              {text.dialogs.quality}
-                            </span>
-                            <Select
-                              className="app-new-task-select"
-                              value={customFormatId}
-                              onChange={(event) =>
-                                setCustomFormatId(event.target.value)
-                              }
-                            >
-                              <option value="">
-                                {text.dialogs.selectFormat}
-                              </option>
-                              {customVideoFormats.length > 0 ? (
-                                <optgroup label={text.dialogs.formatGroupVideo}>
-                                  {customVideoFormats.map((format) => (
-                                    <option key={format.id} value={format.id}>
-                                      {format.label}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              ) : null}
-                              {customAudioFormats.length > 0 ? (
-                                <optgroup label={text.dialogs.formatGroupAudio}>
-                                  {customAudioFormats.map((format) => (
-                                    <option key={format.id} value={format.id}>
-                                      {format.label}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              ) : null}
-                            </Select>
-                          </DialogRow>
-                          {customCanSelectAudioTrack ? (
-                            <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
-                              <span className="app-new-task-select-row-label text-muted-foreground">
-                                {text.dialogs.audioTrack}
-                              </span>
-                              <Select
-                                className="app-new-task-select"
-                                value={customAudioFormatId}
-                                onChange={(event) =>
-                                  setCustomAudioFormatId(event.target.value)
-                                }
-                              >
-                                <option value="">
-                                  {text.dialogs.audioTrack}
-                                </option>
+                    <DialogListCard className="app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden">
+                      <DialogListCardContent>
+                        <DialogRow className="app-new-task-row app-new-task-select-row p-3">
+                          <span className="app-new-task-select-row-label">
+                            {text.dialogs.quality}
+                          </span>
+                          <Select
+                            className="app-new-task-select"
+                            value={customFormatId}
+                            onChange={(event) => setCustomFormatId(event.target.value)}
+                          >
+                            <option value="">{text.dialogs.selectFormat}</option>
+                            {customVideoFormats.length > 0 ? (
+                              <optgroup label={text.dialogs.formatGroupVideo}>
+                                {customVideoFormats.map((format) => (
+                                  <option key={format.id} value={format.id}>
+                                    {format.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ) : null}
+                            {customAudioFormats.length > 0 ? (
+                              <optgroup label={text.dialogs.formatGroupAudio}>
                                 {customAudioFormats.map((format) => (
                                   <option key={format.id} value={format.id}>
-                                    {formatAudioTrackLabel(format)}
+                                    {format.label}
                                   </option>
                                 ))}
-                              </Select>
-                            </DialogRow>
-                          ) : null}
-                          {downloadTab !== "sniff" ||
-                          customSubtitles.length > 0 ? (
-                            <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
-                              <span className="app-new-task-select-row-label text-muted-foreground">
-                                {text.dialogs.subtitles}
-                              </span>
-                              <Select
-                                className="app-new-task-select"
-                                value={customSubtitleId}
-                                onChange={(event) =>
-                                  setCustomSubtitleId(event.target.value)
-                                }
-                              >
-                                <option value="">
-                                  {text.dialogs.noSubtitle}
-                                </option>
-                                {customSubtitles.map((subtitle) => (
-                                  <option key={subtitle.id} value={subtitle.id}>
-                                    {formatSubtitleLabel(subtitle)}
-                                  </option>
-                                ))}
-                              </Select>
-                            </DialogRow>
-                          ) : null}
-                          <DialogRow className="app-new-task-row app-new-task-select-row p-3 text-sm">
-                            <span className="app-new-task-select-row-label text-muted-foreground">
-                              {text.actions.transcode}
+                              </optgroup>
+                            ) : null}
+                          </Select>
+                        </DialogRow>
+                        {customCanSelectAudioTrack ? (
+                          <DialogRow className="app-new-task-row app-new-task-select-row p-3">
+                            <span className="app-new-task-select-row-label">
+                              {text.dialogs.audioTrack}
                             </span>
                             <Select
                               className="app-new-task-select"
-                              value={customPresetId}
-                              onChange={(event) =>
-                                setCustomPresetId(event.target.value)
-                              }
+                              value={customAudioFormatId}
+                              onChange={(event) => setCustomAudioFormatId(event.target.value)}
                             >
-                              <option value="">{text.dialogs.noTranscode}</option>
-                              {(customPresetsQuery.data ?? []).map((preset) => (
-                                <option key={preset.id} value={preset.id}>
-                                  {preset.name}
+                              <option value="">{text.dialogs.audioTrack}</option>
+                              {customAudioFormats.map((format) => (
+                                <option key={format.id} value={format.id}>
+                                  {formatAudioTrackLabel(format)}
                                 </option>
                               ))}
                             </Select>
                           </DialogRow>
-                          {customPresetId ? (
-                            <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                              <div className="text-muted-foreground">
-                                {text.dialogs.keepOnlyTranscodedFile}
-                              </div>
-                              <InlineSwitch
-                                checked={downloadKeepOnlyTranscodedFile}
-                                onChange={setDownloadKeepOnlyTranscodedFile}
-                                ariaLabel={text.dialogs.keepOnlyTranscodedFile}
-                              />
-                            </DialogRow>
-                          ) : null}
-                        </DialogListCardContent>
-                      </DialogListCard>
-                      {downloadRequiresSniffDesk ? (
-                        <div className="flex flex-wrap items-center justify-center gap-2">
-                          {resourceSniffUnsupportedDomainNotice}
-                          <Button
-                            type="button"
-                            size="compact"
-                            variant="outline"
-                            onClick={handleOpenSniffDesk}
-                            disabled={!props.onOpenSniffDesk}
-                          >
-                            <Radar className="h-4 w-4" />
-                            {text.dialogs.enterSniffDesk}
-                          </Button>
-                        </div>
-                      ) : null}
-                      {downloadTab === "sniff" && resourceSniffHasIssue ? (
-                        <div className="app-new-task-parse-error w-full min-w-0 px-3 py-2 text-xs font-medium">
-                          {resourceSniffIssueDescription}
-                        </div>
-                      ) : null}
-                    </>
-                  ) : downloadTab === "sniff" ? (
-                    <div className="space-y-3">
-                      {resourceSniffSessionId ? (
-                        <DialogListCard className="app-new-task-panel app-new-task-list-panel min-w-0 overflow-hidden">
-                          <DialogListCardContent>
-                            <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                              <span className="text-muted-foreground">
-                                {text.dialogs.currentStatus}
-                              </span>
-                              <div className="flex max-w-[68%] items-center justify-end gap-2">
-                                <span className="min-w-0 truncate text-right font-medium text-foreground">
-                                  {resourceSniffStatusLabel}
-                                </span>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="compact"
-                                  className="h-7 shrink-0 px-2"
-                                  onClick={() => void handleStartResourceSniff()}
-                                  disabled={startResourceSniff.isPending}
-                                >
-                                  {startResourceSniff.isPending ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : null}
-                                  {text.dialogs.restartSniffShort}
-                                </Button>
-                              </div>
-                            </DialogRow>
-                            {showResourceSniffCurrentPage ? (
-                              <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                                <span className="text-muted-foreground">
-                                  {text.dialogs.currentPage}
-                                </span>
-                                <span
-                                  className="max-w-[62%] truncate text-right text-xs text-muted-foreground"
-                                  title={
-                                    resourceSniffHasActiveTab
-                                      ? resourceSniffSession?.currentUrl
-                                      : undefined
-                                  }
-                                >
-                                  {resourceSniffCurrentPageLabel}
-                                </span>
-                              </DialogRow>
-                            ) : null}
-                            {showResourceSniffCurrentUser ? (
-                              <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                                <span className="text-muted-foreground">
-                                  {text.dialogs.currentUser}
-                                </span>
-                                <span
-                                  className="max-w-[62%] truncate text-right text-xs text-muted-foreground"
-                                  title={resourceSniffCurrentUserLabel}
-                                >
-                                  {resourceSniffCurrentUserLabel}
-                                </span>
-                              </DialogRow>
-                            ) : null}
-                          </DialogListCardContent>
-                        </DialogListCard>
-                      ) : null}
-
-                      <div className="flex flex-col items-center justify-center gap-2 py-4">
-                        {resourceSniffSessionId ? (
-                          <div className="flex flex-wrap items-center justify-center gap-2">
-                            <Button
-                              type="button"
-                              size="compact"
-                              onClick={() =>
-                                resourceSniffHasActiveTab
-                                  ? void handleParseResourceSniff()
-                                  : void handleStartResourceSniff()
-                              }
-                              disabled={
-                                parseResourceSniff.isPending ||
-                                startResourceSniff.isPending ||
-                                (resourceSniffHasActiveTab &&
-                                  resourceSniffNeedsDesk)
-                              }
-                            >
-                              {parseResourceSniff.isPending ||
-                              startResourceSniff.isPending ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : null}
-                              {resourceSniffHasActiveTab
-                                ? resourceSniffHasIssue && !resourceSniffNeedsDesk
-                                  ? text.dialogs.parseAgain
-                                  : text.dialogs.parse
-                                : text.dialogs.restartSniffShort}
-                            </Button>
-                            {resourceSniffNeedsDesk ? (
-                              <Button
-                                type="button"
-                                size="compact"
-                                variant="outline"
-                                onClick={handleOpenSniffDesk}
-                                disabled={!props.onOpenSniffDesk}
-                              >
-                                <Radar className="h-4 w-4" />
-                                {text.dialogs.enterSniffDesk}
-                              </Button>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <Button
-                            type="button"
-                            size="compact"
-                            onClick={() => void handleStartResourceSniff()}
-                            disabled={startResourceSniff.isPending}
-                          >
-                            {startResourceSniff.isPending ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : null}
-                            {text.dialogs.startSniff}
-                          </Button>
-                        )}
-                        {resourceSniffUnsupportedDomainNotice ? (
-                          <div className="flex w-full justify-center">
-                            {resourceSniffUnsupportedDomainNotice}
-                          </div>
                         ) : null}
-                        {resourceSniffHasIssue ? (
-                          <div className="w-full">
-                            <div className="app-new-task-parse-error w-full min-w-0 px-3 py-2 text-xs font-medium">
-                              {resourceSniffIssueDescription}
+                        <DialogRow className="app-new-task-row app-new-task-select-row p-3">
+                          <span className="app-new-task-select-row-label">
+                            {text.dialogs.subtitles}
+                          </span>
+                          <Select
+                            className="app-new-task-select"
+                            value={customSubtitleId}
+                            onChange={(event) => setCustomSubtitleId(event.target.value)}
+                          >
+                            <option value="">{text.dialogs.noSubtitle}</option>
+                            {customSubtitles.map((subtitle) => (
+                              <option key={subtitle.id} value={subtitle.id}>
+                                {formatSubtitleLabel(subtitle)}
+                              </option>
+                            ))}
+                          </Select>
+                        </DialogRow>
+                        <DialogRow className="app-new-task-row app-new-task-select-row p-3">
+                          <span className="app-new-task-select-row-label">
+                            {text.actions.transcode}
+                          </span>
+                          <Select
+                            className="app-new-task-select"
+                            value={customPresetId}
+                            onChange={(event) => setCustomPresetId(event.target.value)}
+                          >
+                            <option value="">{text.dialogs.noTranscode}</option>
+                            {(customPresetsQuery.data ?? []).map((preset) => (
+                              <option key={preset.id} value={preset.id}>
+                                {preset.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </DialogRow>
+                        {customPresetId ? (
+                          <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                            <div className="app-new-task-row-label">
+                              {text.dialogs.keepOnlyTranscodedFile}
                             </div>
-                          </div>
+                            <InlineSwitch
+                              checked={downloadKeepOnlyTranscodedFile}
+                              onChange={setDownloadKeepOnlyTranscodedFile}
+                              ariaLabel={text.dialogs.keepOnlyTranscodedFile}
+                            />
+                          </DialogRow>
                         ) : null}
-                      </div>
-                    </div>
+                      </DialogListCardContent>
+                    </DialogListCard>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-2 py-4">
                       <Button
@@ -3065,7 +2606,7 @@ export function NewTaskDialog(props: {
                         disabled={parseDownload.isPending}
                       >
                         {parseDownload.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <Loader2 className="h-4 w-4 app-motion-spin" />
                         ) : null}
                         {customParseError
                           ? text.dialogs.parseAgain
@@ -3074,7 +2615,7 @@ export function NewTaskDialog(props: {
                       {customParseError ? (
                         <div className="w-full">
                           <div
-                            className="app-new-task-parse-error w-full min-w-0 truncate px-3 py-2 text-xs font-medium"
+                            className="app-new-task-parse-error w-full min-w-0 truncate px-3 py-2"
                             title={customParseErrorDetail || customParseErrorLine}
                           >
                             {customParseErrorLine}
@@ -3086,24 +2627,146 @@ export function NewTaskDialog(props: {
                 ) : null}
 
                 {downloadSubmitError ? (
-                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="danger">
+                  <div className="app-dream-status-message px-3 py-2" data-intent="danger">
                     {downloadSubmitError}
                   </div>
                 ) : null}
               </>
             ) : null}
 
-            {activeMode === "transcode" && !transcodeInputPath ? (
+            {activeMode === "transcode" && !transcodeInputPath && !transcodeLibraryOpen ? (
               <DialogListCard className="app-new-task-panel">
-                <DialogListCardContent className="flex justify-center p-4">
+                <DialogListCardContent className="grid gap-3 p-4 sm:grid-cols-2">
                   <Button
                     type="button"
-                    size="compact"
+                    variant="outline"
+                    className="app-new-task-transcode-source-choice flex-col"
                     onClick={() => void handleChooseFile()}
                   >
                     <FolderOpen className="h-4 w-4" />
                     {text.actions.chooseFile}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="app-new-task-transcode-source-choice flex-col"
+                    onClick={() => setTranscodeLibraryOpen(true)}
+                  >
+                    <LibraryBig className="h-4 w-4" />
+                    {text.dialogs.selectFromLibrary}
+                  </Button>
+                </DialogListCardContent>
+              </DialogListCard>
+            ) : null}
+
+            {activeMode === "transcode" && !transcodeInputPath && transcodeLibraryOpen ? (
+              <DialogListCard className="app-new-task-panel min-w-0 overflow-hidden">
+                <DialogListCardContent className="space-y-4 p-4">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="compact"
+                      className="shrink-0"
+                      onClick={() => {
+                        setTranscodeLibraryOpen(false);
+                        setTranscodeLibraryQuery("");
+                      }}
+                    >
+                      {text.actions.back}
+                    </Button>
+                    <div className="app-new-task-field-strip flex min-w-0 flex-1 items-center overflow-hidden">
+                      <Search className="app-new-task-secondary-text ml-3 h-3.5 w-3.5 shrink-0" />
+                      <Input
+                        value={transcodeLibraryQuery}
+                        onChange={(event) => setTranscodeLibraryQuery(event.target.value)}
+                        placeholder={text.dialogs.selectFromLibrary}
+                        aria-label={text.dialogs.selectFromLibrary}
+                        className="app-new-task-library-search h-full min-w-0 flex-1"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  {props.transcodeLibraryLoading ? (
+                    <div
+                      className="app-new-task-library-feedback flex min-h-40 items-center justify-center gap-2 px-4"
+                      role="status"
+                    >
+                      <Loader2 className="h-4 w-4 app-motion-spin" aria-hidden="true" />
+                      <span>{text.listen.loading}</span>
+                    </div>
+                  ) : props.transcodeLibraryError?.trim() ? (
+                    <div
+                      className="app-new-task-library-feedback flex min-h-40 flex-col items-center justify-center gap-3 px-4"
+                      role="alert"
+                    >
+                      <span>{props.transcodeLibraryError}</span>
+                      {props.onRetryTranscodeLibrary ? (
+                        <Button
+                          type="button"
+                          size="compact"
+                          variant="outline"
+                          onClick={props.onRetryTranscodeLibrary}
+                        >
+                          {text.listen.retry}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : transcodeLibraryGroups.length > 0 ? (
+                    <div className="max-h-[min(52vh,28rem)] space-y-5 overflow-y-auto pr-1">
+                      {transcodeLibraryGroups.map((group) => (
+                        <section className="space-y-2" key={group.name}>
+                          <h3 className="app-new-task-library-group-title">
+                            {group.name}
+                          </h3>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {group.items.map((source) => {
+                              const label = source.title || source.displayLabel || source.fileId;
+                              const metadata = [
+                                source.author,
+                                source.format?.toUpperCase(),
+                                formatCompletedDuration(source.durationMs),
+                              ].filter(Boolean).join(" · ");
+                              return (
+                                <button
+                                  type="button"
+                                  className="app-new-task-library-item flex min-w-0 items-center gap-3 p-2"
+                                  key={source.fileId}
+                                  onClick={() => handleChooseLibrarySource(source)}
+                                >
+                                  <div className="app-new-task-library-artwork flex h-14 w-20 shrink-0 items-center justify-center overflow-hidden">
+                                    {source.coverURL ? (
+                                      <img
+                                        src={source.coverURL}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <Video className="app-new-task-secondary-text h-5 w-5" />
+                                    )}
+                                  </div>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="app-new-task-library-item-title block truncate">
+                                      {label}
+                                    </span>
+                                    {metadata ? (
+                                      <span className="app-new-task-library-item-meta mt-1 block truncate">
+                                        {metadata}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="app-new-task-library-feedback flex min-h-40 items-center justify-center px-4">
+                      {text.dialogs.transcodeLibraryEmpty}
+                    </div>
+                  )}
                 </DialogListCardContent>
               </DialogListCard>
             ) : null}
@@ -3112,13 +2775,13 @@ export function NewTaskDialog(props: {
               <>
                 <DialogListCard className="app-new-task-panel">
                   <DialogListCardContent className="space-y-2 p-4">
-                    <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <div className="app-new-task-file-heading flex min-w-0 items-center gap-2">
                       <span className="flex min-w-0 flex-1 items-baseline">
-                        <span className="min-w-0 truncate text-foreground">
+                        <span className="app-new-task-primary-text min-w-0 truncate">
                           {transcodeFileName.stem}
                         </span>
                         {transcodeFileName.extension ? (
-                          <span className="shrink-0 text-muted-foreground">
+                          <span className="app-new-task-secondary-text shrink-0">
                             {transcodeFileName.extension}
                           </span>
                         ) : null}
@@ -3129,7 +2792,7 @@ export function NewTaskDialog(props: {
                         size="default"
                         value={transcodeInputPath}
                         readOnly
-                        className="h-full min-w-0 flex-1 truncate rounded-none border-0 bg-transparent py-0 text-xs leading-none shadow-none"
+                        className="app-new-task-path-input h-full min-w-0 flex-1 truncate py-0"
                       />
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -3152,30 +2815,30 @@ export function NewTaskDialog(props: {
 
                 {ffmpegInstalled ? (
                   <DialogListCard className="app-new-task-panel">
-                    <DialogListCardContent className="flex min-h-12 items-center gap-3 p-3 text-xs">
+                    <DialogListCardContent className="app-new-task-probe flex min-h-12 items-center gap-3 p-3">
                       {transcodeProbeChecking ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+                        <Loader2 className="app-new-task-secondary-text h-4 w-4 shrink-0 app-motion-spin" />
                       ) : probedTranscodeMediaType === "audio" ? (
-                        <AudioLines className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <AudioLines className="app-new-task-secondary-text h-4 w-4 shrink-0" />
                       ) : probedTranscodeMediaType === "video" ? (
-                        <Video className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <Video className="app-new-task-secondary-text h-4 w-4 shrink-0" />
                       ) : (
-                        <FileCog className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <FileCog className="app-new-task-secondary-text h-4 w-4 shrink-0" />
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-2">
                           {transcodeProbeSummary ? (
-                            <span className="min-w-0 truncate font-medium text-foreground">
+                            <span className="app-new-task-primary-text min-w-0 truncate">
                               {transcodeProbeSummary}
                             </span>
                           ) : transcodeProbeStatusLabel ? (
-                            <span className="min-w-0 truncate font-medium text-foreground">
+                            <span className="app-new-task-primary-text min-w-0 truncate">
                               {transcodeProbeStatusLabel}
                             </span>
                           ) : null}
                         </div>
                         {transcodeProbeError ? (
-                          <div className="mt-1 truncate text-muted-foreground">
+                          <div className="app-new-task-secondary-text mt-1 truncate">
                             {transcodeProbeError}
                           </div>
                         ) : null}
@@ -3187,8 +2850,8 @@ export function NewTaskDialog(props: {
                 {showTranscodeOptions ? (
                   <DialogListCard className="app-new-task-panel app-new-task-list-panel">
                     <DialogListCardContent>
-                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                        <span className="text-muted-foreground">
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                        <span className="app-new-task-row-label">
                           {text.dialogs.size}
                         </span>
                         <Select
@@ -3205,8 +2868,8 @@ export function NewTaskDialog(props: {
                           ))}
                         </Select>
                       </DialogRow>
-                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                        <span className="text-muted-foreground">
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                        <span className="app-new-task-row-label">
                           {text.dialogs.container}
                         </span>
                         <Select
@@ -3223,8 +2886,8 @@ export function NewTaskDialog(props: {
                           ))}
                         </Select>
                       </DialogRow>
-                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3 text-sm">
-                        <span className="text-muted-foreground">
+                      <DialogRow className="app-new-task-row flex items-center justify-between gap-4 p-3">
+                        <span className="app-new-task-row-label">
                           {text.dialogs.codec}
                         </span>
                         <Select
@@ -3245,7 +2908,7 @@ export function NewTaskDialog(props: {
                   </DialogListCard>
                 ) : null}
                 {!ffmpegInstalled ? (
-                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="warning">
+                  <div className="app-dream-status-message px-3 py-2" data-intent="warning">
                     {text.dependencies.missingDependency.replace(
                       "{name}",
                       "ffmpeg",
@@ -3253,12 +2916,12 @@ export function NewTaskDialog(props: {
                   </div>
                 ) : null}
                 {transcodeNoCompatiblePreset ? (
-                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="warning">
+                  <div className="app-dream-status-message px-3 py-2" data-intent="warning">
                     {text.dialogs.noCompatibleTranscodePreset}
                   </div>
                 ) : null}
                 {transcodeSubmitError ? (
-                  <div className="app-dream-status-message px-3 py-2 text-xs" data-intent="danger">
+                  <div className="app-dream-status-message px-3 py-2" data-intent="danger">
                     {transcodeSubmitError}
                   </div>
                 ) : null}
@@ -3281,43 +2944,6 @@ export function NewTaskDialog(props: {
             >
               {text.actions.cancelDialog}
             </Button>
-            {downloadTab === "sniff" && customParseResult?.resourceSessionId ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => void handleParseResourceSniff()}
-                disabled={
-                  downloadRequiresSniffDesk ||
-                  parseResourceSniff.isPending ||
-                  !resourceSniffSessionId.trim() ||
-                  !resourceSniffHasActiveTab
-                }
-              >
-                {parseResourceSniff.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                {text.dialogs.parseAgain}
-              </Button>
-            ) : null}
-            {downloadTab === "sniff" && customParseResult?.resourceMediaId ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => void handleQueueResourceDownload()}
-                disabled={
-                  downloadRequiresSniffDesk ||
-                  queueYTDLP.isPending ||
-                  createYTDLP.isPending ||
-                  !downloadPrepared ||
-                  !customSelectedFormat
-                }
-              >
-                {queueYTDLP.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                {text.actions.addToDownloadQueue}
-              </Button>
-            ) : null}
             <Button
               type="button"
               onClick={() =>
@@ -3328,19 +2954,17 @@ export function NewTaskDialog(props: {
                     : handleStartCustomDownload())
               }
               disabled={
-                downloadRequiresSniffDesk ||
                 createYTDLP.isPending ||
                 createYTDLPBatch.isPending ||
-                queueYTDLP.isPending ||
                 !downloadPrepared ||
                 !ytdlpInstalled ||
                 (downloadIsBatch && batchDownloadItems.length === 0) ||
-                ((downloadTab === "custom" || downloadTab === "sniff") &&
+                (downloadTab === "custom" &&
                   (!customParseResult || !customSelectedFormat))
               }
             >
               {createYTDLP.isPending || createYTDLPBatch.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 app-motion-spin" />
               ) : null}
               {text.actions.startTask}
             </Button>
@@ -3374,7 +2998,7 @@ export function NewTaskDialog(props: {
               }
             >
               {createTranscode.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 app-motion-spin" />
               ) : null}
               {text.actions.startTask}
             </Button>

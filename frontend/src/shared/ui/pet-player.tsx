@@ -6,11 +6,17 @@ import {
   type PetAnimation,
 } from "@/shared/pets/animation";
 import { cn } from "@/lib/utils";
-import { PET_DISPLAY_GLOW_STYLE } from "@/shared/styles/xiadown";
 
 const PET_PLAYBACK_SLOWDOWN = 2;
 const imageCache = new Map<string, Promise<HTMLImageElement | null>>();
 const IMAGE_CACHE_LIMIT = 48;
+
+export const PET_DISPLAY_GLOW_VARIANTS = [
+  "gallery-default",
+  "running-playground",
+  "running-summary",
+] as const;
+export type PetDisplayGlowVariant = (typeof PET_DISPLAY_GLOW_VARIANTS)[number];
 
 export function PetDisplay(props: {
   pet: Pet | null;
@@ -20,7 +26,7 @@ export function PetDisplay(props: {
   alt: string;
   className?: string;
   glowClassName?: string;
-  glowStyle?: React.CSSProperties;
+  glowVariant?: PetDisplayGlowVariant;
   petClassName?: string;
   fallbackSrc?: string;
   size?: number;
@@ -34,34 +40,30 @@ export function PetDisplay(props: {
     alt,
     className,
     glowClassName,
-    glowStyle,
+    glowVariant,
     petClassName,
     fallbackSrc,
     size,
     load,
   } = props;
   const petSize = size ?? 64;
-  const containerStyle: React.CSSProperties = { userSelect: "none" };
-  if (size !== undefined) {
-    containerStyle.width = size;
-    containerStyle.height = size;
-  }
 
   return (
     <div
       className={cn(
-        "relative flex h-20 w-20 items-center justify-center overflow-visible select-none",
+        "app-pet-display",
         className,
       )}
-      style={containerStyle}
+      style={
+        size !== undefined
+          ? ({ "--app-pet-display-size": `${size}px` } as React.CSSProperties)
+          : undefined
+      }
     >
       <div
         aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute left-1/2 top-1/2 h-48 w-64 -translate-x-1/2 -translate-y-1/2 blur-xl",
-          glowClassName,
-        )}
-        style={glowStyle ? { ...PET_DISPLAY_GLOW_STYLE, ...glowStyle } : PET_DISPLAY_GLOW_STYLE}
+        className={cn("app-pet-display-glow", glowClassName)}
+        data-glow-variant={glowVariant}
       />
       <PetPlayer
         pet={pet}
@@ -72,7 +74,7 @@ export function PetDisplay(props: {
         size={petSize}
         alt={alt}
         fallbackSrc={fallbackSrc}
-        className={cn("relative z-10 shrink-0 select-none", petClassName)}
+        className={cn("app-pet-display__sprite", petClassName)}
       />
     </div>
   );
@@ -149,8 +151,6 @@ export function PetPlayer(props: {
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(size * dpr);
     canvas.height = Math.round(size * dpr);
-    canvas.style.width = `${size}px`;
-    canvas.style.height = `${size}px`;
 
     const clear = () => {
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -231,8 +231,10 @@ export function PetPlayer(props: {
         loading="lazy"
         decoding="async"
         draggable={false}
-        className={cn("h-16 w-16 object-contain opacity-90", className)}
-        style={{ width: size, height: size }}
+        className={cn("app-pet-player app-pet-player--fallback", className)}
+        style={{
+          "--app-pet-player-size": `${size}px`,
+        } as React.CSSProperties}
       />
     );
   }
@@ -242,8 +244,10 @@ export function PetPlayer(props: {
       ref={canvasRef}
       aria-label={alt}
       role="img"
-      className={cn("h-16 w-16", className)}
-      style={{ width: size, height: size }}
+      className={cn("app-pet-player", className)}
+      style={{
+        "--app-pet-player-size": `${size}px`,
+      } as React.CSSProperties}
     />
   );
 }

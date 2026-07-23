@@ -22,10 +22,24 @@ type AppSessionsService struct {
 	now                        func() time.Time
 	newSessionID               func() string
 	accountVerificationTimeout time.Duration
+	browserProfileReader       AppSessionBrowserProfileReader
+	importCommitter            AppSessionImportCommitter
+	credentialMutationMu       sync.Mutex
+	browserScanSnapshotMu      sync.Mutex
+	browserScanSnapshots       map[string]browserScanSnapshot
+	browserScanSnapshotBytes   int64
 
 	mu            sync.Mutex
 	sessions      map[string]*browserSession
 	sessionsByApp map[string]string
+	// credentialEpochs invalidates long-running credential discoveries (for
+	// example, reading an external browser profile) when a later explicit
+	// Clear becomes authoritative for an App.
+	credentialEpochs map[string]uint64
+	// verificationEpochs binds every asynchronous account lookup to the
+	// credential snapshot that started it. Timestamps are deliberately not
+	// used for identity because SQLite and platform stores may round them.
+	verificationEpochs map[string]uint64
 }
 
 type AppSessionProvider interface {
@@ -34,6 +48,53 @@ type AppSessionProvider interface {
 	LoadAppSessionCookies(ctx context.Context, siteKey string) ([]appcookies.Record, error)
 	SaveAppSessionCookies(ctx context.Context, siteKey string, records []appcookies.Record) error
 	ClearAppSession(ctx context.Context, siteKey string, domains []string) error
+}
+
+type AppSessionRuntimeCookieSyncProvider interface {
+	BeginAppSessionCookieSync(siteKey string) (epoch uint64, sequence uint64)
+	SyncAppSessionCookies(
+		ctx context.Context,
+		siteKey string,
+		records []appcookies.Record,
+		expectedEpoch uint64,
+		expectedSequence uint64,
+	) error
+}
+
+type AppSessionBrowserProfileReader interface {
+	ReadBrowserProfileCookies(
+		ctx context.Context,
+		browserID string,
+		profileID string,
+		domains []string,
+	) ([]appcookies.Record, error)
+}
+
+type AppSessionCurrentBrowserReader interface {
+	ReadCurrentBrowserCookies(
+		ctx context.Context,
+		browserID string,
+		domains []string,
+	) ([]appcookies.Record, error)
+}
+
+// AppSessionImportCommitter writes one imported secret and its metadata row in
+// a single transaction. A batch is intentionally a sequence of these
+// per-site commits so one broken site never rolls back already imported sites.
+type AppSessionImportCommitter interface {
+	CommitImportedAppSession(ctx context.Context, session appsessions.Session, plaintext []byte) error
+}
+
+type AppSessionImportedCookieCache interface {
+	CacheImportedAppSessionCookies(siteKey string, records []appcookies.Record)
+}
+
+// AppSessionRuntimeCookieHydrator lets a native provider populate its
+// request-time cache from the browser's live cookie store before consumers
+// such as InnerTube or yt-dlp read it. Implementations must not replay the
+// snapshot back into the browser.
+type AppSessionRuntimeCookieHydrator interface {
+	EnsureAppSessionRuntimeCookies(ctx context.Context, siteKey string, allowBootstrap bool) error
 }
 
 type AppSessionAccountFetcher func(ctx context.Context, siteKey string, records []appcookies.Record) (dto.AppSessionAccount, error)
@@ -57,6 +118,9 @@ func NewAppSessionsService(repo appsessions.Repository, options ...Option) *AppS
 		accountVerificationTimeout: 30 * time.Second,
 		sessions:                   make(map[string]*browserSession),
 		sessionsByApp:              make(map[string]string),
+		credentialEpochs:           make(map[string]uint64),
+		verificationEpochs:         make(map[string]uint64),
+		browserScanSnapshots:       make(map[string]browserScanSnapshot),
 	}
 	for _, option := range options {
 		if option != nil {
@@ -81,6 +145,18 @@ func WithAccountFetcher(fetcher AppSessionAccountFetcher) Option {
 func WithChangeListener(listener AppSessionChangeListener) Option {
 	return func(service *AppSessionsService) {
 		service.changeListener = listener
+	}
+}
+
+func WithBrowserProfileReader(reader AppSessionBrowserProfileReader) Option {
+	return func(service *AppSessionsService) {
+		service.browserProfileReader = reader
+	}
+}
+
+func WithImportCommitter(committer AppSessionImportCommitter) Option {
+	return func(service *AppSessionsService) {
+		service.importCommitter = committer
 	}
 }
 
@@ -191,6 +267,18 @@ func (service *AppSessionsService) ClearAppSession(ctx context.Context, request 
 	if err != nil {
 		return err
 	}
+	// Invalidate profile reads that started before this explicit Clear. The
+	// mutation mutex below then guarantees either their already-running commit
+	// finishes first (and this Clear wins), or they observe the new epoch and
+	// skip their late commit.
+	service.invalidateCredentialOperations(session.ID)
+	service.invalidateAccountVerification(session.ID)
+	// Stop and unregister any login window before changing durable state. A
+	// late browser-close callback must never re-create a Session the user just
+	// removed from Data Management or the App Sessions page.
+	service.cleanupSession(service.popSessionForApp(session.ID))
+	service.credentialMutationMu.Lock()
+	defer service.credentialMutationMu.Unlock()
 	if service.provider != nil {
 		if err := service.provider.ClearAppSession(ctx, session.SiteKey, appSessionCookieDomains(session.SiteKey)); err != nil &&
 			!errors.Is(err, appsessions.ErrNoCookies) &&
@@ -225,11 +313,27 @@ func (service *AppSessionsService) RecordsForSiteKey(ctx context.Context, siteKe
 	if !isSupportedSiteKey(siteKey) {
 		return nil, appsessions.ErrSessionNotFound
 	}
-	if _, err := service.EnsureAppSession(ctx, siteKey); err != nil {
+	session, err := service.EnsureAppSession(ctx, siteKey)
+	if err != nil {
 		return nil, err
+	}
+	var hydrationErr error
+	if hydrator, ok := service.provider.(AppSessionRuntimeCookieHydrator); ok {
+		allowBootstrap := session.Status == appsessions.StatusConnected
+		if err := hydrator.EnsureAppSessionRuntimeCookies(ctx, siteKey, allowBootstrap); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			if !errors.Is(err, appsessions.ErrNoCookies) && !errors.Is(err, appsessions.ErrUnsupported) {
+				hydrationErr = err
+			}
+		}
 	}
 	records := service.storedCookies(ctx, siteKey)
 	if len(records) == 0 {
+		if hydrationErr != nil {
+			return nil, hydrationErr
+		}
 		return nil, appsessions.ErrNoCookies
 	}
 	return records, nil
@@ -239,10 +343,12 @@ func (service *AppSessionsService) ShutdownSessions() int {
 	if service == nil {
 		return 0
 	}
+	service.clearBrowserScanSnapshots()
 	service.mu.Lock()
 	sessions := make([]*browserSession, 0, len(service.sessions))
 	for sessionID, session := range service.sessions {
 		if session != nil {
+			session.Canceled = true
 			sessions = append(sessions, session)
 		}
 		delete(service.sessions, sessionID)

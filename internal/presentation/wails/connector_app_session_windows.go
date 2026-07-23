@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -20,6 +18,7 @@ import (
 	"unsafe"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 	"github.com/wailsapp/wails/webview2/pkg/edge"
 	"golang.org/x/sys/windows"
 
@@ -29,6 +28,10 @@ import (
 
 func connectorAppSessionNativeSupported() bool {
 	return true
+}
+
+func loadNativeYouTubeRuntimeCookies() ([]appcookies.Record, error) {
+	return nil, appsessions.ErrUnsupported
 }
 
 func connectorAppSessionCaptureBeforeClose() bool {
@@ -48,7 +51,7 @@ func clearConnectorAppSessionNativeRuntimeData(ctx context.Context, app *applica
 	clearCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+	window := app.Window.NewWithOptions(withRemoteWebViewPermissionPolicy(application.WebviewWindowOptions{
 		Name:          fmt.Sprintf("site-app-session-clear-%s-%d", connectorWindowsAppSessionFileName(siteKey), time.Now().UnixNano()),
 		Title:         "Clear App Session",
 		Width:         320,
@@ -59,11 +62,15 @@ func clearConnectorAppSessionNativeRuntimeData(ctx context.Context, app *applica
 		Windows: application.WindowsWindow{
 			HiddenOnTaskbar: true,
 		},
-	})
+	}))
+	registerWebViewRemoteCapabilityPolicy(window)
 	if window == nil {
 		return appsessions.ErrUnsupported
 	}
-	defer window.Close()
+	defer func() {
+		releaseListenWindowsPersistentPopupPolicy(window)
+		window.Close()
+	}()
 
 	if err := connectorWindowsWaitForCookieManager(clearCtx, window); err != nil {
 		return err
@@ -80,13 +87,13 @@ func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, _
 		return
 	}
 	application.InvokeSync(func() {
-		chromium := listenWindowsChromium(window)
-		if chromium == nil {
+		webview := listenWindowsWebViewForWindow(window)
+		if webview == nil {
 			return
 		}
-		configureConnectorAppSessionWindowsWebView(window, chromium, siteKey)
+		configureConnectorAppSessionWindowsWebView(window, webview, siteKey)
 
-		manager, err := chromium.GetCookieManager()
+		manager, err := webview.GetCookieManager()
 		if err != nil || manager == nil {
 			return
 		}
@@ -104,15 +111,15 @@ func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, _
 func configureConnectorAppSessionNativeWindow(_ unsafe.Pointer, _ string) {
 }
 
-func configureConnectorAppSessionWindowsWebView(window *application.WebviewWindow, chromium *edge.Chromium, siteKey string) {
-	if window == nil || chromium == nil {
+func configureConnectorAppSessionWindowsWebView(window *application.WebviewWindow, webview *listenWindowsWebViewBridge, siteKey string) {
+	if window == nil || webview == nil {
 		return
 	}
 	userAgent := strings.TrimSpace(appSessionWebViewUserAgent(siteKey))
 	if userAgent == "" {
 		return
 	}
-	settings, err := chromium.GetSettings()
+	settings, err := webview.GetSettings()
 	if err != nil || settings == nil {
 		return
 	}
@@ -122,6 +129,23 @@ func configureConnectorAppSessionWindowsWebView(window *application.WebviewWindo
 
 func loadConnectorAppSessionNativeURL(window *application.WebviewWindow, targetURL string) {
 	if window == nil || targetURL == "" {
+		return
+	}
+	windowName := strings.TrimSpace(window.Name())
+	if !strings.HasPrefix(windowName, "site-app-session-") ||
+		strings.HasPrefix(windowName, "site-app-session-clear-") {
+		return
+	}
+	// StartAppSession registers its cookie-capture hook before calling this
+	// loader. Wails stops hook dispatch when that first close is cancelled, so
+	// this cleanup runs only on the second, actual close. Register it before
+	// validating/installing the URL policy so a rejected URL or partial native
+	// installation still releases the persistent popup sink.
+	window.RegisterHook(events.Common.WindowClosing, func(_ *application.WindowEvent) {
+		releaseListenWindowsRemoteNavigationPolicy(window)
+	})
+	policy, allowed := webViewRemoteNavigationPolicyForAppSession(targetURL)
+	if !allowed || !installListenWindowsRemoteNavigationPolicy(window, policy) {
 		return
 	}
 	window.SetURL(targetURL)
@@ -175,17 +199,30 @@ func readConnectorWindowsWebViewCookiesForURI(ctx context.Context, window *appli
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	handler := newConnectorWindowsGetCookiesCompletedHandler(domains, seen)
 	scheduled := make(chan struct{})
 	var scheduleErr error
 	go func() {
+		defer close(scheduled)
+		defer connectorWindowsGetCookiesCompletedHandlerRelease(handler)
+		if err := ctx.Err(); err != nil {
+			scheduleErr = err
+			return
+		}
 		application.InvokeSync(func() {
-			chromium := listenWindowsChromium(window)
-			if chromium == nil {
+			if err := ctx.Err(); err != nil {
+				scheduleErr = err
+				return
+			}
+			webview := listenWindowsWebViewForWindow(window)
+			if webview == nil {
 				scheduleErr = appsessions.ErrSessionDead
 				return
 			}
-			manager, err := chromium.GetCookieManager()
+			manager, err := webview.GetCookieManager()
 			if err != nil || manager == nil {
 				if err == nil {
 					err = appsessions.ErrSessionDead
@@ -196,7 +233,6 @@ func readConnectorWindowsWebViewCookiesForURI(ctx context.Context, window *appli
 			defer manager.Release()
 			scheduleErr = connectorWindowsGetCookies(manager, uri, handler)
 		})
-		close(scheduled)
 	}()
 	select {
 	case <-ctx.Done():
@@ -254,11 +290,11 @@ func connectorWindowsCookieManagerReady(window *application.WebviewWindow) (read
 			ready = false
 		}
 	}()
-	chromium := listenWindowsChromium(window)
-	if chromium == nil {
+	webview := listenWindowsWebViewForWindow(window)
+	if webview == nil {
 		return false
 	}
-	manager, err := chromium.GetCookieManager()
+	manager, err := webview.GetCookieManager()
 	if err != nil || manager == nil {
 		return false
 	}
@@ -291,24 +327,36 @@ func connectorWindowsCallDevToolsProtocolMethod(ctx context.Context, window *app
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	handler := newConnectorWindowsDevToolsCompletedHandler()
 	scheduled := make(chan struct{})
 	var scheduleErr error
 	go func() {
+		defer close(scheduled)
+		defer connectorWindowsDevToolsCompletedHandlerRelease(handler)
+		if err := ctx.Err(); err != nil {
+			scheduleErr = err
+			return
+		}
 		application.InvokeSync(func() {
-			chromium := listenWindowsChromium(window)
-			if chromium == nil {
-				scheduleErr = appsessions.ErrSessionDead
+			if err := ctx.Err(); err != nil {
+				scheduleErr = err
 				return
 			}
-			webview := listenWindowsChromiumWebView(chromium)
+			webview := listenWindowsWebViewForWindow(window)
 			if webview == nil {
 				scheduleErr = appsessions.ErrSessionDead
 				return
 			}
-			scheduleErr = connectorWindowsCallDevTools(webview, method, params, handler)
+			core := listenWindowsWebViewCore(webview)
+			if core == nil {
+				scheduleErr = appsessions.ErrSessionDead
+				return
+			}
+			scheduleErr = connectorWindowsCallDevTools(core, method, params, handler)
 		})
-		close(scheduled)
 	}()
 	select {
 	case <-ctx.Done():
@@ -373,7 +421,6 @@ func connectorWindowsCallDevTools(webview *listenWindowsCoreWebView2, method str
 		uintptr(unsafe.Pointer(handler)),
 	)
 	if hr != 0 {
-		connectorWindowsUntrackDevToolsHandler(handler)
 		return syscall.Errno(hr)
 	}
 	return nil
@@ -453,7 +500,11 @@ func connectorWindowsDevToolsCompletedHandlerRelease(this *connectorWindowsDevTo
 			return 0
 		}
 		if this.refs.CompareAndSwap(current, current-1) {
-			return uintptr(current - 1)
+			remaining := current - 1
+			if remaining == 0 {
+				connectorWindowsUntrackDevToolsHandler(this)
+			}
+			return uintptr(remaining)
 		}
 	}
 }
@@ -462,17 +513,14 @@ func connectorWindowsDevToolsCompletedHandlerInvoke(this *connectorWindowsDevToo
 	if this == nil {
 		return uintptr(windows.E_POINTER)
 	}
-	defer this.once.Do(func() {
-		connectorWindowsUntrackDevToolsHandler(this)
+	this.once.Do(func() {
+		if errorCode != 0 {
+			this.err = syscall.Errno(errorCode)
+		} else if result != nil {
+			this.result = windows.UTF16PtrToString(result)
+		}
 		close(this.done)
 	})
-	if errorCode != 0 {
-		this.err = syscall.Errno(errorCode)
-		return uintptr(windows.S_OK)
-	}
-	if result != nil {
-		this.result = windows.UTF16PtrToString(result)
-	}
 	return uintptr(windows.S_OK)
 }
 
@@ -492,7 +540,6 @@ func connectorWindowsGetCookies(manager *edge.ICoreWebView2CookieManager, uri st
 		uintptr(unsafe.Pointer(handler)),
 	)
 	if hr != 0 {
-		connectorWindowsUntrackGetCookiesHandler(handler)
 		return syscall.Errno(hr)
 	}
 	return nil
@@ -576,7 +623,11 @@ func connectorWindowsGetCookiesCompletedHandlerRelease(this *connectorWindowsGet
 			return 0
 		}
 		if this.refs.CompareAndSwap(current, current-1) {
-			return uintptr(current - 1)
+			remaining := current - 1
+			if remaining == 0 {
+				connectorWindowsUntrackGetCookiesHandler(this)
+			}
+			return uintptr(remaining)
 		}
 	}
 }
@@ -585,20 +636,17 @@ func connectorWindowsGetCookiesCompletedHandlerInvoke(this *connectorWindowsGetC
 	if this == nil {
 		return uintptr(windows.E_POINTER)
 	}
-	defer this.once.Do(func() {
-		connectorWindowsUntrackGetCookiesHandler(this)
+	this.once.Do(func() {
+		switch {
+		case errorCode != 0:
+			this.err = syscall.Errno(errorCode)
+		case list != nil:
+			records, err := connectorWindowsCookieListRecords(list, this.domains, this.seen)
+			this.records = append(this.records, records...)
+			this.err = err
+		}
 		close(this.done)
 	})
-	if errorCode != 0 {
-		this.err = syscall.Errno(errorCode)
-		return uintptr(windows.S_OK)
-	}
-	if list == nil {
-		return uintptr(windows.S_OK)
-	}
-	records, err := connectorWindowsCookieListRecords(list, this.domains, this.seen)
-	this.records = append(this.records, records...)
-	this.err = err
 	return uintptr(windows.S_OK)
 }
 
@@ -715,12 +763,12 @@ func clearConnectorWindowsWebViewCookiesForDomains(ctx context.Context, window *
 	}
 	var clearErr error
 	application.InvokeSync(func() {
-		chromium := listenWindowsChromium(window)
-		if chromium == nil {
+		webview := listenWindowsWebViewForWindow(window)
+		if webview == nil {
 			clearErr = appsessions.ErrSessionDead
 			return
 		}
-		manager, err := chromium.GetCookieManager()
+		manager, err := webview.GetCookieManager()
 		if err != nil || manager == nil {
 			if err == nil {
 				err = appsessions.ErrSessionDead
@@ -814,7 +862,7 @@ func addConnectorWindowsWebViewCookieWithDomain(manager *edge.ICoreWebView2Cooki
 	_ = cookie.PutIsSecure(record.Secure)
 	_ = cookie.PutIsHttpOnly(record.HttpOnly)
 	if record.Expires > 0 {
-		_ = cookie.PutExpires(float64(record.Expires))
+		_ = listenWindowsPutCookieExpires(cookie, float64(record.Expires))
 	}
 	if sameSite, ok := listenWindowsWebViewSameSite(record.SameSite); ok {
 		_ = cookie.PutSameSite(sameSite)
@@ -892,6 +940,9 @@ func connectorWindowsCookieQueryHosts(domain string) []string {
 		add("api.bilibili.com")
 	case "tiktok.com":
 		add("m.tiktok.com")
+	case "xiaohongshu.com":
+		add("edith.xiaohongshu.com")
+		add("creator.xiaohongshu.com")
 	case "facebook.com":
 		add("m.facebook.com")
 	case "nicovideo.jp":
@@ -957,119 +1008,6 @@ func connectorWindowsSameSiteString(value int32) string {
 	default:
 		return ""
 	}
-}
-
-func saveSiteAppSessionStoredCookies(siteKey string, records []appcookies.Record) error {
-	if len(records) == 0 {
-		return appsessions.ErrNoCookies
-	}
-	data, err := appcookies.EncodeJSON(records)
-	if err != nil {
-		return err
-	}
-	protected, err := connectorWindowsProtectData([]byte(data))
-	if err != nil {
-		return fmt.Errorf("protect app session cookies: %w", err)
-	}
-	path, err := connectorWindowsAppSessionPath(siteKey)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, protected, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-func loadSiteAppSessionStoredCookies(siteKey string) ([]appcookies.Record, error) {
-	path, err := connectorWindowsAppSessionPath(siteKey)
-	if err != nil {
-		return nil, err
-	}
-	protected, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, appsessions.ErrNoCookies
-	}
-	if err != nil {
-		return nil, err
-	}
-	data, err := connectorWindowsUnprotectData(protected)
-	if err != nil {
-		return nil, fmt.Errorf("unprotect app session cookies: %w", err)
-	}
-	records := appcookies.DecodeJSON(string(data))
-	if len(records) == 0 {
-		return nil, appsessions.ErrNoCookies
-	}
-	return records, nil
-}
-
-func clearSiteAppSessionStoredCookies(siteKey string, _ []string) error {
-	path, err := connectorWindowsAppSessionPath(siteKey)
-	if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-func connectorWindowsProtectData(data []byte) ([]byte, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	in := windows.DataBlob{
-		Size: uint32(len(data)),
-		Data: &data[0],
-	}
-	var out windows.DataBlob
-	description, _ := windows.UTF16PtrFromString("XiaDown App Session")
-	if err := windows.CryptProtectData(&in, description, nil, 0, nil, 0, &out); err != nil {
-		return nil, err
-	}
-	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
-	result := make([]byte, int(out.Size))
-	copy(result, unsafe.Slice(out.Data, int(out.Size)))
-	return result, nil
-}
-
-func connectorWindowsUnprotectData(data []byte) ([]byte, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	in := windows.DataBlob{
-		Size: uint32(len(data)),
-		Data: &data[0],
-	}
-	var out windows.DataBlob
-	if err := windows.CryptUnprotectData(&in, nil, nil, 0, nil, 0, &out); err != nil {
-		return nil, err
-	}
-	defer windows.LocalFree(windows.Handle(unsafe.Pointer(out.Data)))
-	result := make([]byte, int(out.Size))
-	copy(result, unsafe.Slice(out.Data, int(out.Size)))
-	return result, nil
-}
-
-func connectorWindowsAppSessionPath(siteKey string) (string, error) {
-	base := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
-	if base == "" {
-		configDir, err := os.UserConfigDir()
-		if err != nil {
-			return "", err
-		}
-		base = configDir
-	}
-	return filepath.Join(base, "XiaDown", "app-sessions", connectorWindowsAppSessionFileName(siteKey)+".json.dpapi"), nil
 }
 
 func connectorWindowsAppSessionFileName(siteKey string) string {

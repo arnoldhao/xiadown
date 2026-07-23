@@ -157,8 +157,51 @@ func TestListTranscodePresetsOverridesBuiltinRowsWithBackendDefaults(t *testing.
 	}
 }
 
+func TestEnsureDefaultTranscodePresetsDoesNotRewriteUnchangedBuiltins(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	repo := &transcodePresetTestRepo{items: defaultTranscodePresets(now.Add(-24 * time.Hour))}
+	service := &LibraryService{presets: repo, nowFunc: func() time.Time { return now }}
+
+	if err := service.EnsureDefaultTranscodePresets(context.Background()); err != nil {
+		t.Fatalf("EnsureDefaultTranscodePresets returned error: %v", err)
+	}
+	if repo.saveCalls != 0 {
+		t.Fatalf("unchanged builtins were saved %d times, want 0", repo.saveCalls)
+	}
+	if repo.deleteCalls != 0 {
+		t.Fatalf("unchanged builtins were deleted %d times, want 0", repo.deleteCalls)
+	}
+}
+
+func TestEnsureDefaultTranscodePresetsUpdatesChangedAndPrunesStaleBuiltins(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	items := defaultTranscodePresets(now.Add(-24 * time.Hour))
+	items[0].CRF++
+	items = append(items, mustNewTranscodePreset(t, library.TranscodePresetParams{
+		ID: "builtin-obsolete", Name: "Obsolete", OutputType: "audio", Container: "wav",
+		AudioCodec: "pcm", RequiresAudio: true, IsBuiltin: true, CreatedAt: &now, UpdatedAt: &now,
+	}))
+	repo := &transcodePresetTestRepo{items: items}
+	service := &LibraryService{presets: repo, nowFunc: func() time.Time { return now }}
+
+	if err := service.EnsureDefaultTranscodePresets(context.Background()); err != nil {
+		t.Fatalf("EnsureDefaultTranscodePresets returned error: %v", err)
+	}
+	if repo.saveCalls != 1 {
+		t.Fatalf("changed builtins were saved %d times, want 1", repo.saveCalls)
+	}
+	if repo.deleteCalls != 1 {
+		t.Fatalf("stale builtins were deleted %d times, want 1", repo.deleteCalls)
+	}
+	if repo.items[0].CRF != defaultH264VideoCRF {
+		t.Fatalf("changed builtin CRF = %d, want %d", repo.items[0].CRF, defaultH264VideoCRF)
+	}
+}
+
 type transcodePresetTestRepo struct {
-	items []library.TranscodePreset
+	items       []library.TranscodePreset
+	saveCalls   int
+	deleteCalls int
 }
 
 func (repo *transcodePresetTestRepo) List(_ context.Context) ([]library.TranscodePreset, error) {
@@ -175,6 +218,7 @@ func (repo *transcodePresetTestRepo) Get(_ context.Context, id string) (library.
 }
 
 func (repo *transcodePresetTestRepo) Save(_ context.Context, preset library.TranscodePreset) error {
+	repo.saveCalls++
 	for index := range repo.items {
 		if repo.items[index].ID == preset.ID {
 			repo.items[index] = preset
@@ -186,6 +230,7 @@ func (repo *transcodePresetTestRepo) Save(_ context.Context, preset library.Tran
 }
 
 func (repo *transcodePresetTestRepo) Delete(_ context.Context, id string) error {
+	repo.deleteCalls++
 	filtered := repo.items[:0]
 	for _, item := range repo.items {
 		if item.ID != id {

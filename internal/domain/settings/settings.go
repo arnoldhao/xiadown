@@ -112,13 +112,13 @@ const (
 )
 
 const (
-	DefaultMainWidth        = 960
-	DefaultMainHeight       = 640
-	DefaultSettingsWidth    = 480
+	DefaultMainWidth        = 1024
+	DefaultMainHeight       = 768
+	DefaultSettingsWidth    = 640
 	DefaultSettingsHeight   = 550
-	MinMainWindowWidth      = 960
-	MinMainWindowHeight     = 640
-	MinSettingsWindowWidth  = 480
+	MinMainWindowWidth      = 1024
+	MinMainWindowHeight     = 768
+	MinSettingsWindowWidth  = 640
 	MinSettingsWindowHeight = 550
 	DefaultFontSize         = 15
 	MinFontSize             = 12

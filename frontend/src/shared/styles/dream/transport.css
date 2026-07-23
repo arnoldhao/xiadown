@@ -1,0 +1,591 @@
+/* Shared transport composition and appearance. The multi-station transport is
+   a Dream control recipe, not feature-owned chrome. */
+.app-workspace-transport {
+  --app-workspace-transport-center-max: 17rem;
+
+  position: absolute;
+  z-index: var(--app-layer-floating-controls);
+  right: auto;
+  bottom: 16px;
+  left: 50%;
+  display: grid;
+  box-sizing: border-box;
+  width: min(620px, calc(100% - 40px));
+  max-width: calc(100% - 40px);
+  height: var(--app-control-bar-height);
+  min-width: 0;
+  grid-template-columns:
+    max-content
+    minmax(0, var(--app-workspace-transport-center-max))
+    max-content;
+  align-items: center;
+  justify-content: center;
+  column-gap: var(--app-space-3);
+  min-height: var(--app-control-bar-height);
+  padding: 5px 10px;
+  transform: translateX(-50%);
+}
+
+.app-workspace-transport__left,
+.app-workspace-transport__right {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0;
+}
+
+.app-workspace-transport__left {
+  justify-content: flex-start;
+}
+
+.app-workspace-transport__right {
+  position: relative;
+  min-height: 30px;
+  justify-content: flex-end;
+}
+
+.app-workspace-transport__right-actions,
+.app-workspace-transport__volume-editor {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  transition:
+    opacity 160ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-workspace-transport__volume-editor {
+  position: absolute;
+  inset: 0;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(3px) scale(0.96);
+}
+
+.app-workspace-transport__right[data-volume-expanded="true"]
+  .app-workspace-transport__right-actions,
+.app-workspace-transport__right[data-volume-dragging="true"]
+  .app-workspace-transport__right-actions {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-3px) scale(0.96);
+}
+
+.app-workspace-transport__right[data-volume-expanded="true"]
+  .app-workspace-transport__volume-editor,
+.app-workspace-transport__right[data-volume-dragging="true"]
+  .app-workspace-transport__volume-editor {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.app-workspace-transport__volume-editor > input[type="range"] {
+  width: 64px;
+  min-width: 44px;
+  height: 18px;
+  margin: 0;
+  accent-color: hsl(var(--primary));
+  cursor: pointer;
+}
+
+.app-workspace-transport__icon-button {
+  --app-button-inline-size: 27px;
+  --app-button-block-size: 30px;
+  --app-button-padding: 0;
+  --app-button-gap: 0;
+  --app-button-icon-size: 14px;
+
+  display: inline-grid;
+  width: var(--app-button-inline-size);
+  height: var(--app-button-block-size);
+  flex: 0 0 var(--app-button-inline-size);
+  padding: var(--app-button-padding);
+  color: hsl(var(--foreground) / 0.72);
+  border: 0;
+  border-radius: var(--app-radius-control-inner);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  place-items: center;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    transform 100ms ease;
+}
+
+.app-workspace-transport__icon-button:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--foreground) / 0.055);
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__icon-button:focus-visible {
+  color: hsl(var(--foreground));
+  outline: 2px solid hsl(var(--ring) / 0.72);
+  outline-offset: -2px;
+  background: hsl(var(--foreground) / 0.055);
+}
+
+.app-workspace-transport__icon-button:active {
+  transform: scale(0.93);
+}
+
+.app-workspace-transport__icon-button:disabled {
+  cursor: default;
+  opacity: 0.36;
+  transform: none;
+}
+
+.app-workspace-transport__button[data-transport-emphasis="step"] {
+  --app-button-inline-size: 30px;
+  --app-button-block-size: 34px;
+  --app-button-icon-size: 18px;
+}
+
+.app-workspace-transport__button--primary {
+  --app-button-inline-size: 34px;
+  --app-button-block-size: 38px;
+  --app-button-icon-size: 20px;
+
+  color: hsl(var(--foreground));
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-workspace-transport__button--primary:hover {
+  background: hsl(var(--foreground) / 0.055);
+}
+
+.app-workspace-transport__center {
+  position: relative;
+  display: grid;
+  box-sizing: border-box;
+  height: 46px;
+  min-width: 0;
+  grid-template-columns: 34px minmax(0, 1fr) 27px;
+  grid-template-rows: 36px 10px;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 0;
+}
+
+.app-workspace-transport__artwork {
+  /* The cover action and its fullscreen reveal are both square Dream buttons.
+     Resolve their shape against the frame's inner radius so the scrim follows
+     the exact same corner geometry as the clipped artwork. */
+  --app-radius-control-compact: var(--app-radius-control-inner);
+
+  position: relative;
+  z-index: 3;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--app-radius-control-inner);
+  background: hsl(var(--muted));
+}
+
+.app-workspace-transport__artwork-open {
+  --app-button-inline-size: 100%;
+  --app-button-block-size: 100%;
+  --app-button-padding: 0;
+  --app-button-gap: 0;
+  --app-button-border: 0;
+
+  display: block;
+  width: var(--app-button-inline-size);
+  height: var(--app-button-block-size);
+  padding: var(--app-button-padding);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.app-workspace-transport[data-state="idle"]
+  .app-workspace-transport__artwork-open {
+  cursor: default;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__artwork-open:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.app-workspace-transport__artwork-open > [data-listen-cover-artwork="true"] {
+  display: block;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  transition:
+    filter 180ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-workspace-transport__fullscreen {
+  --app-button-inline-size: 100%;
+  --app-button-block-size: 100%;
+  --app-button-padding: 0;
+  --app-button-gap: 0;
+  --app-button-icon-size: 16px;
+  --app-button-border: 0;
+
+  position: absolute;
+  inset: 0;
+  display: grid;
+  width: var(--app-button-inline-size);
+  height: var(--app-button-block-size);
+  padding: var(--app-button-padding);
+  color: var(--app-media-chrome-foreground);
+  border: 0;
+  background: var(--app-media-chrome-scrim-soft);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  place-items: center;
+  transition:
+    background-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.app-workspace-transport[data-state="idle"]
+  .app-workspace-transport__fullscreen {
+  display: none;
+}
+
+.app-workspace-transport__artwork:hover .app-workspace-transport__fullscreen,
+.app-workspace-transport__artwork:focus-within .app-workspace-transport__fullscreen,
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__fullscreen:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.app-workspace-transport__artwork:hover
+  .app-workspace-transport__artwork-open
+  > [data-listen-cover-artwork="true"],
+.app-workspace-transport__artwork:focus-within
+  .app-workspace-transport__artwork-open
+  > [data-listen-cover-artwork="true"] {
+  filter: saturate(0.82) brightness(0.88);
+  transform: scale(1.07);
+}
+
+.app-workspace-transport[data-state="idle"]
+  .app-workspace-transport__artwork:hover
+  .app-workspace-transport__artwork-open
+  > [data-listen-cover-artwork="true"] {
+  filter: none;
+  transform: none;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__fullscreen:focus-visible {
+  outline: 2px solid var(--app-media-chrome-foreground);
+  outline-offset: -3px;
+}
+
+.app-workspace-transport__track-details {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  color: inherit;
+  text-align: left;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__track-details:has(:focus-visible) {
+  border-radius: var(--app-radius-sm);
+  outline: 2px solid hsl(var(--ring) / 0.72);
+  outline-offset: -2px;
+}
+
+.app-workspace-transport__title-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+}
+
+.app-workspace-transport__track-title {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+
+.app-workspace-transport__track-title {
+  flex: 0 1 auto;
+}
+
+.app-workspace-transport__artists {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 9px;
+  line-height: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-workspace-transport__track-artist-open {
+  --app-button-inline-size: auto;
+  --app-button-block-size: auto;
+  --app-button-padding: 0;
+  --app-button-gap: 0;
+  --app-button-font-size: 1em;
+  --app-button-font-weight: 400;
+
+  display: inline;
+  padding: var(--app-button-padding);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  vertical-align: baseline;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+
+.app-workspace-transport__track-artist-open:hover {
+  color: hsl(var(--foreground));
+}
+
+.app-workspace-transport__track-artist-open:focus-visible {
+  outline: none;
+}
+
+.app-workspace-transport__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-workspace-transport__title {
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
+}
+
+.app-workspace-transport__artist,
+.app-workspace-transport__artist-separator {
+  color: inherit;
+  font: inherit;
+}
+
+.app-workspace-transport__favorite {
+  --app-button-inline-size: 18px;
+  --app-button-block-size: 18px;
+  --app-button-padding: 0;
+  --app-button-gap: 0;
+  --app-button-icon-size: 12px;
+
+  display: grid;
+  width: var(--app-button-inline-size);
+  height: var(--app-button-block-size);
+  flex: 0 0 18px;
+  padding: var(--app-button-padding);
+  color: hsl(var(--muted-foreground));
+  border: 0;
+  border-radius: var(--app-radius-capsule);
+  background: transparent;
+  cursor: pointer;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-3px) scale(0.92);
+  transition:
+    color 120ms ease,
+    opacity 150ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-workspace-transport__track-details:hover .app-workspace-transport__favorite,
+.app-workspace-transport__track-details:focus-within .app-workspace-transport__favorite {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+}
+
+.app-workspace-transport__favorite:hover,
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__favorite:focus-visible {
+  color: hsl(var(--foreground));
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__favorite:focus-visible {
+  outline: 2px solid hsl(var(--ring) / 0.72);
+  outline-offset: -2px;
+}
+
+.app-workspace-transport__favorite[data-active="true"] {
+  color: hsl(var(--primary));
+}
+
+.app-workspace-transport__favorite[data-active="true"] svg,
+.app-workspace-transport__menu-favorite[data-active="true"] {
+  fill: currentColor;
+}
+
+.app-workspace-transport__more {
+  position: relative;
+  z-index: 3;
+}
+
+.app-workspace-transport__more-menu.app-menu-content {
+  width: max-content;
+  min-width: 0;
+  max-width: min(18rem, calc(100vw - 24px));
+}
+
+.app-workspace-transport__timeline {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 10px;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  outline: none;
+}
+
+.app-workspace-transport__timeline::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.app-workspace-transport__timeline-input {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-workspace-transport__timeline:has(
+    .app-workspace-transport__timeline-input:focus-visible
+  ) {
+  border-radius: var(--app-radius-sm);
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.app-workspace-transport__track {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  left: 0;
+  height: 2px;
+  overflow: hidden;
+  background: hsl(var(--foreground) / 0.13);
+  border-radius: var(--app-radius-capsule);
+  transition: height 160ms ease;
+}
+
+.app-workspace-transport__track > span {
+  display: block;
+  height: 100%;
+  background: hsl(var(--primary));
+  border-radius: inherit;
+}
+
+.app-workspace-transport__time {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 9px;
+  line-height: 10px;
+  white-space: nowrap;
+}
+
+.app-workspace-transport__times {
+  position: absolute;
+  right: 0;
+  bottom: 7px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 130ms ease, transform 160ms ease;
+}
+
+.app-workspace-transport__time--remaining {
+  text-align: right;
+}
+
+.app-workspace-transport__timeline:hover .app-workspace-transport__track,
+.app-workspace-transport__timeline:has(
+    .app-workspace-transport__timeline-input:focus-visible
+  )
+  .app-workspace-transport__track {
+  height: 5px;
+}
+
+.app-workspace-transport__timeline:hover .app-workspace-transport__times,
+.app-workspace-transport__timeline:has(
+    .app-workspace-transport__timeline-input:focus-visible
+  )
+  .app-workspace-transport__times {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.app-workspace-transport__center > :not(.app-workspace-transport__timeline) {
+  transition:
+    opacity 170ms ease,
+    filter 190ms ease,
+    transform 190ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-workspace-transport__center:has(
+    .app-workspace-transport__timeline:hover
+  )
+  > :not(.app-workspace-transport__timeline),
+.app-workspace-transport__center:has(
+    .app-workspace-transport__timeline-input:focus-visible
+  )
+  > :not(.app-workspace-transport__timeline) {
+  opacity: 0.18;
+  filter: blur(3px) saturate(0.58);
+  transform: translateY(-1px) scale(0.985);
+}
+
+@container workspace-primary (max-width: 980px) {
+  .app-workspace-transport {
+    --app-workspace-transport-center-max: 15rem;
+
+    column-gap: var(--app-space-2-5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-workspace-transport *,
+  .app-workspace-transport *::before,
+  .app-workspace-transport *::after {
+    transition: none !important;
+  }
+}

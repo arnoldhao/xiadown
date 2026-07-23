@@ -9,6 +9,7 @@ import (
 	"xiadown/internal/application/appsessions/dto"
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/sitepolicy"
+	"xiadown/internal/application/youtubecookies"
 	"xiadown/internal/domain/appsessions"
 )
 
@@ -49,16 +50,22 @@ func (service *AppSessionsService) mapSessionDTOFromCookies(session appsessions.
 	if session.AccountVerificationStartedAt != nil {
 		verificationStartedAt = session.AccountVerificationStartedAt.Format(time.RFC3339)
 	}
+	lastSyncedAt := ""
+	if session.LastSyncedAt != nil {
+		lastSyncedAt = session.LastSyncedAt.Format(time.RFC3339)
+	}
 	return dto.AppSession{
-		ID:                           session.ID,
-		SiteKey:                      session.SiteKey,
-		Group:                        "video",
-		Label:                        appSessionSiteLabel(session.SiteKey),
-		Desc:                         appSessionSiteDesc(session.SiteKey),
-		Status:                       string(status),
-		CredentialState:              appSessionCredentialState(status, credentialHasAuthCookies),
-		CookiesCount:                 len(cookies),
-		Cookies:                      mapCookiesDTO(cookies),
+		ID:              session.ID,
+		SiteKey:         session.SiteKey,
+		Group:           "video",
+		Label:           appSessionSiteLabel(session.SiteKey),
+		Desc:            appSessionSiteDesc(session.SiteKey),
+		Status:          string(status),
+		CredentialState: appSessionCredentialState(status, credentialHasAuthCookies),
+		CookiesCount:    len(cookies),
+		// Cookie material never crosses the Wails boundary. UI surfaces receive
+		// only aggregate counts/domains and source metadata.
+		Cookies:                      nil,
 		Domains:                      append([]string(nil), policy.Domains...),
 		Account:                      accountDTO(session, cookies),
 		PolicyKey:                    policy.Key,
@@ -68,6 +75,46 @@ func (service *AppSessionsService) mapSessionDTOFromCookies(session appsessions.
 		AccountVerificationError:     session.AccountVerificationError,
 		AccountVerificationStartedAt: verificationStartedAt,
 		LastVerifiedAt:               lastVerified,
+		SourceType:                   string(session.SourceType),
+		SourceBrowser:                session.SourceBrowser,
+		SourceProfile:                session.SourceProfile,
+		LastSyncedAt:                 lastSyncedAt,
+		Source:                       appSessionSourceDTO(session, lastSyncedAt),
+	}
+}
+
+func appSessionSourceDTO(session appsessions.Session, syncedAt string) *dto.AppSessionSource {
+	if session.SourceType == "" && session.SourceBrowser == "" && session.SourceProfile == "" && syncedAt == "" {
+		return nil
+	}
+	return &dto.AppSessionSource{
+		Mode:         string(session.SourceType),
+		BrowserID:    session.SourceBrowser,
+		BrowserLabel: appSessionBrowserLabel(session.SourceBrowser),
+		ProfileID:    session.SourceProfile,
+		ProfileLabel: session.SourceProfile,
+		SyncedAt:     syncedAt,
+	}
+}
+
+func appSessionBrowserLabel(browserID string) string {
+	switch strings.ToLower(strings.TrimSpace(browserID)) {
+	case "chrome":
+		return "Google Chrome"
+	case "edge":
+		return "Microsoft Edge"
+	case "brave":
+		return "Brave"
+	case "arc":
+		return "Arc"
+	case "vivaldi":
+		return "Vivaldi"
+	case "opera":
+		return "Opera"
+	case "safari":
+		return "Safari"
+	default:
+		return strings.TrimSpace(browserID)
 	}
 }
 
@@ -210,26 +257,38 @@ func cookieExpiresAt(siteKey string, cookies []appcookies.Record, now time.Time)
 }
 
 func appSessionHasAuthenticationCookies(siteKey string, cookies []appcookies.Record) bool {
+	return appSessionHasAuthenticationCookiesAt(siteKey, cookies, time.Now())
+}
+
+func appSessionHasAuthenticationCookiesAt(siteKey string, cookies []appcookies.Record, now time.Time) bool {
 	if len(cookies) == 0 {
 		return false
 	}
+	siteKey = strings.TrimSpace(siteKey)
+	if siteKey == "youtube" {
+		return youtubecookies.HasAuthForURL(cookies, "https://www.youtube.com/", now)
+	}
+	cookies = removeExpiredCookies(cookies, now)
 	names := cookieNameSet(cookies)
 	has := func(name string) bool {
 		_, ok := names[strings.ToLower(strings.TrimSpace(name))]
 		return ok
 	}
-	switch strings.TrimSpace(siteKey) {
-	case "youtube":
-		for name := range authCookieExpiryNames("youtube") {
-			if has(name) {
-				return true
-			}
-		}
-		return false
+	switch siteKey {
 	case "bilibili":
 		return has("SESSDATA")
 	case "tiktok":
 		return has("sessionid") || has("sessionid_ss") || has("sid_guard") || has("sid_tt")
+	case "douyin":
+		return has("sessionid") || has("sessionid_ss") || has("sid_guard") || has("sid_tt")
+	case "xiaohongshu":
+		for _, record := range appcookies.FilterByDomains(cookies, []string{"xiaohongshu.com"}) {
+			if strings.EqualFold(strings.TrimSpace(record.Name), "web_session") &&
+				strings.TrimSpace(record.Value) != "" {
+				return true
+			}
+		}
+		return false
 	case "instagram":
 		return has("sessionid")
 	case "x":
@@ -264,18 +323,11 @@ func authCookieExpiryNames(siteKey string) map[string]struct{} {
 		return map[string]struct{}{
 			"APISID":            {},
 			"HSID":              {},
-			"LOGIN_INFO":        {},
 			"SAPISID":           {},
 			"SID":               {},
 			"SSID":              {},
 			"__Secure-1PAPISID": {},
-			"__Secure-1PSID":    {},
-			"__Secure-1PSIDCC":  {},
-			"__Secure-1PSIDTS":  {},
 			"__Secure-3PAPISID": {},
-			"__Secure-3PSID":    {},
-			"__Secure-3PSIDCC":  {},
-			"__Secure-3PSIDTS":  {},
 		}
 	case "bilibili":
 		return map[string]struct{}{
@@ -291,6 +343,17 @@ func authCookieExpiryNames(siteKey string) map[string]struct{} {
 			"sid_tt":       {},
 			"uid_tt":       {},
 			"uid_tt_ss":    {},
+		}
+	case "douyin":
+		return map[string]struct{}{
+			"sessionid":    {},
+			"sessionid_ss": {},
+			"sid_guard":    {},
+			"sid_tt":       {},
+		}
+	case "xiaohongshu":
+		return map[string]struct{}{
+			"web_session": {},
 		}
 	case "instagram":
 		return map[string]struct{}{
@@ -357,26 +420,6 @@ func cookieNameAllowed(value string, names map[string]struct{}) bool {
 		}
 	}
 	return false
-}
-
-func mapCookiesDTO(cookies []appcookies.Record) []dto.AppSessionCookie {
-	if len(cookies) == 0 {
-		return nil
-	}
-	result := make([]dto.AppSessionCookie, 0, len(cookies))
-	for _, cookie := range cookies {
-		result = append(result, dto.AppSessionCookie{
-			Name:     cookie.Name,
-			Value:    cookie.Value,
-			Domain:   cookie.Domain,
-			Path:     cookie.Path,
-			Expires:  cookie.Expires,
-			HttpOnly: cookie.HttpOnly,
-			Secure:   cookie.Secure,
-			SameSite: cookie.SameSite,
-		})
-	}
-	return result
 }
 
 func cookieDomains(cookies []appcookies.Record) []string {

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Music" data-listen-default-cover="music">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#27243b"/>
+      <stop offset="1" stop-color="#13131c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.28" cy="0.18" r="0.78">
+      <stop offset="0" stop-color="#9b8cff" stop-opacity="0.58"/>
+      <stop offset="0.56" stop-color="#7668e8" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#7668e8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#07070c" flood-opacity="0.48"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="84" fill="url(#background)"/>
+  <rect width="512" height="512" rx="84" fill="url(#glow)"/>
+  <circle cx="256" cy="256" r="138" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.09" stroke-width="3" filter="url(#shadow)"/>
+  <g fill="none" stroke="#e8e6ff" stroke-linecap="round" stroke-linejoin="round" stroke-width="22">
+    <path d="M225 310V190l112-24v120"/>
+    <path d="M225 214l112-24"/>
+    <ellipse cx="190" cy="310" rx="35" ry="27" fill="#e8e6ff" stroke="none"/>
+    <ellipse cx="302" cy="286" rx="35" ry="27" fill="#e8e6ff" stroke="none"/>
+  </g>
+</svg>

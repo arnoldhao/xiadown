@@ -3,6 +3,7 @@ package browsercdp
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -35,6 +36,143 @@ type Candidate struct {
 	ExecPath  string    `json:"execPath,omitempty"`
 	Available bool      `json:"available"`
 	Error     string    `json:"error,omitempty"`
+}
+
+// ExecutableIdentity is an opaque, backend-only reference to the exact
+// browser executable observed for one release channel. Its fields stay
+// private so callers can carry the identity into LaunchOptions without
+// exposing an executable path through JSON or the Wails boundary.
+type ExecutableIdentity struct {
+	browserID      BrowserID
+	channel        string
+	executablePath string
+}
+
+// DetectExecutableIdentity resolves one exact release channel. An identity is
+// still returned when that channel is unavailable; launching it then fails
+// closed instead of falling back to another channel or browser.
+func DetectExecutableIdentity(browserID string, channel string) ExecutableIdentity {
+	id := BrowserID(strings.ToLower(strings.TrimSpace(browserID)))
+	return detectExecutableIdentity(id, channel, candidatesForID(id))
+}
+
+// ExecutableIdentityForCandidate pins an already detected backend Candidate.
+// The resulting value remains opaque; callers cannot read its path back out.
+func ExecutableIdentityForCandidate(candidate Candidate, channel string) ExecutableIdentity {
+	path := strings.TrimSpace(candidate.ExecPath)
+	if resolved := resolveExecutable(path); resolved != "" {
+		path = resolved
+	}
+	return ExecutableIdentity{
+		browserID:      candidate.ID,
+		channel:        normalizeExecutableChannel(channel),
+		executablePath: path,
+	}
+}
+
+// Available reports whether the exact executable captured by this identity
+// still exists. It intentionally exposes neither the path nor the channel.
+func (identity ExecutableIdentity) Available() bool {
+	_, err := candidateForExecutableIdentity(identity, string(identity.browserID))
+	return err == nil
+}
+
+func detectExecutableIdentity(id BrowserID, channel string, candidates []string) ExecutableIdentity {
+	identity := ExecutableIdentity{
+		browserID: id,
+		channel:   normalizeExecutableChannel(channel),
+	}
+	for _, candidate := range candidates {
+		if executableChannelForCandidate(id, candidate) != identity.channel {
+			continue
+		}
+		if resolved := resolveExecutable(candidate); resolved != "" {
+			identity.executablePath = resolved
+			break
+		}
+	}
+	return identity
+}
+
+func normalizeExecutableChannel(channel string) string {
+	return strings.ToLower(strings.TrimSpace(channel))
+}
+
+func executableChannelForCandidate(id BrowserID, candidate string) string {
+	value := strings.ToLower(filepath.ToSlash(strings.TrimSpace(candidate)))
+	containsAny := func(markers ...string) bool {
+		for _, marker := range markers {
+			if strings.Contains(value, marker) {
+				return true
+			}
+		}
+		return false
+	}
+
+	switch id {
+	case BrowserChrome:
+		switch {
+		case containsAny("chrome canary", "chrome sxs"):
+			return "canary"
+		case containsAny("chrome beta", "google-chrome-beta"):
+			return "beta"
+		case containsAny("chrome dev", "google-chrome-unstable"):
+			return "dev"
+		}
+	case BrowserEdge:
+		switch {
+		case containsAny("edge canary", "edge sxs"):
+			return "canary"
+		case containsAny("edge beta", "microsoft-edge-beta"):
+			return "beta"
+		case containsAny("edge dev", "microsoft-edge-dev"):
+			return "dev"
+		}
+	case BrowserBrave:
+		switch {
+		case containsAny("brave-browser-nightly", "brave browser nightly"):
+			return "nightly"
+		case containsAny("brave-browser-beta", "brave browser beta"):
+			return "beta"
+		}
+	case BrowserVivaldi:
+		if containsAny("vivaldi snapshot", "vivaldi-snapshot") {
+			return "snapshot"
+		}
+	case BrowserOpera:
+		switch {
+		case containsAny("opera-developer", "opera developer"):
+			return "dev"
+		case containsAny("opera-beta", "opera beta"):
+			return "beta"
+		}
+	case BrowserYandex:
+		if containsAny("yandex-browser-beta", "yandex browser beta") {
+			return "beta"
+		}
+	}
+	return ""
+}
+
+func candidateForExecutableIdentity(identity ExecutableIdentity, preferred string) (Candidate, error) {
+	preferredID := BrowserID(strings.ToLower(strings.TrimSpace(preferred)))
+	if identity.browserID == "" || (preferredID != "" && preferredID != identity.browserID) {
+		return Candidate{}, ErrExactExecutableUnavailable
+	}
+	resolved := resolveExecutable(identity.executablePath)
+	if resolved == "" || filepath.Clean(resolved) != filepath.Clean(identity.executablePath) {
+		return Candidate{}, ErrExactExecutableUnavailable
+	}
+	label := labelForID(identity.browserID)
+	if identity.channel != "" {
+		label += " " + strings.ToUpper(identity.channel[:1]) + identity.channel[1:]
+	}
+	return Candidate{
+		ID:        identity.browserID,
+		Label:     label,
+		ExecPath:  resolved,
+		Available: true,
+	}, nil
 }
 
 var (
@@ -82,6 +220,11 @@ func ChooseCandidate(candidates []Candidate, preferred string) (Candidate, bool)
 				return candidate, true
 			}
 		}
+		// An operation-scoped browser selection is an exact request. Falling
+		// through to another executable would run the requested Profile with a
+		// different browser and make unsupported choices (for example Safari)
+		// appear to work as whichever Chromium browser happens to be installed.
+		return Candidate{}, false
 	}
 	return ChooseDefaultCandidate(candidates)
 }
@@ -118,7 +261,12 @@ func CheckCDPReady(ctx context.Context, host string, port int) error {
 	if strings.TrimSpace(host) == "" {
 		host = "127.0.0.1"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://%s:%d/json/version", host, port), nil)
+	host = strings.TrimSpace(host)
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("cdp host must be loopback")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+net.JoinHostPort(host, fmt.Sprintf("%d", port))+"/json/version", nil)
 	if err != nil {
 		return err
 	}

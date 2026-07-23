@@ -37,8 +37,9 @@ type PageTargetWatcher struct {
 	manager    *PageTargetManager
 	listenerID uint64
 
-	mu              sync.Mutex
-	targetBySession map[string]string
+	mu                sync.Mutex
+	targetBySession   map[string]string
+	excludedTargetIDs map[string]struct{}
 }
 
 type PageTargetManager struct {
@@ -49,6 +50,7 @@ type PageTargetManager struct {
 	mu              sync.RWMutex
 	targets         map[string]*targetpkg.Info
 	targetBySession map[string]string
+	excludedTargets map[string]struct{}
 	listeners       map[uint64]func(TargetEvent)
 	nextListenerID  uint64
 	waiters         map[uint64]pageTargetWaiter
@@ -75,6 +77,7 @@ func startPageTargetManager(runtime *Runtime) (*PageTargetManager, error) {
 		done:            make(chan struct{}),
 		targets:         map[string]*targetpkg.Info{},
 		targetBySession: map[string]string{},
+		excludedTargets: map[string]struct{}{},
 		listeners:       map[uint64]func(TargetEvent){},
 		waiters:         map[uint64]pageTargetWaiter{},
 	}
@@ -190,7 +193,10 @@ func (manager *PageTargetManager) ListPageTargets() []*targetpkg.Info {
 	}
 	manager.mu.RLock()
 	result := make([]*targetpkg.Info, 0, len(manager.targets))
-	for _, info := range manager.targets {
+	for targetID, info := range manager.targets {
+		if _, excluded := manager.excludedTargets[targetID]; excluded || !isPageTargetInfo(info) {
+			continue
+		}
 		result = append(result, clonePageTargetInfo(info))
 	}
 	manager.mu.RUnlock()
@@ -208,6 +214,9 @@ func (manager *PageTargetManager) PageTargetMap() map[string]*targetpkg.Info {
 	defer manager.mu.RUnlock()
 	result := make(map[string]*targetpkg.Info, len(manager.targets))
 	for targetID, info := range manager.targets {
+		if _, excluded := manager.excludedTargets[targetID]; excluded || !isPageTargetInfo(info) {
+			continue
+		}
 		result[targetID] = clonePageTargetInfo(info)
 	}
 	return result
@@ -223,8 +232,9 @@ func (manager *PageTargetManager) PageTargetInfo(targetID string) (*targetpkg.In
 	}
 	manager.mu.RLock()
 	info, ok := manager.targets[targetID]
+	_, excluded := manager.excludedTargets[targetID]
 	manager.mu.RUnlock()
-	if !ok {
+	if !ok || excluded || !isPageTargetInfo(info) {
 		return nil, false
 	}
 	return clonePageTargetInfo(info), true
@@ -249,6 +259,30 @@ func (manager *PageTargetManager) RememberPageTargetID(targetID string) {
 	})
 }
 
+// ExcludeTargetID reserves an internal page target so it can never be
+// surfaced to tab consumers, even if Chromium later changes its URL.
+func (manager *PageTargetManager) ExcludeTargetID(targetID string) {
+	if manager == nil {
+		return
+	}
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return
+	}
+	manager.mu.Lock()
+	if manager.excludedTargets == nil {
+		manager.excludedTargets = map[string]struct{}{}
+	}
+	manager.excludedTargets[targetID] = struct{}{}
+	delete(manager.targets, targetID)
+	for sessionID, mappedTargetID := range manager.targetBySession {
+		if mappedTargetID == targetID {
+			delete(manager.targetBySession, sessionID)
+		}
+	}
+	manager.mu.Unlock()
+}
+
 func (manager *PageTargetManager) RememberTargetSession(targetID string, sessionID string) {
 	if manager == nil {
 		return
@@ -259,6 +293,10 @@ func (manager *PageTargetManager) RememberTargetSession(targetID string, session
 		return
 	}
 	manager.mu.Lock()
+	if _, excluded := manager.excludedTargets[targetID]; excluded {
+		manager.mu.Unlock()
+		return
+	}
 	if manager.targetBySession == nil {
 		manager.targetBySession = map[string]string{}
 	}
@@ -359,10 +397,17 @@ func (watcher *PageTargetWatcher) handleEvent(handler func(TargetEvent), ev any)
 	case *targetpkg.EventTargetInfoChanged:
 		watcher.handleTargetInfo(handler, TargetEventInfoChanged, event.TargetInfo)
 	case *targetpkg.EventAttachedToTarget:
+		if isManagedNetworkProbeTargetInfo(event.TargetInfo) {
+			watcher.excludeTargetID(strings.TrimSpace(string(event.TargetInfo.TargetID)))
+			return
+		}
 		if !isPageTargetInfo(event.TargetInfo) {
 			return
 		}
 		targetID := strings.TrimSpace(string(event.TargetInfo.TargetID))
+		if watcher.isExcludedTargetID(targetID) {
+			return
+		}
 		sessionID := strings.TrimSpace(string(event.SessionID))
 		watcher.RememberTargetSession(targetID, sessionID)
 		emitTargetEvent(handler, TargetEvent{
@@ -374,20 +419,31 @@ func (watcher *PageTargetWatcher) handleEvent(handler func(TargetEvent), ev any)
 	case *targetpkg.EventDetachedFromTarget:
 		sessionID := strings.TrimSpace(string(event.SessionID))
 		targetID := watcher.forgetTargetSession(sessionID)
+		if targetID == "" || watcher.isExcludedTargetID(targetID) {
+			return
+		}
 		emitTargetEvent(handler, TargetEvent{
 			Kind:      TargetEventDetached,
 			TargetID:  targetID,
 			SessionID: sessionID,
 		})
 	case *targetpkg.EventTargetDestroyed:
+		targetID := strings.TrimSpace(string(event.TargetID))
+		if watcher.consumeExcludedTargetID(targetID) {
+			return
+		}
 		emitTargetEvent(handler, TargetEvent{
 			Kind:     TargetEventDestroyed,
-			TargetID: strings.TrimSpace(string(event.TargetID)),
+			TargetID: targetID,
 		})
 	case *targetpkg.EventTargetCrashed:
+		targetID := strings.TrimSpace(string(event.TargetID))
+		if watcher.consumeExcludedTargetID(targetID) {
+			return
+		}
 		emitTargetEvent(handler, TargetEvent{
 			Kind:      TargetEventCrashed,
-			TargetID:  strings.TrimSpace(string(event.TargetID)),
+			TargetID:  targetID,
 			Status:    strings.TrimSpace(event.Status),
 			ErrorCode: event.ErrorCode,
 		})
@@ -401,10 +457,17 @@ func (manager *PageTargetManager) handleEvent(handler func(TargetEvent), ev any)
 	case *targetpkg.EventTargetInfoChanged:
 		manager.handleTargetInfo(handler, TargetEventInfoChanged, event.TargetInfo)
 	case *targetpkg.EventAttachedToTarget:
+		if isManagedNetworkProbeTargetInfo(event.TargetInfo) {
+			manager.ExcludeTargetID(strings.TrimSpace(string(event.TargetInfo.TargetID)))
+			return
+		}
 		if !isPageTargetInfo(event.TargetInfo) {
 			return
 		}
 		targetID := strings.TrimSpace(string(event.TargetInfo.TargetID))
+		if manager.isExcludedTargetID(targetID) {
+			return
+		}
 		sessionID := strings.TrimSpace(string(event.SessionID))
 		manager.RememberTargetSession(targetID, sessionID)
 		manager.handleTargetInfo(nil, TargetEventInfoChanged, event.TargetInfo)
@@ -423,6 +486,9 @@ func (manager *PageTargetManager) handleEvent(handler func(TargetEvent), ev any)
 	case *targetpkg.EventDetachedFromTarget:
 		sessionID := strings.TrimSpace(string(event.SessionID))
 		targetID := manager.forgetTargetSession(sessionID)
+		if targetID == "" || manager.isExcludedTargetID(targetID) {
+			return
+		}
 		manager.emit(TargetEvent{
 			Kind:      TargetEventDetached,
 			TargetID:  targetID,
@@ -435,6 +501,9 @@ func (manager *PageTargetManager) handleEvent(handler func(TargetEvent), ev any)
 		})
 	case *targetpkg.EventTargetDestroyed:
 		targetID := strings.TrimSpace(string(event.TargetID))
+		if manager.consumeExcludedTargetID(targetID) {
+			return
+		}
 		manager.removeTarget(targetID)
 		manager.emit(TargetEvent{
 			Kind:     TargetEventDestroyed,
@@ -446,6 +515,9 @@ func (manager *PageTargetManager) handleEvent(handler func(TargetEvent), ev any)
 		})
 	case *targetpkg.EventTargetCrashed:
 		targetID := strings.TrimSpace(string(event.TargetID))
+		if manager.consumeExcludedTargetID(targetID) {
+			return
+		}
 		manager.removeTarget(targetID)
 		manager.emit(TargetEvent{
 			Kind:      TargetEventCrashed,
@@ -463,7 +535,14 @@ func (manager *PageTargetManager) handleEvent(handler func(TargetEvent), ev any)
 }
 
 func (watcher *PageTargetWatcher) handleTargetInfo(handler func(TargetEvent), kind TargetEventKind, info *targetpkg.Info) {
+	if isManagedNetworkProbeTargetInfo(info) {
+		watcher.excludeTargetID(strings.TrimSpace(string(info.TargetID)))
+		return
+	}
 	if !isPageTargetInfo(info) {
+		return
+	}
+	if watcher.isExcludedTargetID(strings.TrimSpace(string(info.TargetID))) {
 		return
 	}
 	emitTargetEvent(handler, TargetEvent{
@@ -474,12 +553,19 @@ func (watcher *PageTargetWatcher) handleTargetInfo(handler func(TargetEvent), ki
 }
 
 func (manager *PageTargetManager) handleTargetInfo(handler func(TargetEvent), kind TargetEventKind, info *targetpkg.Info) {
+	if isManagedNetworkProbeTargetInfo(info) {
+		manager.ExcludeTargetID(strings.TrimSpace(string(info.TargetID)))
+		return
+	}
 	if !isPageTargetInfo(info) {
 		return
 	}
 	targetID := strings.TrimSpace(string(info.TargetID))
 	cloned := clonePageTargetInfo(info)
-	waiters := manager.recordTargetInfo(cloned)
+	waiters, recorded := manager.recordTargetInfo(cloned)
+	if !recorded {
+		return
+	}
 	event := TargetEvent{
 		Kind:     kind,
 		TargetID: targetID,
@@ -495,12 +581,16 @@ func (manager *PageTargetManager) handleTargetInfo(handler func(TargetEvent), ki
 	emitTargetEvent(handler, event)
 }
 
-func (manager *PageTargetManager) recordTargetInfo(info *targetpkg.Info) []chan *targetpkg.Info {
+func (manager *PageTargetManager) recordTargetInfo(info *targetpkg.Info) ([]chan *targetpkg.Info, bool) {
 	if manager == nil || !isPageTargetInfo(info) {
-		return nil
+		return nil, false
 	}
 	targetID := strings.TrimSpace(string(info.TargetID))
 	manager.mu.Lock()
+	if _, excluded := manager.excludedTargets[targetID]; excluded {
+		manager.mu.Unlock()
+		return nil, false
+	}
 	if manager.targets == nil {
 		manager.targets = map[string]*targetpkg.Info{}
 	}
@@ -514,7 +604,82 @@ func (manager *PageTargetManager) recordTargetInfo(info *targetpkg.Info) []chan 
 		delete(manager.waiters, waiterID)
 	}
 	manager.mu.Unlock()
-	return waiters
+	return waiters, true
+}
+
+func (watcher *PageTargetWatcher) excludeTargetID(targetID string) {
+	if watcher == nil {
+		return
+	}
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return
+	}
+	watcher.mu.Lock()
+	if watcher.excludedTargetIDs == nil {
+		watcher.excludedTargetIDs = map[string]struct{}{}
+	}
+	watcher.excludedTargetIDs[targetID] = struct{}{}
+	for sessionID, mappedTargetID := range watcher.targetBySession {
+		if mappedTargetID == targetID {
+			delete(watcher.targetBySession, sessionID)
+		}
+	}
+	watcher.mu.Unlock()
+}
+
+func (watcher *PageTargetWatcher) consumeExcludedTargetID(targetID string) bool {
+	if watcher == nil {
+		return false
+	}
+	targetID = strings.TrimSpace(targetID)
+	watcher.mu.Lock()
+	_, excluded := watcher.excludedTargetIDs[targetID]
+	delete(watcher.excludedTargetIDs, targetID)
+	watcher.mu.Unlock()
+	return excluded
+}
+
+func (watcher *PageTargetWatcher) isExcludedTargetID(targetID string) bool {
+	if watcher == nil {
+		return false
+	}
+	targetID = strings.TrimSpace(targetID)
+	watcher.mu.Lock()
+	_, excluded := watcher.excludedTargetIDs[targetID]
+	watcher.mu.Unlock()
+	return excluded
+}
+
+func (manager *PageTargetManager) isExcludedTargetID(targetID string) bool {
+	if manager == nil {
+		return false
+	}
+	targetID = strings.TrimSpace(targetID)
+	manager.mu.RLock()
+	_, excluded := manager.excludedTargets[targetID]
+	manager.mu.RUnlock()
+	return excluded
+}
+
+func (manager *PageTargetManager) consumeExcludedTargetID(targetID string) bool {
+	if manager == nil {
+		return false
+	}
+	targetID = strings.TrimSpace(targetID)
+	manager.mu.Lock()
+	_, excluded := manager.excludedTargets[targetID]
+	if excluded {
+		delete(manager.excludedTargets, targetID)
+		delete(manager.targets, targetID)
+		for sessionID, mappedTargetID := range manager.targetBySession {
+			if mappedTargetID == targetID {
+				delete(manager.targetBySession, sessionID)
+			}
+		}
+	}
+	manager.mu.Unlock()
+	return excluded
 }
 
 func (manager *PageTargetManager) removeTarget(targetID string) {
@@ -606,7 +771,7 @@ func matchPageTargetPredicate(predicate func(*targetpkg.Info) bool, info *target
 }
 
 func isPageTargetInfo(info *targetpkg.Info) bool {
-	return info != nil && info.Type == "page" && strings.TrimSpace(string(info.TargetID)) != ""
+	return info != nil && info.Type == "page" && strings.TrimSpace(string(info.TargetID)) != "" && !isManagedNetworkProbeTargetInfo(info)
 }
 
 func clonePageTargetInfo(info *targetpkg.Info) *targetpkg.Info {

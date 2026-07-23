@@ -3,14 +3,14 @@
 package wails
 
 /*
-#cgo CFLAGS: -mmacosx-version-min=10.13 -x objective-c
-#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework Security
+#cgo CFLAGS: -mmacosx-version-min=14.0 -x objective-c
+#cgo LDFLAGS: -framework Cocoa -framework WebKit
 
 #include <dispatch/dispatch.h>
 #include <math.h>
 #include <stdlib.h>
+#import <Availability.h>
 #import <Cocoa/Cocoa.h>
-#import <Security/Security.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 
@@ -23,6 +23,25 @@ static const void *connectorAppSessionUIDelegateKey = &connectorAppSessionUIDele
 
 @implementation XiaDownConnectorAppSessionUIDelegate
 @synthesize popupWindows = _popupWindows;
+
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 120000
+- (void)webView:(WKWebView *)webView
+	requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin
+	initiatedByFrame:(WKFrameInfo *)frame
+	type:(WKMediaCaptureType)type
+	decisionHandler:(void (^)(WKPermissionDecision decision))decisionHandler API_AVAILABLE(macos(12.0)) {
+	decisionHandler(WKPermissionDecisionDeny);
+}
+#endif
+
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 270000
+- (void)webView:(WKWebView *)webView
+	requestGeolocationPermissionForOrigin:(WKSecurityOrigin *)origin
+	initiatedByFrame:(WKFrameInfo *)frame
+	decisionHandler:(void (^)(WKPermissionDecision decision))decisionHandler API_AVAILABLE(macos(27.0)) {
+	decisionHandler(WKPermissionDecisionDeny);
+}
+#endif
 
 - (instancetype)init {
 	self = [super init];
@@ -314,6 +333,43 @@ static void connectorAppSessionLoadURL(void *nativeWindow, const char *targetURL
 	}
 }
 
+static BOOL connectorAppSessionCookieMatchesHost(NSHTTPCookie *cookie, NSString *host) {
+	if (cookie == nil || host.length == 0) {
+		return NO;
+	}
+	NSString *domain = cookie.domain.lowercaseString;
+	while ([domain hasPrefix:@"."]) {
+		domain = [domain substringFromIndex:1];
+	}
+	NSString *normalizedHost = host.lowercaseString;
+	return [normalizedHost isEqualToString:domain] ||
+		[normalizedHost hasSuffix:[@"." stringByAppendingString:domain]];
+}
+
+static BOOL connectorAppSessionHasLiveYouTubeAuthCookie(NSArray<NSHTTPCookie*> *cookies, NSURL *url) {
+	NSSet<NSString*> *authNames = [NSSet setWithArray:@[
+		@"SAPISID",
+		@"__Secure-1PAPISID",
+		@"__Secure-3PAPISID",
+	]];
+	NSDate *now = [NSDate date];
+	for (NSHTTPCookie *cookie in cookies) {
+		if (![authNames containsObject:cookie.name] || !connectorAppSessionCookieMatchesHost(cookie, url.host)) {
+			continue;
+		}
+		if (cookie.value.length == 0 || (cookie.expiresDate != nil && [cookie.expiresDate compare:now] != NSOrderedDescending)) {
+			continue;
+		}
+		return YES;
+	}
+	return NO;
+}
+
+static BOOL connectorAppSessionIsYouTubeURL(NSURL *url) {
+	NSString *host = url.host.lowercaseString;
+	return [host isEqualToString:@"youtube.com"] || [host hasSuffix:@".youtube.com"];
+}
+
 static void connectorAppSessionSetCookies(void *nativeWindow, const char *targetURL, const char *cookiesJSON) {
 	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 	void (^work)(void) = ^{
@@ -330,15 +386,31 @@ static void connectorAppSessionSetCookies(void *nativeWindow, const char *target
 				dispatch_semaphore_signal(semaphore);
 				return;
 			}
-			__block NSInteger pending = cookies.count;
-			for (NSHTTPCookie *cookie in cookies) {
-				[cookieStore setCookie:cookie completionHandler:^{
-					pending -= 1;
-					if (pending <= 0) {
-						dispatch_semaphore_signal(semaphore);
-					}
-				}];
+			void (^applyCookies)(void) = ^{
+				__block NSInteger pending = cookies.count;
+				for (NSHTTPCookie *cookie in cookies) {
+					[cookieStore setCookie:cookie completionHandler:^{
+						pending -= 1;
+						if (pending <= 0) {
+							dispatch_semaphore_signal(semaphore);
+						}
+					}];
+				}
+			};
+			if (!connectorAppSessionIsYouTubeURL(url)) {
+				applyCookies();
+				return;
 			}
+			// Recheck the shared store immediately before mutation. A player or
+			// WebKit response may have installed fresher authentication after the
+			// Go-side snapshot was read.
+			[cookieStore getAllCookies:^(NSArray<NSHTTPCookie *> *currentCookies) {
+				if (connectorAppSessionHasLiveYouTubeAuthCookie(currentCookies, url)) {
+					dispatch_semaphore_signal(semaphore);
+					return;
+				}
+				applyCookies();
+			}];
 		}
 	};
 	if ([NSThread isMainThread]) {
@@ -567,97 +639,14 @@ static void connectorAppSessionClearWebsiteDataForDomains(const char *domainsJSO
 	dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
 }
 
-static NSString* connectorAppSessionKeychainService(void) {
-	return @"com.dreamapp.xiadown.connector-app-session";
-}
-
-static int connectorAppSessionSaveKeychain(const char *accountValue, const char *jsonValue) {
-	@autoreleasepool {
-		if (accountValue == NULL || jsonValue == NULL) {
-			return (int)errSecParam;
-		}
-		NSString *account = [NSString stringWithUTF8String:accountValue];
-		NSData *data = [[NSString stringWithUTF8String:jsonValue] dataUsingEncoding:NSUTF8StringEncoding];
-		if (account.length == 0 || data == nil) {
-			return (int)errSecParam;
-		}
-		NSDictionary *query = @{
-			(id)kSecClass: (id)kSecClassGenericPassword,
-			(id)kSecAttrService: connectorAppSessionKeychainService(),
-			(id)kSecAttrAccount: account,
-		};
-		NSDictionary *attributes = @{
-			(id)kSecValueData: data,
-			(id)kSecAttrAccessible: (id)kSecAttrAccessibleWhenUnlocked,
-		};
-		OSStatus status = SecItemUpdate((CFDictionaryRef)query, (CFDictionaryRef)attributes);
-		if (status == errSecItemNotFound) {
-			NSMutableDictionary *newItem = [query mutableCopy];
-			[newItem addEntriesFromDictionary:attributes];
-			status = SecItemAdd((CFDictionaryRef)newItem, nil);
-			[newItem release];
-		}
-		return (int)status;
-	}
-}
-
-static char* connectorAppSessionLoadKeychain(const char *accountValue) {
-	@autoreleasepool {
-		if (accountValue == NULL) {
-			return NULL;
-		}
-		NSString *account = [NSString stringWithUTF8String:accountValue];
-		if (account.length == 0) {
-			return NULL;
-		}
-		NSDictionary *query = @{
-			(id)kSecClass: (id)kSecClassGenericPassword,
-			(id)kSecAttrService: connectorAppSessionKeychainService(),
-			(id)kSecAttrAccount: account,
-			(id)kSecReturnData: @YES,
-			(id)kSecMatchLimit: (id)kSecMatchLimitOne,
-		};
-		CFTypeRef result = NULL;
-		OSStatus status = SecItemCopyMatching((CFDictionaryRef)query, &result);
-		if (status != errSecSuccess || result == NULL) {
-			if (result != NULL) {
-				CFRelease(result);
-			}
-			return NULL;
-		}
-		NSData *data = [(NSData*)result retain];
-		CFRelease(result);
-		char *out = connectorAppSessionCopyCStringFromData(data);
-		[data release];
-		return out;
-	}
-}
-
-static int connectorAppSessionDeleteKeychain(const char *accountValue) {
-	@autoreleasepool {
-		if (accountValue == NULL) {
-			return (int)errSecParam;
-		}
-		NSString *account = [NSString stringWithUTF8String:accountValue];
-		if (account.length == 0) {
-			return (int)errSecParam;
-		}
-		NSDictionary *query = @{
-			(id)kSecClass: (id)kSecClassGenericPassword,
-			(id)kSecAttrService: connectorAppSessionKeychainService(),
-			(id)kSecAttrAccount: account,
-		};
-		OSStatus status = SecItemDelete((CFDictionaryRef)query);
-		return status == errSecItemNotFound ? (int)errSecSuccess : (int)status;
-	}
-}
 */
 import "C"
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"strings"
+	"time"
 	"unsafe"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -665,6 +654,10 @@ import (
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/domain/appsessions"
 )
+
+func loadNativeYouTubeRuntimeCookies() ([]appcookies.Record, error) {
+	return readListenSharedYouTubeCookies()
+}
 
 func connectorAppSessionNativeSupported() bool {
 	return true
@@ -680,6 +673,16 @@ func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, t
 	}
 	nativeWindow := window.NativeWindow()
 	configureConnectorAppSessionNativeWindow(nativeWindow, appSessionWebViewUserAgent(siteKey))
+	if strings.EqualFold(strings.TrimSpace(siteKey), "youtube") {
+		current, err := readListenSharedYouTubeCookies()
+		records = planListenPlaybackCookieRestore(
+			records,
+			current,
+			targetURL,
+			time.Now(),
+			err == nil,
+		)
+	}
 	if len(records) > 0 {
 		setConnectorAppSessionNativeCookies(nativeWindow, targetURL, records)
 	}
@@ -753,47 +756,7 @@ func readConnectorAppSessionNativeWindowCookies(ctx context.Context, window *app
 	return readConnectorAppSessionNativeCookies(ctx, window.NativeWindow())
 }
 
-func saveSiteAppSessionStoredCookies(siteKey string, records []appcookies.Record) error {
-	if len(records) == 0 {
-		return appsessions.ErrNoCookies
-	}
-	data, err := appcookies.EncodeJSON(records)
-	if err != nil {
-		return err
-	}
-	cAccount := C.CString(siteAppSessionAccount(siteKey))
-	cData := C.CString(data)
-	defer C.free(unsafe.Pointer(cAccount))
-	defer C.free(unsafe.Pointer(cData))
-	status := C.connectorAppSessionSaveKeychain(cAccount, cData)
-	if status != 0 {
-		return fmt.Errorf("save connector app session keychain: status %d", int(status))
-	}
-	return nil
-}
-
-func loadSiteAppSessionStoredCookies(siteKey string) ([]appcookies.Record, error) {
-	cAccount := C.CString(siteAppSessionAccount(siteKey))
-	defer C.free(unsafe.Pointer(cAccount))
-	raw := C.connectorAppSessionLoadKeychain(cAccount)
-	if raw == nil {
-		return nil, appsessions.ErrNoCookies
-	}
-	defer C.free(unsafe.Pointer(raw))
-	records := appcookies.DecodeJSON(C.GoString(raw))
-	if len(records) == 0 {
-		return nil, appsessions.ErrNoCookies
-	}
-	return records, nil
-}
-
-func clearSiteAppSessionStoredCookies(siteKey string, domains []string) error {
-	cAccount := C.CString(siteAppSessionAccount(siteKey))
-	defer C.free(unsafe.Pointer(cAccount))
-	status := C.connectorAppSessionDeleteKeychain(cAccount)
-	if status != 0 {
-		return fmt.Errorf("delete connector app session keychain: status %d", int(status))
-	}
+func clearConnectorAppSessionNativeRuntimeData(_ context.Context, _ *application.App, _ string, domains []string) error {
 	if len(domains) > 0 {
 		data, err := json.Marshal(domains)
 		if err == nil {
@@ -804,9 +767,5 @@ func clearSiteAppSessionStoredCookies(siteKey string, domains []string) error {
 	} else {
 		C.connectorAppSessionClearWebsiteData()
 	}
-	return nil
-}
-
-func clearConnectorAppSessionNativeRuntimeData(_ context.Context, _ *application.App, _ string, _ []string) error {
 	return nil
 }

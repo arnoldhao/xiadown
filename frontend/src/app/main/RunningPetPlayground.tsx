@@ -2,7 +2,6 @@ import * as React from "react";
 
 import type { Pet } from "@/shared/contracts/pets";
 import type { PetAnimation } from "@/shared/pets/animation";
-import { RUNNING_PET_GLOW_STYLE } from "@/shared/styles/xiadown";
 import { PetDisplay } from "@/shared/ui/pet-player";
 
 type PlaygroundToy = "none" | "ball";
@@ -479,7 +478,7 @@ export function RunningPetPlayground(props: {
   return (
     <div
       ref={stageRef}
-      className="app-running-pet-playground wails-no-drag relative h-full min-h-0 w-full overflow-hidden outline-none"
+      className="app-running-pet-playground wails-no-drag relative h-full min-h-0 w-full overflow-hidden"
       tabIndex={0}
       onPointerDown={handleStagePointerDown}
       onWheel={handleWheel}
@@ -521,8 +520,7 @@ export function RunningPetPlayground(props: {
             animation={resolvedAnimation}
             alt={props.alt}
             className="app-running-playground-pet-display"
-            glowClassName="h-[18rem] w-[18rem] blur-2xl"
-            glowStyle={RUNNING_PET_GLOW_STYLE}
+            glowVariant="running-playground"
             size={PET_BASE_SIZE}
           />
         </div>

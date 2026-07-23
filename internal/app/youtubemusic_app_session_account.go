@@ -42,6 +42,10 @@ func newAppSessionAccountFetcher(httpClientProvider youtubemusic.HTTPClientProvi
 			return fetchBilibiliAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
 		case "tiktok":
 			return fetchTikTokAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "douyin":
+			return fetchDouyinAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
+		case "xiaohongshu":
+			return fetchXiaohongshuAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
 		case "instagram":
 			return fetchInstagramAppSessionAccount(ctx, appSessionHTTPClient(httpClientProvider), records)
 		case "x":
@@ -125,15 +129,7 @@ func fetchBilibiliAppSessionAccountFromURL(ctx context.Context, client *http.Cli
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	req.Header.Set("User-Agent", appsessionidentity.HTTPUserAgent("bilibili"))
 	for _, record := range matched {
-		name := strings.TrimSpace(record.Name)
-		if name == "" {
-			continue
-		}
-		req.AddCookie(&http.Cookie{
-			Name:  name,
-			Value: record.Value,
-			Path:  record.Path,
-		})
+		appSessionAddCookie(req, record)
 	}
 	if len(req.Cookies()) == 0 {
 		return appsessionsdto.AppSessionAccount{}, appsessions.ErrNoCookies

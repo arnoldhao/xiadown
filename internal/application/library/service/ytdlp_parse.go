@@ -24,10 +24,12 @@ func (service *LibraryService) ParseYTDLPDownload(ctx context.Context, request d
 	}
 	cookiesPath := ""
 	if request.UseAppSession && request.AppSessionID != "" && service.appSessions != nil {
-		if exported, err := service.appSessions.ExportAppSessionCookies(ctx, request.AppSessionID, appsessionsservice.CookiesExportTXT); err == nil {
-			cookiesPath = exported
-			defer os.Remove(exported)
+		exported, exportErr := service.appSessions.ExportAppSessionCookies(ctx, request.AppSessionID, appsessionsservice.CookiesExportTXT)
+		if exportErr != nil {
+			return dto.ParseYTDLPDownloadResponse{}, exportErr
 		}
+		cookiesPath = exported
+		defer os.Remove(exported)
 	}
 
 	info, err := appytdlp.FetchInfo(ctx, appytdlp.InfoOptions{

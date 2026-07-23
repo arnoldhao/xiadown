@@ -2,17 +2,447 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/appicon.png" />
+    <link rel="icon" type="image/png" href="/appicon_startup.png" />
+    <link
+      rel="preload"
+      as="image"
+      href="/appicon_startup.png"
+      fetchpriority="high"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>XiaDown</title>
+    <script>
+      (() => {
+        const root = document.documentElement;
+        root.dataset.startupWindow =
+          new URLSearchParams(window.location.search).get("window") || "main";
+        root.dataset.startupState = "boot";
+        let storedTheme = "";
+        try {
+          storedTheme = localStorage.getItem("xiadown:startup-theme") || "";
+        } catch {}
+        root.dataset.startupTheme =
+          storedTheme === "light" || storedTheme === "dark"
+            ? storedTheme
+            : window.matchMedia?.("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+
+        const slowTimer = window.setTimeout(() => {
+          if (root.dataset.startupState !== "ready") {
+            root.dataset.startupState = "slow";
+          }
+        }, 12_000);
+
+        const failStartup = () => {
+          if (root.dataset.startupState === "ready") return;
+          window.clearTimeout(slowTimer);
+          root.dataset.startupState = "error";
+          const surface = document.getElementById("xiadown-startup");
+          const retry = document.getElementById("xiadown-startup-retry");
+          surface?.setAttribute("role", "alert");
+          surface?.setAttribute("aria-live", "assertive");
+          window.requestAnimationFrame(() => retry?.focus());
+        };
+        const completeStartup = () => {
+          window.clearTimeout(slowTimer);
+          window.removeEventListener("error", failStartup);
+          window.removeEventListener("unhandledrejection", failStartup);
+        };
+        window.addEventListener("xiadown:startup-ready", completeStartup, {
+          once: true,
+        });
+        window.addEventListener("xiadown:startup-error", failStartup);
+        window.addEventListener("error", failStartup);
+        window.addEventListener("unhandledrejection", failStartup);
+      })();
+    </script>
+    <style>
+      html,
+      body {
+        width: 100%;
+        min-width: 320px;
+        height: 100%;
+        min-height: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        background: transparent;
+      }
+
+      #root {
+        min-height: 100%;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      #xiadown-react-crash {
+        display: grid;
+        min-height: 100vh;
+        place-content: center;
+        justify-items: center;
+        box-sizing: border-box;
+        padding: 2rem;
+        color: rgba(20, 28, 23, 0.88);
+        background: linear-gradient(135deg, rgb(239, 247, 239), rgb(233, 239, 248));
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+        text-align: center;
+      }
+
+      #xiadown-react-crash img {
+        border-radius: 24%;
+      }
+
+      #xiadown-react-crash strong {
+        margin-top: 1rem;
+        font-size: 1rem;
+      }
+
+      #xiadown-react-crash span {
+        max-width: 24rem;
+        margin-top: 0.45rem;
+        opacity: 0.68;
+        font-size: 0.82rem;
+        line-height: 1.5;
+      }
+
+      #xiadown-react-crash button {
+        margin-top: 1rem;
+        padding: 0.55rem 0.95rem;
+        border: 1px solid rgba(20, 28, 23, 0.16);
+        border-radius: 999px;
+        color: inherit;
+        background: rgba(255, 255, 255, 0.62);
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      html[data-startup-theme="dark"] #xiadown-react-crash {
+        color: rgba(244, 248, 245, 0.92);
+        background: linear-gradient(135deg, rgb(17, 24, 20), rgb(19, 22, 30));
+      }
+
+      #xiadown-startup {
+        --xiadown-startup-foreground: rgba(20, 28, 23, 0.84);
+        --xiadown-startup-muted: rgba(20, 28, 23, 0.58);
+        --xiadown-startup-panel: rgba(255, 255, 255, 0.42);
+        --xiadown-startup-border: rgba(255, 255, 255, 0.5);
+        --xiadown-startup-shadow: rgba(20, 36, 25, 0.2);
+        position: fixed;
+        z-index: 2147483647;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        box-sizing: border-box;
+        padding: 2rem;
+        color: var(--xiadown-startup-foreground);
+        background:
+          radial-gradient(circle at 50% 42%, rgba(255, 248, 203, 0.3), transparent 34%),
+          linear-gradient(135deg, rgba(239, 247, 239, 0.94), rgba(233, 239, 248, 0.92));
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "PingFang SC", "Microsoft YaHei", sans-serif;
+        -webkit-backdrop-filter: blur(34px) saturate(1.18);
+        backdrop-filter: blur(34px) saturate(1.18);
+        --wails-draggable: drag;
+      }
+
+      html:not([data-startup-window="main"]) #xiadown-startup {
+        padding: 0.75rem;
+      }
+
+      html:not([data-startup-window="main"]) .xiadown-startup__content {
+        min-width: 0;
+        gap: 0.45rem;
+      }
+
+      html:not([data-startup-window="main"]) .xiadown-startup__icon-wrap,
+      html:not([data-startup-window="main"]) .xiadown-startup__icon {
+        width: 3.5rem;
+        height: 3.5rem;
+      }
+
+      html:not([data-startup-window="main"]) .xiadown-startup__message {
+        display: none;
+      }
+
+      html[data-startup-theme="dark"] #xiadown-startup {
+        --xiadown-startup-foreground: rgba(244, 248, 245, 0.9);
+        --xiadown-startup-muted: rgba(232, 240, 235, 0.62);
+        --xiadown-startup-panel: rgba(20, 25, 23, 0.46);
+        --xiadown-startup-border: rgba(255, 255, 255, 0.13);
+        --xiadown-startup-shadow: rgba(0, 0, 0, 0.38);
+        background:
+          radial-gradient(circle at 50% 42%, rgba(249, 215, 113, 0.12), transparent 34%),
+          linear-gradient(135deg, rgba(17, 24, 20, 0.95), rgba(19, 22, 30, 0.93));
+      }
+
+      .xiadown-startup__content {
+        display: flex;
+        min-width: min(18rem, calc(100vw - 4rem));
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        text-align: center;
+        transition:
+          opacity 180ms ease-in,
+          transform 240ms cubic-bezier(0.4, 0, 1, 1);
+      }
+
+      .xiadown-startup__icon-wrap {
+        position: relative;
+        display: grid;
+        width: 7rem;
+        height: 7rem;
+        place-items: center;
+        animation: xiadown-startup-breathe 1.8s ease-in-out infinite;
+      }
+
+      .xiadown-startup__icon-wrap::after {
+        position: absolute;
+        z-index: -1;
+        width: 74%;
+        height: 26%;
+        bottom: -0.3rem;
+        border-radius: 999px;
+        background: var(--xiadown-startup-shadow);
+        content: "";
+        filter: blur(14px);
+        opacity: 0.72;
+      }
+
+      .xiadown-startup__icon {
+        display: block;
+        width: 7rem;
+        height: 7rem;
+        border-radius: 24%;
+        object-fit: cover;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+
+      .xiadown-startup__progress {
+        display: flex;
+        height: 0.35rem;
+        align-items: center;
+        gap: 0.32rem;
+      }
+
+      .xiadown-startup__progress > span {
+        width: 0.3rem;
+        height: 0.3rem;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.34;
+        animation: xiadown-startup-dot 1.2s ease-in-out infinite;
+      }
+
+      .xiadown-startup__progress > span:nth-child(2) {
+        animation-delay: 120ms;
+      }
+
+      .xiadown-startup__progress > span:nth-child(3) {
+        animation-delay: 240ms;
+      }
+
+      .xiadown-startup__message {
+        display: none;
+        max-width: 20rem;
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--xiadown-startup-border);
+        border-radius: 1rem;
+        background: var(--xiadown-startup-panel);
+        box-shadow: 0 16px 42px var(--xiadown-startup-shadow);
+        -webkit-backdrop-filter: blur(18px) saturate(1.1);
+        backdrop-filter: blur(18px) saturate(1.1);
+      }
+
+      .xiadown-startup__message strong,
+      .xiadown-startup__message span {
+        display: block;
+      }
+
+      .xiadown-startup__message strong {
+        font-size: 0.92rem;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+
+      .xiadown-startup__message span {
+        margin-top: 0.3rem;
+        color: var(--xiadown-startup-muted);
+        font-size: 0.78rem;
+        line-height: 1.45;
+      }
+
+      .xiadown-startup__retry {
+        margin-top: 0.75rem;
+        padding: 0.45rem 0.8rem;
+        border: 1px solid var(--xiadown-startup-border);
+        border-radius: 999px;
+        color: inherit;
+        background: rgba(255, 255, 255, 0.18);
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 600;
+        cursor: pointer;
+        --wails-draggable: no-drag;
+      }
+
+      html:is([data-startup-state="slow"], [data-startup-state="error"])
+        .xiadown-startup__progress {
+        display: none;
+      }
+
+      html:is([data-startup-state="slow"], [data-startup-state="error"])
+        .xiadown-startup__icon-wrap {
+        animation-play-state: paused;
+      }
+
+      html:is([data-startup-state="slow"], [data-startup-state="error"])
+        .xiadown-startup__message {
+        display: block;
+      }
+
+      html[data-startup-state="ready"] #root {
+        visibility: visible;
+        pointer-events: auto;
+      }
+
+      html[data-startup-state="ready"] #xiadown-startup {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 240ms ease-in;
+      }
+
+      html[data-startup-state="ready"] .xiadown-startup__content {
+        opacity: 0;
+        transform: translateY(-0.2rem) scale(0.92);
+      }
+
+      @keyframes xiadown-startup-breathe {
+        0%,
+        100% {
+          transform: translateY(0) scale(0.97);
+        }
+        50% {
+          transform: translateY(-0.2rem) scale(1);
+        }
+      }
+
+      @keyframes xiadown-startup-dot {
+        0%,
+        70%,
+        100% {
+          opacity: 0.26;
+          transform: translateY(0);
+        }
+        35% {
+          opacity: 0.72;
+          transform: translateY(-0.16rem);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .xiadown-startup__icon-wrap,
+        .xiadown-startup__progress > span {
+          animation: none;
+        }
+
+        html[data-startup-state="ready"] #xiadown-startup,
+        html[data-startup-state="ready"] .xiadown-startup__content {
+          transition-duration: 1ms;
+        }
+      }
+
+      @media (prefers-reduced-transparency: reduce) {
+        #xiadown-startup {
+          background: rgb(245, 247, 245);
+          -webkit-backdrop-filter: none;
+          backdrop-filter: none;
+        }
+
+        html[data-startup-theme="dark"] #xiadown-startup {
+          background: rgb(18, 20, 19);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" aria-busy="true" aria-hidden="true" inert></div>
+    <div
+      id="xiadown-startup"
+      role="status"
+      aria-live="polite"
+      aria-label="XiaDown is starting"
+      data-crash-title="XiaDown ran into a problem"
+      data-crash-detail="Reload the interface. Your downloads and library data will not be deleted."
+      data-crash-retry="Reload"
+    >
+      <div class="xiadown-startup__content">
+        <div class="xiadown-startup__icon-wrap" aria-hidden="true">
+          <img
+            id="xiadown-startup-icon"
+            class="xiadown-startup__icon"
+            src="/appicon_startup.png"
+            alt=""
+            width="112"
+            height="112"
+            decoding="sync"
+            fetchpriority="high"
+            draggable="false"
+          />
+        </div>
+        <div class="xiadown-startup__progress" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div class="xiadown-startup__message">
+          <strong id="xiadown-startup-message-title"
+            >XiaDown is taking longer than expected</strong
+          >
+          <span id="xiadown-startup-message-detail"
+            >You can keep waiting or reload the interface.</span
+          >
+          <button
+            id="xiadown-startup-retry"
+            class="xiadown-startup__retry"
+            type="button"
+          >
+            Reload
+          </button>
+        </div>
+      </div>
+    </div>
     <script>
       window._wails = window._wails || {};
       if (typeof window._wails.dispatchWailsEvent !== "function") {
         window._wails.dispatchWailsEvent = function () {};
       }
+
+      (() => {
+        const isChinese = /^zh(?:-|$)/i.test(navigator.language || "");
+        const startup = document.getElementById("xiadown-startup");
+        const title = document.getElementById("xiadown-startup-message-title");
+        const detail = document.getElementById("xiadown-startup-message-detail");
+        const retry = document.getElementById("xiadown-startup-retry");
+        if (isChinese) {
+          startup?.setAttribute("aria-label", "XiaDown 正在启动");
+          if (startup) {
+            startup.dataset.crashTitle = "下蛋界面遇到问题";
+            startup.dataset.crashDetail =
+              "请重新载入界面；下载任务和资源库数据不会因此删除。";
+            startup.dataset.crashRetry = "重新载入";
+          }
+          if (title) title.textContent = "XiaDown 启动所需时间比预期长";
+          if (detail) detail.textContent = "你可以继续等待，或者重新载入界面。";
+          if (retry) retry.textContent = "重新载入";
+        }
+        retry?.addEventListener("click", () => window.location.reload());
+      })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -3,9 +3,13 @@ import * as React from "react";
 
 import { MediaPreviewDialog, MediaPreviewSurface } from "@/app/media";
 import { ListenLocalPreviewPlayer } from "@/app/main/Listen";
+import {
+  CompletedFileArtwork,
+  CompletedTaskArtwork,
+  resolveCompletedArtworkImageURL,
+} from "@/app/main/completed/CompletedArtwork";
 import { getXiaText } from "@/features/xiadown/shared";
 import { cn } from "@/lib/utils";
-import { DEFAULT_COVER_IMAGE_URL } from "@/shared/assets/default-cover";
 import type { OperationListItemDTO } from "@/shared/contracts/library";
 import type { Pet } from "@/shared/contracts/pets";
 import { getLanguage } from "@/shared/i18n";
@@ -50,9 +54,7 @@ async function copyTextToClipboard(value: string) {
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-10000px";
-  textarea.style.top = "0";
+  textarea.className = "app-clipboard-fallback-textarea";
   document.body.appendChild(textarea);
   textarea.select();
   try {
@@ -332,7 +334,7 @@ export function CompletedFileInfoSegmentGroup(props: {
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="app-completed-detail-meta-cell inline-flex h-[var(--app-control-height-compact)] min-w-0 flex-1 items-center px-2.5 text-xs font-medium">
+              <span className="app-completed-detail-meta-cell inline-flex h-[var(--app-control-height-compact)] min-w-0 flex-1 items-center px-2.5">
                 <span className="truncate">{footerInfoValue}</span>
               </span>
             </TooltipTrigger>
@@ -356,7 +358,7 @@ export function CompletedFileInfoSegmentGroup(props: {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="app-completed-detail-meta-action !h-[var(--app-control-height-compact)] !w-[var(--app-control-height-compact)] shrink-0 rounded-none border-l border-border/70 p-0"
+                className="app-completed-detail-meta-action !h-[var(--app-control-height-compact)] !w-[var(--app-control-height-compact)] shrink-0 p-0"
                 aria-label={props.text.actions.transcode}
                 title={props.text.actions.transcode}
                 disabled={!canTranscode}
@@ -381,14 +383,14 @@ export function CompletedFileInfoSegmentGroup(props: {
               type="button"
               variant="ghost"
               size="icon"
-              className="app-completed-detail-meta-action !h-[var(--app-control-height-compact)] !w-[var(--app-control-height-compact)] shrink-0 rounded-none border-l border-border/70 p-0"
+              className="app-completed-detail-meta-action !h-[var(--app-control-height-compact)] !w-[var(--app-control-height-compact)] shrink-0 p-0"
               aria-label={props.text.actions.openDirectory}
               title={props.text.actions.openDirectory}
               disabled={!canOpenLocation || isOpeningLocation}
               onClick={() => void handleOpenFolder()}
             >
               {isOpeningLocation ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 app-completed-loading-spinner" />
               ) : (
                 <FolderOpen className="h-3.5 w-3.5" />
               )}
@@ -407,13 +409,13 @@ export function SelectionCheckbox(props: { checked: boolean; className?: string 
   return (
     <span
       className={cn(
-        "app-completed-selection-checkbox relative flex h-5 w-5 shrink-0 items-center justify-center backdrop-blur-sm",
+        "app-completed-selection-checkbox relative flex h-5 w-5 shrink-0 items-center justify-center",
         props.className,
       )}
       data-checked={props.checked ? "true" : undefined}
     >
       {props.checked ? (
-        <span className="h-[0.45rem] w-[0.24rem] -translate-y-[0.03rem] rotate-45 border-r-[1.8px] border-b-[1.8px] border-current" />
+        <span className="app-completed-selection-checkbox-mark h-[0.45rem] w-[0.24rem] -translate-y-[0.03rem] rotate-45" />
       ) : null}
     </span>
   );
@@ -480,11 +482,11 @@ export function CompletedSubtitlePreview(props: {
     <div className="app-completed-preview-text-shell h-full w-full overflow-hidden">
       <div className="h-full overflow-auto px-4 py-3">
         {loading ? (
-          <div className="flex h-full min-h-[16rem] items-center justify-center text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
+          <div className="app-completed-preview-text-loading flex h-full min-h-[16rem] items-center justify-center">
+            <Loader2 className="h-5 w-5 app-completed-loading-spinner" />
           </div>
         ) : (
-          <pre className="min-h-full whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground">
+          <pre className="app-completed-preview-text min-h-full whitespace-pre-wrap break-words">
             {content || error || props.emptyLabel}
           </pre>
         )}
@@ -521,15 +523,19 @@ export function CompletedPreviewSurface(props: {
   const previewLabels = text.completed;
   const previewKind = resolveCompletedPreviewKind(props.file);
   const previewTooLarge = isCompletedPreviewTooLarge(props.file);
+  const previewCoverURL = resolveCompletedArtworkImageURL(
+    props.file.coverURL,
+    props.coverURL,
+  );
   if (!canPreviewCompletedFile(props.file)) {
     return (
-      <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+      <div className="app-completed-preview-unavailable flex h-full min-h-[16rem] flex-col items-center justify-center gap-3">
         <img
           src="/appicon.png"
           alt={props.appName}
           className="app-completed-preview-icon h-14 w-14"
         />
-        <div className="text-sm">
+        <div className="app-completed-preview-unavailable-label">
           {previewTooLarge ? text.completed.previewTooLarge : props.emptyLabel}
         </div>
       </div>
@@ -538,16 +544,20 @@ export function CompletedPreviewSurface(props: {
 
   if (previewKind === "video" && props.file.previewURL) {
     return (
-      <MediaPreviewSurface
-        kind="video"
-        labels={previewLabels}
+      <ListenLocalPreviewPlayer
+        track={{
+          id: props.file.id,
+          title: props.file.title || props.file.name,
+          author: props.file.author || props.file.libraryName,
+          path: props.file.path,
+          previewURL: props.file.previewURL,
+          coverURL: previewCoverURL,
+        }}
+        text={text}
         className="h-full"
-        mediaUrl={props.file.previewURL}
-        title={props.file.name}
         persistKey={props.file.id || props.file.path || props.file.previewURL}
-        posterUrl={
-          props.file.coverURL || props.coverURL || DEFAULT_COVER_IMAGE_URL
-        }
+        kind="video"
+        posterURL={previewCoverURL || undefined}
         durationMs={props.file.media?.durationMs}
         onPresentationModeChange={props.onPreviewPresentationModeChange}
       />
@@ -568,7 +578,7 @@ export function CompletedPreviewSurface(props: {
               author: props.file.author || props.file.libraryName,
               path: props.file.path,
               previewURL: props.file.previewURL,
-              coverURL: props.file.coverURL || props.coverURL,
+              coverURL: previewCoverURL,
             }}
             text={text}
             persistKey={props.file.id || props.file.path || props.file.previewURL}
@@ -598,7 +608,7 @@ export function CompletedPreviewSurface(props: {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="block h-full w-full cursor-zoom-in appearance-none border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="app-completed-image-preview-trigger block h-full w-full p-0"
             aria-label={file.name || text.completed.fileDetail}
             onClick={() => props.onOpenPreviewDialog?.(file)}
           >
@@ -630,13 +640,13 @@ export function CompletedPreviewSurface(props: {
   }
 
   return (
-    <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+    <div className="app-completed-preview-unavailable flex h-full min-h-[16rem] flex-col items-center justify-center gap-3">
       <img
         src="/appicon.png"
         alt={props.appName}
         className="app-completed-preview-icon h-14 w-14"
       />
-      <div className="text-sm">{props.emptyLabel}</div>
+      <div className="app-completed-preview-unavailable-label">{props.emptyLabel}</div>
     </div>
   );
 }
@@ -865,7 +875,7 @@ function CompletedDetailInfoDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="grid h-[min(30rem,calc(100vh-2rem))] w-[min(34rem,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden">
         <DialogHeader className="min-w-0">
-          <DialogTitle className="truncate pr-6 text-left">
+          <DialogTitle className="app-completed-dialog-title truncate pr-6">
             {props.title}
           </DialogTitle>
           <DialogDescription className="sr-only">
@@ -873,7 +883,7 @@ function CompletedDetailInfoDialog(props: {
           </DialogDescription>
         </DialogHeader>
         <DialogScrollArea className="min-h-0">
-          <DialogListCard className="app-completed-info-card shadow-none">
+          <DialogListCard className="app-completed-info-card">
             <DialogListCardContent>
               {props.rows.map((row, index) => {
                 const copyValue = row.copyValue;
@@ -884,9 +894,9 @@ function CompletedDetailInfoDialog(props: {
                 return (
                   <div
                     key={`${row.label}-${index}`}
-                    className="app-dialog-row grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] items-center gap-4 px-3 py-2.5 text-sm"
+                    className="app-dialog-row app-completed-info-row grid grid-cols-[minmax(0,0.42fr)_minmax(0,0.58fr)] items-center gap-4 px-3 py-2.5"
                   >
-                    <span className="min-w-0 truncate text-left text-muted-foreground">
+                    <span className="app-completed-info-label min-w-0 truncate">
                       {row.label}
                     </span>
                     <div className="flex min-w-0 items-center justify-end gap-1.5">
@@ -895,7 +905,7 @@ function CompletedDetailInfoDialog(props: {
                           <TooltipTrigger asChild>
                             <span
                               tabIndex={0}
-                              className="min-w-0 cursor-help truncate rounded-sm text-right font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                              className="app-completed-info-value app-completed-info-value--interactive min-w-0 truncate"
                             >
                               {row.value}
                             </span>
@@ -905,13 +915,13 @@ function CompletedDetailInfoDialog(props: {
                             align="end"
                             sideOffset={6}
                             multiline
-                            className="text-left"
+                            className="app-completed-info-tooltip"
                           >
                             {row.valueTooltip}
                           </TooltipContent>
                         </Tooltip>
                       ) : (
-                        <span className="min-w-0 truncate text-right font-medium text-foreground">
+                        <span className="app-completed-info-value min-w-0 truncate">
                           {row.value}
                         </span>
                       )}
@@ -1024,13 +1034,13 @@ export function CompletedTaskDetailHeaderMeta(props: {
   return (
     <div
       className={cn(
-        "app-completed-detail-inline-meta flex min-w-0 items-center gap-2 text-xs font-medium",
+        "app-completed-detail-inline-meta flex min-w-0 items-center gap-2",
         props.className,
       )}
     >
       <DetailValueTooltip label={props.text.completed.source}>
         <span
-          className="app-completed-detail-inline-meta-item flex min-w-0 items-center gap-1.5 text-left transition focus-visible:outline-none"
+          className="app-completed-detail-inline-meta-item flex min-w-0 items-center gap-1.5"
         >
           {taskKind === "transcode" ? (
             <FileCog className="h-3.5 w-3.5 shrink-0" />
@@ -1052,7 +1062,7 @@ export function CompletedTaskDetailHeaderMeta(props: {
         value={`${resolveCompletedStatusLabel(props.text, props.task.operation.status)} ${updatedLabel}`}
       >
         <span
-          className="app-completed-detail-inline-meta-item app-completed-detail-inline-status-time flex min-w-0 items-center gap-1.5 text-left transition focus-visible:outline-none"
+          className="app-completed-detail-inline-meta-item app-completed-detail-inline-status-time flex min-w-0 items-center gap-1.5"
         >
           <StatusIcon
             className={cn(
@@ -1079,7 +1089,7 @@ export function CompletedTaskDetailHeaderMeta(props: {
               onClick={() => void handleResumeTask()}
             >
               {resumeOperation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 app-completed-loading-spinner" />
               ) : (
                 <RotateCcw className="h-3.5 w-3.5" />
               )}
@@ -1117,13 +1127,13 @@ export function CompletedFileDetailHeaderMeta(props: {
   return (
     <div
       className={cn(
-        "app-completed-detail-inline-meta flex min-w-0 items-center gap-2 text-xs font-medium",
+        "app-completed-detail-inline-meta flex min-w-0 items-center gap-2",
         props.className,
       )}
     >
       <DetailValueTooltip label={sourceTooltipLabel} value={sourceLabel}>
         <span
-          className="app-completed-detail-inline-meta-item flex min-w-0 items-center gap-1.5 text-left transition focus-visible:outline-none"
+          className="app-completed-detail-inline-meta-item flex min-w-0 items-center gap-1.5"
         >
           {transcodeSourceLabel ? (
             <FileCog className="h-3.5 w-3.5 shrink-0" />
@@ -1135,7 +1145,7 @@ export function CompletedFileDetailHeaderMeta(props: {
       </DetailValueTooltip>
       <DetailValueTooltip label={props.text.completed.updatedAt}>
         <span
-          className="app-completed-detail-inline-meta-item flex min-w-0 items-center text-left transition focus-visible:outline-none"
+          className="app-completed-detail-inline-meta-item flex min-w-0 items-center"
         >
           <span className="truncate">{updatedLabel}</span>
         </span>
@@ -1164,7 +1174,7 @@ export function CompletedTaskFilePicker(props: {
   return (
     <div
       className={cn(
-        "app-completed-task-file-picker overflow-hidden text-xs font-medium",
+        "app-completed-task-file-picker overflow-hidden",
         props.className,
       )}
     >
@@ -1189,7 +1199,7 @@ export function CompletedTaskFilePicker(props: {
                     variant="ghost"
                     size="compact"
                     className={cn(
-                      "app-completed-task-file-tab !h-full w-full min-w-0 justify-center px-1 text-2xs",
+                      "app-completed-task-file-tab !h-full w-full min-w-0 justify-center px-1",
                       active && "app-completed-task-file-tab-active",
                     )}
                     onClick={() =>
@@ -1219,7 +1229,7 @@ export function CompletedTaskFilePicker(props: {
               props.onSelectedPreviewFileIdChange(event.target.value)
             }
             disabled={activeGroupFiles.length === 0}
-            className="app-completed-task-file-select !h-full w-full min-w-0 rounded-none border-0 bg-transparent px-2.5 pr-6 text-xs font-medium shadow-none"
+            className="app-completed-task-file-select !h-full w-full min-w-0 px-2.5 pr-6"
           >
             {activeGroupFiles.length > 0 ? (
               activeGroupFiles.map((file, index) => (
@@ -1267,25 +1277,22 @@ export function CompletedTaskDetailHeader(props: {
 
   return (
     <>
-      <div className="app-completed-inline-detail-header grid shrink-0 gap-3 border-b border-border/60 px-4 py-3">
+      <div className="app-completed-inline-detail-header grid shrink-0 gap-3 px-4 py-3">
         <div className="flex min-w-0 gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
+                className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden"
                 aria-label={props.text.completed.openTaskDto}
                 onClick={openTaskInfoDialog}
               >
                 {props.coverURL ? (
-                  <img
+                  <CompletedTaskArtwork
+                    task={props.task}
                     src={props.coverURL}
                     alt=""
-                    aria-hidden="true"
                     className="h-full w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                    draggable={false}
                   />
                 ) : (
                   props.fallbackIcon
@@ -1300,7 +1307,7 @@ export function CompletedTaskDetailHeader(props: {
             <div className="flex min-w-0 items-start gap-1.5">
               <div className="app-completed-detail-title-shell relative min-w-0 flex-1">
                 <div
-                  className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+                  className="app-completed-detail-title-text overflow-hidden break-words [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
                   aria-hidden="true"
                 >
                   {props.title}
@@ -1309,7 +1316,7 @@ export function CompletedTaskDetailHeader(props: {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
+                      className="app-completed-detail-title-button absolute inset-0"
                       aria-label={props.title}
                       onClick={openTaskInfoDialog}
                     />
@@ -1398,24 +1405,21 @@ export function CompletedFileDetailHeader(props: {
 
   return (
     <>
-      <div className="app-completed-inline-detail-header flex shrink-0 gap-2 border-b border-border/60 px-4 py-3">
+      <div className="app-completed-inline-detail-header flex shrink-0 gap-2 px-4 py-3">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden transition focus-visible:outline-none"
+              className="app-completed-detail-cover app-completed-detail-cover-button relative flex h-12 w-12 shrink-0 self-start items-center justify-center overflow-hidden"
               aria-label={props.text.completed.fileDetail}
               onClick={openFileInfoDialog}
             >
               {props.coverURL ? (
-                <img
+                <CompletedFileArtwork
+                  file={props.file}
                   src={props.coverURL}
                   alt=""
-                  aria-hidden="true"
                   className="h-full w-full object-cover"
-                  loading="lazy"
-                  decoding="async"
-                  draggable={false}
                 />
               ) : (
                 props.fallbackIcon
@@ -1430,7 +1434,7 @@ export function CompletedFileDetailHeader(props: {
           <div className="flex min-w-0 items-start gap-1.5">
             <div className="app-completed-detail-title-shell relative min-w-0 flex-1">
               <div
-                className="app-completed-detail-title-text overflow-hidden break-words text-left text-sm font-semibold leading-5 text-foreground/82 transition-colors [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
+                className="app-completed-detail-title-text overflow-hidden break-words [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]"
                 aria-hidden="true"
               >
                 {props.title}
@@ -1439,7 +1443,7 @@ export function CompletedFileDetailHeader(props: {
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="app-completed-detail-title-button absolute inset-0 focus-visible:outline-none"
+                    className="app-completed-detail-title-button absolute inset-0"
                     aria-label={props.title}
                     onClick={openFileInfoDialog}
                   />
@@ -1539,7 +1543,7 @@ export function CompletedTaskDetailContent(props: {
           />
         </div>
 
-        <div className="app-completed-detail-footer shrink-0 border-t border-border/60 px-4 pt-2.5 pb-3">
+        <div className="app-completed-detail-footer shrink-0 px-4 pt-2.5 pb-3">
           <CompletedFileInfoSegmentGroup
             file={selectedFile}
             text={props.text}
@@ -1585,7 +1589,7 @@ export function CompletedFileDetailContent(props: {
           />
         </div>
 
-        <div className="app-completed-detail-footer shrink-0 border-t border-border/60 px-4 pt-2.5 pb-3">
+        <div className="app-completed-detail-footer shrink-0 px-4 pt-2.5 pb-3">
           <CompletedFileInfoSegmentGroup
             file={props.file}
             text={props.text}

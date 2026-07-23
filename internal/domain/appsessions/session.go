@@ -8,11 +8,17 @@ import (
 
 type Status string
 type AccountVerificationStatus string
+type SourceType string
 
 const (
 	StatusDisconnected Status = "disconnected"
 	StatusConnected    Status = "connected"
 	StatusExpired      Status = "expired"
+)
+
+const (
+	SourceTypeXiaDownProfile SourceType = "xiadown_profile"
+	SourceTypeBrowserProfile SourceType = "browser_profile"
 )
 
 const (
@@ -37,6 +43,10 @@ type Session struct {
 	AccountVerificationError     string
 	AccountVerificationStartedAt *time.Time
 	LastVerifiedAt               *time.Time
+	SourceType                   SourceType
+	SourceBrowser                string
+	SourceProfile                string
+	LastSyncedAt                 *time.Time
 	CreatedAt                    time.Time
 	UpdatedAt                    time.Time
 }
@@ -56,6 +66,10 @@ type SessionParams struct {
 	AccountVerificationError     string
 	AccountVerificationStartedAt *time.Time
 	LastVerifiedAt               *time.Time
+	SourceType                   string
+	SourceBrowser                string
+	SourceProfile                string
+	LastSyncedAt                 *time.Time
 	CreatedAt                    *time.Time
 	UpdatedAt                    *time.Time
 }
@@ -102,9 +116,24 @@ func NewSession(params SessionParams) (Session, error) {
 		AccountVerificationError:     strings.TrimSpace(params.AccountVerificationError),
 		AccountVerificationStartedAt: params.AccountVerificationStartedAt,
 		LastVerifiedAt:               params.LastVerifiedAt,
+		SourceType:                   normalizeSourceType(params.SourceType),
+		SourceBrowser:                strings.ToLower(strings.TrimSpace(params.SourceBrowser)),
+		SourceProfile:                strings.TrimSpace(params.SourceProfile),
+		LastSyncedAt:                 params.LastSyncedAt,
 		CreatedAt:                    createdAt,
 		UpdatedAt:                    updatedAt,
 	}, nil
+}
+
+func normalizeSourceType(value string) SourceType {
+	switch SourceType(strings.TrimSpace(value)) {
+	case SourceTypeXiaDownProfile:
+		return SourceTypeXiaDownProfile
+	case SourceTypeBrowserProfile:
+		return SourceTypeBrowserProfile
+	default:
+		return ""
+	}
 }
 
 func normalizeAccountVerificationStatus(value string) AccountVerificationStatus {

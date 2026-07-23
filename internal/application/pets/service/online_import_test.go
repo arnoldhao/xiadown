@@ -104,26 +104,34 @@ func TestShutdownOnlinePetImportSessionsCleansResourcesAndRemovesSessions(t *tes
 	assertPathRemoved(t, userDataDir)
 }
 
-func TestOnlinePetImportPreferredBrowserReadsSettings(t *testing.T) {
+func TestOnlinePetImportPreferredBrowserIgnoresRetiredGlobalSetting(t *testing.T) {
+	settingsReads := 0
 	service := NewService(
 		t.TempDir(),
 		nil,
 		"",
 		"",
-		WithSettingsReader(petSettingsReaderStub{settings: settingsdto.Settings{SniffBrowser: "vivaldi"}}),
+		WithSettingsReader(petSettingsReaderStub{settings: settingsdto.Settings{SniffBrowser: "vivaldi"}, calls: &settingsReads}),
 	)
 
-	if got := service.preferredBrowser(context.Background()); got != "vivaldi" {
-		t.Fatalf("expected preferred browser from settings, got %q", got)
+	if got := service.preferredBrowser(context.Background()); got != "" {
+		t.Fatalf("expected automatic browser selection, got %q", got)
+	}
+	if settingsReads != 0 {
+		t.Fatalf("retired SniffBrowser setting must not be read, got %d reads", settingsReads)
 	}
 }
 
 type petSettingsReaderStub struct {
 	settings settingsdto.Settings
 	err      error
+	calls    *int
 }
 
 func (stub petSettingsReaderStub) GetSettings(context.Context) (settingsdto.Settings, error) {
+	if stub.calls != nil {
+		*stub.calls = *stub.calls + 1
+	}
 	if stub.err != nil {
 		return settingsdto.Settings{}, stub.err
 	}

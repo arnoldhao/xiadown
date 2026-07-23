@@ -25,32 +25,208 @@ import (
 )
 
 type WindowManager struct {
-	app                 *application.App
-	mainWindow          *application.WebviewWindow
-	settingsWindow      *application.WebviewWindow
-	trayMiniPlayer      *application.WebviewWindow
-	settingsService     *service.SettingsService
-	appVersion          string
-	mainVisibal         bool
-	settingsVisible     bool
-	boundsMu            sync.Mutex
-	lastMainBounds      dto.WindowBounds
-	lastSettingsBounds  dto.WindowBounds
-	mainBoundsDirty     bool
-	settingsBoundsDirty bool
-	initialized         bool
-	updateState         update.Info
-	quitting            atomic.Bool
-	applicationStarted  atomic.Bool
-	mainBoundsReady     atomic.Bool
-	settingsBoundsReady atomic.Bool
+	app                  *application.App
+	mainWindow           *application.WebviewWindow
+	secondaryWindowsMu   sync.RWMutex
+	settingsWindow       *application.WebviewWindow
+	trayMiniPlayer       *application.WebviewWindow
+	settingsWindowOnce   sync.Once
+	trayMiniPlayerOnce   sync.Once
+	currentSettings      dto.Settings
+	currentMenu          *application.Menu
+	secondaryRevision    uint64
+	settingsService      *service.SettingsService
+	appVersion           string
+	startupIcon          []byte
+	startupAppearance    string
+	mainWindowMu         sync.Mutex
+	mainBoot             mainWindowBootState
+	settingsVisible      bool
+	boundsMu             sync.Mutex
+	lastMainBounds       dto.WindowBounds
+	lastSettingsBounds   dto.WindowBounds
+	mainBoundsDirty      bool
+	settingsBoundsDirty  bool
+	initialized          bool
+	updateState          update.Info
+	quitting             atomic.Bool
+	applicationStarted   atomic.Bool
+	mainBoundsReady      atomic.Bool
+	settingsBoundsReady  atomic.Bool
+	mainHTMLSurfaceReady atomic.Bool
+	mainBootFallback     atomic.Bool
 
 	systemTray *SystemTrayController
+}
+
+// mainWindowBootState separates the user's visibility intent from the two
+// startup milestones. A native surface may make the hidden window safe to show
+// before the frontend is ready; frontendReady later permits the native surface
+// to be removed. Recording the applied visibility prevents the second milestone
+// from focusing an already visible window again.
+type mainWindowBootState struct {
+	mu                 sync.Mutex
+	applicationStarted bool
+	nativeSurfaceReady bool
+	frontendReady      bool
+	fallbackReady      bool
+	visibleRequested   bool
+	nativeVisible      bool
+}
+
+func newMainWindowBootState(visibleRequested bool) mainWindowBootState {
+	return mainWindowBootState{visibleRequested: visibleRequested}
+}
+
+func (state *mainWindowBootState) isReady() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.frontendReady
+}
+
+func (state *mainWindowBootState) isSettled() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.frontendReady || state.fallbackReady
+}
+
+func (state *mainWindowBootState) isNativeSurfaceReady() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.nativeSurfaceReady
+}
+
+func (state *mainWindowBootState) claimRevealLocked() bool {
+	if state.nativeVisible ||
+		!state.applicationStarted ||
+		!state.visibleRequested ||
+		(!state.nativeSurfaceReady && !state.frontendReady && !state.fallbackReady) {
+		return false
+	}
+	state.nativeVisible = true
+	return true
+}
+
+// markReady records that React has committed a stable first frame. The first
+// return value reports the idempotent state transition; the second reports
+// whether a window without a native startup surface should now be revealed.
+func (state *mainWindowBootState) markReady() (bool, bool) {
+	if state == nil {
+		return false, false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.frontendReady {
+		return false, false
+	}
+	state.frontendReady = true
+	return true, state.claimRevealLocked()
+}
+
+func (state *mainWindowBootState) markNativeSurfaceReady() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.nativeSurfaceReady = true
+	return state.claimRevealLocked()
+}
+
+func (state *mainWindowBootState) isFallbackReady() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.fallbackReady
+}
+
+func (state *mainWindowBootState) markFallbackReady() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.fallbackReady = true
+	return state.claimRevealLocked()
+}
+
+func (state *mainWindowBootState) shouldApplyReveal() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.nativeVisible &&
+		state.applicationStarted &&
+		state.visibleRequested &&
+		(state.nativeSurfaceReady || state.frontendReady || state.fallbackReady)
+}
+
+func (state *mainWindowBootState) markApplicationStarted() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.applicationStarted {
+		return false
+	}
+	state.applicationStarted = true
+	return state.claimRevealLocked()
+}
+
+// requestShow records visibility intent and applies it as soon as either the
+// native startup surface or the stable frontend is available.
+func (state *mainWindowBootState) requestShow() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.visibleRequested = true
+	if !state.applicationStarted ||
+		(!state.nativeSurfaceReady && !state.frontendReady && !state.fallbackReady) {
+		return false
+	}
+	// An explicit show is also a request to restore and focus an already-visible
+	// window (for example from the Dock, tray, or a second-instance launch).
+	// Startup milestones use claimRevealLocked to avoid stealing focus twice;
+	// user actions must not be deduplicated by nativeVisible.
+	state.nativeVisible = true
+	return true
+}
+
+func (state *mainWindowBootState) requestHide() {
+	if state == nil {
+		return
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.visibleRequested = false
+	state.nativeVisible = false
 }
 
 type windowTrayActions struct {
 	manager *WindowManager
 	app     *application.App
+}
+
+func (actions windowTrayActions) ToggleMiniPlayer() bool {
+	if actions.manager == nil {
+		return false
+	}
+	return actions.manager.ToggleTrayMiniPlayer()
 }
 
 func (actions windowTrayActions) OpenMainWindow() {
@@ -98,41 +274,38 @@ func (actions windowTrayActions) OpenUpdate() {
 	actions.manager.emitNavigateToAbout()
 }
 
-func NewWindowManager(app *application.App, settingsService *service.SettingsService, appVersion string, trayIcon []byte, launchedByAutoStart bool) (*WindowManager, error) {
+func NewWindowManager(app *application.App, settingsService *service.SettingsService, appVersion string, startupIcon []byte, trayIcon []byte, launchedByAutoStart bool) (*WindowManager, error) {
 	current, err := settingsService.GetSettings(context.Background())
 	if err != nil {
 		return nil, err
 	}
-
 	mainWindowOptions := buildMainWindowOptions(current, launchedByAutoStart)
-	settingsWindowOptions := buildSettingsWindowOptions(current, launchedByAutoStart)
-	mainWindow := app.Window.NewWithOptions(mainWindowOptions)
-	settingsWindow := app.Window.NewWithOptions(settingsWindowOptions)
-	trayMiniPlayer := app.Window.NewWithOptions(buildTrayMiniPlayerWindowOptions(current))
-	settingsWindow.Hide()
+	mainWindow := app.Window.NewWithOptions(withRemoteWebViewPermissionPolicy(mainWindowOptions))
+	registerWebViewRemoteCapabilityPolicy(mainWindow)
 	startHidden := shouldStartHidden(current, launchedByAutoStart)
 
 	manager := &WindowManager{
 		app:                app,
 		mainWindow:         mainWindow,
-		settingsWindow:     settingsWindow,
-		trayMiniPlayer:     trayMiniPlayer,
+		currentSettings:    current,
 		settingsService:    settingsService,
 		appVersion:         appVersion,
-		mainVisibal:        !startHidden,
+		startupIcon:        append([]byte(nil), startupIcon...),
+		startupAppearance:  current.EffectiveAppearance,
+		mainBoot:           newMainWindowBootState(!startHidden),
 		settingsVisible:    false,
 		lastMainBounds:     current.MainBounds,
 		lastSettingsBounds: current.SettingsBounds,
 	}
+	registerMainWindowStartupOverlayEvents(manager, mainWindow)
 
 	manager.systemTray = NewSystemTrayController(app, windowTrayActions{
 		manager: manager,
 		app:     app,
-	}, trayIcon, trayMiniPlayer)
+	}, trayIcon)
 
 	manager.ApplySettings(current)
 	manager.registerMainWindowEvents()
-	manager.registerSettingsWindowEvents()
 	manager.registerDockEvents()
 	manager.initialized = true
 
@@ -143,16 +316,265 @@ func (manager *WindowManager) MarkApplicationStarted() {
 	if manager == nil {
 		return
 	}
-	manager.applicationStarted.Store(true)
+	if manager.applicationStarted.Swap(true) {
+		return
+	}
 	manager.restoreStartupWindowBounds()
+	manager.mainWindowMu.Lock()
+	shouldReveal := manager.mainBoot.markApplicationStarted()
+	manager.mainWindowMu.Unlock()
+	if shouldReveal {
+		manager.revealMainWindowIfCurrent()
+	}
 }
 
 func (manager *WindowManager) canInvokeSync() bool {
 	return manager != nil && manager.initialized && manager.applicationStarted.Load()
 }
 
+func (manager *WindowManager) MainBootReady() bool {
+	return manager != nil && manager.mainBoot.isReady()
+}
+
+// MainBootSettled reports that startup is no longer competing for the first
+// usable surface, whether React completed normally or the recovery fallback
+// took ownership after a frontend failure.
+func (manager *WindowManager) MainBootSettled() bool {
+	return manager != nil && manager.mainBoot.isSettled()
+}
+
+// MainWindowVisible is the native source of truth for user-visible station
+// telemetry. In particular, a hidden autostart WebView can be fully mounted
+// while it is not yet a user-visible app session.
+func (manager *WindowManager) MainWindowVisible() bool {
+	return manager != nil &&
+		manager.mainWindow != nil &&
+		manager.mainWindow.IsVisible() &&
+		!manager.mainWindow.IsMinimised()
+}
+
+// MarkMainWindowBootReady completes the native/frontend startup handshake. It
+// is safe to call more than once. On macOS the window is already visible behind
+// its native overlay, so this transition removes the overlay instead of showing
+// or refocusing the window.
+func (manager *WindowManager) MarkMainWindowBootReady() {
+	if manager == nil {
+		return
+	}
+	manager.markMainWindowBootReady()
+}
+
+func (manager *WindowManager) markMainWindowBootReady() bool {
+	manager.mainWindowMu.Lock()
+	becameReady, shouldReveal := manager.mainBoot.markReady()
+	manager.mainWindowMu.Unlock()
+
+	if manager.mainWindow != nil && !manager.quitting.Load() {
+		application.InvokeSync(func() {
+			if manager.quitting.Load() || manager.mainWindow == nil {
+				return
+			}
+			dismissMainWindowStartupOverlay(manager.mainWindow.NativeWindow())
+		})
+	}
+	if shouldReveal {
+		manager.revealMainWindowIfCurrent()
+	}
+	return becameReady
+}
+
+// ensureMainWindowStartupOverlay is called by macOS' provisional-navigation
+// event, after Wails has published a valid NSWindow handle. The window remains
+// hidden until the native layer is fully installed, so no empty translucent
+// frame can escape.
+func (manager *WindowManager) ensureMainWindowStartupOverlay() {
+	if manager == nil || manager.mainWindow == nil || manager.MainBootReady() {
+		return
+	}
+	manager.mainWindowMu.Lock()
+	if manager.mainBoot.isNativeSurfaceReady() ||
+		manager.mainBoot.isReady() ||
+		manager.mainBoot.isFallbackReady() ||
+		manager.quitting.Load() {
+		manager.mainWindowMu.Unlock()
+		return
+	}
+	installed := false
+	application.InvokeSync(func() {
+		if manager.quitting.Load() || manager.mainWindow == nil {
+			return
+		}
+		installed = installMainWindowStartupOverlay(
+			manager.mainWindow.NativeWindow(),
+			manager.startupIcon,
+			manager.startupAppearance,
+		)
+	})
+	shouldReveal := installed && manager.mainBoot.markNativeSurfaceReady()
+	manager.mainWindowMu.Unlock()
+
+	if shouldReveal {
+		manager.revealMainWindowIfCurrent()
+	}
+}
+
+const defaultMainWindowBootReadyFallbackTimeout = 5 * time.Second
+const nativeMainWindowBootReadyFallbackTimeout = 12 * time.Second
+
+// StartMainWindowBootReadyFallback prevents a broken frontend handshake from
+// leaving a manually launched app permanently hidden. Marking ready still
+// honours the current visibility intent, so autostart/minimise-to-tray launches
+// remain hidden.
+func (manager *WindowManager) StartMainWindowBootReadyFallback(ctx context.Context) {
+	if manager == nil {
+		return
+	}
+	go func() {
+		timeout := defaultMainWindowBootReadyFallbackTimeout
+		if supportsMainWindowStartupOverlay() {
+			timeout = nativeMainWindowBootReadyFallbackTimeout
+		}
+		if !awaitMainWindowBootReadyFallback(
+			ctx,
+			timeout,
+			manager.MainBootReady,
+		) || manager.quitting.Load() {
+			return
+		}
+		manager.mainBootFallback.Store(true)
+		// Never remove a native surface unless WebKit has finished navigation and
+		// the inline HTML recovery shell is known to exist underneath it.
+		if supportsMainWindowStartupOverlay() && !manager.mainHTMLSurfaceReady.Load() {
+			zap.L().Warn(
+				"main window frontend-ready handshake timed out before HTML loaded; keeping native startup surface",
+				zap.Duration("timeout", timeout),
+			)
+			return
+		}
+		if manager.releaseMainWindowBootFallback() {
+			zap.L().Warn(
+				"main window boot-ready handshake timed out; showing fallback surface",
+				zap.Duration("timeout", timeout),
+			)
+		}
+	}()
+}
+
+func (manager *WindowManager) markMainWindowHTMLSurfaceReady() {
+	if manager == nil {
+		return
+	}
+	manager.mainHTMLSurfaceReady.Store(true)
+	// A timeout or explicit frontend failure may race with WebKit's navigation
+	// callback. Latching the request guarantees whichever event arrives second
+	// exposes the inline recovery surface instead of leaving the native overlay
+	// up forever.
+	if manager.mainBootFallback.Load() && !manager.quitting.Load() {
+		manager.releaseMainWindowBootFallback()
+	}
+}
+
+// ReleaseMainWindowBootFallback is used after an explicit frontend startup
+// failure. It only reveals the inline recovery shell once navigation has made
+// that surface real; a blocked dev server therefore keeps the native icon.
+func (manager *WindowManager) ReleaseMainWindowBootFallback() {
+	if manager == nil {
+		return
+	}
+	manager.mainBootFallback.Store(true)
+	if !canReleaseMainWindowBootFallback(
+		supportsMainWindowStartupOverlay(),
+		manager.mainHTMLSurfaceReady.Load(),
+	) {
+		return
+	}
+	manager.releaseMainWindowBootFallback()
+}
+
+func canReleaseMainWindowBootFallback(nativeOverlay, htmlSurfaceReady bool) bool {
+	// A frontend failure can only call this method after index.html and the
+	// bootstrap module exist. Platforms without a native overlay therefore have
+	// a usable HTML recovery surface even though Wails does not expose their
+	// navigation-finished event. macOS additionally waits for its explicit
+	// WebKit callback before removing the native layer.
+	return !nativeOverlay || htmlSurfaceReady
+}
+
+func (manager *WindowManager) releaseMainWindowBootFallback() bool {
+	if manager == nil {
+		return false
+	}
+	manager.mainWindowMu.Lock()
+	alreadyReleased := manager.mainBoot.isFallbackReady()
+	shouldReveal := manager.mainBoot.markFallbackReady()
+	manager.mainWindowMu.Unlock()
+
+	if manager.mainWindow != nil && !manager.quitting.Load() {
+		application.InvokeSync(func() {
+			if manager.quitting.Load() || manager.mainWindow == nil {
+				return
+			}
+			dismissMainWindowStartupOverlay(manager.mainWindow.NativeWindow())
+		})
+	}
+	if shouldReveal {
+		manager.revealMainWindowIfCurrent()
+	}
+	return !alreadyReleased
+}
+
+func awaitMainWindowBootReadyFallback(
+	ctx context.Context,
+	timeout time.Duration,
+	isReady func() bool,
+) bool {
+	if isReady == nil || isReady() {
+		return false
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		return !isReady()
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return !isReady()
+	}
+}
+
 func (manager *WindowManager) ShowMainWindow() {
-	manager.mainVisibal = true
+	if manager == nil {
+		return
+	}
+	manager.mainWindowMu.Lock()
+	shouldReveal := manager.mainBoot.requestShow()
+	manager.mainWindowMu.Unlock()
+	if shouldReveal {
+		manager.revealMainWindowIfCurrent()
+	}
+}
+
+func (manager *WindowManager) revealMainWindowIfCurrent() {
+	if manager == nil {
+		return
+	}
+	manager.mainWindowMu.Lock()
+	defer manager.mainWindowMu.Unlock()
+	if !manager.mainBoot.shouldApplyReveal() {
+		return
+	}
+	manager.revealMainWindow()
+}
+
+func (manager *WindowManager) revealMainWindow() {
+	if manager == nil || manager.mainWindow == nil {
+		return
+	}
 	manager.restoreCachedBounds(windowTypeMain)
 	manager.ensureWindowVisible(windowTypeMain)
 	manager.mainWindow.UnMinimise()
@@ -169,14 +591,146 @@ func (manager *WindowManager) OpenNewDownload() {
 	manager.emitOpenNewDownload()
 }
 
+// ensureSettingsWindow creates the settings WebView on first use. Secondary
+// WebViews are deliberately excluded from App.Run's pending window list so
+// WebKit only has to initialise the visible main surface during startup.
+func (manager *WindowManager) ensureSettingsWindow() *application.WebviewWindow {
+	if manager == nil || manager.app == nil || manager.quitting.Load() || !manager.applicationStarted.Load() {
+		return nil
+	}
+
+	manager.settingsWindowOnce.Do(func() {
+		manager.secondaryWindowsMu.RLock()
+		current := manager.currentSettings
+		manager.secondaryWindowsMu.RUnlock()
+		window := application.NewWindow(withRemoteWebViewPermissionPolicy(
+			buildSettingsWindowOptions(current, false),
+		))
+		registerWebViewRemoteCapabilityPolicy(window)
+		manager.registerSettingsWindowEvents(window)
+		// Add the policy-configured window before Run. NewWithOptions would run a
+		// window immediately once the application is live, leaving no opportunity
+		// to install the remote-capability and lifecycle hooks before navigation.
+		manager.app.Window.Add(window)
+		window.Run()
+
+		// Publish only after the native window is live and has caught up with the
+		// latest presentation revision. UI calls stay outside the state lock so a
+		// synchronous native callback cannot deadlock while it reads the manager.
+		for {
+			manager.secondaryWindowsMu.RLock()
+			current = manager.currentSettings
+			menu := manager.currentMenu
+			revision := manager.secondaryRevision
+			manager.secondaryWindowsMu.RUnlock()
+
+			window.SetTitle(resolveWindowTitles(current).Settings)
+			window.SetBackgroundColour(resolveSettingsWindowBackground(
+				runtime.GOOS,
+				resolveSettingsWindowSurfaceStyle(current.AppearanceConfig),
+				backgroundColour(current),
+			))
+			if menu != nil {
+				window.SetMenu(menu)
+			}
+			if shouldHideNativeMenuBar(runtime.GOOS, manager.appVersion) {
+				window.HideMenuBar()
+			}
+
+			manager.secondaryWindowsMu.Lock()
+			if revision == manager.secondaryRevision {
+				manager.settingsWindow = window
+				manager.secondaryWindowsMu.Unlock()
+				break
+			}
+			manager.secondaryWindowsMu.Unlock()
+		}
+	})
+
+	return manager.settingsWindowSnapshot()
+}
+
+// ensureTrayMiniPlayer creates and attaches the tray WebView only when the
+// user first asks for it. The tray icon and menu remain available from launch.
+func (manager *WindowManager) ensureTrayMiniPlayer() *application.WebviewWindow {
+	if manager == nil || manager.app == nil || manager.systemTray == nil || manager.quitting.Load() || !manager.applicationStarted.Load() {
+		return nil
+	}
+
+	manager.trayMiniPlayerOnce.Do(func() {
+		manager.secondaryWindowsMu.RLock()
+		current := manager.currentSettings
+		manager.secondaryWindowsMu.RUnlock()
+		window := application.NewWindow(withRemoteWebViewPermissionPolicy(
+			buildTrayMiniPlayerWindowOptions(current),
+		))
+		registerWebViewRemoteCapabilityPolicy(window)
+
+		manager.app.Window.Add(window)
+		window.Run()
+		for {
+			manager.secondaryWindowsMu.RLock()
+			current = manager.currentSettings
+			revision := manager.secondaryRevision
+			manager.secondaryWindowsMu.RUnlock()
+
+			window.SetTitle(resolveWindowTitles(current).Main)
+			_, background := trayMiniPlayerWindowBackground(current)
+			window.SetBackgroundColour(background)
+
+			manager.secondaryWindowsMu.Lock()
+			if revision == manager.secondaryRevision {
+				manager.trayMiniPlayer = window
+				manager.secondaryWindowsMu.Unlock()
+				break
+			}
+			manager.secondaryWindowsMu.Unlock()
+		}
+		manager.systemTray.AttachMiniPlayer(window)
+	})
+
+	return manager.trayMiniPlayerSnapshot()
+}
+
+func (manager *WindowManager) settingsWindowSnapshot() *application.WebviewWindow {
+	if manager == nil {
+		return nil
+	}
+	manager.secondaryWindowsMu.RLock()
+	defer manager.secondaryWindowsMu.RUnlock()
+	return manager.settingsWindow
+}
+
+func (manager *WindowManager) trayMiniPlayerSnapshot() *application.WebviewWindow {
+	if manager == nil {
+		return nil
+	}
+	manager.secondaryWindowsMu.RLock()
+	defer manager.secondaryWindowsMu.RUnlock()
+	return manager.trayMiniPlayer
+}
+
 func (manager *WindowManager) ShowSettingsWindow() {
+	window := manager.ensureSettingsWindow()
+	if window == nil {
+		return
+	}
+	manager.secondaryWindowsMu.Lock()
 	manager.settingsVisible = true
+	manager.secondaryWindowsMu.Unlock()
 	manager.restoreCachedBounds(windowTypeSettings)
 	manager.ensureWindowVisible(windowTypeSettings)
-	manager.settingsWindow.UnMinimise()
-	manager.settingsWindow.Show()
-	manager.settingsWindow.Focus()
+	window.UnMinimise()
+	window.Show()
+	window.Focus()
 	manager.markBoundsTrackingReady(windowTypeSettings)
+}
+
+func (manager *WindowManager) ToggleTrayMiniPlayer() bool {
+	if manager.ensureTrayMiniPlayer() == nil {
+		return false
+	}
+	return manager.systemTray.ToggleMiniPlayer()
 }
 
 func (manager *WindowManager) SetMainWindowChromeHidden(hidden bool) {
@@ -189,6 +743,7 @@ func (manager *WindowManager) SetMainWindowChromeHidden(hidden bool) {
 	}
 	manager.mainWindow.SetMinimiseButtonState(state)
 	manager.mainWindow.SetMaximiseButtonState(state)
+	manager.mainWindow.SetFullscreenButtonState(state)
 	manager.mainWindow.SetCloseButtonState(state)
 }
 
@@ -220,11 +775,71 @@ func (manager *WindowManager) HandleSecondInstanceLaunch() {
 }
 
 func (manager *WindowManager) SelectDirectoryDialog(title string, initialDir string) (string, error) {
-	return manager.selectDirectoryDialog(title, initialDir, manager.settingsWindow)
+	return manager.selectDirectoryDialog(title, initialDir, manager.settingsWindowSnapshot())
 }
 
 func (manager *WindowManager) SelectMainDirectoryDialog(title string, initialDir string) (string, error) {
 	return manager.selectDirectoryDialog(title, initialDir, manager.mainWindow)
+}
+
+type SaveFileDialogFilter struct {
+	DisplayName string
+	Pattern     string
+}
+
+type SaveFileDialogOptions struct {
+	Title               string
+	Message             string
+	Filename            string
+	ButtonText          string
+	Directory           string
+	Filters             []SaveFileDialogFilter
+	AllowOtherFileTypes bool
+	HideExtension       bool
+}
+
+// SaveMainFileDialog presents a native save panel attached to the main
+// window. Cancellation is returned as an empty path without an error, matching
+// the existing file and directory picker wrappers.
+func (manager *WindowManager) SaveMainFileDialog(options SaveFileDialogOptions) (string, error) {
+	if manager == nil || manager.app == nil {
+		return "", fmt.Errorf("app not available")
+	}
+	filters := make([]application.FileFilter, 0, len(options.Filters))
+	for _, filter := range options.Filters {
+		displayName := strings.TrimSpace(filter.DisplayName)
+		pattern := strings.TrimSpace(filter.Pattern)
+		if displayName == "" || pattern == "" {
+			continue
+		}
+		filters = append(filters, application.FileFilter{
+			DisplayName: displayName,
+			Pattern:     pattern,
+		})
+	}
+	dialogOptions := &application.SaveFileDialogOptions{
+		CanCreateDirectories: true,
+		AllowOtherFileTypes:  options.AllowOtherFileTypes,
+		HideExtension:        options.HideExtension,
+		Title:                strings.TrimSpace(options.Title),
+		Message:              strings.TrimSpace(options.Message),
+		Filename:             strings.TrimSpace(options.Filename),
+		ButtonText:           strings.TrimSpace(options.ButtonText),
+		Filters:              filters,
+	}
+	if directory := resolveExistingDialogDirectory(options.Directory); directory != "" {
+		dialogOptions.Directory = directory
+	}
+	dialog := manager.app.Dialog.SaveFile()
+	dialog.SetOptions(dialogOptions)
+	if manager.mainWindow != nil {
+		dialog = dialog.AttachToWindow(manager.mainWindow)
+	}
+	selected, err := dialog.PromptForSingleSelection()
+	if isDialogCancelledError(err) {
+		return "", nil
+	}
+	return selected, err
 }
 
 func (manager *WindowManager) selectDirectoryDialog(title string, initialDir string, attachWindow *application.WebviewWindow) (string, error) {
@@ -319,38 +934,83 @@ func isDialogCancelledError(err error) bool {
 }
 
 func (manager *WindowManager) HideMainWindow() {
+	if manager == nil {
+		return
+	}
+	manager.mainWindowMu.Lock()
+	defer manager.mainWindowMu.Unlock()
+	manager.mainBoot.requestHide()
+	if manager.mainWindow == nil {
+		return
+	}
 	manager.persistBoundsOrCached(windowTypeMain, "hide-main")
-	manager.mainVisibal = false
 	manager.mainWindow.Hide()
 }
 
 func (manager *WindowManager) HideSettingsWindow() {
+	if manager == nil {
+		return
+	}
+	window := manager.settingsWindowSnapshot()
+	if window == nil {
+		return
+	}
 	manager.persistBoundsOrCached(windowTypeSettings, "hide-settings")
+	manager.secondaryWindowsMu.Lock()
 	manager.settingsVisible = false
-	manager.settingsWindow.Hide()
+	manager.secondaryWindowsMu.Unlock()
+	window.Hide()
 }
 
 func (manager *WindowManager) SetMenu(menu *application.Menu) {
+	if manager == nil {
+		return
+	}
+	manager.secondaryWindowsMu.Lock()
+	manager.currentMenu = menu
+	manager.secondaryRevision++
+	settingsWindow := manager.settingsWindow
+	manager.secondaryWindowsMu.Unlock()
 	if manager.mainWindow != nil {
 		manager.mainWindow.SetMenu(menu)
-		if runtime.GOOS == "windows" {
+		if shouldHideNativeMenuBar(runtime.GOOS, manager.appVersion) {
 			manager.mainWindow.HideMenuBar()
 		}
 	}
-	if manager.settingsWindow != nil {
-		manager.settingsWindow.SetMenu(menu)
-		if runtime.GOOS == "windows" {
-			manager.settingsWindow.HideMenuBar()
+	if settingsWindow != nil {
+		settingsWindow.SetMenu(menu)
+		if shouldHideNativeMenuBar(runtime.GOOS, manager.appVersion) {
+			settingsWindow.HideMenuBar()
 		}
 	}
 }
 
 func (manager *WindowManager) ApplySettings(current dto.Settings) {
+	if manager == nil {
+		return
+	}
+	manager.secondaryWindowsMu.Lock()
+	manager.currentSettings = current
+	manager.secondaryRevision++
+	settingsWindow := manager.settingsWindow
+	manager.secondaryWindowsMu.Unlock()
+
 	apply := func() {
 		color := backgroundColour(current)
+		backgrounds := resolveWindowRuntimeBackgrounds(runtime.GOOS, color)
+		settingsBackground := resolveSettingsWindowBackground(
+			runtime.GOOS,
+			resolveSettingsWindowSurfaceStyle(current.AppearanceConfig),
+			color,
+		)
 		manager.syncWindowPresentation(current)
-		manager.mainWindow.SetBackgroundColour(color)
-		manager.settingsWindow.SetBackgroundColour(color)
+		manager.mainWindow.SetBackgroundColour(backgrounds.main)
+		// The native video host remains an opaque content plane. Settings reveals
+		// its preinstalled underlay only while the window-wide style is Glass.
+		syncListenNativeVideoHostBackground(manager.mainWindow, color)
+		if settingsWindow != nil {
+			settingsWindow.SetBackgroundColour(settingsBackground)
+		}
 		manager.rebuildMenu(current)
 		manager.systemTray.Update(current)
 		manager.dispatchWindowEvent("settings:updated", current)
@@ -378,11 +1038,13 @@ func (manager *WindowManager) dispatchWindowEvent(name string, data any) {
 	if manager.mainWindow != nil {
 		manager.mainWindow.DispatchWailsEvent(event)
 	}
-	if manager.settingsWindow != nil {
-		manager.settingsWindow.DispatchWailsEvent(event)
+	settingsWindow := manager.settingsWindowSnapshot()
+	trayMiniPlayer := manager.trayMiniPlayerSnapshot()
+	if settingsWindow != nil {
+		settingsWindow.DispatchWailsEvent(event)
 	}
-	if manager.trayMiniPlayer != nil {
-		manager.trayMiniPlayer.DispatchWailsEvent(event)
+	if trayMiniPlayer != nil {
+		trayMiniPlayer.DispatchWailsEvent(event)
 	}
 }
 
@@ -451,16 +1113,19 @@ func (manager *WindowManager) registerMainWindowEvents() {
 
 }
 
-func (manager *WindowManager) registerSettingsWindowEvents() {
+func (manager *WindowManager) registerSettingsWindowEvents(settingsWindow *application.WebviewWindow) {
+	if manager == nil || settingsWindow == nil {
+		return
+	}
 	settingsDebounce := debounce.New(600 * time.Millisecond)
 
-	manager.settingsWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
+	settingsWindow.OnWindowEvent(events.Common.WindowRuntimeReady, func(_ *application.WindowEvent) {
 		manager.restoreCachedBounds(windowTypeSettings)
 		manager.ensureWindowVisible(windowTypeSettings)
 		manager.markBoundsTrackingReady(windowTypeSettings)
 	})
 
-	manager.settingsWindow.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) {
+	settingsWindow.OnWindowEvent(events.Common.WindowDidMove, func(_ *application.WindowEvent) {
 		if ignoreCommonWindowBoundsEvents() {
 			return
 		}
@@ -470,7 +1135,7 @@ func (manager *WindowManager) registerSettingsWindowEvents() {
 		})
 	})
 
-	manager.settingsWindow.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) {
+	settingsWindow.OnWindowEvent(events.Common.WindowDidResize, func(_ *application.WindowEvent) {
 		manager.enforceMinimumSize(windowTypeSettings)
 		if ignoreCommonWindowBoundsEvents() {
 			return
@@ -482,16 +1147,16 @@ func (manager *WindowManager) registerSettingsWindowEvents() {
 	})
 
 	if runtime.GOOS == "windows" {
-		manager.settingsWindow.OnWindowEvent(events.Windows.WindowEndMove, func(_ *application.WindowEvent) {
+		settingsWindow.OnWindowEvent(events.Windows.WindowEndMove, func(_ *application.WindowEvent) {
 			manager.persistBoundsOrCached(windowTypeSettings, "windows-window-end-move")
 		})
-		manager.settingsWindow.OnWindowEvent(events.Windows.WindowEndResize, func(_ *application.WindowEvent) {
+		settingsWindow.OnWindowEvent(events.Windows.WindowEndResize, func(_ *application.WindowEvent) {
 			manager.persistBoundsOrCached(windowTypeSettings, "windows-window-end-resize")
 		})
 	}
 
 	// Use hook to cancel default destroy flow and just hide.
-	manager.settingsWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+	settingsWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		if manager.quitting.Load() {
 			return
 		}
@@ -668,14 +1333,15 @@ func (manager *WindowManager) windowForType(target windowType) *application.Webv
 	if target == windowTypeMain {
 		return manager.mainWindow
 	}
-	return manager.settingsWindow
+	return manager.settingsWindowSnapshot()
 }
 
 func (manager *WindowManager) windowBounds(target windowType) application.Rect {
-	if target == windowTypeMain {
-		return manager.mainWindow.Bounds()
+	window := manager.windowForType(target)
+	if window == nil {
+		return application.Rect{}
 	}
-	return manager.settingsWindow.Bounds()
+	return window.Bounds()
 }
 
 func (manager *WindowManager) capturableWindowBounds(target windowType) (application.Rect, bool) {
@@ -900,7 +1566,7 @@ func ignoreCommonWindowBoundsEvents() bool {
 	return runtime.GOOS == "windows"
 }
 
-func buildMainWindowOptions(current dto.Settings, launchedByAutoStart bool) application.WebviewWindowOptions {
+func buildMainWindowOptions(current dto.Settings, _ bool) application.WebviewWindowOptions {
 	mainBounds := normalizeWindowBoundsForLaunch(current.MainBounds, windowTypeMain)
 	titles := resolveWindowTitles(current)
 	options := buildWindowOptions(
@@ -909,33 +1575,65 @@ func buildMainWindowOptions(current dto.Settings, launchedByAutoStart bool) appl
 		"/",
 		mainBounds,
 		current,
-		launchedByAutoStart,
 		false,
 	)
-	if runtime.GOOS == "darwin" {
-		options.MinimiseButtonState = application.ButtonHidden
-		options.MaximiseButtonState = application.ButtonHidden
-		options.CloseButtonState = application.ButtonHidden
-	}
+	options.JS = mainWindowStartupThemeScript(current.EffectiveAppearance)
+	applyMainWindowMaterialPolicy(&options, runtime.GOOS)
+	applyMainWindowCompositionPolicy(&options, runtime.GOOS)
+	applyMainWindowControlPolicy(&options, runtime.GOOS)
 	return options
 }
 
-func buildSettingsWindowOptions(current dto.Settings, launchedByAutoStart bool) application.WebviewWindowOptions {
+func mainWindowStartupThemeScript(effectiveAppearance string) string {
+	switch effectiveAppearance {
+	case settings.AppearanceLight.String():
+		return `try { localStorage.setItem("xiadown:startup-theme", "light"); } catch {} document.documentElement.dataset.startupTheme = "light";`
+	case settings.AppearanceDark.String():
+		return `try { localStorage.setItem("xiadown:startup-theme", "dark"); } catch {} document.documentElement.dataset.startupTheme = "dark";`
+	default:
+		return ""
+	}
+}
+
+// macOS owns the traffic-light controls even with MacTitleBarHiddenInset. In
+// native fullscreen AppKit reveals that title/toolbar strip when the pointer
+// reaches the menu bar; keeping the standard buttons enabled gives users the
+// native green exit-fullscreen affordance in addition to Escape.
+func applyMainWindowControlPolicy(options *application.WebviewWindowOptions, goos string) {
+	if options == nil || goos != "darwin" {
+		return
+	}
+	options.MinimiseButtonState = application.ButtonEnabled
+	options.MaximiseButtonState = application.ButtonEnabled
+	options.FullscreenButtonState = application.ButtonEnabled
+	options.CloseButtonState = application.ButtonEnabled
+}
+
+func buildSettingsWindowOptions(current dto.Settings, _ bool) application.WebviewWindowOptions {
 	settingsBounds := normalizeWindowBoundsForLaunch(current.SettingsBounds, windowTypeSettings)
 	if settingsBounds.Width == 960 && settingsBounds.Height == 640 {
 		settingsBounds.Width = settings.DefaultSettingsWidth
 		settingsBounds.Height = settings.DefaultSettingsHeight
 	}
 	titles := resolveWindowTitles(current)
-	return buildWindowOptions(
+	surfaceStyle := resolveSettingsWindowSurfaceStyle(current.AppearanceConfig)
+	options := buildWindowOptions(
 		"settings",
 		titles.Settings,
-		"/?window=settings",
+		fmt.Sprintf(
+			"/?window=settings&surfaceStyle=%s",
+			surfaceStyle,
+		),
 		settingsBounds,
 		current,
-		launchedByAutoStart,
 		true,
 	)
+	applySettingsWindowMaterialPolicy(
+		&options,
+		runtime.GOOS,
+		surfaceStyle,
+	)
+	return options
 }
 
 func buildTrayMiniPlayerWindowOptions(current dto.Settings) application.WebviewWindowOptions {
@@ -975,7 +1673,7 @@ func trayMiniPlayerWindowBackground(current dto.Settings) (application.Backgroun
 	return application.BackgroundTypeTransparent, application.RGBA{Alpha: 0}
 }
 
-func buildWindowOptions(name, title, url string, bounds dto.WindowBounds, current dto.Settings, launchedByAutoStart bool, isSettings bool) application.WebviewWindowOptions {
+func buildWindowOptions(name, title, url string, bounds dto.WindowBounds, current dto.Settings, isSettings bool) application.WebviewWindowOptions {
 	minWidth := settings.MinMainWindowWidth
 	minHeight := settings.MinMainWindowHeight
 	if isSettings {
@@ -997,18 +1695,15 @@ func buildWindowOptions(name, title, url string, bounds dto.WindowBounds, curren
 		Mac:              macWindowOptions(current),
 		Windows:          windowsWindowOptions(current),
 	}
+	// WindowManager explicitly shows this window only after either the native
+	// startup overlay or the stable frontend is ready. Wails' automatic show is
+	// navigation-dependent and can otherwise expose an empty translucent frame.
+	options.Hidden = true
 
 	if bounds.X != 0 || bounds.Y != 0 {
 		options.X = bounds.X
 		options.Y = bounds.Y
 		options.InitialPosition = application.WindowXY
-	}
-
-	if isSettings {
-		options.Hidden = true
-	}
-	if !isSettings && shouldStartHidden(current, launchedByAutoStart) {
-		options.Hidden = true
 	}
 
 	return options
@@ -1036,6 +1731,9 @@ func macWindowOptions(current dto.Settings) application.MacWindow {
 		Appearance:              macAppearance(current),
 		TitleBar:                application.MacTitleBarHiddenInset,
 		InvisibleTitleBarHeight: 52,
+		WebviewPreferences: application.MacWebviewPreferences{
+			JavaScriptCanOpenWindowsAutomatically: application.Disabled,
+		},
 	}
 }
 
@@ -1045,6 +1743,9 @@ func trayMiniPlayerMacWindowOptions(current dto.Settings) application.MacWindow 
 		Appearance:  macAppearance(current),
 		TitleBar:    application.MacTitleBarHidden,
 		WindowLevel: application.MacWindowLevelPopUpMenu,
+		WebviewPreferences: application.MacWebviewPreferences{
+			JavaScriptCanOpenWindowsAutomatically: application.Disabled,
+		},
 		CollectionBehavior: application.MacWindowCollectionBehaviorTransient |
 			application.MacWindowCollectionBehaviorMoveToActiveSpace |
 			application.MacWindowCollectionBehaviorIgnoresCycle,
@@ -1161,6 +1862,13 @@ func (manager *WindowManager) rebuildMenu(current dto.Settings) {
 			item.SetLabel(menuStrings.SelectAll)
 		}
 
+		// Keep the standard reload, force-reload and DevTools commands reachable
+		// while running `wails3 dev`. The custom production menu intentionally
+		// stays unchanged.
+		if shouldExposeDeveloperMenu(manager.appVersion) {
+			menu.AddRole(application.ViewMenu)
+		}
+
 		windowMenu := menu.AddSubmenu(menuStrings.Window)
 		windowMenu.Add(menuStrings.Minimize).SetRole(application.Minimise)
 		windowMenu.Add(menuStrings.Zoom).SetRole(application.Zoom)
@@ -1182,6 +1890,32 @@ func (manager *WindowManager) rebuildMenu(current dto.Settings) {
 	} else {
 		buildMenu()
 	}
+}
+
+func shouldExposeDeveloperMenu(version string) bool {
+	return !isReleaseAppVersion(version)
+}
+
+func shouldHideNativeMenuBar(goos string, version string) bool {
+	return goos == "windows" && !shouldExposeDeveloperMenu(version)
+}
+
+func isReleaseAppVersion(version string) bool {
+	normalized := strings.TrimSpace(strings.TrimPrefix(version, "v"))
+	if normalized == "" {
+		return false
+	}
+	for _, part := range strings.Split(normalized, ".") {
+		if part == "" {
+			return false
+		}
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (manager *WindowManager) applyMenuBarVisibilityChange(value string) {
@@ -1229,8 +1963,9 @@ func (manager *WindowManager) NotifyUpdateState(info update.Info) {
 	} else {
 		updateTray()
 	}
-	// rebuildMenu requires windows to be ready; guard nil.
-	if manager.mainWindow != nil && manager.settingsWindow != nil {
+	// The settings window is lazy; rebuilding the app/main menu must not force
+	// its creation just because the update state changed.
+	if manager.mainWindow != nil {
 		manager.rebuildMenu(current)
 	}
 }
@@ -1244,13 +1979,24 @@ func (manager *WindowManager) appendUpdateMenuItem(appMenu *application.Menu, me
 
 	if state.IsUpdateAvailable() || state.Status == update.StatusReadyToRestart || state.Status == update.StatusInstalling {
 		appMenu.Add(menuStrings.InstallUpdate).OnClick(func(_ *application.Context) {
-			manager.ShowSettingsWindow()
 			manager.emitNavigateToAbout()
 		})
 	}
 }
 
 func (manager *WindowManager) emitNavigateToAbout() {
+	if manager == nil || manager.app == nil {
+		return
+	}
+	manager.ShowSettingsWindow()
+	window := manager.settingsWindowSnapshot()
+	if window == nil {
+		return
+	}
+	// Keep a durable hand-off for the first lazy load, then emit the live event
+	// for an already-mounted settings app. ExecJS queues until Wails' runtime is
+	// ready, and SettingsApp consumes this shared localStorage key on mount.
+	window.ExecJS(`try { const key = "xiadown:settings-tab"; localStorage.setItem(key, "about"); window.dispatchEvent(new StorageEvent("storage", { key, newValue: "about" })); } catch {}`)
 	manager.app.Event.Emit("settings:navigate", "about")
 }
 
@@ -1270,20 +2016,18 @@ func (manager *WindowManager) syncWindowPresentation(current dto.Settings) {
 	if manager == nil {
 		return
 	}
+	settingsWindow := manager.settingsWindowSnapshot()
+	trayMiniPlayer := manager.trayMiniPlayerSnapshot()
 	titles := resolveWindowTitles(current)
 	if manager.mainWindow != nil {
 		manager.mainWindow.SetTitle(titles.Main)
-		manager.mainWindow.SetMinSize(settings.MinMainWindowWidth, settings.MinMainWindowHeight)
 	}
-	if manager.settingsWindow != nil {
-		manager.settingsWindow.SetTitle(titles.Settings)
-		manager.settingsWindow.SetMinSize(settings.MinSettingsWindowWidth, settings.MinSettingsWindowHeight)
+	if settingsWindow != nil {
+		settingsWindow.SetTitle(titles.Settings)
 	}
-	if manager.trayMiniPlayer != nil {
-		manager.trayMiniPlayer.SetTitle(titles.Main)
+	if trayMiniPlayer != nil {
+		trayMiniPlayer.SetTitle(titles.Main)
 	}
-	manager.enforceMinimumSize(windowTypeMain)
-	manager.enforceMinimumSize(windowTypeSettings)
 }
 
 func (manager *WindowManager) enforceMinimumSize(target windowType) {
@@ -1297,7 +2041,7 @@ func (manager *WindowManager) enforceMinimumSize(target windowType) {
 	)
 	switch target {
 	case windowTypeSettings:
-		window = manager.settingsWindow
+		window = manager.settingsWindowSnapshot()
 		minWidth = settings.MinSettingsWindowWidth
 		minHeight = settings.MinSettingsWindowHeight
 	default:

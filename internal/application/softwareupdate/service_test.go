@@ -54,6 +54,38 @@ func TestEnsureCatalogRetriesAfterFailedRefresh(t *testing.T) {
 	}
 }
 
+func TestEnsureCatalogDoesNotReuseSnapshotForAnotherRequest(t *testing.T) {
+	t.Parallel()
+
+	provider := &catalogProviderStub{catalog: Catalog{Channel: "stable"}}
+	service := NewService(ServiceParams{CatalogProvider: provider})
+	if _, err := service.EnsureCatalog(context.Background(), 10*time.Minute, Request{
+		Channel: "stable", AppVersion: "v1.0.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider.catalog = Catalog{Channel: "beta"}
+	snapshot, err := service.EnsureCatalog(context.Background(), 10*time.Minute, Request{
+		Channel: "beta", AppVersion: "1.0.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 || snapshot.Catalog.Channel != "beta" {
+		t.Fatalf("cross-channel cache reused: calls=%d snapshot=%#v", provider.calls, snapshot)
+	}
+	provider.catalog = Catalog{Channel: "beta-v2"}
+	snapshot, err = service.EnsureCatalog(context.Background(), 10*time.Minute, Request{
+		Channel: "beta", AppVersion: "2.0.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 3 || snapshot.Catalog.Channel != "beta-v2" {
+		t.Fatalf("cross-version cache reused: calls=%d snapshot=%#v", provider.calls, snapshot)
+	}
+}
+
 func TestResolveDependencyReleaseUsesManifestCatalogFirst(t *testing.T) {
 	t.Parallel()
 

@@ -11,6 +11,35 @@ import (
 	"xiadown/internal/domain/dependencies"
 )
 
+func hermeticYTDLPEnvironment(environment []string) []string {
+	result := make([]string, 0, len(environment)+3)
+	for _, item := range environment {
+		key := item
+		if index := strings.IndexByte(item, '='); index >= 0 {
+			key = item[:index]
+		}
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "pythonhome", "pythonpath", "pythonstartup", "pythoninspect", "pythonuserbase", "pythonnousersite", "pythonsafepath", "ytdlp_no_plugins":
+			continue
+		default:
+			result = append(result, item)
+		}
+	}
+	// The command-line policy is authoritative. These environment guards also
+	// protect Python-based builds before yt-dlp finishes parsing its arguments.
+	return append(result,
+		"PYTHONNOUSERSITE=1",
+		"PYTHONSAFEPATH=1",
+		"YTDLP_NO_PLUGINS=1",
+	)
+}
+
+// HermeticEnvironment exposes the same startup environment to yt-dlp probes
+// outside this package without duplicating the isolation policy.
+func HermeticEnvironment(environment []string) []string {
+	return hermeticYTDLPEnvironment(environment)
+}
+
 func BuildExplicitToolArgs(ctx context.Context, resolver ToolResolver) []string {
 	args := make([]string, 0, 5)
 	if ffmpegDir := resolveFFmpegDir(ctx, resolver); ffmpegDir != "" {

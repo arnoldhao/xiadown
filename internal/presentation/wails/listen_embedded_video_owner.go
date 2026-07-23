@@ -3,7 +3,6 @@ package wails
 import (
 	"fmt"
 	"sync"
-	"unsafe"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -12,6 +11,25 @@ var listenEmbeddedVideoOwner = struct {
 	mu    sync.Mutex
 	owner string
 }{}
+
+type listenNativeWindowFeatureGuard struct {
+	windowIDs sync.Map
+}
+
+func (guard *listenNativeWindowFeatureGuard) Claim(windowID uint) bool {
+	if guard == nil || windowID == 0 {
+		return false
+	}
+	_, loaded := guard.windowIDs.LoadOrStore(windowID, struct{}{})
+	return !loaded
+}
+
+func (guard *listenNativeWindowFeatureGuard) Release(windowID uint) {
+	if guard == nil || windowID == 0 {
+		return
+	}
+	guard.windowIDs.Delete(windowID)
+}
 
 func listenEmbeddedVideoOwnerID(window *application.WebviewWindow) string {
 	if window == nil {
@@ -53,7 +71,7 @@ func listenReleaseEmbeddedVideoOwner(owner string) bool {
 	return true
 }
 
-func listenShowNativeEmbeddedWebViewForOwner(owner string, playerNativeWindow unsafe.Pointer, hostNativeWindow unsafe.Pointer, rect ListenEmbeddedVideoRect) bool {
+func listenShowNativeEmbeddedWebViewForOwner(owner string, playerWindow *application.WebviewWindow, hostWindow *application.WebviewWindow, rect ListenEmbeddedVideoRect) bool {
 	if owner == "" {
 		return false
 	}
@@ -62,5 +80,38 @@ func listenShowNativeEmbeddedWebViewForOwner(owner string, playerNativeWindow un
 	if listenEmbeddedVideoOwner.owner != owner {
 		return false
 	}
-	return showListenNativeEmbeddedWebView(playerNativeWindow, hostNativeWindow, rect)
+	return showListenNativeEmbeddedWebViewWindow(playerWindow, hostWindow, rect)
+}
+
+func rssShowNativeEmbeddedWebViewForOwner(owner string, playerWindow *application.WebviewWindow, hostWindow *application.WebviewWindow, rect ListenEmbeddedVideoRect) bool {
+	if owner == "" {
+		return false
+	}
+	listenEmbeddedVideoOwner.mu.Lock()
+	defer listenEmbeddedVideoOwner.mu.Unlock()
+	if listenEmbeddedVideoOwner.owner != owner {
+		return false
+	}
+	return showRSSNativeEmbeddedWebViewWindow(playerWindow, hostWindow, rect)
+}
+
+func rssShowNativeInteractiveEmbeddedWebViewForOwner(owner string, playerWindow *application.WebviewWindow, hostWindow *application.WebviewWindow, rect ListenEmbeddedVideoRect) bool {
+	if owner == "" {
+		return false
+	}
+	listenEmbeddedVideoOwner.mu.Lock()
+	defer listenEmbeddedVideoOwner.mu.Unlock()
+	if listenEmbeddedVideoOwner.owner != owner {
+		return false
+	}
+	rect.Interactive = true
+	return showRSSNativeInteractiveEmbeddedWebViewWindow(playerWindow, hostWindow, rect)
+}
+
+// listenEmbeddedVideoRevealReady treats the DOM resize acknowledgement as an
+// advisory handoff signal. Once the native WebView is mounted under the active
+// host, keeping the React surface opaque after a delayed or rounded-size ACK
+// would hide a valid video surface indefinitely.
+func listenEmbeddedVideoRevealReady(nativeShown bool, _ bool, ownerActive bool) bool {
+	return nativeShown && ownerActive
 }

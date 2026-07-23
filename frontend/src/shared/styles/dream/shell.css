@@ -13,8 +13,27 @@
 }
 
 .app-settings-window.app-dream-window {
-  background: var(--app-main-shell-aba-surface);
+  background: var(--app-surface-window-canvas);
   color: hsl(var(--foreground));
+}
+
+.app-settings-window > .app-settings-host-header {
+  grid-area: topbar;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-settings-window > .app-settings-page-content {
+  grid-area: content;
+  padding: var(--app-space-5);
+}
+
+.app-settings-window.app-dream-window[data-surface-style="contrast"] {
+  background: var(--app-surface-canvas);
+}
+
+.app-settings-window[data-surface-style="glass"][data-window-material="native"] {
+  background: var(--app-surface-window-glass-wash);
 }
 
 .app-settings-window .app-dream-header {
@@ -50,17 +69,12 @@
   margin-left: var(--app-settings-separator-inset);
 }
 
-.app-settings-window :is(.app-dream-badge[class], .app-settings-status-badge) {
+.app-settings-window .app-dream-badge[class] {
   height: var(--app-control-height-compact);
   min-height: var(--app-control-height-compact);
   align-items: center;
   padding-top: 0;
   padding-bottom: 0;
-}
-
-.app-settings-window .app-settings-status-badge {
-  padding-right: 0.75rem;
-  padding-left: 0.75rem;
 }
 
 :is(.app-dream-window, .app-settings-window) :is(.app-dream-row-label, .app-settings-row-label) {
@@ -82,25 +96,6 @@
   font-size: 12px;
   font-weight: 500;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-:is(.app-dream-window, .app-settings-window) :is(.app-dream-status-badge, .app-settings-status-badge) {
-  display: inline-flex;
-  height: 24px;
-  max-width: 10rem;
-  min-width: 0;
-  align-items: center;
-  overflow: hidden;
-  border-radius: var(--app-radius-lg);
-  background: var(--dream-secondary-surface);
-  box-shadow: none;
-  color: hsl(var(--foreground) / 0.68);
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -210,14 +205,14 @@
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar {
-  border-color: var(--dream-divider-subtle);
+  border-color: var(--app-workspace-divider-color);
   background:
     linear-gradient(180deg, var(--dream-accent-surface-muted), transparent 46%),
     hsl(var(--background) / 0.82);
-  box-shadow: inset -1px 0 0 hsl(var(--foreground) / 0.04);
+  box-shadow: none;
   color: hsl(var(--foreground));
-  -webkit-backdrop-filter: blur(22px) saturate(1.12);
-  backdrop-filter: blur(22px) saturate(1.12);
+  -webkit-backdrop-filter: var(--app-glass-regular-filter);
+  backdrop-filter: var(--app-glass-regular-filter);
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar::before {
@@ -225,9 +220,9 @@
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-default-sidebar.app-main-sidebar-reverse-shell {
-  border-color: transparent;
+  border-color: var(--app-workspace-divider-color);
   background: var(--app-main-shell-aba-surface);
-  box-shadow: inset -1px 0 0 hsl(var(--foreground) / 0.035);
+  box-shadow: none;
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-sidebar-action {
@@ -351,8 +346,8 @@
   background:
     linear-gradient(180deg, var(--dream-accent-surface-muted), transparent),
     var(--dream-header-surface);
-  -webkit-backdrop-filter: blur(22px) saturate(1.12);
-  backdrop-filter: blur(22px) saturate(1.12);
+  -webkit-backdrop-filter: var(--app-glass-regular-filter);
+  backdrop-filter: var(--app-glass-regular-filter);
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-page-footer {
@@ -361,14 +356,16 @@
   box-shadow: none;
 }
 
-:is(.app-dream-frame, .app-main-settings-frame) .app-main-list-pane,
-:is(.app-dream-frame, .app-main-settings-frame) .app-main-detail-pane {
-  border-color: var(--dream-divider-subtle);
-  background: hsl(var(--background));
-}
-
-:is(.app-dream-frame, .app-main-settings-frame) .app-main-list-pane {
-  background: var(--dream-page-surface);
+/* Legacy list/detail class names remain aliases for the transparent Primary
+ * surface only. Divider ownership belongs exclusively to the semantic
+ * app-workspace-primary-subpane--leading contract in layout-contract.css. */
+:is(.app-dream-frame, .app-main-settings-frame)
+  :is(.app-main-list-pane, .app-main-detail-pane) {
+  border-color: var(--app-workspace-divider-color);
+  background: var(--app-workspace-primary-subpane-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) :is(.app-main-completed-page, .app-main-pets-page, .app-main-app-sessions-page, .app-main-running-page, .app-sniff-desk-page) {
@@ -400,8 +397,8 @@
     hsl(var(--card) / 0.24);
   box-shadow:
     var(--dream-settings-card-shadow);
-  -webkit-backdrop-filter: blur(18px) saturate(1.1);
-  backdrop-filter: blur(18px) saturate(1.1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-completed-inline-detail[data-preview-presentation="true"] {
@@ -431,8 +428,8 @@
 :is(.app-dream-frame, .app-main-settings-frame) .app-completed-inline-detail-header {
   border-color: var(--app-settings-card-divider-color);
   background: hsl(var(--background) / 0.07);
-  -webkit-backdrop-filter: blur(14px) saturate(1.08);
-  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .app-completed-detail-cover {
@@ -460,8 +457,8 @@
 :is(.app-dream-frame, .app-main-settings-frame) .app-completed-detail-footer {
   border-color: var(--app-settings-card-divider-color);
   background: hsl(var(--background) / 0.06);
-  -webkit-backdrop-filter: blur(14px) saturate(1.08);
-  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card {
@@ -473,8 +470,8 @@
   isolation: isolate;
   clip-path: inset(0 round var(--app-radius-xl));
   -webkit-mask-image: -webkit-radial-gradient(white, black);
-  -webkit-backdrop-filter: blur(14px) saturate(1.08);
-  backdrop-filter: blur(14px) saturate(1.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 :is(.app-dream-frame, .app-main-settings-frame) .app-main-running-card .app-running-thumbnail-stage {
@@ -630,4 +627,11 @@
 :is(.app-dream-frame, .app-main-settings-frame) :is(.app-dream-button-group, .app-main-button-group) .app-completed-selection-action.text-destructive:hover {
   background: hsl(var(--destructive) / 0.11);
   color: hsl(var(--destructive));
+}
+.app-main-shell-layout {
+  background: transparent;
+}
+
+.app-sidebar-dropdown-item[aria-current="page"] {
+  background: hsl(var(--accent) / 0.6);
 }

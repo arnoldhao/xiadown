@@ -39,6 +39,9 @@ func (service *AppSessionsService) putSession(session *browserSession) *browserS
 	var replaced *browserSession
 	if currentID, ok := service.sessionsByApp[session.AppSessionID]; ok && currentID != session.ID {
 		replaced = service.sessions[currentID]
+		if replaced != nil {
+			replaced.Canceled = true
+		}
 		delete(service.sessions, currentID)
 	}
 	service.sessions[session.ID] = session
@@ -80,11 +83,122 @@ func (service *AppSessionsService) popSession(sessionID string) *browserSession 
 	if session == nil {
 		return nil
 	}
+	session.Canceled = true
 	delete(service.sessions, sessionID)
 	if currentID, ok := service.sessionsByApp[session.AppSessionID]; ok && currentID == sessionID {
 		delete(service.sessionsByApp, session.AppSessionID)
 	}
 	return session
+}
+
+func (service *AppSessionsService) popSessionForApp(appSessionID string) *browserSession {
+	if service == nil {
+		return nil
+	}
+	appSessionID = strings.TrimSpace(appSessionID)
+	if appSessionID == "" {
+		return nil
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	sessionID := service.sessionsByApp[appSessionID]
+	if sessionID == "" {
+		return nil
+	}
+	session := service.sessions[sessionID]
+	if session != nil {
+		session.Canceled = true
+	}
+	delete(service.sessions, sessionID)
+	delete(service.sessionsByApp, appSessionID)
+	return session
+}
+
+func (service *AppSessionsService) browserSessionCanceled(session *browserSession) bool {
+	if service == nil || session == nil {
+		return true
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return session.Canceled
+}
+
+func (service *AppSessionsService) credentialOperationEpoch(appSessionID string) uint64 {
+	if service == nil {
+		return 0
+	}
+	appSessionID = strings.TrimSpace(appSessionID)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.credentialEpochs == nil {
+		service.credentialEpochs = make(map[string]uint64)
+	}
+	return service.credentialEpochs[appSessionID]
+}
+
+func (service *AppSessionsService) credentialOperationCurrent(appSessionID string, expected uint64) bool {
+	if service == nil {
+		return false
+	}
+	appSessionID = strings.TrimSpace(appSessionID)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.credentialEpochs[appSessionID] == expected
+}
+
+func (service *AppSessionsService) invalidateCredentialOperations(appSessionID string) {
+	if service == nil {
+		return
+	}
+	appSessionID = strings.TrimSpace(appSessionID)
+	if appSessionID == "" {
+		return
+	}
+	service.mu.Lock()
+	if service.credentialEpochs == nil {
+		service.credentialEpochs = make(map[string]uint64)
+	}
+	next := service.credentialEpochs[appSessionID] + 1
+	if next == 0 {
+		next = 1
+	}
+	service.credentialEpochs[appSessionID] = next
+	service.mu.Unlock()
+}
+
+func (service *AppSessionsService) nextAccountVerificationEpoch(appSessionID string) uint64 {
+	if service == nil {
+		return 0
+	}
+	appSessionID = strings.TrimSpace(appSessionID)
+	if appSessionID == "" {
+		return 0
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.verificationEpochs == nil {
+		service.verificationEpochs = make(map[string]uint64)
+	}
+	next := service.verificationEpochs[appSessionID] + 1
+	if next == 0 {
+		next = 1
+	}
+	service.verificationEpochs[appSessionID] = next
+	return next
+}
+
+func (service *AppSessionsService) accountVerificationEpochCurrent(appSessionID string, expected uint64) bool {
+	if service == nil || expected == 0 {
+		return false
+	}
+	appSessionID = strings.TrimSpace(appSessionID)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.verificationEpochs[appSessionID] == expected
+}
+
+func (service *AppSessionsService) invalidateAccountVerification(appSessionID string) {
+	_ = service.nextAccountVerificationEpoch(appSessionID)
 }
 
 func (service *AppSessionsService) cleanupSession(session *browserSession) {

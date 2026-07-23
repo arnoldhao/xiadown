@@ -3,7 +3,7 @@
 package equalizeraudio
 
 /*
-#cgo darwin CFLAGS: -x objective-c -fblocks -mmacosx-version-min=10.15
+#cgo darwin CFLAGS: -x objective-c -fblocks -mmacosx-version-min=14.0
 #cgo darwin LDFLAGS: -framework ApplicationServices -framework AppKit -framework CoreAudio -framework CoreFoundation -framework CoreGraphics -framework Foundation -framework WebKit
 #include "native_darwin.h"
 */

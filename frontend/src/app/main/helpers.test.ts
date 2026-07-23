@@ -14,9 +14,37 @@ import {
   resolveCompletedPreviewKind,
   resolveCompletedTaskCoverURL,
   resolveCompletedTaskFileTypeSummaries,
+  resolveSiteKeyForDomain,
   resolveUnknownErrorMessage,
 } from "@/app/main/helpers";
 import { getXiaText } from "@/features/xiadown/shared";
+import { COMPLETED_DEFAULT_COVER_IMAGE_URLS } from "@/shared/assets/default-cover";
+
+describe("app session site resolution", () => {
+  test("routes Douyin domains to the dedicated Douyin session", () => {
+    expect(resolveSiteKeyForDomain("douyin.com")).toBe("douyin");
+    expect(resolveSiteKeyForDomain("www.douyin.com")).toBe("douyin");
+    expect(resolveSiteKeyForDomain("v.douyin.com")).toBe("douyin");
+    expect(resolveSiteKeyForDomain("live.douyin.com")).toBe("douyin");
+    expect(resolveSiteKeyForDomain("iesdouyin.com")).toBe("douyin");
+    expect(resolveSiteKeyForDomain("api.iesdouyin.com")).toBe("douyin");
+    expect(resolveSiteKeyForDomain("notdouyin.com")).toBe("");
+  });
+
+  test("routes Xiaohongshu and its aliases to the dedicated session", () => {
+    expect(resolveSiteKeyForDomain("xiaohongshu.com")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("www.xiaohongshu.com")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("edith.xiaohongshu.com")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("rednote.com")).toBe("china_private");
+    expect(resolveSiteKeyForDomain("xhs.cn")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("xhslink.com")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("www.xhslink.com")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("xhslink.cn")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("xhsurl.com")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("rl.ink")).toBe("xiaohongshu");
+    expect(resolveSiteKeyForDomain("notxiaohongshu.com")).toBe("");
+  });
+});
 
 describe("app error helpers", () => {
   test("resolves Wails JSON error payloads to readable messages", () => {
@@ -210,7 +238,7 @@ describe("completed preview helpers", () => {
         path: "/downloads/song.mp3",
         format: "MP3",
       }),
-    ).toBe("/completed-defaults/audio.jpg");
+    ).toBe(COMPLETED_DEFAULT_COVER_IMAGE_URLS.audio);
   });
 
   test("ignores missing thumbnail files when building completed covers", () => {

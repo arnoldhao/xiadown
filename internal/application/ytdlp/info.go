@@ -1,9 +1,11 @@
 package ytdlp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -15,6 +17,9 @@ func FetchInfo(ctx context.Context, options InfoOptions) (map[string]any, error)
 	targetURL := strings.TrimSpace(options.URL)
 	if targetURL == "" {
 		return nil, fmt.Errorf("yt-dlp url is required")
+	}
+	if err := ValidateNetworkURL(targetURL); err != nil {
+		return nil, fmt.Errorf("invalid yt-dlp URL: %w", err)
 	}
 	execPath := strings.TrimSpace(options.ExecPath)
 	if execPath == "" {
@@ -40,20 +45,43 @@ func FetchInfo(ctx context.Context, options InfoOptions) (map[string]any, error)
 	defer cancel()
 
 	command := exec.CommandContext(runCtx, execPath, args...)
+	command.Env = hermeticYTDLPEnvironment(os.Environ())
+	// FetchInfo is also allowed to spawn extractor helpers. Keep its complete
+	// process tree on the same stable gateway as full downloads instead of
+	// letting inherited HTTP_PROXY/NO_PROXY values select a second route.
+	if proxyURL := strings.TrimSpace(options.ProxyURL); proxyURL != "" {
+		command.Env = restrictedProxyEnvironment(command.Env, proxyURL)
+	}
 	command.WaitDelay = 2 * time.Second
 	ConfigureProcessGroup(command)
-	output, err := command.CombinedOutput()
+	var output bytes.Buffer
+	command.Stdout = &output
+	command.Stderr = &output
+	if err := command.Start(); err != nil {
+		if runCtx.Err() != nil {
+			return nil, runCtx.Err()
+		}
+		return nil, fmt.Errorf("start yt-dlp: %w", err)
+	}
+	stopProcessGroupKiller := StartProcessGroupKiller(
+		runCtx,
+		command,
+		command.WaitDelay,
+	)
+	err := command.Wait()
+	stopProcessGroupKiller()
+	outputBytes := output.Bytes()
 	if err != nil {
 		if runCtx.Err() != nil {
 			return nil, runCtx.Err()
 		}
-		detail := truncateOutput(output)
+		detail := truncateOutput(outputBytes)
 		if detail != "" {
 			return nil, fmt.Errorf("yt-dlp failed: %s", detail)
 		}
 		return nil, fmt.Errorf("yt-dlp failed: %w", err)
 	}
-	raw := strings.TrimSpace(string(output))
+	raw := strings.TrimSpace(output.String())
 	if raw == "" {
 		return nil, fmt.Errorf("yt-dlp info json not found")
 	}
@@ -107,7 +135,7 @@ func BuildInfoArgs(options InfoOptions, explicitToolArgs []string) []string {
 		args = append([]string{"--cookies", strings.TrimSpace(options.CookiesPath)}, args...)
 	}
 	args = append(args, strings.TrimSpace(options.URL))
-	return args
+	return HermeticArgs(args...)
 }
 
 func truncateOutput(output []byte) string {

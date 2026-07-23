@@ -34,6 +34,8 @@ type FaviconCache struct {
 const (
 	defaultFaviconMemoryEntries  = 256
 	defaultFaviconMissingEntries = 512
+	maxFaviconBytes              = int64(1 << 20)
+	maxFaviconErrorBodyBytes     = int64(4 << 10)
 )
 
 func NewFaviconCache() *FaviconCache {
@@ -80,7 +82,7 @@ func (cache *FaviconCache) ResolveDomainIcon(ctx context.Context, domain string)
 
 	if cache.baseDir != "" {
 		path := cache.iconPath(normalized)
-		if data, err := os.ReadFile(path); err == nil {
+		if data, err := readFaviconFile(path); err == nil {
 			icon := dataToDataURI(data)
 			cache.storeIcon(normalized, icon)
 			return icon, nil
@@ -125,7 +127,7 @@ func (cache *FaviconCache) ResolveDomainIconCached(ctx context.Context, domain s
 
 	if cache.baseDir != "" {
 		path := cache.iconPath(normalized)
-		if data, err := os.ReadFile(path); err == nil {
+		if data, err := readFaviconFile(path); err == nil {
 			icon := dataToDataURI(data)
 			cache.storeIcon(normalized, icon)
 			return icon, true
@@ -159,10 +161,41 @@ func (cache *FaviconCache) fetchFavicon(ctx context.Context, domain string) ([]b
 	defer response.Body.Close()
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusBadRequest {
-		body, _ := io.ReadAll(response.Body)
+		body, _ := io.ReadAll(io.LimitReader(response.Body, maxFaviconErrorBodyBytes))
 		return nil, fmt.Errorf("favicon request failed: %s", strings.TrimSpace(string(body)))
 	}
-	return io.ReadAll(response.Body)
+	if response.ContentLength > maxFaviconBytes {
+		return nil, fmt.Errorf("favicon response exceeds %d byte limit", maxFaviconBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxFaviconBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxFaviconBytes {
+		return nil, fmt.Errorf("favicon response exceeds %d byte limit", maxFaviconBytes)
+	}
+	return data, nil
+}
+
+func readFaviconFile(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	if info, statErr := file.Stat(); statErr != nil {
+		return nil, statErr
+	} else if info.Size() > maxFaviconBytes {
+		return nil, fmt.Errorf("cached favicon exceeds %d byte limit", maxFaviconBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxFaviconBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxFaviconBytes {
+		return nil, fmt.Errorf("cached favicon exceeds %d byte limit", maxFaviconBytes)
+	}
+	return data, nil
 }
 
 func (cache *FaviconCache) iconPath(domain string) string {

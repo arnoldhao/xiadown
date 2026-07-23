@@ -37,6 +37,8 @@ func (stub *ytdlpFailureToolResolverStub) DependencyReadiness(_ context.Context,
 }
 
 func TestCheckYTDLPVersionAcceptsVersionOutputEvenWhenProcessReturnsError(t *testing.T) {
+	t.Setenv("YTDLP_NO_PLUGINS", "0")
+	t.Setenv("PYTHONNOUSERSITE", "0")
 	execPath := writeVersionScript(t, "2026.03.17", true)
 	service := &LibraryService{
 		tools: &ytdlpFailureToolResolverStub{execPath: execPath},
@@ -66,7 +68,15 @@ func writeVersionScript(t *testing.T, version string, fail bool) string {
 	tempDir := t.TempDir()
 	if runtime.GOOS == "windows" {
 		path := filepath.Join(tempDir, "yt-dlp.cmd")
-		content := "@echo off\r\necho " + version + "\r\n"
+		content := "@echo off\r\n" +
+			"if not \"%~1\"==\"--ignore-config\" exit /b 2\r\n" +
+			"if not \"%~2\"==\"--no-config-locations\" exit /b 2\r\n" +
+			"if not \"%~3\"==\"--no-plugin-dirs\" exit /b 2\r\n" +
+			"if not \"%~4\"==\"--no-exec\" exit /b 2\r\n" +
+			"if not \"%~5\"==\"--version\" exit /b 2\r\n" +
+			"if not \"%YTDLP_NO_PLUGINS%\"==\"1\" exit /b 3\r\n" +
+			"if not \"%PYTHONNOUSERSITE%\"==\"1\" exit /b 3\r\n" +
+			"echo " + version + "\r\n"
 		if fail {
 			content += "exit /b 1\r\n"
 		} else {
@@ -79,7 +89,15 @@ func writeVersionScript(t *testing.T, version string, fail bool) string {
 	}
 
 	path := filepath.Join(tempDir, "yt-dlp")
-	content := "#!/bin/sh\n" + "echo \"" + version + "\"\n"
+	content := "#!/bin/sh\n" +
+		"[ \"$1\" = \"--ignore-config\" ] || exit 2\n" +
+		"[ \"$2\" = \"--no-config-locations\" ] || exit 2\n" +
+		"[ \"$3\" = \"--no-plugin-dirs\" ] || exit 2\n" +
+		"[ \"$4\" = \"--no-exec\" ] || exit 2\n" +
+		"[ \"$5\" = \"--version\" ] || exit 2\n" +
+		"[ \"$YTDLP_NO_PLUGINS\" = \"1\" ] || exit 3\n" +
+		"[ \"$PYTHONNOUSERSITE\" = \"1\" ] || exit 3\n" +
+		"echo \"" + version + "\"\n"
 	if fail {
 		content += "exit 1\n"
 	} else {

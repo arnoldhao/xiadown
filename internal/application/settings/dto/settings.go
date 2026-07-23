@@ -95,15 +95,22 @@ type SystemProxyInfo struct {
 }
 
 type SniffProfileRequest struct {
-	Browser string `json:"browser,omitempty"`
+	ProfileID   string `json:"profileId,omitempty"`
+	Browser     string `json:"browser,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 type SniffProfileInfo struct {
+	ProfileID      string `json:"profileId"`
+	DisplayName    string `json:"displayName"`
 	Browser        string `json:"browser"`
+	IsDefault      bool   `json:"isDefault,omitempty"`
+	Redundant      bool   `json:"redundant,omitempty"`
 	Exists         bool   `json:"exists"`
 	SizeBytes      int64  `json:"sizeBytes"`
 	FileCount      int    `json:"fileCount"`
 	DirectoryCount int    `json:"directoryCount"`
+	LastUsedAt     string `json:"lastUsedAt,omitempty"`
 	Truncated      bool   `json:"truncated,omitempty"`
 	Error          string `json:"error,omitempty"`
 }

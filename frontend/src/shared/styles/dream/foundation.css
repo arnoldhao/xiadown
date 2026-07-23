@@ -1,0 +1,319 @@
+/* Global palette, document chrome, typography, focus, and platform foundation. */
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --background: 210 20% 98%;
+    --foreground: 215 28% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+
+    --app-accent-brand: 243 75% 59%;
+    --app-accent-text: 243 62% 42%;
+    --app-accent-solid: 243 62% 46%;
+    --app-accent-on-solid: 0 0% 100%;
+    --app-accent-surface: 243 85% 97%;
+    --app-accent-ring: 243 68% 48%;
+
+    --primary: var(--app-accent-solid);
+    --primary-foreground: var(--app-accent-on-solid);
+
+    --secondary: 210 14% 96%;
+    --secondary-foreground: 215 28% 17%;
+
+    --muted: 210 14% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: var(--app-accent-surface);
+    --accent-foreground: 243 75% 35%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 14% 90%;
+    --input: 214 14% 90%;
+    --ring: var(--app-accent-ring);
+    --tray-control-color: 243 51% 70%;
+    --tray-control-foreground: 240 5% 10%;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: var(--app-accent-solid);
+    --sidebar-primary-foreground: var(--app-accent-on-solid);
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: var(--app-accent-ring);
+
+    --chart-1: 173 58% 39%;
+    --chart-2: 12 76% 61%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    --background: 240 3% 6%;
+    --foreground: 60 5% 98%;
+
+    --card: 240 4% 10%;
+    --card-foreground: 60 5% 98%;
+
+    --popover: 240 4% 10%;
+    --popover-foreground: 60 5% 98%;
+
+    --app-accent-brand: 234 94% 74%;
+    --app-accent-text: 234 94% 78%;
+    --app-accent-solid: 234 82% 74%;
+    --app-accent-on-solid: 240 5% 10%;
+    --app-accent-surface: 240 4% 14%;
+    --app-accent-ring: 234 94% 74%;
+
+    --primary: var(--app-accent-solid);
+    --primary-foreground: var(--app-accent-on-solid);
+
+    --secondary: 240 4% 14%;
+    --secondary-foreground: 60 5% 98%;
+
+    --muted: 240 4% 14%;
+    --muted-foreground: 240 5% 65%;
+
+    --accent: var(--app-accent-surface);
+    --accent-foreground: 60 5% 98%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: var(--app-accent-ring);
+    --tray-control-color: 234 58% 58%;
+    --tray-control-foreground: 0 0% 100%;
+
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: var(--app-accent-solid);
+    --sidebar-primary-foreground: var(--app-accent-on-solid);
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: var(--app-accent-ring);
+
+    --chart-1: 173 58% 39%;
+    --chart-2: 12 76% 61%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  :where(
+    button,
+    a[href],
+    summary,
+    input,
+    select,
+    textarea,
+    [contenteditable="true"],
+    [role="button"],
+    [role="link"],
+    [role="menuitem"],
+    [role="option"],
+    [role="switch"],
+    [role="tab"],
+    [tabindex]
+  ) {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Pointer focus is still real DOM focus, but it should not inherit WebKit's
+     browser halo. Text-editing controls are intentionally excluded. */
+  :root[data-input-modality="pointer"]
+    :where(
+      button,
+      a[href],
+      summary,
+      input:is(
+        [type="button"],
+        [type="checkbox"],
+        [type="radio"],
+        [type="range"],
+        [type="reset"],
+        [type="submit"]
+      ),
+      [role="button"],
+      [role="link"],
+      [role="menuitem"],
+      [role="option"],
+      [role="switch"],
+      [role="tab"],
+      [tabindex]:not(:is(input, select, textarea, [contenteditable="true"]))
+    ):is(:focus, :focus-visible) {
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    outline: none !important;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.4) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.4);
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.6);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  html {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    height: 100%;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--app-font-body);
+
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /*
+   * Desktop UX policy: app chrome and static labels are non-selectable by default.
+   * Explicitly copyable/editable content opts back into text selection.
+   */
+  :where(button, label, nav, [role="button"], [role="tab"], [role="switch"], [role="menuitem"]) {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  :where(
+    input,
+    textarea,
+    [contenteditable="true"],
+    [contenteditable="true"] *,
+    pre,
+    pre *,
+    code,
+    code *,
+    kbd,
+    samp,
+    .select-text,
+    .select-text *,
+    [data-allow-select="true"],
+    [data-allow-select="true"] *
+  ) {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  @media (forced-colors: active) {
+    :root:not([data-input-modality="pointer"])
+      :where(
+        button,
+        a[href],
+        summary,
+        [role="button"],
+        [role="link"],
+        [role="menuitem"],
+        [role="option"],
+        [role="switch"],
+        [role="tab"],
+        [tabindex]:not(:is(input, select, textarea, [contenteditable="true"]))
+      ):focus-visible {
+      outline: 2px solid Highlight !important;
+      outline-offset: -2px !important;
+    }
+  }
+
+  #root {
+    min-height: 100%;
+    background-color: hsl(var(--background));
+  }
+
+  /* Eligible real macOS/Windows WebViews receive native material mode.
+   * Clearing every document paint layer is required for the Wails Liquid
+   * Glass/Acrylic underlay to reach the app-owned surface root. */
+  :root[data-window-material="native"],
+  :root[data-window-material="native"] body,
+  :root[data-window-material="native"] #root {
+    background: transparent;
+  }
+
+  :root[data-window="tray-miniplayer"],
+  :root[data-window="tray-miniplayer"] body,
+  :root[data-window="tray-miniplayer"] #root {
+    --tray-mini-player-radius: 22px;
+    background: transparent !important;
+    border-radius: var(--tray-mini-player-radius);
+    clip-path: inset(0 round var(--tray-mini-player-radius));
+    overflow: hidden;
+  }
+
+  :root[data-window="tray-miniplayer"][data-platform="windows"],
+  :root[data-window="tray-miniplayer"][data-platform="windows"] body,
+  :root[data-window="tray-miniplayer"][data-platform="windows"] #root {
+    --tray-mini-player-radius: 0px;
+    background: hsl(var(--tray-control-color)) !important;
+    clip-path: none;
+  }
+
+  :root[data-window="tray-miniplayer"][data-platform="windows"] .tray-mini-player-root {
+    background: hsl(var(--tray-control-color)) !important;
+    border-radius: 0 !important;
+    clip-path: none !important;
+  }
+
+  :root[data-window="tray-miniplayer"] {
+    width: 100%;
+    height: 100%;
+  }
+
+  :root[data-window="tray-miniplayer"] body,
+  :root[data-window="tray-miniplayer"] #root {
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* Improve number input spinner visibility in dark mode */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    margin: 0;
+  }
+  .dark input[type="number"]::-webkit-inner-spin-button,
+  .dark input[type="number"]::-webkit-outer-spin-button {
+    filter: invert(1);
+  }
+}

@@ -15,6 +15,19 @@ import (
 	"go.uber.org/zap"
 )
 
+func managedNetworkRouteForLiveTest(t *testing.T) *ManagedNetworkRoute {
+	t.Helper()
+	route := &ManagedNetworkRoute{
+		ProxyURL:         strings.TrimSpace(os.Getenv("XIADOWN_BROWSER_PROXY_URL")),
+		AttestationURL:   strings.TrimSpace(os.Getenv("XIADOWN_BROWSER_ATTESTATION_URL")),
+		AttestationToken: strings.TrimSpace(os.Getenv("XIADOWN_BROWSER_ATTESTATION_TOKEN")),
+	}
+	if route.ProxyURL == "" || route.AttestationURL == "" || route.AttestationToken == "" {
+		t.Fatal("live remote browser tests require XIADOWN_BROWSER_PROXY_URL, XIADOWN_BROWSER_ATTESTATION_URL, and XIADOWN_BROWSER_ATTESTATION_TOKEN")
+	}
+	return route
+}
+
 func TestSessionOpenLive(t *testing.T) {
 	if os.Getenv("XIADOWN_BROWSER_OPEN_LIVE") != "1" {
 		t.Skip("set XIADOWN_BROWSER_OPEN_LIVE=1 to run the live browser open probe")
@@ -46,6 +59,7 @@ func TestSessionOpenLive(t *testing.T) {
 		ProfileName:      "xiadown",
 		PreferredBrowser: strings.TrimSpace(status.ChosenBrowser),
 		Headless:         true,
+		NetworkRoute:     managedNetworkRouteForLiveTest(t),
 	})
 	defer session.stop()
 
@@ -159,6 +173,7 @@ func TestSessionWorkflowLive(t *testing.T) {
 		ProfileName:      "xiadown",
 		PreferredBrowser: strings.TrimSpace(status.ChosenBrowser),
 		Headless:         true,
+		LoopbackOnly:     true,
 		SSRFRules: SSRFPolicy{
 			DangerouslyAllowPrivateNetwork: true,
 		},
@@ -294,6 +309,7 @@ func TestSessionBaiduSearchLive(t *testing.T) {
 		ProfileName:      "xiadown",
 		PreferredBrowser: strings.TrimSpace(status.ChosenBrowser),
 		Headless:         headless,
+		NetworkRoute:     managedNetworkRouteForLiveTest(t),
 	})
 	defer session.stop()
 

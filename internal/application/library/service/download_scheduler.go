@@ -16,37 +16,53 @@ func (service *LibraryService) NotifyDownloadScheduler() {
 }
 
 func (service *LibraryService) signalDownloadScheduler() {
-	if service == nil || service.operations == nil {
+	if service == nil || service.operations == nil || service.isShuttingDown() {
 		return
 	}
 	service.downloadSchedulerMu.Lock()
+	if service.isShuttingDown() {
+		service.downloadSchedulerMu.Unlock()
+		return
+	}
 	if service.downloadSchedulerRunning {
 		service.downloadSchedulerPending = true
 		service.downloadSchedulerMu.Unlock()
 		return
 	}
 	service.downloadSchedulerRunning = true
+	service.downloadSchedulerDone = make(chan struct{})
 	service.downloadSchedulerMu.Unlock()
 	go service.runDownloadScheduler(context.Background())
 }
 
 func (service *LibraryService) runDownloadScheduler(ctx context.Context) {
 	for {
-		service.drainDownloadScheduler(ctx)
+		if !service.isShuttingDown() {
+			service.drainDownloadScheduler(ctx)
+		}
 		service.downloadSchedulerMu.Lock()
-		if service.downloadSchedulerPending {
+		if service.downloadSchedulerPending && !service.isShuttingDown() {
 			service.downloadSchedulerPending = false
 			service.downloadSchedulerMu.Unlock()
 			continue
 		}
 		service.downloadSchedulerRunning = false
+		service.downloadSchedulerPending = false
+		done := service.downloadSchedulerDone
+		service.downloadSchedulerDone = nil
 		service.downloadSchedulerMu.Unlock()
+		if done != nil {
+			close(done)
+		}
 		return
 	}
 }
 
 func (service *LibraryService) drainDownloadScheduler(ctx context.Context) {
 	for {
+		if service.isShuttingDown() {
+			return
+		}
 		limit := service.resolveYTDLPConcurrentDownloads(ctx)
 		if !service.downloadSchedulerHasCapacity(limit) {
 			return
@@ -58,7 +74,27 @@ func (service *LibraryService) drainDownloadScheduler(ctx context.Context) {
 		if !service.reserveDownloadSchedulerSlot(operation.ID, limit) {
 			return
 		}
+		if service.isShuttingDown() {
+			service.releaseDownloadSchedulerSlot(operation.ID)
+			return
+		}
 		go service.runScheduledDownloadOperation(operation, history, request)
+	}
+}
+
+func (service *LibraryService) waitDownloadScheduler(ctx context.Context) {
+	if service == nil {
+		return
+	}
+	service.downloadSchedulerMu.Lock()
+	done := service.downloadSchedulerDone
+	service.downloadSchedulerMu.Unlock()
+	if done == nil {
+		return
+	}
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 

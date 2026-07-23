@@ -372,13 +372,15 @@ func TestListenSearchHandlerEnrichesMissingDurations(t *testing.T) {
 
 func TestListenArtistHandlerServesArtistBrowse(t *testing.T) {
 	handler := NewListenArtistHandler(fakeListenMusicClient{artistPage: youtubemusic.ArtistPage{
-		ID:            "UCsuperlofi",
-		Title:         "Super Lofi World",
-		Subtitle:      "1.2M monthly listeners",
-		ThumbnailURL:  "https://lh3.googleusercontent.com/artist",
-		ChannelID:     "UCsuperlofi",
-		IsSubscribed:  true,
-		MixPlaylistID: "RDARTISTsuperlofi",
+		ID:               "UCsuperlofi",
+		Title:            "Super Lofi World",
+		Subtitle:         "1.2M monthly listeners",
+		Description:      "Warm beats for quiet nights.",
+		ThumbnailURL:     "https://lh3.googleusercontent.com/artist",
+		HeroThumbnailURL: "https://lh3.googleusercontent.com/artist-banner",
+		ChannelID:        "UCsuperlofi",
+		IsSubscribed:     true,
+		MixPlaylistID:    "RDARTISTsuperlofi",
 		Tracks: []youtubemusic.Track{{
 			VideoID:        "TESTVID007G",
 			Title:          "Lofi Mix",
@@ -407,7 +409,7 @@ func TestListenArtistHandlerServesArtistBrowse(t *testing.T) {
 		t.Fatalf("expected 200, got %d", recorder.Result().StatusCode)
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, `"title":"Super Lofi World"`) || !strings.Contains(body, `"subtitle":"1.2M monthly listeners"`) || !strings.Contains(body, `"thumbnailUrl":"https://lh3.googleusercontent.com/artist"`) || !strings.Contains(body, `"channelId":"UCsuperlofi"`) || !strings.Contains(body, `"isSubscribed":true`) || !strings.Contains(body, `"mixPlaylistId":"RDARTISTsuperlofi"`) || !strings.Contains(body, `"id":"ytmusic-artist-TESTVID007G"`) || !strings.Contains(body, `"shelves"`) || !strings.Contains(body, `"Top songs"`) || !strings.Contains(body, `"hasVideo":true`) {
+	if !strings.Contains(body, `"title":"Super Lofi World"`) || !strings.Contains(body, `"subtitle":"1.2M monthly listeners"`) || !strings.Contains(body, `"description":"Warm beats for quiet nights."`) || !strings.Contains(body, `"thumbnailUrl":"https://lh3.googleusercontent.com/artist"`) || !strings.Contains(body, `"heroThumbnailUrl":"https://lh3.googleusercontent.com/artist-banner"`) || !strings.Contains(body, `"channelId":"UCsuperlofi"`) || !strings.Contains(body, `"isSubscribed":true`) || !strings.Contains(body, `"mixPlaylistId":"RDARTISTsuperlofi"`) || !strings.Contains(body, `"id":"ytmusic-artist-TESTVID007G"`) || !strings.Contains(body, `"shelves"`) || !strings.Contains(body, `"Top songs"`) || !strings.Contains(body, `"hasVideo":true`) {
 		t.Fatalf("unexpected body: %s", body)
 	}
 }

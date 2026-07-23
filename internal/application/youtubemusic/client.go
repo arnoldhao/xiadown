@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	appcookies "xiadown/internal/application/cookies"
+	"xiadown/internal/application/youtubecookies"
 	"xiadown/internal/domain/appsessions"
 )
 
@@ -45,6 +47,8 @@ var (
 	ErrAuthExpired        = errors.New("youtube music auth expired")
 	ErrRequestTimedOut    = errors.New("youtube music request timed out")
 	ErrNetworkUnavailable = errors.New("youtube music network unavailable")
+	ErrBrowseUnavailable  = errors.New("youtube music browse unavailable")
+	ErrRegionUnavailable  = errors.New("youtube music is unavailable in this region")
 
 	videoIDPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 	durationLabelPattern = regexp.MustCompile(`^\d{1,2}:\d{2}(?::\d{2})?$`)
@@ -70,11 +74,15 @@ type Client struct {
 	lyricsMu           sync.Mutex
 	lyricsCache        map[string]lyricsCacheEntry
 	lyricsInFlight     map[string]*lyricsFetchCall
+	amllCatalogMu      sync.Mutex
+	amllCatalog        amllCatalogSnapshot
+	amllCatalogCall    *amllCatalogFetchCall
 }
 
 type requestOptions struct {
 	cacheTTL             time.Duration
 	retryTransientStatus bool
+	skipCacheLookup      bool
 }
 
 type requestCacheEntry struct {
@@ -385,6 +393,16 @@ func (client *Client) requestRead(ctx context.Context, endpoint string, body map
 	})
 }
 
+// requestReadFresh bypasses a matching read-cache entry while preserving the
+// normal retry policy and replacing that entry with the fresh response.
+func (client *Client) requestReadFresh(ctx context.Context, endpoint string, body map[string]any) (map[string]any, error) {
+	return client.requestWithOptions(ctx, endpoint, body, requestOptions{
+		cacheTTL:             readRequestCacheTTL,
+		retryTransientStatus: true,
+		skipCacheLookup:      true,
+	})
+}
+
 func (client *Client) requestWithOptions(ctx context.Context, endpoint string, body map[string]any, options requestOptions) (map[string]any, error) {
 	if client == nil {
 		return nil, fmt.Errorf("youtube music client is nil")
@@ -401,11 +419,28 @@ func (client *Client) requestWithOptions(ctx context.Context, endpoint string, b
 	if err != nil {
 		return nil, err
 	}
+	// Read responses are account-specific. Authenticate before cache lookup so a
+	// signed-out client can never reuse a previous account's cached response.
+	headers, err := client.authHeaders(ctx)
+	if err != nil {
+		return nil, err
+	}
 	cacheKey := ""
 	if options.cacheTTL > 0 {
-		cacheKey = client.requestCacheKey(endpoint, locale, payload)
-		if data, ok := client.cachedRequest(cacheKey); ok {
-			return data, nil
+		cacheKey = client.requestCacheKey(
+			endpoint,
+			locale,
+			payload,
+			headers["Cookie"],
+		)
+		if !options.skipCacheLookup {
+			if data, ok := client.cachedRequest(cacheKey); ok {
+				if interstitialErr := homeBrowseInterstitialError(endpoint, body, data); interstitialErr != nil {
+					client.deleteCachedRequest(cacheKey)
+					return nil, interstitialErr
+				}
+				return data, nil
+			}
 		}
 	}
 
@@ -417,11 +452,6 @@ func (client *Client) requestWithOptions(ctx context.Context, endpoint string, b
 	query.Set("key", apiKey)
 	query.Set("prettyPrint", "false")
 	requestURL.RawQuery = query.Encode()
-
-	headers, err := client.authHeaders(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	var result map[string]any
 	for attempt := 0; ; attempt++ {
@@ -435,6 +465,9 @@ func (client *Client) requestWithOptions(ctx context.Context, endpoint string, b
 	}
 	if err != nil {
 		return nil, err
+	}
+	if interstitialErr := homeBrowseInterstitialError(endpoint, body, result); interstitialErr != nil {
+		return nil, interstitialErr
 	}
 	if cacheKey != "" {
 		client.setCachedRequest(cacheKey, result, options.cacheTTL)
@@ -475,9 +508,17 @@ func (client *Client) doRequest(ctx context.Context, requestURL string, payload 
 	return result, nil
 }
 
-func (client *Client) requestCacheKey(endpoint string, locale string, payload []byte) string {
-	hash := sha1.Sum(payload)
-	return strings.Trim(endpoint, "/") + "\x00" + NormalizeLocale(locale) + "\x00" + fmt.Sprintf("%x", hash)
+func (client *Client) requestCacheKey(endpoint string, locale string, payload []byte, cookieHeader string) string {
+	payloadHash := sha1.Sum(payload)
+	// Keep raw credentials out of cache keys while isolating entries by the
+	// exact cookie set that authenticated the request.
+	authHash := sha256.Sum256([]byte(cookieHeader))
+	return strings.Join([]string{
+		strings.Trim(endpoint, "/"),
+		NormalizeLocale(locale),
+		fmt.Sprintf("%x", authHash),
+		fmt.Sprintf("%x", payloadHash),
+	}, "\x00")
 }
 
 func (client *Client) cachedRequest(key string) (map[string]any, bool) {
@@ -538,6 +579,15 @@ func (client *Client) clearRequestCache() {
 	client.requestCache = make(map[string]requestCacheEntry)
 }
 
+func (client *Client) deleteCachedRequest(key string) {
+	if client == nil || key == "" {
+		return
+	}
+	client.requestCacheMu.Lock()
+	defer client.requestCacheMu.Unlock()
+	delete(client.requestCache, key)
+}
+
 func (client *Client) pruneRequestCacheLocked(now time.Time) {
 	for key, entry := range client.requestCache {
 		if !entry.expiresAt.After(now) {
@@ -572,13 +622,16 @@ func waitYouTubeMusicRetry(ctx context.Context, attempt int) error {
 	}
 }
 
-func readRequestRetryDelays() []time.Duration {
+var readRequestRetryDelays = func() []time.Duration {
 	return []time.Duration{150 * time.Millisecond, 450 * time.Millisecond}
 }
 
 func isTransientYouTubeMusicRequestError(err error) bool {
 	if err == nil || errors.Is(err, ErrAuthExpired) || errors.Is(err, ErrNotAuthenticated) {
 		return false
+	}
+	if errors.Is(err, ErrRequestTimedOut) || errors.Is(err, ErrNetworkUnavailable) {
+		return true
 	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	return strings.Contains(lower, "youtube music api status 429") ||
@@ -613,16 +666,15 @@ func (client *Client) authHeaders(ctx context.Context) (map[string]string, error
 		}
 		return nil, err
 	}
-	matched := appcookies.MatchURL(records, origin+"/")
-	if len(matched) == 0 {
-		return nil, ErrNotAuthenticated
-	}
-
 	now := client.now
 	if now == nil {
 		now = time.Now
 	}
 	currentTime := now()
+	matched := youtubecookies.Runtime(appcookies.MatchURL(records, origin+"/"), currentTime)
+	if len(matched) == 0 {
+		return nil, ErrNotAuthenticated
+	}
 	cookieHeader := buildCookieHeader(matched, currentTime)
 	if cookieHeader == "" {
 		return nil, ErrNotAuthenticated
@@ -728,6 +780,14 @@ func isRequestNetworkError(err error) bool {
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return true
 	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return true
+	}
+	var operationErr *net.OpError
+	if errors.As(err, &operationErr) {
+		return true
+	}
 	lower := strings.ToLower(strings.TrimSpace(err.Error()))
 	if lower == "" {
 		return false
@@ -741,9 +801,22 @@ func isRequestNetworkError(err error) bool {
 		"connection refused",
 		"connection reset",
 		"connection closed",
+		"connection aborted",
+		"connection terminated",
+		"broken pipe",
+		"use of closed network connection",
 		"unexpected eof",
 		"temporary failure",
 		"dial tcp",
+		"proxyconnect tcp",
+		"server misbehaving",
+		"transport connection broken",
+		"http2: client connection lost",
+		"remote error: tls",
+		"tls: handshake failure",
+		"tls: internal error",
+		"tls: bad record mac",
+		"first record does not look like a tls handshake",
 	} {
 		if strings.Contains(lower, marker) {
 			return true
@@ -1533,7 +1606,7 @@ func albumRunFromFlexColumns(flexColumns []map[string]any) string {
 				continue
 			}
 			trimmed := strings.TrimSpace(run.Text)
-			if trimmed == "" || isSeparatorText(trimmed) || isKasetContentTypeKeyword(trimmed) {
+			if trimmed == "" || isSeparatorText(trimmed) || isMediaContentTypeLabel(trimmed) {
 				continue
 			}
 			return trimmed
@@ -1550,7 +1623,7 @@ func artistRuns(values []textRun) []textRun {
 			continue
 		}
 		trimmed := strings.TrimSpace(run.Text)
-		if trimmed == "" || isSeparatorText(trimmed) || isKasetContentTypeKeyword(trimmed) {
+		if trimmed == "" || isSeparatorText(trimmed) || isMediaContentTypeLabel(trimmed) {
 			continue
 		}
 		artists = append(artists, textRun{Text: trimmed, BrowseID: browseID})
@@ -1616,7 +1689,7 @@ func isReleaseYearText(value string) bool {
 	return releaseYearPattern.MatchString(strings.TrimSpace(value))
 }
 
-func isKasetContentTypeKeyword(value string) bool {
+func isMediaContentTypeLabel(value string) bool {
 	switch value {
 	case "Song", "Video", "Album", "Playlist", "Artist", "Episode", "Podcast":
 		return true

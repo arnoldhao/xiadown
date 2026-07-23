@@ -69,6 +69,59 @@ func TestForSiteKeyChinaPrivateUsesProfileScope(t *testing.T) {
 	}
 }
 
+func TestForSiteKeyDouyinUsesCookieScope(t *testing.T) {
+	t.Parallel()
+
+	policy, ok := ForSiteKey("douyin")
+	if !ok {
+		t.Fatalf("expected douyin site policy")
+	}
+	for _, rawURL := range []string{
+		"https://www.douyin.com/video/123",
+		"https://v.douyin.com/example/",
+		"https://www.iesdouyin.com/share/video/123/",
+	} {
+		if !MatchDomains(rawURL, policy.Domains) {
+			t.Fatalf("expected douyin cookie policy to match %s", rawURL)
+		}
+		resolved, matched := ForURL(rawURL)
+		if !matched || resolved.SiteKey != "douyin" {
+			t.Fatalf("expected douyin URL to resolve to cookie policy, got %#v", resolved)
+		}
+	}
+	if !policyHasCapabilityForTest(policy, "cookies") {
+		t.Fatal("expected douyin policy to support cookies")
+	}
+}
+
+func TestForSiteKeyXiaohongshuUsesCookieScopeWithoutRedNote(t *testing.T) {
+	t.Parallel()
+
+	policy, ok := ForSiteKey("xiaohongshu")
+	if !ok {
+		t.Fatal("expected xiaohongshu site policy")
+	}
+	for _, rawURL := range []string{
+		"https://www.xiaohongshu.com/explore/123",
+		"https://edith.xiaohongshu.com/api/sns/web/v2/user/me",
+		"https://xhslink.com/a/example",
+	} {
+		if !MatchDomains(rawURL, policy.Domains) {
+			t.Fatalf("expected xiaohongshu policy to match %s", rawURL)
+		}
+		resolved, matched := ForURL(rawURL)
+		if !matched || resolved.SiteKey != "xiaohongshu" {
+			t.Fatalf("expected xiaohongshu URL to resolve to its cookie policy, got %#v", resolved)
+		}
+	}
+	if MatchDomains("https://www.rednote.com/explore/123", policy.Domains) {
+		t.Fatal("RedNote must remain outside the mainland Xiaohongshu session")
+	}
+	if !policyHasCapabilityForTest(policy, "cookies") {
+		t.Fatal("expected xiaohongshu policy to support cookies")
+	}
+}
+
 func TestForURLMatchesNewBuiltinSites(t *testing.T) {
 	t.Parallel()
 
@@ -76,11 +129,11 @@ func TestForURLMatchesNewBuiltinSites(t *testing.T) {
 		"https://www.youtube.com/watch?v=test":         "youtube",
 		"https://www.bilibili.com/video/BV1xx411c7mD/": "bilibili",
 		"https://www.tiktok.com/@creator/video/123":    "tiktok",
-		"https://www.douyin.com/video/123":             "china_private",
-		"https://www.iesdouyin.com/share/video/123/":   "china_private",
-		"https://www.xiaohongshu.com/explore/123":      "china_private",
+		"https://www.douyin.com/video/123":             "douyin",
+		"https://www.iesdouyin.com/share/video/123/":   "douyin",
+		"https://www.xiaohongshu.com/explore/123":      "xiaohongshu",
 		"https://www.rednote.com/explore/123":          "china_private",
-		"https://xhslink.com/a/example":                "china_private",
+		"https://xhslink.com/a/example":                "xiaohongshu",
 		"https://www.instagram.com/reel/abc/":          "instagram",
 		"https://x.com/example/status/1":               "x",
 		"https://www.facebook.com/watch/?v=123":        "facebook",
@@ -98,4 +151,13 @@ func TestForURLMatchesNewBuiltinSites(t *testing.T) {
 			t.Fatalf("expected policy %q for %s, got %q", expected, rawURL, policy.Key)
 		}
 	}
+}
+
+func policyHasCapabilityForTest(policy Policy, capability string) bool {
+	for _, current := range policy.Capabilities {
+		if current == capability {
+			return true
+		}
+	}
+	return false
 }

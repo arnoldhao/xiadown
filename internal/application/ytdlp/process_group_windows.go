@@ -16,8 +16,8 @@ func ConfigureProcessGroup(cmd *exec.Cmd) {
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
-		HideWindow:    true,
 	}
+	processutil.ConfigureCLI(cmd)
 }
 
 func processGroupID(cmd *exec.Cmd) int {

@@ -1,20 +1,17 @@
-import { Events, System } from "@wailsio/runtime";
+import { Events } from "@wailsio/runtime";
 import {
   AlertCircle,
   CircleOff,
-  ExternalLink,
-  Link2,
+  CloudSync,
   Loader2,
+  LogIn,
   LogOut,
   RefreshCw,
-  Search,
   ShieldCheck,
   Trash2,
 } from "lucide-react";
 import * as React from "react";
 
-import { WindowControls } from "@/components/layout/WindowControls";
-import { cn } from "@/lib/utils";
 import type {
   AppSession,
   AppSessionAccount,
@@ -27,8 +24,8 @@ import {
   useAppSessionConnectSession,
   useAppSessions,
   useClearAppSession,
-  useOpenAppSessionSite,
   useStartAppSessionConnect,
+  useVerifyAppSession,
 } from "@/shared/query/appSessions";
 import { Button } from "@/shared/ui/button";
 import {
@@ -40,7 +37,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { Input } from "@/shared/ui/input";
 import {
   SidebarMenu,
   SidebarMenuButton,
@@ -51,13 +47,22 @@ import {
   siteBrandKey,
   siteBrandSurfaceStyle,
 } from "@/shared/ui/site-brand-icon";
-
-type AppSessionDialogMode = "connect" | "open";
+import {
+  StatusBadge as DreamStatusBadge,
+  type DreamStatusTone,
+} from "@/shared/ui/status-badge";
+import {
+  WorkspacePage,
+  WorkspacePageContent,
+  WorkspacePageTopBar,
+  defineWorkspacePageContract,
+} from "@/shared/ui/workspace-page";
+import { WorkspacePrimaryHeaderAction } from "@/shared/ui/workspace-primary-header-action";
+import { AppSessionImportSheet } from "./AppSessionImportSheet";
 
 type ActiveAppSessionBrowser = {
   sessionId: string;
   appSessionId: string;
-  mode: AppSessionDialogMode;
 };
 
 const APP_SESSION_LABEL_KEYS = {
@@ -112,7 +117,7 @@ const APP_SESSION_LABEL_KEYS = {
   genericIdentity: "settings.appSessions.genericIdentity",
   accountFallbackName: "settings.appSessions.accountFallbackName",
   disconnectedName: "settings.appSessions.disconnectedName",
-  signIn: "settings.appSessions.signIn",
+  manualSignIn: "settings.appSessions.manualSignIn",
   signOut: "settings.appSessions.signOut",
   verifyLogin: "settings.appSessions.verifyLogin",
   verifyStatus: "settings.appSessions.verifyStatus",
@@ -124,12 +129,14 @@ const APP_SESSION_LABEL_KEYS = {
   expiresAt: "settings.appSessions.expiresAt",
   youtubeAccountFallbackName: "settings.appSessions.youtubeAccountFallbackName",
   youtubeDisconnectedName: "settings.appSessions.youtubeDisconnectedName",
-  youtubeSignIn: "settings.appSessions.youtubeSignIn",
   youtubeSignOut: "settings.appSessions.youtubeSignOut",
   youtubeVerifyLogin: "settings.appSessions.youtubeVerifyLogin",
   youtubeVerifyStatus: "settings.appSessions.youtubeVerifyStatus",
   youtubeLastLoginAt: "settings.appSessions.youtubeLastLoginAt",
   youtubeExpiresAt: "settings.appSessions.youtubeExpiresAt",
+  source: "browserSource.source",
+  sourceXiaDown: "browserSource.sourceXiaDown",
+  browserSync: "browserSource.browserSync",
 } as const;
 
 type AppSessionLabels = Record<keyof typeof APP_SESSION_LABEL_KEYS, string>;
@@ -145,6 +152,8 @@ function useAppSessionLabels(t: TFunction): AppSessionLabels {
 const SITE_LABEL_KEYS: Record<string, string> = {
   youtube: "settings.appSessions.item.youtube",
   bilibili: "settings.appSessions.item.bilibili",
+  douyin: "settings.appSessions.item.douyin",
+  xiaohongshu: "settings.appSessions.item.xiaohongshu",
   tiktok: "settings.appSessions.item.tiktok",
   instagram: "settings.appSessions.item.instagram",
   x: "settings.appSessions.item.x",
@@ -157,6 +166,8 @@ const SITE_LABEL_KEYS: Record<string, string> = {
 const ACCOUNT_VERIFIABLE_SITE_KEYS = new Set([
   "youtube",
   "bilibili",
+  "douyin",
+  "xiaohongshu",
   "tiktok",
   "instagram",
   "x",
@@ -170,28 +181,28 @@ const STATUS_META: Record<
   string,
   {
     label: keyof Pick<AppSessionLabels, "connected" | "expired" | "disconnected" | "unsupported">;
-    className: string;
+    tone: DreamStatusTone;
     icon: React.ComponentType<{ className?: string }>;
   }
 > = {
   connected: {
     label: "connected",
-    className: "app-sessions-status-badge app-sessions-status-connected",
+    tone: "success",
     icon: ShieldCheck,
   },
   expired: {
     label: "expired",
-    className: "app-sessions-status-badge app-sessions-status-expired",
+    tone: "warning",
     icon: RefreshCw,
   },
   disconnected: {
     label: "disconnected",
-    className: "app-sessions-status-badge app-sessions-status-disconnected",
+    tone: "muted",
     icon: CircleOff,
   },
   unsupported: {
     label: "unsupported",
-    className: "app-sessions-status-badge app-sessions-status-disconnected",
+    tone: "danger",
     icon: AlertCircle,
   },
 };
@@ -374,18 +385,22 @@ function resolveDialogError(error: unknown, labels: AppSessionLabels) {
   return message.trim() || labels.loginError;
 }
 
-function StatusBadge(props: {
+function AppSessionStatusBadge(props: {
   session?: AppSession | null;
   labels: AppSessionLabels;
-  showLabel?: boolean;
 }) {
   const key = normalizeStatus(props.session);
   const meta = STATUS_META[key] ?? STATUS_META.disconnected;
+  const label = props.labels[meta.label];
+  const Icon = meta.icon;
   return (
-    <span className={meta.className}>
-      {React.createElement(meta.icon, { className: "h-3.5 w-3.5" })}
-      {props.showLabel ? props.labels[meta.label] : null}
-    </span>
+    <DreamStatusBadge
+      aria-label={label}
+      icon={<Icon />}
+      iconOnly
+      title={label}
+      tone={meta.tone}
+    />
   );
 }
 
@@ -394,11 +409,11 @@ function AppSessionInfoRow(props: {
   value: React.ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] items-center gap-3">
-      <span className="min-w-0 truncate text-muted-foreground">
+    <div className="app-sessions-info-row grid min-w-0 items-center gap-3">
+      <span className="app-sessions-info-label min-w-0 truncate">
         {props.label}
       </span>
-      <span className="min-w-0 truncate text-right font-medium text-foreground">
+      <span className="app-sessions-info-value min-w-0 truncate">
         {props.value}
       </span>
     </div>
@@ -411,13 +426,14 @@ function AppSessionAccountDetail(props: {
   isConnected: boolean;
   isBusy: boolean;
   isLoginRunning: boolean;
-  isOpenRunning: boolean;
-  canOpen: boolean;
+  isVerifyRunning: boolean;
+  canVerify: boolean;
   actionError: string;
   labels: AppSessionLabels;
   language: SupportedLanguage;
   onConnect: () => void;
-  onOpenSite: () => void;
+  onBrowserSync: () => void;
+  onVerify: () => void;
   onClear: () => void;
 }) {
   const [avatarFailed, setAvatarFailed] = React.useState(false);
@@ -445,7 +461,6 @@ function AppSessionAccountDetail(props: {
   const avatarURL = props.isConnected ? account?.avatarURL?.trim() ?? "" : "";
   const accountHandle = props.isConnected ? account?.handle?.trim() ?? "" : "";
   const normalizedHandle = normalizeHandle(siteKey, accountHandle);
-  const signInLabel = isYouTube ? props.labels.youtubeSignIn : props.labels.signIn;
   const signOutLabel = isYouTube ? props.labels.youtubeSignOut : props.labels.signOut;
   const verifyLoginLabel = isYouTube ? props.labels.youtubeVerifyLogin : props.labels.verifyLogin;
   const verifyLabel = isYouTube ? props.labels.youtubeVerifyStatus : props.labels.verifyStatus;
@@ -465,6 +480,17 @@ function AppSessionAccountDetail(props: {
     account?.expiresAt,
     props.language,
   );
+  const sourceProfileLabel = props.session.source?.profileLabel?.trim() ?? "";
+  const explicitSourceLabel = [
+    props.session.source?.browserLabel?.trim(),
+    /^profile-[0-9a-f]{16,}$/i.test(sourceProfileLabel) ? "" : sourceProfileLabel,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" / ");
+  const sourceLabel = explicitSourceLabel ||
+    (props.isConnected || normalizeStatus(props.session) === "expired"
+      ? props.labels.sourceXiaDown
+      : "");
 
   React.useEffect(() => {
     setAvatarFailed(false);
@@ -472,9 +498,9 @@ function AppSessionAccountDetail(props: {
 
   return (
     <div className="flex min-h-full min-w-0 items-center justify-center px-5 py-8">
-      <div className="flex w-full max-w-[22rem] flex-col items-center text-center">
+      <div className="app-sessions-account-detail-content flex w-full flex-col items-center">
         <div
-          className="app-session-account-avatar mb-5 flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-[var(--app-bg-soft)] shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.12)]"
+          className="app-session-account-avatar app-site-brand-surface mb-5 flex h-24 w-24 items-center justify-center overflow-hidden"
           data-site={siteBrandKey(props.session.siteKey)}
           style={siteBrandSurfaceStyle(props.session.siteKey)}
         >
@@ -490,22 +516,27 @@ function AppSessionAccountDetail(props: {
             <SiteBrandIcon siteKey={props.session.siteKey} className="h-12 w-12" />
           )}
         </div>
-        <h2 className="max-w-full truncate text-xl font-semibold tracking-normal text-foreground">
+        <h2 className="app-sessions-account-title max-w-full truncate">
           {displayName}
         </h2>
         {normalizedHandle ? (
-          <p className="mt-1 max-w-full truncate text-sm font-medium text-muted-foreground">
+          <p className="app-sessions-account-handle mt-1 max-w-full truncate">
             {normalizedHandle}
+          </p>
+        ) : null}
+        {sourceLabel ? (
+          <p className="app-sessions-account-source mt-2 max-w-full truncate px-2.5 py-1">
+            {props.labels.source}: {sourceLabel}
           </p>
         ) : null}
 
         {!props.session.providerSupported ? (
-          <div className="app-sessions-error mt-5 w-full p-2 text-xs leading-5">
+          <div className="app-sessions-error mt-5 w-full p-2">
             {props.labels.providerUnsupported}
           </div>
         ) : null}
         {props.actionError ? (
-          <div className="app-sessions-error mt-5 w-full p-2 text-xs leading-5">
+          <div className="app-sessions-error mt-5 w-full p-2">
             {props.actionError}
           </div>
         ) : null}
@@ -515,14 +546,14 @@ function AppSessionAccountDetail(props: {
             <div className="grid w-full grid-cols-2 gap-2">
               <Button
                 type="button"
-                onClick={props.onOpenSite}
-                disabled={props.isBusy || !props.canOpen}
-                className="h-10 min-w-0"
+                onClick={props.onVerify}
+                disabled={props.isBusy || verificationStatus === "verifying" || !props.canVerify}
+                className="app-sessions-account-action min-w-0"
               >
-                {props.isOpenRunning ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                {props.isVerifyRunning || verificationStatus === "verifying" ? (
+                  <Loader2 className="h-4 w-4 app-motion-spin" />
                 ) : (
-                  <ExternalLink className="h-4 w-4" />
+                  <ShieldCheck className="h-4 w-4" />
                 )}
                 <span className="truncate">
                   {verifyLoginLabel}
@@ -533,7 +564,7 @@ function AppSessionAccountDetail(props: {
                 variant="destructive"
                 onClick={props.onClear}
                 disabled={props.isBusy || !props.session.providerSupported}
-                className="h-10 min-w-0"
+                className="app-sessions-account-action min-w-0"
               >
                 <LogOut className="h-4 w-4" />
                 <span className="truncate">
@@ -542,30 +573,42 @@ function AppSessionAccountDetail(props: {
               </Button>
             </div>
           ) : (
-            <Button
-              type="button"
-              onClick={props.onConnect}
-              disabled={props.isBusy || !props.session.providerSupported}
-              className="h-10 w-auto min-w-44 self-center px-5"
-            >
-              {props.isLoginRunning ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Link2 className="h-4 w-4" />
-              )}
-              {signInLabel}
-            </Button>
+            <div className="grid w-full grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={props.onConnect}
+                disabled={props.isBusy || !props.session.providerSupported}
+                className="app-sessions-account-action min-w-0"
+              >
+                {props.isLoginRunning ? (
+                  <Loader2 className="h-4 w-4 app-motion-spin" />
+                ) : (
+                  <LogIn className="h-4 w-4" />
+                )}
+                <span className="truncate">{props.labels.manualSignIn}</span>
+              </Button>
+              <Button
+                type="button"
+                onClick={props.onBrowserSync}
+                disabled={props.isBusy || !props.session.providerSupported}
+                className="app-sessions-account-action min-w-0"
+              >
+                <CloudSync className="h-4 w-4" />
+                <span className="truncate">{props.labels.browserSync}</span>
+              </Button>
+            </div>
           )}
           {props.isConnected ? (
-            <div className="mt-3 w-full rounded-[var(--app-radius-lg)] border border-border/70 bg-card/70 p-3 text-left shadow-sm">
-              <div className="grid gap-2 text-xs">
+            <div className="app-sessions-account-info mt-3 w-full p-3">
+              <div className="app-sessions-account-info-grid grid gap-2">
                 {canResolveAccountInfo ? (
                   <AppSessionInfoRow
                     label={verifyLabel}
                     value={
                       <span className="inline-flex min-w-0 items-center justify-end gap-1.5">
                         {verificationStatus === "verifying" ? (
-                          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                          <Loader2 className="h-3.5 w-3.5 shrink-0 app-motion-spin" />
                         ) : null}
                         <span className="truncate">{verificationStatusText}</span>
                       </span>
@@ -573,7 +616,7 @@ function AppSessionAccountDetail(props: {
                   />
                 ) : null}
                 {canResolveAccountInfo && verificationError ? (
-                  <div className="min-w-0 rounded-md bg-destructive/10 px-2 py-1.5 text-[11px] leading-4 text-destructive break-words">
+                  <div className="app-dream-status-message min-w-0 px-2 py-1.5 break-words" data-intent="danger">
                     {verificationError}
                   </div>
                 ) : null}
@@ -619,7 +662,7 @@ function ClearConfirmDialog(props: {
           </DialogDescription>
         </DialogHeader>
         {props.error ? (
-          <div className="app-sessions-error p-2 text-xs leading-5">
+          <div className="app-sessions-error p-2">
             {props.error}
           </div>
         ) : null}
@@ -635,7 +678,7 @@ function ClearConfirmDialog(props: {
             disabled={props.isClearing}
             onClick={props.onConfirm}
           >
-            {props.isClearing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            {props.isClearing ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <Trash2 className="h-4 w-4" />}
             {props.labels.clear}
           </Button>
         </DialogFooter>
@@ -644,17 +687,20 @@ function ClearConfirmDialog(props: {
   );
 }
 
-export function AppSessionsSection() {
+export function AppSessionsSection({
+  reserveWindowControls = false,
+}: {
+  reserveWindowControls?: boolean;
+}) {
   const { t, language } = useI18n();
   const labels = useAppSessionLabels(t);
-  const isWindows = System.IsWindows();
   const sessionsQuery = useAppSessions();
   const startConnect = useStartAppSessionConnect();
-  const openSite = useOpenAppSessionSite();
+  const verifySession = useVerifyAppSession();
   const clearSession = useClearAppSession();
 
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [query, setQuery] = React.useState("");
+  const [importSheetOpen, setImportSheetOpen] = React.useState(false);
   const [activeBrowser, setActiveBrowser] =
     React.useState<ActiveAppSessionBrowser | null>(null);
   const [actionError, setActionError] = React.useState("");
@@ -683,27 +729,22 @@ export function AppSessionsSection() {
     [t],
   );
 
-  const trimmedQuery = query.trim().toLowerCase();
-  const filteredItems = React.useMemo(() => {
-    const sorted = [...items].sort((left, right) =>
-      resolveLabel(left).localeCompare(resolveLabel(right)),
-    );
-    if (!trimmedQuery) {
-      return sorted;
-    }
-    return sorted.filter((session) => {
-      const label = resolveLabel(session).toLowerCase();
-      const siteKey = session.siteKey.toLowerCase();
-      return label.includes(trimmedQuery) || siteKey.includes(trimmedQuery);
+  const sortedItems = React.useMemo(() => {
+    return [...items].sort((left, right) => {
+      const labelOrder = resolveLabel(left).localeCompare(
+        resolveLabel(right),
+        language,
+      );
+      return labelOrder || left.id.localeCompare(right.id);
     });
-  }, [items, resolveLabel, trimmedQuery]);
+  }, [items, language, resolveLabel]);
 
   React.useEffect(() => {
-    if (selectedId && filteredItems.some((item) => item.id === selectedId)) {
+    if (selectedId && sortedItems.some((item) => item.id === selectedId)) {
       return;
     }
-    setSelectedId(filteredItems[0]?.id ?? null);
-  }, [filteredItems, selectedId]);
+    setSelectedId(sortedItems[0]?.id ?? null);
+  }, [sortedItems, selectedId]);
 
   React.useEffect(() => {
     setActionError("");
@@ -717,28 +758,36 @@ export function AppSessionsSection() {
     selected && activeBrowser?.appSessionId === selected.id ? activeBrowser : null;
   const isBusy =
     startConnect.isPending ||
-    openSite.isPending ||
+    verifySession.isPending ||
     activeBrowser !== null ||
     clearSession.isPending;
 
-  const beginSession = React.useCallback(
-    async (session: AppSession, mode: AppSessionDialogMode) => {
+  const beginConnect = React.useCallback(
+    async (session: AppSession) => {
       setActionError("");
       try {
-        const result: StartAppSessionConnectResult =
-          mode === "open"
-            ? await openSite.mutateAsync({ id: session.id })
-            : await startConnect.mutateAsync({ id: session.id });
+        const result: StartAppSessionConnectResult = await startConnect.mutateAsync({ id: session.id });
         setActiveBrowser({
           sessionId: result.sessionId,
           appSessionId: result.appSession.id || session.id,
-          mode,
         });
       } catch (error) {
         setActionError(resolveDialogError(error, labels));
       }
     },
-    [labels, openSite, startConnect],
+    [labels, startConnect],
+  );
+
+  const verifyAccount = React.useCallback(
+    async (session: AppSession) => {
+      setActionError("");
+      try {
+        await verifySession.mutateAsync({ id: session.id });
+      } catch (error) {
+        setActionError(resolveDialogError(error, labels));
+      }
+    },
+    [labels, verifySession],
   );
 
   React.useEffect(() => {
@@ -804,7 +853,7 @@ export function AppSessionsSection() {
           >
             <div className="flex min-w-0 items-center gap-3">
               <div
-                className="app-sessions-icon-slot flex h-8 w-8 shrink-0 items-center justify-center"
+                className="app-sessions-icon-slot app-site-brand-surface flex h-8 w-8 shrink-0 items-center justify-center"
                 data-active={isSelected ? "true" : undefined}
                 data-site={siteBrandKey(session.siteKey)}
                 style={siteBrandSurfaceStyle(session.siteKey)}
@@ -813,20 +862,20 @@ export function AppSessionsSection() {
               </div>
               <span className="flex min-w-0 flex-col gap-0.5">
                 <span
-                  className="app-sessions-list-label truncate text-sm font-medium leading-5 transition-colors"
+                  className="app-sessions-list-label truncate"
                   data-active={isSelected ? "true" : undefined}
                 >
                   {label}
                 </span>
                 {secondaryLabel ? (
-                  <span className="truncate text-[11px] font-medium leading-4 text-muted-foreground">
+                  <span className="app-sessions-list-secondary truncate">
                     {secondaryLabel}
                   </span>
                 ) : null}
               </span>
             </div>
             <div className="shrink-0">
-              <StatusBadge session={session} labels={labels} />
+              <AppSessionStatusBadge session={session} labels={labels} />
             </div>
           </SidebarMenuButton>
         </SidebarMenuItem>
@@ -835,122 +884,110 @@ export function AppSessionsSection() {
     [labels, resolveLabel, selectedId],
   );
 
+  const pageContract = defineWorkspacePageContract({
+    presentation: "primary",
+    recipe: "operational",
+    routeLabel: labels.headerRoot,
+    topBar: "actions",
+    heading: "assistive",
+    contentLayout: "split",
+    footer: "none",
+    scroll: "panes",
+    density: "compact",
+    immersion: "edge-to-edge",
+  });
+
   return (
-    <div className="app-main-page app-main-app-sessions-page flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
-      <aside className="app-main-list-pane app-sessions-list-pane flex min-h-0 w-[320px] shrink-0 flex-col border-r">
-        <div
-          className={cn(
-            "px-4",
-            isWindows
-              ? "wails-drag flex min-h-[var(--app-page-top-drag-height)] items-center pb-3 pt-4"
-              : "pb-4 pt-4",
-          )}
-        >
-          <div
-            className={cn(
-              "app-dream-search-control app-dream-control-shell h-9 w-full min-w-0 px-3",
-              isWindows ? "wails-drag" : "wails-no-drag",
-            )}
+    <WorkspacePage
+      contract={pageContract}
+      className="app-main-page app-main-app-sessions-page"
+    >
+      <WorkspacePageTopBar
+        actionsLabel={labels.headerRoot}
+        className="app-sessions-page-topbar"
+        reserveWindowControls={reserveWindowControls}
+      >
+        <div className="app-sessions-page-topbar-leading app-workspace-primary-subpane app-workspace-primary-subpane--leading justify-start gap-3">
+          <WorkspacePrimaryHeaderAction
+            className="app-sessions-sync-title-action"
+            label={t("browserSource.syncAction")}
+            onClick={() => setImportSheetOpen(true)}
           >
-            <Search className="h-4 w-4 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={labels.searchPlaceholder}
-              size="compact"
-              className="app-control-input-compact h-auto rounded-none border-0 bg-transparent px-0 shadow-none"
-            />
-          </div>
+            <CloudSync className="h-4 w-4" aria-hidden="true" />
+          </WorkspacePrimaryHeaderAction>
         </div>
+      </WorkspacePageTopBar>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-          {sessionsQuery.isLoading ? (
-            <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {labels.headerRoot}
-            </div>
-          ) : filteredItems.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-muted-foreground">
-              {items.length === 0 ? labels.empty : labels.searchEmpty}
-            </div>
-          ) : (
-            <SidebarMenu className="gap-1.5">
-              {filteredItems.map((session) => renderListItem(session))}
-            </SidebarMenu>
-          )}
-        </div>
-      </aside>
-
-      <section className="app-main-detail-pane app-sessions-detail-pane flex min-h-0 min-w-0 flex-1 flex-col">
-        <div
-          className={cn(
-            "app-main-page-header app-sessions-detail-header wails-drag flex shrink-0 items-center justify-between border-b pl-5",
-            isWindows
-              ? "min-h-[var(--app-page-top-drag-height)] pb-3 pt-4 pr-0"
-              : "pr-5",
-          )}
+      <WorkspacePageContent className="app-sessions-split flex min-h-0 min-w-0 overflow-hidden p-0">
+        <aside
+          aria-label={labels.headerRoot}
+          className="app-main-list-pane app-sessions-list-pane app-workspace-primary-subpane app-workspace-primary-subpane--leading flex min-h-0 shrink-0 flex-col"
         >
           <div
-            className={cn(
-              "flex min-w-0 flex-1 items-center gap-3 pr-3 text-sm",
-              isWindows ? "min-h-9" : "min-h-[56px]",
+            className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+            data-scroll-owner="true"
+            data-scroll-pane="app-sessions-list"
+          >
+            {sessionsQuery.isLoading ? (
+              <div
+                aria-label={labels.headerRoot}
+                className="app-sessions-list-feedback flex items-center px-3 py-2"
+                role="status"
+              >
+                <Loader2 className="h-4 w-4 app-motion-spin" />
+              </div>
+            ) : sortedItems.length === 0 ? (
+              <div className="app-sessions-list-feedback px-3 py-2">
+                {labels.empty}
+              </div>
+            ) : (
+              <SidebarMenu className="gap-1.5">
+                {sortedItems.map((session) => renderListItem(session))}
+              </SidebarMenu>
             )}
+          </div>
+        </aside>
+
+        <section
+          aria-label={selected ? selectedLabel : labels.headerRoot}
+          className="app-main-detail-pane app-sessions-detail-pane app-workspace-primary-subpane flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          <div
+            className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+            data-scroll-owner="true"
+            data-scroll-pane="app-sessions-detail"
           >
             {selected ? (
-              <>
-                <div
-                  className="app-sessions-detail-icon flex h-8 w-8 shrink-0 items-center justify-center"
-                  data-site={siteBrandKey(selected.siteKey)}
-                  style={siteBrandSurfaceStyle(selected.siteKey)}
-                >
-                  <SiteBrandIcon siteKey={selected.siteKey} className="h-5 w-5" />
-                </div>
-                <span className="truncate text-sm font-semibold text-foreground">
-                  {selectedLabel}
-                </span>
-              </>
+              <AppSessionAccountDetail
+                session={selected}
+                siteLabel={selectedLabel}
+                isConnected={selectedIsConnected}
+                isBusy={isBusy}
+                isLoginRunning={
+                  startConnect.isPending ||
+                  selectedActiveBrowser !== null
+                }
+                isVerifyRunning={verifySession.isPending}
+                canVerify={hasSelectedProvider && ACCOUNT_VERIFIABLE_SITE_KEYS.has(selected.siteKey.trim().toLowerCase())}
+                actionError={actionError}
+                labels={labels}
+                language={language}
+                onConnect={() => void beginConnect(selected)}
+                onBrowserSync={() => setImportSheetOpen(true)}
+                onVerify={() => void verifyAccount(selected)}
+                onClear={() => {
+                  setClearError("");
+                  setClearTarget(selected);
+                }}
+              />
             ) : (
-              <span className="font-medium text-muted-foreground">
-                {labels.headerRoot}
-              </span>
+              <div className="app-sessions-empty-detail flex h-full items-center justify-center">
+                {labels.empty}
+              </div>
             )}
           </div>
-          {isWindows ? <WindowControls platform="windows" /> : null}
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {selected ? (
-            <AppSessionAccountDetail
-              session={selected}
-              siteLabel={selectedLabel}
-              isConnected={selectedIsConnected}
-              isBusy={isBusy}
-              isLoginRunning={
-                startConnect.isPending ||
-                selectedActiveBrowser?.mode === "connect"
-              }
-              isOpenRunning={
-                openSite.isPending ||
-                selectedActiveBrowser?.mode === "open"
-              }
-              canOpen={hasSelectedProvider}
-              actionError={actionError}
-              labels={labels}
-              language={language}
-              onConnect={() => void beginSession(selected, "connect")}
-              onOpenSite={() => void beginSession(selected, "open")}
-              onClear={() => {
-                setClearError("");
-                setClearTarget(selected);
-              }}
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm font-medium text-muted-foreground">
-              {labels.empty}
-            </div>
-          )}
-        </div>
-      </section>
+        </section>
+      </WorkspacePageContent>
 
       <ClearConfirmDialog
         target={clearTarget}
@@ -964,6 +1001,13 @@ export function AppSessionsSection() {
         }}
         onConfirm={() => void confirmClear()}
       />
-    </div>
+      <AppSessionImportSheet
+        open={importSheetOpen}
+        onOpenChange={setImportSheetOpen}
+        sessions={items}
+        resolveLabel={resolveLabel}
+        onImported={() => void sessionsQuery.refetch()}
+      />
+    </WorkspacePage>
   );
 }

@@ -29,7 +29,16 @@ func (service *AppSessionsService) ExportAppSessionCookies(ctx context.Context, 
 	if err != nil {
 		return "", err
 	}
+	records = filterAppSessionCookies(session.SiteKey, records)
 	if len(records) == 0 {
+		return "", appsessions.ErrNoCookies
+	}
+	// Sites with a defined authentication contract must not export a device- or
+	// consent-only cookie jar as an authenticated App Session. Sites such as the
+	// multi-provider china_private policy intentionally have no single auth
+	// cookie contract and keep the existing non-empty-jar behaviour.
+	if len(authCookieExpiryNames(session.SiteKey)) > 0 &&
+		!appSessionHasAuthenticationCookies(session.SiteKey, records) {
 		return "", appsessions.ErrNoCookies
 	}
 	return writeCookiesExport(records, format)

@@ -1,0 +1,859 @@
+/* Dream-owned appearance for settings, source-selection, and maintenance surfaces. */
+
+.app-file-relink-feedback {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+}
+
+.app-file-relink-list {
+  box-shadow: none;
+}
+
+.app-file-relink-row[data-divider="true"] {
+  border-top: 1px solid hsl(var(--border) / 0.6);
+}
+
+.app-file-relink-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.app-file-relink-meta {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.app-file-relink-format {
+  text-transform: uppercase;
+}
+
+.app-settings-muted-icon,
+.app-settings-muted-text,
+.app-settings-secondary-label,
+.app-settings-feedback,
+.app-browser-source-feedback,
+.app-library-pairing-feedback,
+.app-library-pairing-device-meta,
+.app-library-pairing-expiry {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-settings-feedback,
+.app-browser-source-feedback {
+  font-size: 0.875rem;
+}
+
+.app-settings-error-label {
+  color: hsl(var(--destructive));
+  font-size: 0.75rem;
+}
+
+.app-settings-monospace-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.875rem;
+}
+
+.app-settings-field-input {
+  font-size: 0.875rem;
+}
+
+.app-settings-secondary-label,
+.app-library-pairing-feedback {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.app-settings-section-heading,
+.app-library-pairing-device-name,
+.app-browser-source-heading,
+.app-browser-source-option-title,
+.app-settings-empty-title,
+.app-settings-item-title {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.app-library-pairing-header-icon,
+.app-library-pairing-download-icon {
+  border-radius: var(--app-radius-lg);
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+}
+
+.app-library-pairing-list,
+.app-library-pairing-panel,
+.app-library-pairing-download {
+  border: 1px solid hsl(var(--border) / 0.6);
+  border-radius: var(--app-radius-lg);
+}
+
+.app-library-pairing-list,
+.app-library-pairing-panel {
+  background: hsl(var(--background) / 0.45);
+}
+
+.app-library-pairing-device[data-divider="true"] {
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.app-library-pairing-device-name {
+  font-weight: 500;
+}
+
+.app-library-pairing-device-meta,
+.app-library-pairing-expiry {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+}
+
+.app-library-pairing-unavailable {
+  border-radius: var(--app-radius-md);
+  background: hsl(var(--muted) / 0.4);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.app-library-pairing-qr {
+  border-radius: calc(var(--app-radius-lg) + 0.25rem);
+  background: #fff;
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08), 0 0 0 1px hsl(0 0% 0% / 0.1);
+}
+
+.app-library-pairing-qr-image {
+  border-radius: var(--app-radius-lg);
+}
+
+.app-library-pairing-download {
+  background: hsl(var(--primary) / 0.045);
+}
+
+.app-browser-source-option,
+.app-browser-source-card,
+.app-browser-source-notice,
+.app-settings-summary-card,
+.app-settings-profile-row {
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: var(--app-radius-lg);
+  background: hsl(var(--card) / 0.55);
+}
+
+.app-browser-source-option {
+  transition: border-color var(--app-motion-duration-fast) var(--app-motion-ease-standard), background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard), box-shadow var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-browser-source-option:hover:not(:disabled) {
+  border-color: hsl(var(--border));
+  background: hsl(var(--card) / 0.8);
+}
+
+.app-browser-source-option[data-selected="true"] {
+  border-color: hsl(var(--primary) / 0.55);
+  background: hsl(var(--primary) / 0.08);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.app-browser-source-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.app-browser-source-option-icon,
+.app-browser-source-option-description,
+.app-browser-source-notice,
+.app-browser-source-field-label,
+.app-settings-empty-state,
+.app-settings-empty-description,
+.app-settings-summary-label,
+.app-settings-item-description,
+.app-settings-item-count,
+.app-settings-profile-meta,
+.app-settings-timestamp {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-browser-source-option-title,
+.app-browser-source-option-description,
+.app-browser-source-notice,
+.app-browser-source-field-label,
+.app-settings-empty-description,
+.app-settings-summary-label,
+.app-settings-item-description,
+.app-settings-profile-meta {
+  font-size: 0.75rem;
+}
+
+.app-browser-source-option-description,
+.app-browser-source-notice,
+.app-settings-empty-description,
+.app-settings-item-description {
+  line-height: 1.25rem;
+}
+
+.app-browser-source-option-check {
+  color: hsl(var(--primary));
+}
+
+.app-browser-source-field-label,
+.app-settings-summary-label {
+  font-weight: 500;
+}
+
+.app-settings-empty-state {
+  border: 1px dashed hsl(var(--border));
+  border-radius: var(--app-radius-lg);
+  font-size: 0.875rem;
+}
+
+.app-settings-summary-card[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--app-status-tone-success) 20%, transparent);
+  background: var(--app-status-surface-success);
+}
+
+.app-settings-summary-value {
+  color: hsl(var(--foreground));
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.app-settings-summary-card[data-tone="success"] .app-settings-summary-value {
+  color: var(--app-status-tone-success);
+}
+
+.app-settings-data-row[data-divider="true"] {
+  border-top: 1px solid hsl(var(--border) / 0.6);
+}
+
+.app-settings-data-row[data-selectable="true"] {
+  cursor: pointer;
+}
+
+.app-settings-data-row[data-selectable="true"]:hover {
+  background: hsl(var(--muted) / 0.3);
+}
+
+.app-settings-data-row[data-dimmed="true"] {
+  opacity: 0.75;
+}
+
+.app-settings-checkbox {
+  accent-color: hsl(var(--primary));
+}
+
+.app-settings-item-title {
+  font-weight: 500;
+}
+
+.app-settings-item-size {
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.app-settings-item-count {
+  font-size: 0.625rem;
+  font-weight: 500;
+}
+
+.app-settings-danger-panel {
+  border: 1px solid hsl(var(--destructive) / 0.3);
+  border-radius: var(--app-radius-lg);
+  background: hsl(var(--destructive) / 0.05);
+}
+
+.app-settings-danger-icon {
+  border-radius: 999px;
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
+
+.app-settings-danger-text {
+  color: hsl(var(--destructive));
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.app-settings-danger-confirm {
+  border: 1px solid hsl(var(--destructive) / 0.25);
+  border-radius: var(--app-radius-md);
+  background: hsl(var(--background) / 0.6);
+}
+
+.app-settings-confirm-text {
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.app-settings-timestamp {
+  font-size: 0.6875rem;
+}
+
+.app-settings-profile-title {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.app-settings-tab-label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 0.75rem;
+}
+
+.app-settings-dependency-title {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.app-settings-progress-meta {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.app-equalizer-bands[data-disabled="true"] {
+  opacity: 0.5;
+}
+
+.app-equalizer-gain,
+.app-equalizer-band-label,
+.app-equalizer-preamp-value,
+.app-equalizer-ticks {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.app-equalizer-gain,
+.app-equalizer-frequency,
+.app-equalizer-preamp-value,
+.app-equalizer-ticks {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-equalizer-gain,
+.app-equalizer-ticks {
+  font-size: 0.625rem;
+}
+
+.app-equalizer-band-label {
+  color: hsl(var(--foreground));
+  font-size: 0.6875rem;
+}
+
+.app-equalizer-frequency {
+  font-size: 0.5625rem;
+}
+
+.app-equalizer-preamp-label {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.app-equalizer-preamp-value {
+  font-size: 0.75rem;
+}
+
+.app-equalizer-slider,
+.app-equalizer-vertical-slider {
+  accent-color: hsl(var(--primary));
+}
+
+.app-equalizer-vertical-slider {
+  cursor: pointer;
+}
+
+.app-equalizer-vertical-slider:disabled {
+  cursor: not-allowed;
+}
+
+.app-equalizer-ticks {
+  line-height: 1;
+}
+
+.app-equalizer-tick-mark {
+  border-inline-start: 1px solid hsl(var(--border));
+}
+
+.app-equalizer-curve-glow,
+.app-equalizer-curve-line {
+  stroke: hsl(var(--primary));
+}
+
+.app-equalizer-curve-glow {
+  opacity: 0.2;
+  filter: blur(1.5px);
+}
+
+.app-equalizer-curve-line {
+  opacity: 0.8;
+}
+
+.app-main-app-sessions-page {
+  background: hsl(var(--background));
+}
+
+.app-session-account-avatar {
+  border-radius: var(--app-radius-capsule);
+}
+
+.app-sessions-info-label,
+.app-sessions-account-handle,
+.app-sessions-account-source,
+.app-sessions-list-secondary,
+.app-sessions-list-feedback,
+.app-sessions-empty-detail {
+  color: hsl(var(--muted-foreground));
+}
+
+.app-settings-window {
+  color: hsl(var(--foreground));
+}
+
+/* Settings compact cards retain the established row rhythm. CardContent also
+   carries the generic Dream section class, so this semantic override must own
+   the compact zero-padding contract after generic section anatomy. */
+.app-settings-list-card-content.app-settings-list-card-content-compact {
+  padding: 0;
+}
+
+.app-settings-list-card-content.app-settings-list-card-content-compact.app-settings-theme-pack-card-content {
+  padding: var(--app-space-3);
+}
+
+/* The equalizer's two visual control cards intentionally diverge from the
+   zero-padding list-card recipe: the preset curve needs breathing room along
+   the block axis, while preamp controls need a full content inset. */
+.app-settings-list-card-content.app-settings-list-card-content-compact.app-equalizer-preset-card-content {
+  padding-block: var(--app-space-4);
+}
+
+.app-settings-list-card-content.app-settings-list-card-content-compact.app-equalizer-preamp-card-content {
+  padding: var(--app-space-4);
+}
+
+.app-settings-path-value {
+  max-width: 16.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.app-library-device-list-actions,
+.app-library-device-last-seen,
+.app-library-device-revoke-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.app-library-device-list-actions {
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+}
+
+.app-library-device-dialog {
+  width: min(34rem, calc(100vw - 2rem));
+  max-height: min(38rem, calc(100vh - 2rem));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.app-library-device-dialog-scroll {
+  max-height: min(26rem, calc(100vh - 12rem));
+}
+
+.app-library-device-dialog-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-space-4);
+  padding-inline: var(--app-space-3);
+}
+
+.app-library-device-last-seen {
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+}
+
+.app-library-device-revoke-actions {
+  flex: 0 0 auto;
+  gap: var(--app-space-1-5);
+}
+
+.app-settings-field-label,
+.app-settings-data-total,
+.app-settings-about-empty,
+.app-settings-update-meta {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.app-settings-data-total {
+  font-weight: 500;
+}
+
+.app-settings-theme-pack-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.app-settings-theme-pack-button {
+  --app-button-block-size: var(--app-button-block-size-choice);
+  --app-button-padding: 0 var(--app-space-2);
+  --app-button-gap: var(--app-space-2);
+}
+
+.app-settings-option-button {
+  --app-button-block-size: var(--app-button-block-size-comfortable);
+  --app-button-padding: 0 var(--app-space-2);
+}
+
+.app-sessions-account-action {
+  --app-button-block-size: var(--app-button-block-size-comfortable);
+  --app-button-padding: 0 var(--app-space-4);
+}
+
+.app-settings-theme-preview > [data-preview-role="shell"] {
+  background: var(--app-theme-preview-shell);
+}
+
+.app-settings-theme-preview > [data-preview-role="sidebar"] {
+  background: var(--app-theme-preview-sidebar);
+}
+
+.app-settings-theme-preview > [data-preview-role="accent"] {
+  background: var(--app-theme-preview-accent);
+}
+
+.app-settings-swatch-color,
+.app-settings-status-dot {
+  border-radius: var(--app-radius-capsule);
+}
+
+.app-settings-swatch-color {
+  background: var(
+    --app-settings-swatch-color,
+    var(--app-theme-preview-accent, hsl(var(--ring)))
+  );
+}
+
+.app-settings-font-preview-option {
+  font-family: var(--app-settings-font-preview-family);
+}
+
+.app-settings-swatch {
+  border: 0;
+  border-radius: var(--app-radius-capsule);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--dream-line-muted);
+  transform: translateZ(0);
+}
+
+.app-settings-help-button {
+  border-radius: var(--app-radius-capsule);
+  color: hsl(var(--muted-foreground));
+  transition: color var(--app-motion-duration-fast) var(--app-motion-ease-standard), background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard), box-shadow var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-settings-help-button:hover {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.app-settings-help-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px hsl(var(--ring));
+}
+
+.app-settings-about-title {
+  color: hsl(var(--foreground));
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.app-settings-about-value {
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.app-settings-about-empty,
+.app-settings-update-meta,
+.app-settings-update-error {
+  font-size: 0.875rem;
+}
+
+.app-settings-update-error {
+  color: hsl(var(--destructive));
+}
+
+.app-settings-license-text {
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.app-settings-tab-symbol {
+  width: 1.625rem;
+  height: 1.625rem;
+}
+
+.app-settings-option-button,
+.app-settings-number-input {
+  font-size: 0.6875rem;
+}
+
+.app-settings-number-input {
+  appearance: none;
+}
+
+.app-settings-data-total,
+.app-settings-progress-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.app-settings-tooltip-text {
+  font-size: 0.75rem;
+  line-height: 1.375;
+}
+
+.app-settings-proxy-feedback {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.app-settings-latest-badge {
+  font-size: 0.875rem;
+}
+
+.app-file-relink-dialog {
+  width: min(42rem, calc(100vw - 2rem));
+  max-height: min(38rem, calc(100vh - 2rem));
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-file-relink-list,
+.app-file-relink-scroll-area {
+  max-height: min(24rem, calc(100vh - 13rem));
+}
+
+.app-file-relink-grid {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.app-settings-dependency-progress {
+  max-width: 17rem;
+}
+
+.app-equalizer-vertical-slider {
+  direction: rtl;
+  writing-mode: vertical-lr;
+}
+
+.app-sessions-info-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+}
+
+.app-sessions-account-detail-content {
+  max-width: 22rem;
+}
+
+.app-sessions-list-item {
+  min-height: 3.25rem;
+}
+
+.app-settings-proxy-dialog,
+.app-settings-release-notes-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  max-height: min(34rem, calc(100vh - 2rem));
+}
+
+.app-settings-proxy-dialog {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-settings-release-notes-dialog,
+.app-settings-notices-dialog {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.app-settings-notices-dialog {
+  width: min(40rem, calc(100vw - 2rem));
+  max-height: min(38rem, calc(100vh - 2rem));
+}
+
+.app-settings-dialog-title,
+.app-settings-dialog-description {
+  display: -webkit-box;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.app-settings-dialog-title {
+  line-height: 1.35;
+}
+
+.app-settings-dialog-title[data-clamp="false"] {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.app-settings-dialog-description {
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.app-settings-host-drag-grid {
+  height: var(--app-page-top-drag-height);
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.app-settings-host-drag-grid[data-platform="windows"] {
+  grid-template-columns: minmax(var(--app-windows-caption-control-width), 1fr) auto minmax(var(--app-windows-caption-control-width), 1fr);
+}
+
+.app-settings-traffic-light-gap {
+  width: var(--app-macos-traffic-lights-gap);
+}
+
+.app-settings-theme-preview {
+  grid-template-columns: 1.15fr 1fr 0.8fr;
+}
+
+.app-settings-tooltip-long {
+  max-width: 15rem !important;
+  line-height: 1.625;
+}
+
+.app-settings-update-progress {
+  width: 13.75rem;
+}
+
+.app-settings-update-error {
+  max-width: 17.5rem;
+}
+
+/* Strict TSX appearance boundary: alignment and interaction styling live here. */
+.app-settings-monospace-input,
+.app-settings-path-value,
+.app-settings-theme-pack-label,
+.app-settings-data-value-column,
+.app-settings-timestamp,
+.app-settings-update-error,
+.app-sessions-info-value {
+  text-align: right;
+}
+
+.app-library-pairing-expiry,
+.app-settings-empty-state,
+.app-settings-centered-text,
+.app-settings-about-header,
+.app-equalizer-gain,
+.app-equalizer-band-caption,
+.app-sessions-account-detail-content {
+  text-align: center;
+}
+
+.app-browser-source-option,
+.app-settings-theme-pack-button,
+.app-settings-tooltip-text,
+.app-settings-tooltip-long,
+.app-sessions-account-info {
+  text-align: left;
+}
+
+.app-equalizer-availability-label {
+  text-align: right;
+}
+
+.app-settings-swatch {
+  cursor: pointer;
+  transition:
+    color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    background-color var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    box-shadow var(--app-motion-duration-fast) var(--app-motion-ease-standard),
+    transform var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-settings-swatch:hover,
+.app-settings-swatch[data-active="true"] {
+  transform: scale(1.1);
+}
+
+.app-settings-swatch[data-active="true"] {
+  box-shadow:
+    0 0 0 1px hsl(var(--border)),
+    0 0 0 3px var(
+      --app-settings-swatch-active-color,
+      var(--app-theme-preview-accent, hsl(var(--ring)))
+    );
+}
+
+.app-settings-swatch:active {
+  transform: scale(0.96);
+}
+
+.app-browser-brand-icon {
+  color: var(--app-browser-brand-color, hsl(var(--muted-foreground)));
+}
+
+.app-sessions-info-value {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
+.app-sessions-account-title {
+  color: hsl(var(--foreground));
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.app-sessions-account-handle {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.app-sessions-account-source {
+  border-radius: var(--app-radius-capsule);
+  background: hsl(var(--muted) / 0.65);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.app-sessions-account-info {
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: var(--app-radius-lg);
+  background: hsl(var(--card) / 0.7);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.app-sessions-account-info-grid {
+  font-size: 0.75rem;
+}
+
+.app-sessions-list-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  transition: color var(--app-motion-duration-fast) var(--app-motion-ease-standard);
+}
+
+.app-sessions-list-secondary {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1rem;
+}
+
+.app-sessions-list-feedback {
+  font-size: 0.875rem;
+}
+
+.app-sessions-empty-detail {
+  font-size: 0.875rem;
+  font-weight: 500;
+}

@@ -9,7 +9,6 @@ import * as React from "react";
 import {
 getXiaText
 } from "@/features/xiadown/shared";
-import { cn } from "@/lib/utils";
 import type { ProxySettings } from "@/shared/contracts/settings";
 import {
 useDependencyInstallState,
@@ -19,8 +18,13 @@ useRemoveDependency,
 useVerifyDependency
 } from "@/shared/query/dependencies";
 import type { Dependency,DependencyUpdateInfo } from "@/shared/contracts/dependencies";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { DreamInlineSwitch } from "@/shared/ui/dream-inline-switch";
+import { Progress } from "@/shared/ui/progress";
+import {
+  StatusBadge,
+  type DreamStatusTone,
+} from "@/shared/ui/status-badge";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/shared/ui/tooltip";
 import {
 resolveSettingsTab,
@@ -60,9 +64,13 @@ export function normalizeProxy(settingsProxy?: ProxySettings | null): ProxySetti
   };
 }
 
-export function resolveAccentColor(value?: string, fallback = "#2563eb") {
+export function resolveAccentColor(value?: string, fallback?: string) {
   const trimmed = (value ?? "").trim();
-  return isHexColor(trimmed) ? trimmed : fallback;
+  if (isHexColor(trimmed)) {
+    return trimmed;
+  }
+  const safeFallback = (fallback ?? "").trim();
+  return isHexColor(safeFallback) ? safeFallback : "";
 }
 
 export function resolveThemeColorSelection(value?: string) {
@@ -70,14 +78,17 @@ export function resolveThemeColorSelection(value?: string) {
   if (!trimmed || trimmed.toLowerCase() === SYSTEM_THEME_COLOR) {
     return SYSTEM_THEME_COLOR;
   }
-  return resolveAccentColor(trimmed);
+  return resolveAccentColor(trimmed) || SYSTEM_THEME_COLOR;
 }
 
-export function resolveThemeColorPreview(value: string | undefined, fallbackColor: string, systemThemeColor?: string) {
+export function resolveThemeColorPreview(
+  value: string | undefined,
+  systemThemeColor?: string,
+) {
   const trimmed = (value ?? "").trim();
   return !trimmed || trimmed.toLowerCase() === SYSTEM_THEME_COLOR
-    ? resolveAccentColor(systemThemeColor, fallbackColor)
-    : resolveAccentColor(trimmed, fallbackColor);
+    ? resolveAccentColor(systemThemeColor)
+    : resolveAccentColor(trimmed);
 }
 
 export function resolveTabFromSection(section: string | null | undefined): XiaSettingsTabId {
@@ -111,7 +122,7 @@ export function previewFontStack(family: string) {
   if (!trimmed) {
     return undefined;
   }
-  return `${quoteFontFamily(trimmed)}, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
+  return `${quoteFontFamily(trimmed)}, var(--app-font-system)`;
 }
 
 export function formatHostPort(host: string, port: number) {
@@ -172,14 +183,14 @@ export function clampProgress(value: number | undefined) {
   return Math.min(Math.max(value, 0), 100);
 }
 
-export function resolveDependencyTone(status?: string) {
+export function resolveDependencyTone(status?: string): DreamStatusTone {
   switch ((status ?? "").trim().toLowerCase()) {
     case "installed":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+      return "success";
     case "invalid":
-      return "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200";
+      return "danger";
     default:
-      return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200";
+      return "warning";
   }
 }
 
@@ -190,27 +201,12 @@ export function InlineSwitch(props: {
   ariaLabel: string;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={props.checked}
-      aria-label={props.ariaLabel}
-      disabled={props.disabled === true}
-      onClick={() => {
-        if (props.disabled === true) {
-          return;
-        }
-        props.onChange(!props.checked);
-      }}
-      className={cn(
-        "app-dream-inline-switch",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        props.checked ? "justify-end" : "justify-start",
-      )}
-      data-state={props.checked ? "checked" : "unchecked"}
-    >
-      <span className="app-dream-inline-switch-knob" />
-    </button>
+    <DreamInlineSwitch
+      ariaLabel={props.ariaLabel}
+      checked={props.checked}
+      disabled={props.disabled}
+      onCheckedChange={props.onChange}
+    />
   );
 }
 
@@ -222,21 +218,18 @@ export function TabButton(props: {
   onClick: (id: XiaSettingsTabId) => void;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      tone={props.active ? "accent" : "neutral"}
       title={props.label}
       onClick={() => props.onClick(props.id)}
-      className={cn(
-        "app-settings-tab-button grid h-[52px] w-[76px] min-w-[76px] max-w-[76px] place-items-center gap-0 rounded-2xl border-0 px-1.5 py-1 text-center transition-colors",
-        props.active
-          ? "bg-primary/[0.13] text-primary shadow-[inset_0_1px_0_hsl(var(--background)/0.18)]"
-          : "bg-transparent text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground",
-      )}
+      className="app-settings-tab-button"
       data-active={props.active ? "true" : undefined}
     >
       <span className="app-settings-tab-icon flex h-9 w-9 items-center justify-center">{props.icon}</span>
-      <span className="w-full truncate text-[10px] font-medium leading-3">{props.label}</span>
-    </button>
+      <span className="app-settings-tab-label w-full truncate">{props.label}</span>
+    </Button>
   );
 }
 
@@ -273,7 +266,7 @@ export function DependencySettingsItem(props: {
   return (
     <div className="space-y-2 px-3 py-2.5">
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <div className="min-w-0 truncate text-sm font-bold tracking-[0.08em] text-foreground">
+        <div className="app-settings-dependency-title min-w-0 truncate">
           {formatDependencyDisplayName(dependency.name)}
         </div>
         <TooltipProvider delayDuration={0}>
@@ -289,7 +282,7 @@ export function DependencySettingsItem(props: {
                     disabled={isPrimaryPending}
                     aria-label={installLabel}
                   >
-                    {isPrimaryPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {isPrimaryPending ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <Download className="h-4 w-4" />}
                   </Button>
                 </span>
               </TooltipTrigger>
@@ -308,7 +301,7 @@ export function DependencySettingsItem(props: {
                         disabled={verifyDependency.isPending || isInstalling}
                         aria-label={text.actions.verify}
                       >
-                        {verifyDependency.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                        {verifyDependency.isPending ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <RefreshCcw className="h-4 w-4" />}
                       </Button>
                     </span>
                   </TooltipTrigger>
@@ -325,7 +318,7 @@ export function DependencySettingsItem(props: {
                         disabled={!canOpenDirectory || openDependencyDirectory.isPending}
                         aria-label={text.actions.openDirectory}
                       >
-                        {openDependencyDirectory.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderOpen className="h-4 w-4" />}
+                        {openDependencyDirectory.isPending ? <Loader2 className="h-4 w-4 app-motion-spin" /> : <FolderOpen className="h-4 w-4" />}
                       </Button>
                     </span>
                   </TooltipTrigger>
@@ -339,25 +332,23 @@ export function DependencySettingsItem(props: {
 
       <div className="flex justify-start">
         {isInstalling ? (
-          <div className="min-w-0 max-w-[17rem] flex-1 space-y-1.5">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full bg-primary transition-[width]" style={{ width: `${installProgress}%` }} />
-            </div>
-            <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div className="app-settings-dependency-progress min-w-0 flex-1 space-y-1.5">
+            <Progress aria-label={formatDependencyInstallStage(text, installStage)} value={installProgress} />
+            <div className="app-settings-progress-meta flex items-center justify-between gap-3">
               <span className="truncate">{formatDependencyInstallStage(text, installStage)}</span>
-              <span className="shrink-0 tabular-nums">{Math.round(installProgress)}%</span>
+              <span className="app-settings-progress-value shrink-0">{Math.round(installProgress)}%</span>
             </div>
           </div>
         ) : (
-          <Badge className={cn("min-w-0 max-w-full gap-0 overflow-hidden p-0", resolveDependencyTone(status))}>
+          <StatusBadge className="app-settings-dependency-status" tone={resolveDependencyTone(status)}>
             <span className="min-w-0 truncate px-2 py-0.5">{formatDependencyStatus(text, dependency)}</span>
-            <span className="min-w-0 truncate border-l border-current/20 px-2 py-0.5">
+            <span className="min-w-0 truncate px-2 py-0.5">
               {text.dependencies.currentVersion}: {currentVersion}
             </span>
-            <span className="min-w-0 truncate border-l border-current/20 px-2 py-0.5">
+            <span className="min-w-0 truncate px-2 py-0.5">
               {text.dependencies.latestVersion}: {latestVersion}
             </span>
-          </Badge>
+          </StatusBadge>
         )}
       </div>
     </div>

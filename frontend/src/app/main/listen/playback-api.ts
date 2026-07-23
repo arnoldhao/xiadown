@@ -31,6 +31,7 @@ export type ListenPlaybackTrack = {
 
 export type ListenPlaybackSnapshot = {
   version: number;
+  queueIdentity: string;
   state: ListenRemotePlaybackState;
   currentTrack?: ListenPlaybackTrack;
   progress: number;
@@ -60,6 +61,10 @@ export function normalizeListenPlaybackSnapshot(value: unknown): ListenPlaybackS
   }
   return {
     version: Math.max(0, Number(snapshot.version ?? 0)),
+    queueIdentity:
+      typeof snapshot.queueIdentity === "string"
+        ? snapshot.queueIdentity.trim()
+        : "",
     state: snapshot.state ?? "idle",
     currentTrack: snapshot.currentTrack,
     progress: Math.max(0, Number(snapshot.progress ?? 0)),
@@ -242,32 +247,72 @@ export async function callListenPlaybackSnapshot() {
   return callListenPlaybackSnapshotByName("PlaybackSnapshot");
 }
 
+export async function callListenPlaybackSetLanguage(language: string) {
+  return callListenPlaybackSnapshotByName("SetPlaybackLanguage", {
+    language: language.trim(),
+  });
+}
+
 export async function callListenPlaybackPlayQueue(options: {
   tracks: ListenOnlineItem[];
   startingAt: number;
   title: string;
+  language: string;
   kind?: "radio" | "playlist" | "mix";
   playlistId?: string;
   startVideoId?: string;
+  queueIdentity?: string;
 }) {
   return callListenPlaybackSnapshotByName("PlayQueue", {
     tracks: options.tracks.map(listenPlaybackTrackFromOnlineItem),
     startingAt: options.startingAt,
     title: options.title,
+    language: options.language.trim(),
     kind: options.kind ?? "playlist",
     playlistId: options.playlistId ?? "",
     startVideoId: options.startVideoId ?? "",
+    queueIdentity: options.queueIdentity?.trim() ?? "",
   });
+}
+
+let listenPlaybackQueueIdentitySequence = 0;
+
+export function createListenPlaybackQueueIdentity() {
+  const cryptoObject = globalThis.crypto;
+  if (typeof cryptoObject?.randomUUID === "function") {
+    return `client:${cryptoObject.randomUUID()}`;
+  }
+  listenPlaybackQueueIdentitySequence += 1;
+  return [
+    "client",
+    Date.now().toString(36),
+    listenPlaybackQueueIdentitySequence.toString(36),
+    Math.random().toString(36).slice(2),
+  ].join(":");
 }
 
 export async function callListenPlaybackPlayTrack(
   item: ListenOnlineItem,
-  options: { startSeconds?: number; forceReload?: boolean } = {},
+  options: { language: string; startSeconds?: number; forceReload?: boolean },
 ) {
   return callListenPlaybackSnapshotByName("PlayTrack", {
     track: listenPlaybackTrackFromOnlineItem(item),
+    language: options.language.trim(),
     startSeconds: Math.max(0, options.startSeconds ?? 0),
     forceReload: options.forceReload === true,
+  });
+}
+
+export async function callListenPlaybackPlayFromQueue(
+  index: number,
+  item: Pick<ListenOnlineItem, "id" | "videoId">,
+  language: string,
+) {
+  return callListenPlaybackSnapshotByName("PlayFromQueue", {
+    index: Math.max(0, Math.trunc(index)),
+    trackId: item.id,
+    videoId: item.videoId,
+    language: language.trim(),
   });
 }
 
@@ -371,9 +416,24 @@ export async function callListenPlaybackInsertNextInQueue(items: ListenOnlineIte
   });
 }
 
-export async function callListenPlaybackAppendToQueue(items: ListenOnlineItem[]) {
+export async function callListenPlaybackInsertAfterQueueItem(
+  items: ListenOnlineItem[],
+  options: { anchorTrackId: string; expectedQueueIdentity: string },
+) {
+  return callListenPlaybackSnapshotByName("InsertAfterQueueItem", {
+    tracks: items.map(listenPlaybackTrackFromOnlineItem),
+    anchorTrackId: options.anchorTrackId.trim(),
+    expectedQueueIdentity: options.expectedQueueIdentity.trim(),
+  });
+}
+
+export async function callListenPlaybackAppendToQueue(
+  items: ListenOnlineItem[],
+  options: { expectedQueueIdentity?: string } = {},
+) {
   return callListenPlaybackSnapshotByName("AppendToQueue", {
     tracks: items.map(listenPlaybackTrackFromOnlineItem),
+    expectedQueueIdentity: options.expectedQueueIdentity?.trim() ?? "",
   });
 }
 

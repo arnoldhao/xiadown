@@ -1,38 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-    <dict>
-        <key>CFBundlePackageType</key>
-            <string>APPL</string>
-        <key>CFBundleName</key>
-            <string>XiaDown</string>
-        <key>CFBundleDisplayName</key>
-            <string>XiaDown</string>
-        <key>CFBundleExecutable</key>
-            <string>xiadown</string>
-        <key>CFBundleIdentifier</key>
-            <string>com.dreamapp.xiadown</string>
-        <key>CFBundleVersion</key>
-            <string>0.0.0</string>
-        <key>CFBundleGetInfoString</key>
-            <string>This is a comment</string>
-        <key>CFBundleShortVersionString</key>
-            <string>dev</string>
-        <key>CFBundleIconFile</key>
-            <string>icons</string>
-        <key>LSMinimumSystemVersion</key>
-            <string>10.15.0</string>
-        <key>NSHighResolutionCapable</key>
-            <string>true</string>
-        <key>NSHumanReadableCopyright</key>
-            <string>© 2026, Arnold HAO</string>
-        <key>NSAudioCaptureUsageDescription</key>
-            <string>XiaDown processes its Listen audio output through a built-in equalizer. This permission only covers XiaDown playback.</string>
-        <key>NSScreenCaptureUsageDescription</key>
-            <string>XiaDown taps its own audio output so the built-in equalizer can apply effects. No screen content is recorded.</string>
-        <key>NSAppTransportSecurity</key>
-        <dict>
-            <key>NSAllowsLocalNetworking</key>
-            <true/>
-        </dict>
-    </dict>
+	<dict>
+		<key>CFBundleDisplayName</key>
+		<string>XiaDown</string>
+		<key>CFBundleExecutable</key>
+		<string>xiadown</string>
+		<key>CFBundleGetInfoString</key>
+		<string>XiaDown</string>
+		<key>CFBundleIconFile</key>
+		<string>icons</string>
+		<key>CFBundleIdentifier</key>
+		<string>com.dreamapp.xiadown</string>
+		<key>CFBundleName</key>
+		<string>XiaDown</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>dev</string>
+		<key>CFBundleVersion</key>
+		<string>0.0.0</string>
+		<key>LSMinimumSystemVersion</key>
+		<string>14.0.0</string>
+		<key>NSAppDataUsageDescription</key>
+		<string>XiaDown reads the browser profile you select to import sign-in sessions. It never modifies browser data.</string>
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSAllowsLocalNetworking</key>
+			<true/>
+		</dict>
+		<key>NSAudioCaptureUsageDescription</key>
+		<string>XiaDown processes its Listen audio output through a built-in equalizer. This permission only covers XiaDown playback.</string>
+		<key>NSHighResolutionCapable</key>
+		<string>true</string>
+		<key>NSHumanReadableCopyright</key>
+		<string>(c) 2026, Arnold HAO</string>
+		<key>NSScreenCaptureUsageDescription</key>
+		<string>XiaDown taps its own audio output so the built-in equalizer can apply effects. No screen content is recorded.</string>
+	</dict>
 </plist>

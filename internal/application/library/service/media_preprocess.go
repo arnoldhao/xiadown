@@ -18,6 +18,14 @@ import (
 
 type mediaProbe struct {
 	Format           string
+	Title            string
+	Artist           string
+	Album            string
+	AlbumArtist      string
+	Genre            string
+	TrackNumber      int
+	DiscNumber       int
+	Year             int
 	Codec            string
 	VideoCodec       string
 	AudioCodec       string
@@ -35,7 +43,11 @@ type mediaProbe struct {
 	AudioBitrateKbps int
 	Channels         int
 	SizeBytes        int64
-	DPI              int
+	// ContentIdentitySignature is populated only by the Listen Local index.
+	// General media probes deliberately avoid its additional bounded packet
+	// sampling pass.
+	ContentIdentitySignature string
+	DPI                      int
 }
 
 type mediaProbeSubtitleStream struct {
@@ -68,10 +80,11 @@ type ffprobeDisposition struct {
 }
 
 type ffprobeFormat struct {
-	FormatName string `json:"format_name"`
-	Duration   string `json:"duration"`
-	Size       string `json:"size"`
-	BitRate    string `json:"bit_rate"`
+	FormatName string            `json:"format_name"`
+	Duration   string            `json:"duration"`
+	Size       string            `json:"size"`
+	BitRate    string            `json:"bit_rate"`
+	Tags       map[string]string `json:"tags"`
 }
 
 func (probe mediaProbe) toMediaInfo() library.MediaInfo {
@@ -232,15 +245,18 @@ func (service *LibraryService) ffprobeLocalMedia(ctx context.Context, path strin
 	if err != nil {
 		return mediaProbe{}, err
 	}
-	command := exec.CommandContext(ctx, execPath,
+	probeCtx, cancel := withLocalMediaProbeTimeout(ctx)
+	defer cancel()
+	args := []string{
 		"-v", "error",
 		"-print_format", "json",
-		"-show_entries", "stream=index,codec_type,codec_name,width,height,channels,avg_frame_rate,r_frame_rate,bit_rate,disposition,tags:format=format_name,duration,size,bit_rate",
+		"-show_entries", "stream=index,codec_type,codec_name,width,height,channels,avg_frame_rate,r_frame_rate,bit_rate,disposition,tags:format=format_name,duration,size,bit_rate:format_tags",
 		"-show_streams",
 		"-show_format",
-		strings.TrimSpace(path),
-	)
-	configureProcessGroup(command)
+	}
+	args = appendLocalMediaFFprobeInput(args, path)
+	command := exec.CommandContext(probeCtx, execPath, args...)
+	configureLocalMediaToolCommand(command)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	output, err := command.Output()
@@ -263,6 +279,7 @@ func parseFFprobeMediaProbe(output []byte, path string) (mediaProbe, error) {
 		Format:     normalizeFFprobeFormat(payload.Format.FormatName, path),
 		StreamInfo: true,
 	}
+	applyMediaProbeTags(&result, payload.Format.Tags)
 	if result.SizeBytes == 0 {
 		result.SizeBytes = parseFFprobeSize(payload.Format.Size)
 	}
@@ -300,6 +317,7 @@ func parseFFprobeMediaProbe(output []byte, path string) (mediaProbe, error) {
 			}
 		case "audio":
 			result.HasAudio = true
+			applyMediaProbeTags(&result, stream.Tags)
 			if result.AudioCodec == "" {
 				result.AudioCodec = normalizeTranscodeFormat(stream.CodecName)
 			}
@@ -331,10 +349,97 @@ func parseFFprobeMediaProbe(output []byte, path string) (mediaProbe, error) {
 	return result, nil
 }
 
+func applyMediaProbeTags(probe *mediaProbe, tags map[string]string) {
+	if probe == nil || len(tags) == 0 {
+		return
+	}
+	normalized := make(map[string]string, len(tags))
+	for key, value := range tags {
+		key = strings.ToLower(strings.TrimSpace(key))
+		key = strings.ReplaceAll(strings.ReplaceAll(key, "-", "_"), " ", "_")
+		value = strings.TrimSpace(value)
+		if key != "" && value != "" {
+			normalized[key] = value
+		}
+	}
+	if probe.Title == "" {
+		probe.Title = firstNonEmpty(normalized["title"])
+	}
+	if probe.Artist == "" {
+		probe.Artist = firstNonEmpty(normalized["artist"], normalized["author"], normalized["composer"])
+	}
+	if probe.Album == "" {
+		probe.Album = firstNonEmpty(normalized["album"])
+	}
+	if probe.AlbumArtist == "" {
+		probe.AlbumArtist = firstNonEmpty(normalized["album_artist"], normalized["albumartist"])
+	}
+	if probe.Genre == "" {
+		probe.Genre = firstNonEmpty(normalized["genre"])
+	}
+	if probe.TrackNumber == 0 {
+		probe.TrackNumber = parseMediaTagOrdinal(firstNonEmpty(normalized["track"], normalized["tracknumber"], normalized["track_number"]))
+	}
+	if probe.DiscNumber == 0 {
+		probe.DiscNumber = parseMediaTagOrdinal(firstNonEmpty(normalized["disc"], normalized["discnumber"], normalized["disc_number"], normalized["disk"]))
+	}
+	if probe.Year == 0 {
+		probe.Year = parseMediaTagYear(firstNonEmpty(normalized["date"], normalized["year"], normalized["originaldate"]))
+	}
+}
+
+func parseMediaTagOrdinal(value string) int {
+	value = strings.TrimSpace(value)
+	if separator := strings.IndexAny(value, "/-"); separator >= 0 {
+		value = value[:separator]
+	}
+	result, _ := strconv.Atoi(strings.TrimSpace(value))
+	if result < 0 {
+		return 0
+	}
+	return result
+}
+
+func parseMediaTagYear(value string) int {
+	value = strings.TrimSpace(value)
+	if len(value) >= 4 {
+		value = value[:4]
+	}
+	result, _ := strconv.Atoi(value)
+	if result < 1000 || result > 9999 {
+		return 0
+	}
+	return result
+}
+
 func mergeMediaProbe(base mediaProbe, override mediaProbe) mediaProbe {
 	result := base
 	if strings.TrimSpace(override.Format) != "" {
 		result.Format = override.Format
+	}
+	if strings.TrimSpace(override.Title) != "" {
+		result.Title = override.Title
+	}
+	if strings.TrimSpace(override.Artist) != "" {
+		result.Artist = override.Artist
+	}
+	if strings.TrimSpace(override.Album) != "" {
+		result.Album = override.Album
+	}
+	if strings.TrimSpace(override.AlbumArtist) != "" {
+		result.AlbumArtist = override.AlbumArtist
+	}
+	if strings.TrimSpace(override.Genre) != "" {
+		result.Genre = override.Genre
+	}
+	if override.TrackNumber > 0 {
+		result.TrackNumber = override.TrackNumber
+	}
+	if override.DiscNumber > 0 {
+		result.DiscNumber = override.DiscNumber
+	}
+	if override.Year > 0 {
+		result.Year = override.Year
 	}
 	if strings.TrimSpace(override.Codec) != "" {
 		result.Codec = override.Codec

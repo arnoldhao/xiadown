@@ -3,10 +3,16 @@ package ytdlp
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpguts"
+	"golang.org/x/net/idna"
 
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/dependencies"
@@ -14,6 +20,26 @@ import (
 )
 
 var quickManualSubtitleLanguages = []string{"all", "-live_chat"}
+
+const (
+	ytdlpAllowedFormatProtocolPattern = `^(https?|m3u8(_native)?|http_dash_segments)$`
+	ytdlpAllowedFormatProtocolFilter  = `[protocol~='` + ytdlpAllowedFormatProtocolPattern + `']`
+)
+
+func hermeticYTDLPArgs() []string {
+	return []string{
+		"--ignore-config",
+		"--no-config-locations",
+		"--no-plugin-dirs",
+		"--no-exec",
+	}
+}
+
+// HermeticArgs applies XiaDown's process boundary to auxiliary yt-dlp
+// invocations such as the dependency version probe.
+func HermeticArgs(args ...string) []string {
+	return append(hermeticYTDLPArgs(), args...)
+}
 
 func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFilePath string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string, concurrentFragments int, streamStrategy StreamDownloadStrategy) []string {
 	args := []string{
@@ -63,29 +89,28 @@ func BuildArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, printFi
 		args = append(args, "--concurrent-fragments", fmt.Sprintf("%d", concurrentFragments))
 	}
 	args = append(args, buildHeaderArgs(headers)...)
-	formatArg := ""
+	formatArg := ytdlpDefaultNetworkFormatSelector()
 	quality := strings.ToLower(strings.TrimSpace(request.Quality))
 	if quality == "audio" {
-		formatArg = "ba/b"
+		formatArg = ytdlpNetworkFormatSelector("ba") + "/" + ytdlpNetworkFormatSelector("b")
 	}
 	formatID := strings.TrimSpace(request.FormatID)
 	audioFormatID := strings.TrimSpace(request.AudioFormatID)
 	if formatID != "" {
-		formatArg = formatID
+		formatArg = ytdlpExactNetworkFormatSelector(formatID)
 		if audioFormatID != "" {
-			formatArg = formatID + "+" + audioFormatID
+			formatArg += "+" + ytdlpExactNetworkFormatSelector(audioFormatID)
 		}
 	}
-	if formatArg != "" {
-		args = append(args, "-f", formatArg)
-	} else if quality == "bitrate" {
+	args = append(args, "-f", formatArg)
+	if quality == "bitrate" && formatID == "" {
 		args = append(args, "-S", "res,br")
 	}
-	args = append(args, request.URL)
+	args = append(args, strings.TrimSpace(request.URL))
 	if strings.TrimSpace(cookiesPath) != "" {
 		args = append([]string{"--cookies", strings.TrimSpace(cookiesPath)}, args...)
 	}
-	return args
+	return HermeticArgs(args...)
 }
 
 func BuildSubtitleArgs(request dto.CreateYTDLPJobRequest, outputTemplate string, subtitleTemplate string, cookiesPath string, explicitToolArgs []string, proxyURL string, headers map[string]string) []string {
@@ -145,15 +170,28 @@ func BuildSubtitleArgs(request dto.CreateYTDLPJobRequest, outputTemplate string,
 	if subtitleFormat != "" {
 		args = append(args, "--sub-format", subtitleFormat)
 	}
-	args = append(args, request.URL)
+	args = append(args, strings.TrimSpace(request.URL))
 	if strings.TrimSpace(cookiesPath) != "" {
 		args = append([]string{"--cookies", strings.TrimSpace(cookiesPath)}, args...)
 	}
-	return args
+	return HermeticArgs(args...)
 }
 
 func shouldLimitPlaylistToFirstItem(request dto.CreateYTDLPJobRequest) bool {
 	return strings.EqualFold(strings.TrimSpace(request.Mode), "quick")
+}
+
+func ytdlpDefaultNetworkFormatSelector() string {
+	return ytdlpNetworkFormatSelector("bv*") + "+" + ytdlpNetworkFormatSelector("ba") + "/" + ytdlpNetworkFormatSelector("b")
+}
+
+func ytdlpNetworkFormatSelector(selector string) string {
+	return strings.TrimSpace(selector) + ytdlpAllowedFormatProtocolFilter
+}
+
+func ytdlpExactNetworkFormatSelector(formatID string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(strings.TrimSpace(formatID))
+	return "all[format_id='" + escaped + "']" + ytdlpAllowedFormatProtocolFilter
 }
 
 func BuildCommand(ctx context.Context, options CommandOptions) (Command, error) {
@@ -165,6 +203,14 @@ func BuildSubtitleCommand(ctx context.Context, options CommandOptions) (Command,
 }
 
 func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool) (Command, error) {
+	if err := ValidateNetworkURL(options.Request.URL); err != nil {
+		return Command{}, fmt.Errorf("invalid yt-dlp URL: %w", err)
+	}
+	for _, formatID := range []string{options.Request.FormatID, options.Request.AudioFormatID} {
+		if strings.ContainsAny(formatID, "\x00\r\n") {
+			return Command{}, fmt.Errorf("invalid yt-dlp format ID")
+		}
+	}
 	execPath := strings.TrimSpace(options.ExecPath)
 	if execPath == "" {
 		if options.Tools == nil {
@@ -226,7 +272,14 @@ func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	command := exec.CommandContext(runCtx, execPath, args...)
-	command.Env = os.Environ()
+	command.Env = hermeticYTDLPEnvironment(os.Environ())
+	// An explicit XiaDown proxy is authoritative for the whole process tree,
+	// not only for public-API restricted jobs. yt-dlp may spawn ffmpeg or other
+	// helpers, and inherited system proxy/NO_PROXY variables would let those
+	// children take a route different from the managed gateway.
+	if strings.TrimSpace(options.ProxyURL) != "" {
+		command.Env = restrictedProxyEnvironment(command.Env, strings.TrimSpace(options.ProxyURL))
+	}
 	command.WaitDelay = 2 * time.Second
 	ConfigureProcessGroup(command)
 	sanitizedArgs := ydlpinfr.SanitizeArgs(args)
@@ -242,36 +295,97 @@ func buildCommand(ctx context.Context, options CommandOptions, subtitleOnly bool
 	}, nil
 }
 
+func restrictedProxyEnvironment(environment []string, proxyURL string) []string {
+	result := make([]string, 0, len(environment)+8)
+	for _, item := range environment {
+		key := item
+		if index := strings.IndexByte(item, '='); index >= 0 {
+			key = item[:index]
+		}
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "http_proxy", "https_proxy", "all_proxy", "no_proxy":
+			continue
+		default:
+			result = append(result, item)
+		}
+	}
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		result = append(result, key+"="+proxyURL)
+	}
+	return append(result, "NO_PROXY=", "no_proxy=")
+}
+
 func buildHeaderArgs(headers map[string]string) []string {
 	if len(headers) == 0 {
 		return nil
 	}
 	args := make([]string, 0, len(headers)*2)
 	for key, value := range headers {
-		trimmedKey := strings.TrimSpace(key)
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedKey == "" || trimmedValue == "" || ytdlpHeaderForbidden(trimmedKey) {
+		normalizedKey, normalizedValue, ok := normalizeYTDLPCommandHeader(key, value)
+		if !ok {
 			continue
 		}
-		args = append(args, "--add-header", trimmedKey+": "+trimmedValue)
+		args = append(args, "--add-header", normalizedKey+": "+normalizedValue)
 	}
 	return args
 }
 
-func ytdlpHeaderForbidden(key string) bool {
-	switch strings.ToLower(strings.TrimSpace(key)) {
-	case ":authority", ":method", ":path", ":scheme",
-		"accept-encoding", "connection", "content-length", "host",
-		"if-modified-since", "if-none-match", "keep-alive",
-		"proxy-connection", "range",
-		"sec-ch-ua", "sec-ch-ua-arch", "sec-ch-ua-bitness",
-		"sec-ch-ua-full-version", "sec-ch-ua-full-version-list",
-		"sec-ch-ua-mobile", "sec-ch-ua-model", "sec-ch-ua-platform",
-		"sec-ch-ua-platform-version", "sec-fetch-dest", "sec-fetch-mode",
-		"sec-fetch-site", "sec-fetch-user", "transfer-encoding",
-		"x-forwarded-for", "x-real-ip":
-		return true
-	default:
-		return false
+func normalizeYTDLPCommandHeader(key string, value string) (string, string, bool) {
+	normalizedKey := strings.ToLower(strings.TrimSpace(key))
+	trimmedValue := strings.TrimSpace(value)
+	if normalizedKey == "" || trimmedValue == "" || !httpguts.ValidHeaderFieldValue(trimmedValue) {
+		return "", "", false
 	}
+	switch normalizedKey {
+	case "user-agent":
+		return "User-Agent", trimmedValue, true
+	case "accept":
+		return "Accept", trimmedValue, true
+	case "accept-language":
+		return "Accept-Language", trimmedValue, true
+	case "referer":
+		origin, ok := normalizeYTDLPHeaderOrigin(trimmedValue)
+		return "Referer", origin + "/", ok
+	case "origin":
+		origin, ok := normalizeYTDLPHeaderOrigin(trimmedValue)
+		return "Origin", origin, ok
+	default:
+		return "", "", false
+	}
+}
+
+func normalizeYTDLPHeaderOrigin(raw string) (string, bool) {
+	if ValidateNetworkURL(raw) != nil {
+		return "", false
+	}
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", false
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	host := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(parsed.Hostname())), ".")
+	if parsedIP := net.ParseIP(strings.Trim(host, "[]")); parsedIP != nil {
+		host = parsedIP.String()
+	} else {
+		host, err = idna.Lookup.ToASCII(host)
+		if err != nil || host == "" {
+			return "", false
+		}
+	}
+	port := strings.TrimSpace(parsed.Port())
+	if port != "" {
+		parsedPort, err := strconv.Atoi(port)
+		if err != nil || parsedPort < 1 || parsedPort > 65535 {
+			return "", false
+		}
+		port = strconv.Itoa(parsedPort)
+	}
+	defaultPort := port == "" || (scheme == "https" && port == "443") || (scheme == "http" && port == "80")
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if !defaultPort {
+		host = net.JoinHostPort(strings.Trim(host, "[]"), port)
+	}
+	return scheme + "://" + host, true
 }

@@ -1,61 +1,80 @@
 import * as React from "react";
-import { Browser } from "@wailsio/runtime";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/utils";
 import { normalizeMarkdown } from "@/shared/markdown/normalize";
+import { isExternalHTTPURL, openExternalURL } from "@/shared/query/system";
 
 const dialogMarkdownComponents: Components = {
-  h1: ({ children }) => <h2 className="text-base font-semibold text-foreground">{children}</h2>,
-  h2: ({ children }) => <h3 className="text-sm font-semibold text-foreground">{children}</h3>,
-  h3: ({ children }) => <h4 className="text-sm font-medium text-foreground">{children}</h4>,
-  p: ({ children }) => <p className="text-sm leading-relaxed text-foreground">{children}</p>,
-  ul: ({ children }) => <ul className="ml-4 list-disc space-y-1 text-sm text-foreground">{children}</ul>,
-  ol: ({ children }) => <ol className="ml-4 list-decimal space-y-1 text-sm text-foreground">{children}</ol>,
-  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-  blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-border pl-3 text-muted-foreground">{children}</blockquote>
-  ),
-  a: ({ href, children, ...props }) => (
-    <a
-      href={href}
-      className="text-primary underline underline-offset-4"
-      onClick={(event) => {
-        if (!href) {
-          return;
-        }
-        event.preventDefault();
-        Browser.OpenURL(href);
-      }}
-      {...props}
-    >
+  h1: ({ children }) => <h2>{children}</h2>,
+  h2: ({ children }) => <h3>{children}</h3>,
+  h3: ({ children }) => <h4>{children}</h4>,
+  p: ({ children }) => <p>{children}</p>,
+  ul: ({ children }) => (
+    <ul className="app-dialog-markdown-list ml-4 space-y-1" data-kind="unordered">
       {children}
-    </a>
+    </ul>
   ),
+  ol: ({ children }) => (
+    <ol className="app-dialog-markdown-list ml-4 space-y-1" data-kind="ordered">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => <li>{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="pl-3">{children}</blockquote>
+  ),
+  a: ({ href, children, ...props }) => {
+    const externalURL = typeof href === "string" && isExternalHTTPURL(href) ? href.trim() : "";
+    return (
+      <a
+        {...props}
+        href={externalURL || undefined}
+        aria-disabled={externalURL ? undefined : true}
+        onClick={(event) => {
+          event.preventDefault();
+          if (!externalURL) {
+            return;
+          }
+          void openExternalURL(externalURL).catch((error) => {
+            console.warn("[DialogMarkdown] failed to open external link", error);
+          });
+        }}
+      >
+        {children}
+      </a>
+    );
+  },
   code: ({ className, children, ...props }) => {
     const content = String(children ?? "").replace(/\n$/, "");
     if (!className) {
       return (
-        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]" {...props}>
+        <code className="app-dialog-markdown-code" data-block="false" {...props}>
           {content}
         </code>
       );
     }
     return (
-      <code className="block overflow-x-auto rounded bg-muted p-2 font-mono text-[0.85em]" {...props}>
+      <code
+        className="app-dialog-markdown-code block overflow-x-auto"
+        data-block="true"
+        {...props}
+      >
         {content}
       </code>
     );
   },
-  pre: ({ children }) => <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">{children}</pre>,
+  pre: ({ children }) => (
+    <pre className="app-dialog-markdown-pre overflow-x-auto">{children}</pre>
+  ),
   table: ({ children }) => (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-sm text-foreground">{children}</table>
+      <table className="app-dialog-markdown-table w-full">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="border-b border-border">{children}</thead>,
-  th: ({ children }) => <th className="px-2 py-1 font-medium">{children}</th>,
+  thead: ({ children }) => <thead>{children}</thead>,
+  th: ({ children }) => <th className="px-2 py-1">{children}</th>,
   td: ({ children }) => <td className="px-2 py-1 align-top">{children}</td>,
 };
 
@@ -68,7 +87,7 @@ export function DialogMarkdown({ content, className }: DialogMarkdownProps) {
   const normalizedContent = React.useMemo(() => normalizeMarkdown(content.trim()), [content]);
 
   return (
-    <div className={cn("max-h-80 overflow-auto space-y-2 text-sm text-foreground", className)}>
+    <div className={cn("app-dialog-markdown max-h-80 overflow-auto space-y-2", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={dialogMarkdownComponents}>
         {normalizedContent}
       </ReactMarkdown>
