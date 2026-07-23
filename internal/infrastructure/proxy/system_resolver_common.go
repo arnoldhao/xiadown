@@ -69,10 +69,11 @@ func systemProxyURLContext(ctx context.Context, resolver systemProxyResolver, ta
 
 	// An HTTPS/WSS consumer enters the stable gateway as an opaque CONNECT and
 	// cannot expose its encrypted path without TLS interception. Normalize every
-	// system decision to the same canonical origin so backend, WebView, yt-dlp,
-	// Settings probes, and managed browsers cannot silently select different PAC
-	// routes for the same origin. App NoProxy matching happens before this step
-	// and remains authority-scoped.
+	// app-managed system decision to the same canonical origin so backend,
+	// yt-dlp, Settings probes, and managed browsers cannot silently select
+	// different PAC routes for the same origin. Native WebViews independently
+	// use the platform/runtime policy. App NoProxy matching happens before this
+	// step and remains authority-scoped.
 	canonicalTarget, err := canonicalSystemProxyTarget(target)
 	if err != nil {
 		<-nativeSystemProxySlots
