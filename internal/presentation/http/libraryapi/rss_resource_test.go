@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	applicationrss "xiadown/internal/application/rss"
@@ -913,31 +914,100 @@ func TestRSSResourceProxyAbsoluteImageTimeoutReleasesStreamSlot(t *testing.T) {
 }
 
 func TestRSSResourceProxyBoundsMediaIdleAndTotalWhileAllowingPacedRange(t *testing.T) {
+	// Run the deadline interactions on a fake clock. A busy host must not turn
+	// the 4 ms paced source into an apparent 30 ms upstream idle period.
 	mp4 := make([]byte, 1024)
 	copy(mp4, []byte{0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'})
 	tests := []struct {
 		name       string
-		body       *rssPacedReadCloser
+		body       func() *rssPacedReadCloser
 		idle       time.Duration
 		total      time.Duration
 		wantStatus int
 		wantBody   []byte
+		wantTotal  bool
 	}{
 		{
-			name: "continuous paced range", body: &rssPacedReadCloser{
-				reader: bytes.NewReader(mp4), delay: 4 * time.Millisecond, maxChunk: 128, closed: make(chan struct{}),
+			name: "continuous paced range", body: func() *rssPacedReadCloser {
+				return &rssPacedReadCloser{
+					reader: bytes.NewReader(mp4), delay: 4 * time.Millisecond, maxChunk: 128, closed: make(chan struct{}),
+				}
 			}, idle: 30 * time.Millisecond, total: 500 * time.Millisecond,
 			wantStatus: http.StatusPartialContent, wantBody: mp4,
 		},
 		{
-			name: "continuous trickle reaches absolute limit", body: &rssPacedReadCloser{
-				pattern: mp4[:128], delay: 4 * time.Millisecond, maxChunk: 128, closed: make(chan struct{}),
-			}, idle: 30 * time.Millisecond, total: 55 * time.Millisecond,
-			wantStatus: http.StatusPartialContent,
+			name: "continuous trickle reaches absolute limit", body: func() *rssPacedReadCloser {
+				return &rssPacedReadCloser{
+					pattern: mp4[:128], delay: 4 * time.Millisecond, maxChunk: 128, closed: make(chan struct{}),
+				}
+			}, idle: 30 * time.Millisecond, total: 25 * time.Millisecond,
+			wantStatus: http.StatusPartialContent, wantTotal: true,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				body := test.body()
+				service := &rssResourceServiceStub{
+					rssServiceStub: &rssServiceStub{},
+					entry: applicationrss.RemoteResource{
+						URL: "https://cdn.example/movie.mp4", Kind: applicationrss.RemoteResourceMedia, MIMEType: "video/mp4",
+					},
+				}
+				api, err := NewRSSAPI(service)
+				if err != nil {
+					t.Fatal(err)
+				}
+				api.resourceTimeouts = rssResourceTimeoutPolicy{
+					imageTotal: time.Second, mediaReadIdle: test.idle, mediaTotal: test.total,
+				}
+				api.resourceClient = &http.Client{Transport: rssResourceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusPartialContent,
+						Header: http.Header{
+							"Content-Type": {"video/mp4"}, "Content-Range": {"bytes 0-1023/2048"},
+							"Accept-Ranges": {"bytes"},
+						},
+						Body: body, ContentLength: 1024, Request: request,
+					}, nil
+				})}
+				request := httptest.NewRequest(http.MethodGet, "/api/v1/rss/entries/e/resources/media-0", nil)
+				request.SetPathValue("id", "e")
+				request.SetPathValue("slot", "media-0")
+				request.Header.Set("Range", "bytes=0-1023")
+				recorder := httptest.NewRecorder()
+				started := time.Now()
+				api.getEntryResource(recorder, request)
+				elapsed := time.Since(started)
+				if recorder.Code != test.wantStatus {
+					t.Fatalf("media response = %d %q", recorder.Code, recorder.Body.String())
+				}
+				if test.wantBody != nil && !bytes.Equal(recorder.Body.Bytes(), test.wantBody) {
+					t.Fatalf("paced body length = %d, want %d", recorder.Body.Len(), len(test.wantBody))
+				}
+				if test.wantTotal {
+					if recorder.Body.Len() == 0 || recorder.Body.Len() >= len(mp4) {
+						t.Fatalf("total timeout body length = %d, want a non-empty truncated response", recorder.Body.Len())
+					}
+					if elapsed != test.total {
+						t.Fatalf("total timeout elapsed = %s, want %s", elapsed, test.total)
+					}
+				} else if elapsed <= test.idle {
+					t.Fatalf("paced response elapsed = %s, want more than idle window %s", elapsed, test.idle)
+				}
+				if elapsed > time.Second {
+					t.Fatalf("bounded media took %s", elapsed)
+				}
+				if occupied := len(api.resourceSlots); occupied != 0 {
+					t.Fatalf("occupied resource slots = %d", occupied)
+				}
+			})
+		})
+	}
+
+	t.Run("idle body", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			body := newRSSBlockingReadCloser()
 			service := &rssResourceServiceStub{
 				rssServiceStub: &rssServiceStub{},
 				entry: applicationrss.RemoteResource{
@@ -949,69 +1019,27 @@ func TestRSSResourceProxyBoundsMediaIdleAndTotalWhileAllowingPacedRange(t *testi
 				t.Fatal(err)
 			}
 			api.resourceTimeouts = rssResourceTimeoutPolicy{
-				imageTotal: time.Second, mediaReadIdle: test.idle, mediaTotal: test.total,
+				imageTotal: time.Second, mediaReadIdle: 30 * time.Millisecond, mediaTotal: 500 * time.Millisecond,
 			}
 			api.resourceClient = &http.Client{Transport: rssResourceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
 				return &http.Response{
-					StatusCode: http.StatusPartialContent,
-					Header: http.Header{
-						"Content-Type": {"video/mp4"}, "Content-Range": {"bytes 0-1023/2048"},
-						"Accept-Ranges": {"bytes"},
-					},
-					Body: test.body, ContentLength: 1024, Request: request,
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"video/mp4"}},
+					Body: body, ContentLength: -1, Request: request,
 				}, nil
 			})}
 			request := httptest.NewRequest(http.MethodGet, "/api/v1/rss/entries/e/resources/media-0", nil)
 			request.SetPathValue("id", "e")
 			request.SetPathValue("slot", "media-0")
-			request.Header.Set("Range", "bytes=0-1023")
 			recorder := httptest.NewRecorder()
 			started := time.Now()
 			api.getEntryResource(recorder, request)
-			if recorder.Code != test.wantStatus {
-				t.Fatalf("media response = %d %q", recorder.Code, recorder.Body.String())
+			if recorder.Code != http.StatusBadGateway || len(api.resourceSlots) != 0 {
+				t.Fatalf("idle media = %d slots=%d", recorder.Code, len(api.resourceSlots))
 			}
-			if test.wantBody != nil && !bytes.Equal(recorder.Body.Bytes(), test.wantBody) {
-				t.Fatalf("paced body length = %d, want %d", recorder.Body.Len(), len(test.wantBody))
-			}
-			if elapsed := time.Since(started); elapsed > time.Second {
-				t.Fatalf("bounded media took %s", elapsed)
-			}
-			if occupied := len(api.resourceSlots); occupied != 0 {
-				t.Fatalf("occupied resource slots = %d", occupied)
+			if elapsed := time.Since(started); elapsed != 30*time.Millisecond {
+				t.Fatalf("idle timeout elapsed = %s, want 30ms", elapsed)
 			}
 		})
-	}
-
-	t.Run("idle body", func(t *testing.T) {
-		body := newRSSBlockingReadCloser()
-		service := &rssResourceServiceStub{
-			rssServiceStub: &rssServiceStub{},
-			entry: applicationrss.RemoteResource{
-				URL: "https://cdn.example/movie.mp4", Kind: applicationrss.RemoteResourceMedia, MIMEType: "video/mp4",
-			},
-		}
-		api, err := NewRSSAPI(service)
-		if err != nil {
-			t.Fatal(err)
-		}
-		api.resourceTimeouts = rssResourceTimeoutPolicy{
-			imageTotal: time.Second, mediaReadIdle: 30 * time.Millisecond, mediaTotal: 500 * time.Millisecond,
-		}
-		api.resourceClient = &http.Client{Transport: rssResourceRoundTripFunc(func(request *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"video/mp4"}},
-				Body: body, ContentLength: -1, Request: request,
-			}, nil
-		})}
-		request := httptest.NewRequest(http.MethodGet, "/api/v1/rss/entries/e/resources/media-0", nil)
-		request.SetPathValue("id", "e")
-		request.SetPathValue("slot", "media-0")
-		recorder := httptest.NewRecorder()
-		api.getEntryResource(recorder, request)
-		if recorder.Code != http.StatusBadGateway || len(api.resourceSlots) != 0 {
-			t.Fatalf("idle media = %d slots=%d", recorder.Code, len(api.resourceSlots))
-		}
 	})
 }
 

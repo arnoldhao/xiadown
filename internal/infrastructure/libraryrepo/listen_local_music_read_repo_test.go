@@ -17,14 +17,11 @@ import (
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteListenLocalMusicChangesKeysetCoalescesAcrossPages(t *testing.T) {
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "music-change-keyset.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "music-change-keyset.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,9 +93,7 @@ INSERT INTO listen_local_music_changes (
 
 func TestSQLiteListenLocalMusicChangesKeysetBoundsLargeJournalAndUsesIndexes(t *testing.T) {
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "music-change-keyset-large.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "music-change-keyset-large.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,9 +170,7 @@ WHERE value < 50000;
 
 func TestSQLiteListenLocalMusicReadRepositoryUsesSafeCanonicalPathFallbackWithoutCatalogMapping(t *testing.T) {
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "music-legacy-resource.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "music-legacy-resource.db")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,9 +312,7 @@ func TestSQLiteListenLocalMusicReadRepositoryUsesSafeCanonicalPathFallbackWithou
 
 func TestSQLiteListenLocalMusicReadRepositoryStableSnapshotChangesAndVersionedResources(t *testing.T) {
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "music-read.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "music-read.db")
 	if err != nil {
 		t.Fatal(err)
 	}

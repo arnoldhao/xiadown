@@ -4,17 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteCatalogMutationRepositoryIsAtomicAndRevisionGuarded(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-mutations.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-mutations.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -98,7 +96,7 @@ WHERE catalog_id = ? AND entity_type = 'item' AND entity_id = ?
 
 func TestSQLiteCatalogTaxonomyMutationsAdvanceCursorAndRollbackAtomically(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-taxonomy-mutations.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-taxonomy-mutations.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

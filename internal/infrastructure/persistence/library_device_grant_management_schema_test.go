@@ -7,10 +7,7 @@ import (
 )
 
 func TestLibraryDeviceGrantManagementMigrationAddsRevision(t *testing.T) {
-	database, err := OpenSQLite(context.Background(), SQLiteConfig{Path: ":memory:"})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
+	database := openLatestSQLiteTestDatabase(t)
 	defer database.Close()
 
 	var revision int64

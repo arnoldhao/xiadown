@@ -13,6 +13,12 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// Keep this synchronized with the application collection bound and the
+// persistence triggers. The repository check avoids constructing an
+// inevitably failing replacement one row at a time; the triggers remain the
+// final invariant for every database writer.
+const maxRSSRepositoryCollectionItems = 10_000
+
 type categoryRow struct {
 	bun.BaseModel     `bun:"table:rss_categories,alias:category_row"`
 	ID                string    `bun:"id,pk"`
@@ -369,6 +375,9 @@ func (repo *SQLiteRepository) mutateCollectionItems(
 		if err := validateCollectionItemIDs(ctx, tx, kind, ids); err != nil {
 			return err
 		}
+		if mode == "replace" && collectionItemIDCountExceedsLimit(ids) {
+			return fmt.Errorf("%w: collection contains too many items", domainrss.ErrInvalidRequest)
+		}
 		table, column := "rss_collection_entries", "entry_id"
 		if kind == domainrss.CollectionKindSubscriptions {
 			table, column = "rss_collection_subscriptions", "subscription_id"
@@ -419,6 +428,20 @@ func (repo *SQLiteRepository) mutateCollectionItems(
 		return domainrss.Collection{}, normalizeOrganizationWriteError(err)
 	}
 	return repo.GetCollection(ctx, id)
+}
+
+func collectionItemIDCountExceedsLimit(ids []string) bool {
+	if len(ids) <= maxRSSRepositoryCollectionItems {
+		return false
+	}
+	unique := make(map[string]struct{}, maxRSSRepositoryCollectionItems+1)
+	for _, id := range ids {
+		unique[id] = struct{}{}
+		if len(unique) > maxRSSRepositoryCollectionItems {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCollectionItemIDs(ctx context.Context, tx bun.Tx, kind domainrss.CollectionKind, ids []string) error {

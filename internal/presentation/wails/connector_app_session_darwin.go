@@ -756,7 +756,16 @@ func readConnectorAppSessionNativeWindowCookies(ctx context.Context, window *app
 	return readConnectorAppSessionNativeCookies(ctx, window.NativeWindow())
 }
 
-func clearConnectorAppSessionNativeRuntimeData(_ context.Context, _ *application.App, _ string, domains []string) error {
+func clearConnectorAppSessionNativeRuntimeData(_ context.Context, app *application.App, _ string, domains []string) error {
+	// Native cleanup requires a running Wails application. Tests and other
+	// headless callers intentionally construct providers without one;
+	// dispatching AppKit work in that state leaves no main event loop to service
+	// it and only expires after the native ten-second guard. Production
+	// providers always carry the application, so their WebKit clear path remains
+	// unchanged.
+	if app == nil {
+		return appsessions.ErrUnsupported
+	}
 	if len(domains) > 0 {
 		data, err := json.Marshal(domains)
 		if err == nil {

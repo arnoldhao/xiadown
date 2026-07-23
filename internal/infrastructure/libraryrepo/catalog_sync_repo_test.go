@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -248,9 +247,7 @@ func TestSQLiteCatalogMigrationRepositoryRoundTripAndCheckpointResume(t *testing
 
 func openCatalogSyncTestDB(t *testing.T, ctx context.Context) *persistence.Database {
 	t.Helper()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "catalog-sync.db"),
-	})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "catalog-sync.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

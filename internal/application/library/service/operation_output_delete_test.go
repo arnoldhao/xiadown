@@ -13,7 +13,6 @@ import (
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestDeleteOperationOutputRejectsNonSucceededOperations(t *testing.T) {
@@ -125,13 +124,7 @@ func TestDeleteOperationOutputPersistsDetachedAssociationWithSQLite(t *testing.T
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "operation-output-delete.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer func() { _ = database.Close() }()
+	database := openLibraryServiceTestDatabase(t, "operation-output-delete.db")
 
 	now := time.Date(2026, 7, 20, 11, 30, 0, 0, time.UTC)
 	localPath := filepath.Join(t.TempDir(), "durable.mp4")
@@ -217,13 +210,7 @@ func TestDeleteOperationOutputRecordsPurgedFileSubjectWithSQLite(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "operation-output-missing-file.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer func() { _ = database.Close() }()
+	database := openLibraryServiceTestDatabase(t, "operation-output-missing-file.db")
 
 	now := time.Date(2026, 7, 20, 11, 45, 0, 0, time.UTC)
 	libraryItem := mustNewLibrary(t, "lib-missing-output", now)

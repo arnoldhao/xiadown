@@ -2,17 +2,12 @@ package libraryrepo
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
-
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteCatalogSyncStateRepositoryReturnsPersistentEpochAndCursor(t *testing.T) {
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "catalog-sync.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "catalog-sync.db")
 	if err != nil {
 		t.Fatal(err)
 	}

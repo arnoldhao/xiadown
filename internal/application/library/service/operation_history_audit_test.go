@@ -10,20 +10,13 @@ import (
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestDeleteOperationPreservesHistoryAndStableSubjectWithSQLite(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "operation-history-audit.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer database.Close()
+	database := openLibraryServiceTestDatabase(t, "operation-history-audit.db")
 
 	createdAt := time.Date(2026, 7, 20, 14, 0, 0, 0, time.UTC)
 	deletedAt := createdAt.Add(time.Minute)

@@ -7,16 +7,13 @@ import (
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteFileEventRepositoryKeepsFirstImmutablePayload(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "file-event-immutable.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "file-event-immutable.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -73,9 +70,7 @@ func TestSQLiteFileRepositoryRollsBackFileWhenLifecycleEventFails(t *testing.T) 
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "file-event-atomic.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "file-event-atomic.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -152,9 +147,7 @@ func TestSQLiteFileRepositoryRenameWithEventIsAtomicAndConcurrencySafe(t *testin
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "file-rename-atomic.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "file-rename-atomic.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

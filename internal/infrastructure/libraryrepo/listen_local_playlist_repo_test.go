@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteListenLocalPlaylistRepositoryRoundTripAndOrdering(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "local-playlists.db")})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "local-playlists.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

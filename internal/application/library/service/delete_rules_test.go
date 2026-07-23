@@ -14,7 +14,6 @@ import (
 	settingsdto "xiadown/internal/application/settings/dto"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 type deleteRuleLibraryRepo struct {
@@ -336,15 +335,7 @@ func TestDeleteFileWithSQLiteRepoKeepsSubtitleStorageConstraintValid(t *testing.
 	ctx := context.Background()
 	now := time.Date(2026, 3, 28, 12, 0, 0, 0, time.UTC)
 
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "library-delete-file.db"),
-	})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer func() {
-		_ = db.Close()
-	}()
+	db := openLibraryServiceTestDatabase(t, "library-delete-file.db")
 
 	libraries := libraryrepo.NewSQLiteLibraryRepository(db.Bun)
 	files := libraryrepo.NewSQLiteFileRepository(db.Bun)

@@ -13,7 +13,6 @@ import (
 	application "xiadown/internal/application/library/service"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 type catalogServiceAuditorStub struct{ report catalogaudit.Report }
@@ -27,11 +26,7 @@ func (stub catalogServiceAuditorStub) Audit(_ context.Context, request catalogau
 
 func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-service.db")})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
+	db := openCatalogServiceTestDatabase(t, "catalog-service.db")
 
 	legacyPath := filepath.Join(t.TempDir(), "movie.mp4")
 	if err := os.WriteFile(legacyPath, []byte("media stays here"), 0o600); err != nil {
@@ -363,11 +358,7 @@ func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 
 func TestCatalogOverviewCountsOnlyDistinctActionableMissingLocalFiles(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-overview.db")})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
+	db := openCatalogServiceTestDatabase(t, "catalog-overview.db")
 
 	now := time.Now().UTC()
 	catalog, err := library.NewCatalog(library.CatalogParams{
@@ -517,11 +508,7 @@ func TestCatalogOverviewCountsOnlyDistinctActionableMissingLocalFiles(t *testing
 
 func TestCatalogServiceRejectsInvalidFiltersAndMissingStorageRoot(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "catalog-validation.db")})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
+	db := openCatalogServiceTestDatabase(t, "catalog-validation.db")
 	now := time.Now().UTC()
 	catalog, _ := library.NewCatalog(library.CatalogParams{ID: "catalog", Name: "Library", Status: "active", IsDefault: true, CreatedAt: &now, UpdatedAt: &now})
 	catalogs := libraryrepo.NewSQLiteCatalogRepository(db.Bun)

@@ -77,11 +77,11 @@ jobs:
         run: |
           go mod verify
           go vet ./...
-          go test ./...
+          go test -vet=off ./...
 
       - name: Race detector for network and persistence paths
         run: >-
-          go test -race
+          go test -race -vet=off
           ./internal/application/library/access
           ./internal/infrastructure/libraryserver
           ./internal/infrastructure/librarybackup
@@ -374,11 +374,11 @@ jobs:
         run: |
           go mod verify
           go vet ./...
-          go test ./...
+          go test -vet=off ./...
 
       - name: Race detector for network and persistence paths
         run: >-
-          go test -race
+          go test -race -vet=off
           ./internal/application/library/access
           ./internal/infrastructure/libraryserver
           ./internal/infrastructure/librarybackup

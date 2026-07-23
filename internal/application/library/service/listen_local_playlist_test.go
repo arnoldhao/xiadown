@@ -13,7 +13,6 @@ import (
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/library"
 	"xiadown/internal/infrastructure/libraryrepo"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 type gatedListenLocalPlaylistRepository struct {
@@ -71,11 +70,7 @@ func (repo *gatedListenLocalPlaylistRepository) ListItems(ctx context.Context, p
 
 func TestListenLocalPlaylistLifecycle(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "playlist-service.db")})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
+	db := openLibraryServiceTestDatabase(t, "playlist-service.db")
 
 	now := time.Date(2026, 7, 10, 8, 0, 0, 0, time.UTC)
 	libraryItem, err := library.NewLibrary(library.LibraryParams{ID: "library-1", Name: "Music", CreatedAt: &now, UpdatedAt: &now})
@@ -291,11 +286,7 @@ func TestListenLocalPlaylistLifecycle(t *testing.T) {
 
 func TestListenLocalPlaylistConcurrentStaleAddConflictsWithoutOverwrite(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "playlist-concurrency.db")})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
+	db := openLibraryServiceTestDatabase(t, "playlist-concurrency.db")
 
 	now := time.Date(2026, 7, 10, 8, 0, 0, 0, time.UTC)
 	libraryItem, err := library.NewLibrary(library.LibraryParams{ID: "library-1", Name: "Music", CreatedAt: &now, UpdatedAt: &now})
@@ -394,11 +385,7 @@ func TestListenLocalPlaylistConcurrentStaleAddConflictsWithoutOverwrite(t *testi
 
 func TestListenLocalPlaylistReadsUseBoundedQueriesAndPreserveMissingTrackError(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{Path: filepath.Join(t.TempDir(), "playlist-reads.db")})
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
+	db := openLibraryServiceTestDatabase(t, "playlist-reads.db")
 
 	now := time.Date(2026, 7, 10, 8, 0, 0, 0, time.UTC)
 	libraryItem, err := library.NewLibrary(library.LibraryParams{ID: "library-1", Name: "Music", CreatedAt: &now, UpdatedAt: &now})

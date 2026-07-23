@@ -3,19 +3,15 @@ package libraryrepo
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteDeviceGrantMutationIsAtomicAuditedAndRevisionGuarded(t *testing.T) {
 	ctx := context.Background()
-	db, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "device-grants.db"),
-	})
+	db, err := openLibraryRepoTestDatabase(t, ctx, "device-grants.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

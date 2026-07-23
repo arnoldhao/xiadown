@@ -2,21 +2,17 @@ package libraryrepo
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"xiadown/internal/domain/library"
-	"xiadown/internal/infrastructure/persistence"
 )
 
 func TestSQLiteOperationRepositorySaveWithHistoryEventIsAtomic(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	database, err := persistence.OpenSQLite(ctx, persistence.SQLiteConfig{
-		Path: filepath.Join(t.TempDir(), "operation-history-atomic.db"),
-	})
+	database, err := openLibraryRepoTestDatabase(t, ctx, "operation-history-atomic.db")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
