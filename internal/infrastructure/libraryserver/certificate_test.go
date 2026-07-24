@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,49 @@ func TestCertificateIsPersistedWithStableFingerprintAndPrivatePermissions(t *tes
 	}
 	if first.Certificate.Leaf == nil || first.Certificate.Leaf.Subject.CommonName != "XiaDown Library" {
 		t.Fatal("generated identity does not expose its parsed leaf")
+	}
+}
+
+func TestCertificateNormalizesUnicodeDNSNames(t *testing.T) {
+	directory := t.TempDir()
+	identity, err := LoadOrCreateCertificate(CertificateFiles{
+		CertificatePath: filepath.Join(directory, "library-cert.pem"),
+		PrivateKeyPath:  filepath.Join(directory, "library-key.pem"),
+	}, CertificateOptions{DNSNames: []string{"春风又绿江南岸"}})
+	if err != nil {
+		t.Fatalf("Unicode host name blocked certificate generation: %v", err)
+	}
+	if !identity.Persistent || identity.Certificate.Leaf == nil {
+		t.Fatalf("generated identity = %#v", identity)
+	}
+	wantDNSNames := []string{"localhost", "xn--6kr1jv0vy6j0yhm72am01b"}
+	if !slices.Equal(identity.Certificate.Leaf.DNSNames, wantDNSNames) {
+		t.Fatalf("certificate DNS names = %q, want %q", identity.Certificate.Leaf.DNSNames, wantDNSNames)
+	}
+	if err := identity.Certificate.Leaf.VerifyHostname("xn--6kr1jv0vy6j0yhm72am01b"); err != nil {
+		t.Fatalf("normalized host name does not match the certificate: %v", err)
+	}
+}
+
+func TestUniqueDNSNamesNormalizesDeduplicatesAndFiltersInvalidValues(t *testing.T) {
+	invalidUTF8 := string([]byte{0xff})
+	overlongLabel := strings.Repeat("a", 64) + ".local"
+	got := uniqueDNSNames([]string{
+		" LOCALHOST ",
+		"春风又绿江南岸",
+		"XN--6KR1JV0VY6J0YHM72AM01B",
+		"Example.COM.",
+		"bad host/name",
+		"bad_host",
+		"bad\x00host",
+		"127.0.0.1",
+		overlongLabel,
+		invalidUTF8,
+		"",
+	})
+	want := []string{"localhost", "xn--6kr1jv0vy6j0yhm72am01b", "example.com"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("normalized DNS names = %q, want %q", got, want)
 	}
 }
 

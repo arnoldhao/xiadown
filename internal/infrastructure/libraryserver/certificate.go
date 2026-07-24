@@ -19,6 +19,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
+
+	"golang.org/x/net/idna"
 )
 
 type CertificateFiles struct {
@@ -42,6 +45,12 @@ type TLSIdentity struct {
 	Rotated          bool
 	PersistenceError string
 }
+
+var certificateDNSNameProfile = idna.New(
+	idna.MapForLookup(),
+	idna.BidiRule(),
+	idna.VerifyDNSLength(true),
+)
 
 func LoadOrCreateCertificate(files CertificateFiles, options CertificateOptions) (TLSIdentity, error) {
 	files.CertificatePath = strings.TrimSpace(files.CertificatePath)
@@ -230,8 +239,8 @@ func uniqueDNSNames(values []string) []string {
 	result := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		value = strings.ToLower(strings.TrimSpace(value))
-		if value == "" {
+		value, ok := normalizeCertificateDNSName(value)
+		if !ok {
 			continue
 		}
 		if _, ok := seen[value]; ok {
@@ -241,6 +250,25 @@ func uniqueDNSNames(values []string) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+func normalizeCertificateDNSName(value string) (string, bool) {
+	if !utf8.ValidString(value) {
+		return "", false
+	}
+	value = strings.TrimSuffix(strings.TrimSpace(value), ".")
+	if value == "" {
+		return "", false
+	}
+	value, err := certificateDNSNameProfile.ToASCII(value)
+	if err != nil {
+		return "", false
+	}
+	value = strings.ToLower(strings.TrimSuffix(value, "."))
+	if value == "" || net.ParseIP(value) != nil {
+		return "", false
+	}
+	return value, true
 }
 
 func uniqueIPAddresses(values []net.IP) []net.IP {
