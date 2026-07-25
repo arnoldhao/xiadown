@@ -31,13 +31,14 @@ func TestRSSBilibiliDocumentStartBridgePlatformContracts(t *testing.T) {
 
 	windowsSource := readRSSVideoDocumentStartSource(t, "listen_player_webview_windows.go")
 	for _, required := range []string{
-		"listenWindowsWebViewForWindow(window)",
-		"webview.AddScriptToExecuteOnDocumentCreated(script)",
+		"core.vtbl.AddScriptToExecuteOnDocumentCreated.Call(",
+		"listenWindowsDocumentStartScriptCompletedHandlerInvoke",
+		"webview.beginDocumentStartScriptRegistration(script)",
+		"registration.wait(listenWindowsDocumentStartRegistrationTimeout)",
 		"webview.WrapNavigationCompleted",
 		"webview.Controller().PutIsVisible(true)",
 		"efficiency mode",
-		"registration failure is",
-		"WebView releases the CoreWebView2",
+		"using navigation fallback",
 	} {
 		if !strings.Contains(windowsSource, required) {
 			t.Fatalf("Windows RSS document-start bridge is missing %q", required)
@@ -48,10 +49,11 @@ func TestRSSBilibiliDocumentStartBridgePlatformContracts(t *testing.T) {
 		windowsSource,
 		"func attachRSSVideoPlayerDocumentStartBridge(",
 	)
-	for _, forbidden := range []string{"WebViewNavigationCompleted", "ExecuteScript"} {
-		if strings.Contains(windowsAttach, forbidden) {
-			t.Fatalf("Windows RSS document-start install still depends on %q", forbidden)
-		}
+	if !strings.Contains(
+		windowsAttach,
+		"attachListenWindowsDocumentStartBridge(window, script",
+	) {
+		t.Fatal("Windows RSS bridge does not use the confirmed document-start registration barrier")
 	}
 }
 

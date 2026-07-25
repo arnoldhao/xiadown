@@ -282,7 +282,8 @@ func (service *AppSessionsService) ImportBrowserProfile(
 			lastCommitErr = buildErr
 			continue
 		}
-		encoded, encodeErr := appcookies.EncodeJSON(candidate)
+		persistent := persistentAppSessionCookies(current.SiteKey, candidate, now)
+		encoded, encodeErr := appcookies.EncodeJSON(persistent)
 		if encodeErr != nil || encoded == "" {
 			service.credentialMutationMu.Unlock()
 			result.SkippedIDs = append(result.SkippedIDs, appSessionID)

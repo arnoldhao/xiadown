@@ -86,6 +86,30 @@ func StableAuth(records []appcookies.Record, now time.Time) []appcookies.Record 
 	return result
 }
 
+// MissingStableAuth returns persisted stable-auth records whose cookie
+// identity is absent from the live store. Existing live values always win:
+// playback bootstrap may fill a missing cookie, but must never replay an older
+// value over a newer generation already owned by the shared browser store.
+func MissingStableAuth(persisted []appcookies.Record, live []appcookies.Record, now time.Time) []appcookies.Record {
+	stablePersisted := StableAuth(persisted, now)
+	if len(stablePersisted) == 0 {
+		return nil
+	}
+	stableLive := StableAuth(live, now)
+	liveIdentities := make(map[string]struct{}, len(stableLive))
+	for _, record := range stableLive {
+		liveIdentities[stableAuthIdentity(record)] = struct{}{}
+	}
+	missing := make([]appcookies.Record, 0, len(stablePersisted))
+	for _, record := range stablePersisted {
+		if _, exists := liveIdentities[stableAuthIdentity(record)]; exists {
+			continue
+		}
+		missing = append(missing, record)
+	}
+	return missing
+}
+
 func HasAuthForURL(records []appcookies.Record, rawURL string, now time.Time) bool {
 	for _, record := range appcookies.MatchURL(records, rawURL) {
 		if _, ok := authIndicatorNames[strings.TrimSpace(record.Name)]; !ok {
@@ -100,6 +124,12 @@ func HasAuthForURL(records []appcookies.Record, rawURL string, now time.Time) bo
 		return true
 	}
 	return false
+}
+
+func stableAuthIdentity(record appcookies.Record) string {
+	return strings.ToLower(strings.TrimSpace(record.Name)) + "\x00" +
+		strings.TrimPrefix(strings.ToLower(strings.TrimSpace(record.Domain)), ".") + "\x00" +
+		strings.TrimSpace(record.Path)
 }
 
 func isYouTubeOrGoogleDomain(value string) bool {

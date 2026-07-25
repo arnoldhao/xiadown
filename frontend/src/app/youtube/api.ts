@@ -46,6 +46,10 @@ export async function browseYouTubeWorkspace(
   return normalizeBrowsePage(raw, request.routeId);
 }
 
+export function forceRefreshYouTubeWorkspace() {
+	return callService<void>(YOUTUBE_WORKSPACE_SERVICE, "ForceRefresh");
+}
+
 export async function playYouTubeWorkspaceVideo(
 	video: YouTubeWorkspaceVideo,
 	requestId: number,

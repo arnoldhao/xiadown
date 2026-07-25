@@ -101,9 +101,6 @@ type appSessionProviderStub struct {
 	loadCount   int
 	loadRecords []appcookies.Record
 	loadErr     error
-	syncRecords []appcookies.Record
-	syncEpoch   uint64
-	syncSeq     uint64
 	cacheCalls  int
 	cacheSite   string
 	cacheRecord []appcookies.Record
@@ -307,44 +304,6 @@ func (provider *appSessionProviderStub) CacheImportedAppSessionCookies(siteKey s
 	provider.cacheCalls++
 	provider.cacheSite = siteKey
 	provider.cacheRecord = append([]appcookies.Record(nil), records...)
-}
-
-func (provider *appSessionProviderStub) BeginAppSessionCookieSync(string) (uint64, uint64) {
-	return 42, 7
-}
-
-func (provider *appSessionProviderStub) SyncAppSessionCookies(
-	_ context.Context,
-	_ string,
-	records []appcookies.Record,
-	expectedEpoch uint64,
-	expectedSequence uint64,
-) error {
-	provider.syncRecords = append([]appcookies.Record(nil), records...)
-	provider.syncEpoch = expectedEpoch
-	provider.syncSeq = expectedSequence
-	return nil
-}
-
-func TestSyncRecordsForSiteKeyForwardsLiveSnapshot(t *testing.T) {
-	provider := &appSessionProviderStub{}
-	service := NewAppSessionsService(newAppSessionRepoStub(), WithProvider(provider))
-	records := []appcookies.Record{{Name: "SAPISID", Value: "live", Domain: ".youtube.com", Path: "/"}}
-
-	epoch, sequence := service.BeginCookieSync("youtube")
-	if epoch != 42 || sequence != 7 {
-		t.Fatalf("cookie sync token = (%d, %d), want (42, 7)", epoch, sequence)
-	}
-	if err := service.SyncRecordsForSiteKey(context.Background(), "youtube", records, epoch, sequence); err != nil {
-		t.Fatalf("sync live records: %v", err)
-	}
-	records[0].Value = "mutated-caller"
-	if len(provider.syncRecords) != 1 || provider.syncRecords[0].Value != "live" {
-		t.Fatalf("provider did not receive owned live snapshot: %#v", provider.syncRecords)
-	}
-	if provider.syncEpoch != 42 || provider.syncSeq != 7 {
-		t.Fatalf("provider sync token = (%d, %d), want (42, 7)", provider.syncEpoch, provider.syncSeq)
-	}
 }
 
 func TestRecordsForSiteKeyHydratesRuntimeBeforeLoadingCookies(t *testing.T) {

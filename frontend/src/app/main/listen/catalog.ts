@@ -1,6 +1,10 @@
 import type { ListenLiveGroup,ListenOnlineItem } from "@/app/main/listen/types";
 
 export const LISTEN_LIKED_SONGS_SHELF_ID = "ytmusic-liked-songs";
+export const LISTEN_YOUTUBE_VERIFICATION_REQUIRED_ERROR_CODE =
+  "youtube-verification-required";
+export const LISTEN_YOUTUBE_REGION_UNAVAILABLE_ERROR_CODE =
+  "youtube-region-unavailable";
 
 export const AVATAR_LOFI_GIRL =
   "https://yt3.googleusercontent.com/_BSh2VVvVMzqBoKyWbQnyC35XFOV-ZbXavf9nfu3ZjpFUGEImQnlWt9ZlpfGQBqWEbGNc4rPWg=s900-c-k-c0x00ffffff-no-rj";

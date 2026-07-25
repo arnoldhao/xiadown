@@ -3,7 +3,9 @@
 package wails
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/url"
 	"reflect"
@@ -12,10 +14,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/sitepolicy"
+	"xiadown/internal/application/youtubecookies"
 	"xiadown/internal/application/youtubemusic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -27,29 +31,34 @@ import (
 
 var listenYouTubeMusicRuntimeReadyWindowIDs sync.Map
 var listenWindowsWebViewConfiguredWindowIDs sync.Map
-var listenWindowsYouTubeAdBlockerWindowIDs sync.Map
 var listenWindowsWebResourceHeaderWindowIDs sync.Map
 var listenWindowsEmbeddedFullscreenWindowIDs sync.Map
 var listenWindowsEmbeddedHostControllers sync.Map
 var listenWindowsRemoteNavigationPolicies sync.Map
 var listenWindowsPersistentPopupPolicies sync.Map
 var listenWindowsMediaVisibilityWindows sync.Map
+var listenWindowsPendingDocumentStartRegistrations sync.Map
 var listenWindowsRSSBilibiliRefererGuard listenNativeWindowFeatureGuard
 
 var (
 	listenWindowsUser32              = syscall.NewLazyDLL("user32.dll")
 	listenWindowsGDI32               = syscall.NewLazyDLL("gdi32.dll")
+	listenWindowsProcGetAncestor     = listenWindowsUser32.NewProc("GetAncestor")
 	listenWindowsProcGetParent       = listenWindowsUser32.NewProc("GetParent")
 	listenWindowsProcSetParent       = listenWindowsUser32.NewProc("SetParent")
 	listenWindowsProcSetWindowRgn    = listenWindowsUser32.NewProc("SetWindowRgn")
 	listenWindowsProcCreateRoundRgn  = listenWindowsGDI32.NewProc("CreateRoundRectRgn")
 	listenWindowsEmbeddedWebViewLock sync.Mutex
 	listenWindowsEmbeddedWebView     listenWindowsEmbeddedWebViewState
+	listenWindowsMediaWebViewParking = make(map[uint]*listenWindowsMediaWebViewParkingState)
 )
+
+var listenYouTubeCookieDomains = []string{"youtube.com", "google.com"}
 
 type listenWindowsEmbeddedWebViewState struct {
 	active             bool
 	fullscreen         bool
+	restoreToParking   bool
 	playerHWND         w32.HWND
 	playerWindow       *application.WebviewWindow
 	hostHWND           w32.HWND
@@ -68,6 +77,27 @@ type listenWindowsEmbeddedWebViewState struct {
 	hostRestoreColor   edge.COREWEBVIEW2_COLOR
 	hostTransparent    bool
 	interactiveOverlay bool
+}
+
+// listenWindowsMediaWebViewParkingState preserves the Wails-owned top-level
+// window topology independently from the temporary inline-video topology.
+// A parked player is a visible 1x1 child of the main window, but native
+// fullscreen must always be able to recover this canonical top-level state.
+type listenWindowsMediaWebViewParkingState struct {
+	playerWindow *application.WebviewWindow
+	playerHWND   w32.HWND
+	hostWindow   *application.WebviewWindow
+	hostHWND     w32.HWND
+
+	topLevelParent  w32.HWND
+	topLevelOwner   uintptr
+	topLevelStyle   uint32
+	topLevelExStyle uint32
+	topLevelEnabled bool
+	topLevelRect    w32.RECT
+
+	parkingRequested bool
+	parked           bool
 }
 
 type listenWindowsEmbeddedHostWebView struct {
@@ -104,7 +134,7 @@ func installListenNativeWindowFullscreenEscape(window *application.WebviewWindow
 			window.UnFullscreen()
 		}
 	})
-	return nil
+	return func() {}
 }
 
 func installRSSVideoPlayerNativeFullscreenEscape(window *application.WebviewWindow) func() {
@@ -113,6 +143,413 @@ func installRSSVideoPlayerNativeFullscreenEscape(window *application.WebviewWind
 
 func showListenNativeAirPlayPicker(_ unsafe.Pointer, _ ListenAirPlayAnchor) bool {
 	return false
+}
+
+// registerListenMediaWebViewParking snapshots the real Wails top-level window
+// before any SetParent operation. Parking and inline presentation may both make
+// the HWND a child of the main window, so that canonical state must live
+// outside the singleton inline-presentation record.
+func registerListenMediaWebViewParking(
+	playerWindow *application.WebviewWindow,
+	hostWindow *application.WebviewWindow,
+) bool {
+	if playerWindow == nil || hostWindow == nil || playerWindow == hostWindow {
+		return false
+	}
+
+	var registered bool
+	application.InvokeSync(func() {
+		playerHWND := listenWindowsHWND(playerWindow.NativeWindow())
+		hostHWND := listenWindowsHWND(hostWindow.NativeWindow())
+		if playerHWND == 0 || hostHWND == 0 ||
+			!w32.IsWindow(playerHWND) || !w32.IsWindow(hostHWND) ||
+			playerHWND == hostHWND {
+			return
+		}
+
+		listenWindowsEmbeddedWebViewLock.Lock()
+		defer listenWindowsEmbeddedWebViewLock.Unlock()
+
+		windowID := playerWindow.ID()
+		if existing := listenWindowsMediaWebViewParking[windowID]; existing != nil {
+			if existing.playerWindow == playerWindow && existing.playerHWND == playerHWND {
+				if existing.parked && existing.hostHWND != hostHWND {
+					if !listenWindowsRestoreMediaWebViewTopLevelLocked(existing, true) {
+						return
+					}
+				}
+				existing.hostWindow = hostWindow
+				existing.hostHWND = hostHWND
+				existing.parkingRequested = true
+				if !listenWindowsApplyMediaWebViewParkingLocked(existing) {
+					return
+				}
+				registered = true
+				return
+			}
+			// Window IDs may be reused after native destruction. Never apply an
+			// old HWND baseline to the new Wails window instance.
+			delete(listenWindowsMediaWebViewParking, windowID)
+		}
+
+		style := uint32(w32.GetWindowLong(playerHWND, w32.GWL_STYLE))
+		if style&uint32(w32.WS_CHILD) != 0 {
+			// Registration after an untracked reparent cannot recover the real
+			// top-level owner/style safely. Fail soft and retain the old path.
+			return
+		}
+		rect := w32.GetWindowRect(playerHWND)
+		if rect == nil {
+			return
+		}
+		state := &listenWindowsMediaWebViewParkingState{
+			playerWindow:     playerWindow,
+			playerHWND:       playerHWND,
+			hostWindow:       hostWindow,
+			hostHWND:         hostHWND,
+			topLevelParent:   0,
+			topLevelOwner:    w32.GetWindowLongPtr(playerHWND, w32.GWLP_HWNDPARENT),
+			topLevelStyle:    style,
+			topLevelExStyle:  uint32(w32.GetWindowLong(playerHWND, w32.GWL_EXSTYLE)),
+			topLevelEnabled:  w32.IsWindowEnabled(playerHWND),
+			topLevelRect:     *rect,
+			parkingRequested: true,
+		}
+		listenWindowsMediaWebViewParking[windowID] = state
+		registered = listenWindowsApplyMediaWebViewParkingLocked(state)
+		if !registered {
+			// Parking can partially mutate style/parent before WebView2 reports
+			// a controller error. Restore the captured Wails topology and do
+			// not discard the only recovery baseline unless that rollback is
+			// confirmed. A retained record lets hide/navigation retry safely.
+			restored := listenWindowsRestoreMediaWebViewTopLevelLocked(state, true)
+			if restored {
+				delete(listenWindowsMediaWebViewParking, windowID)
+			} else {
+				state.parkingRequested = true
+				zap.L().Warn(
+					"media WebView parking registration rollback failed; retaining recovery state",
+					zap.String("window", playerWindow.Name()),
+				)
+			}
+		}
+	})
+	return registered
+}
+
+// parkListenMediaWebView keeps a media controller in the visible main-window
+// hierarchy without exposing a standalone player window. It deliberately does
+// not require the main WebView's CompositionController: enterprise/runtime
+// fallback to a normal HWND controller must not disable background audio.
+func parkListenMediaWebView(playerWindow *application.WebviewWindow) bool {
+	if playerWindow == nil {
+		return false
+	}
+
+	var parked bool
+	application.InvokeSync(func() {
+		listenWindowsEmbeddedWebViewLock.Lock()
+		defer listenWindowsEmbeddedWebViewLock.Unlock()
+
+		state := listenWindowsMediaWebViewParkingForWindowLocked(playerWindow)
+		if state == nil {
+			return
+		}
+		state.parkingRequested = true
+		if listenWindowsEmbeddedWebView.active &&
+			listenWindowsEmbeddedWebView.playerWindow == playerWindow &&
+			listenWindowsEmbeddedWebView.playerHWND == state.playerHWND {
+			listenWindowsRestoreEmbeddedWebViewLocked()
+			parked = state.parked
+			return
+		}
+		parked = listenWindowsApplyMediaWebViewParkingLocked(state)
+	})
+	return parked
+}
+
+// unparkListenMediaWebView restores the canonical top-level HWND while keeping
+// it hidden and its WebView2 controller live. Native fullscreen calls Show only
+// after WS_CHILD has been removed successfully.
+func unparkListenMediaWebView(playerWindow *application.WebviewWindow) bool {
+	if playerWindow == nil {
+		return false
+	}
+
+	var unparked bool
+	application.InvokeSync(func() {
+		listenWindowsEmbeddedWebViewLock.Lock()
+		defer listenWindowsEmbeddedWebViewLock.Unlock()
+
+		playerHWND := listenWindowsHWND(playerWindow.NativeWindow())
+		if playerHWND == 0 || !w32.IsWindow(playerHWND) {
+			return
+		}
+		state := listenWindowsMediaWebViewParkingForWindowLocked(playerWindow)
+		if state == nil {
+			return
+		}
+		if listenWindowsEmbeddedWebView.active &&
+			listenWindowsEmbeddedWebView.playerWindow == playerWindow &&
+			listenWindowsEmbeddedWebView.playerHWND == state.playerHWND {
+			state.parkingRequested = false
+			unparked = listenWindowsDetachEmbeddedWebViewToTopLevelLocked(
+				state.playerHWND,
+				state,
+			)
+			if !unparked {
+				state.parkingRequested = true
+			}
+			return
+		}
+		state.parkingRequested = false
+		unparked = listenWindowsRestoreMediaWebViewTopLevelLocked(state, true)
+		if !unparked {
+			// Treat presentation as a transaction: keep the player recoverable
+			// in its live 1x1 host if any HWND or Controller2 restore step fails.
+			state.parkingRequested = true
+			if !listenWindowsApplyMediaWebViewParkingLocked(state) {
+				zap.L().Warn(
+					"media WebView top-level restore and parking rollback both failed",
+					zap.String("window", playerWindow.Name()),
+				)
+			}
+		}
+	})
+	return unparked
+}
+
+// reassertListenMediaWebViewParking repairs Wails' first-navigation visibility
+// nudge. NavigationCompleted may hide a logically Hidden window after it was
+// already mounted as the main window's 1x1 child.
+func reassertListenMediaWebViewParking(playerWindow *application.WebviewWindow) {
+	if playerWindow == nil {
+		return
+	}
+
+	application.InvokeSync(func() {
+		listenWindowsEmbeddedWebViewLock.Lock()
+		defer listenWindowsEmbeddedWebViewLock.Unlock()
+
+		state := listenWindowsMediaWebViewParkingForWindowLocked(playerWindow)
+		if state == nil {
+			// The initial about:blank navigation can complete while the player
+			// constructor is still registering its mandatory anchor.
+			return
+		}
+		if listenWindowsEmbeddedWebView.active &&
+			listenWindowsEmbeddedWebView.playerWindow == playerWindow &&
+			listenWindowsEmbeddedWebView.playerHWND == state.playerHWND {
+			if err := listenWindowsPutMediaControllerVisibility(playerWindow, state.playerHWND, true); err != nil {
+				zap.L().Warn(
+					"media WebView inline visibility reassertion failed",
+					zap.String("window", playerWindow.Name()),
+					zap.Error(err),
+				)
+			}
+			return
+		}
+		if !state.parkingRequested {
+			return
+		}
+		if !listenWindowsApplyMediaWebViewParkingLocked(state) {
+			zap.L().Warn(
+				"media WebView parking reassertion failed",
+				zap.String("window", playerWindow.Name()),
+			)
+		}
+	})
+}
+
+// releaseListenMediaWebViewParking restores Wails' native topology before its
+// owner destroys the window, then forgets the HWND baseline.
+func releaseListenMediaWebViewParking(playerWindow *application.WebviewWindow) {
+	if playerWindow == nil {
+		return
+	}
+
+	application.InvokeSync(func() {
+		listenWindowsEmbeddedWebViewLock.Lock()
+		defer listenWindowsEmbeddedWebViewLock.Unlock()
+
+		state := listenWindowsMediaWebViewParkingForWindowLocked(playerWindow)
+		if state == nil {
+			return
+		}
+		if listenWindowsEmbeddedWebView.active &&
+			listenWindowsEmbeddedWebView.playerWindow == playerWindow &&
+			listenWindowsEmbeddedWebView.playerHWND == state.playerHWND {
+			listenWindowsRestoreEmbeddedWebViewLocked()
+		}
+		state.parkingRequested = false
+		_ = listenWindowsRestoreMediaWebViewTopLevelLocked(state, false)
+		delete(listenWindowsMediaWebViewParking, playerWindow.ID())
+	})
+}
+
+func listenWindowsMediaWebViewParkingForWindowLocked(
+	playerWindow *application.WebviewWindow,
+) *listenWindowsMediaWebViewParkingState {
+	if playerWindow == nil {
+		return nil
+	}
+	state := listenWindowsMediaWebViewParking[playerWindow.ID()]
+	if state == nil {
+		return nil
+	}
+	playerHWND := listenWindowsHWND(playerWindow.NativeWindow())
+	if state.playerWindow != playerWindow || state.playerHWND == 0 ||
+		state.playerHWND != playerHWND || !w32.IsWindow(state.playerHWND) {
+		delete(listenWindowsMediaWebViewParking, playerWindow.ID())
+		return nil
+	}
+	return state
+}
+
+func listenWindowsMediaWebViewParkingForHWNDLocked(
+	playerHWND w32.HWND,
+) *listenWindowsMediaWebViewParkingState {
+	if playerHWND == 0 {
+		return nil
+	}
+	for windowID, state := range listenWindowsMediaWebViewParking {
+		if state == nil || state.playerWindow == nil || state.playerHWND == 0 ||
+			listenWindowsHWND(state.playerWindow.NativeWindow()) != state.playerHWND ||
+			!w32.IsWindow(state.playerHWND) {
+			delete(listenWindowsMediaWebViewParking, windowID)
+			continue
+		}
+		if state.playerHWND == playerHWND {
+			return state
+		}
+	}
+	return nil
+}
+
+func listenWindowsApplyMediaWebViewParkingLocked(
+	state *listenWindowsMediaWebViewParkingState,
+) bool {
+	if state == nil || state.playerWindow == nil || state.hostWindow == nil ||
+		state.playerHWND == 0 || state.hostHWND == 0 ||
+		!w32.IsWindow(state.playerHWND) || !w32.IsWindow(state.hostHWND) ||
+		listenWindowsHWND(state.playerWindow.NativeWindow()) != state.playerHWND ||
+		listenWindowsHWND(state.hostWindow.NativeWindow()) != state.hostHWND {
+		return false
+	}
+
+	state.parkingRequested = true
+	state.parked = false
+	playerHWND := state.playerHWND
+	w32.ShowWindow(playerHWND, w32.SW_HIDE)
+	listenWindowsApplyEmbeddedWindowStyle(
+		playerHWND,
+		state.topLevelStyle,
+		state.topLevelExStyle,
+		false,
+	)
+	if uint32(w32.GetWindowLong(playerHWND, w32.GWL_STYLE))&uint32(w32.WS_CHILD) == 0 {
+		_ = listenWindowsRestoreMediaWebViewTopLevelLocked(state, true)
+		return false
+	}
+	w32.EnableWindow(playerHWND, state.topLevelEnabled)
+	listenWindowsSetParent(playerHWND, state.hostHWND)
+	if listenWindowsGetParent(playerHWND) != state.hostHWND {
+		_ = listenWindowsRestoreMediaWebViewTopLevelLocked(state, true)
+		return false
+	}
+	parkingExStyle := uint32(w32.GetWindowLong(playerHWND, w32.GWL_EXSTYLE)) |
+		uint32(w32.WS_EX_LAYERED)
+	w32.SetWindowLong(playerHWND, w32.GWL_EXSTYLE, parkingExStyle)
+	if uint32(w32.GetWindowLong(playerHWND, w32.GWL_EXSTYLE)) != parkingExStyle ||
+		!w32.SetLayeredWindowAttributes(playerHWND, 0, 0, w32.LWA_ALPHA) {
+		_ = listenWindowsRestoreMediaWebViewTopLevelLocked(state, true)
+		return false
+	}
+
+	listenWindowsSetWindowRgn(playerHWND, 0, true)
+	if !w32.SetWindowPos(
+		playerHWND,
+		w32.HWND_BOTTOM,
+		0,
+		0,
+		1,
+		1,
+		listenWindowsEmbeddedWindowPositionFlags(),
+	) {
+		_ = listenWindowsRestoreMediaWebViewTopLevelLocked(state, true)
+		return false
+	}
+	if err := listenWindowsPutMediaControllerVisibility(state.playerWindow, playerHWND, true); err != nil {
+		_ = listenWindowsRestoreMediaWebViewTopLevelLocked(state, true)
+		return false
+	}
+	w32.ShowWindow(playerHWND, w32.SW_SHOWNA)
+	w32.InvalidateRect(state.hostHWND, nil, false)
+	state.parked = true
+	return true
+}
+
+func listenWindowsRestoreMediaWebViewTopLevelLocked(
+	state *listenWindowsMediaWebViewParkingState,
+	controllerVisible bool,
+) bool {
+	if state == nil || state.playerWindow == nil || state.playerHWND == 0 ||
+		!w32.IsWindow(state.playerHWND) ||
+		listenWindowsHWND(state.playerWindow.NativeWindow()) != state.playerHWND {
+		return false
+	}
+
+	playerHWND := state.playerHWND
+	state.parked = false
+	w32.ShowWindow(playerHWND, w32.SW_HIDE)
+	w32.EnableWindow(playerHWND, state.topLevelEnabled)
+	listenWindowsSetWindowRgn(playerHWND, 0, true)
+	// SetParent(NULL) temporarily reparents a WS_CHILD window to the desktop;
+	// GetParent may therefore report the desktop HWND until WS_CHILD is
+	// cleared. Validate the final top-level style and owner below instead of
+	// rejecting that documented intermediate topology.
+	listenWindowsSetParent(playerHWND, state.topLevelParent)
+	w32.SetWindowLong(playerHWND, w32.GWL_STYLE, state.topLevelStyle)
+	w32.SetWindowLong(playerHWND, w32.GWL_EXSTYLE, state.topLevelExStyle)
+	if uint32(w32.GetWindowLong(playerHWND, w32.GWL_STYLE)) != state.topLevelStyle ||
+		uint32(w32.GetWindowLong(playerHWND, w32.GWL_EXSTYLE)) != state.topLevelExStyle {
+		return false
+	}
+	if state.topLevelExStyle&uint32(w32.WS_EX_LAYERED) != 0 &&
+		!w32.SetLayeredWindowAttributes(playerHWND, 0, 255, w32.LWA_ALPHA) {
+		return false
+	}
+	w32.SetWindowLongPtr(playerHWND, w32.GWLP_HWNDPARENT, state.topLevelOwner)
+	if w32.GetWindowLongPtr(playerHWND, w32.GWLP_HWNDPARENT) != state.topLevelOwner {
+		return false
+	}
+	if listenWindowsGetAncestorParent(playerHWND) != w32.GetDesktopWindow() {
+		return false
+	}
+
+	width := int(state.topLevelRect.Right - state.topLevelRect.Left)
+	height := int(state.topLevelRect.Bottom - state.topLevelRect.Top)
+	if !w32.SetWindowPos(
+		playerHWND,
+		w32.HWND_TOP,
+		int(state.topLevelRect.Left),
+		int(state.topLevelRect.Top),
+		max(1, width),
+		max(1, height),
+		uint(w32.SWP_NOACTIVATE|w32.SWP_NOZORDER|w32.SWP_FRAMECHANGED|w32.SWP_HIDEWINDOW),
+	) {
+		return false
+	}
+	state.parked = false
+	if controllerVisible {
+		if err := listenWindowsPutMediaControllerVisibility(state.playerWindow, playerHWND, true); err != nil {
+			return false
+		}
+	} else {
+		_ = listenWindowsPutMediaControllerVisibility(state.playerWindow, playerHWND, false)
+	}
+	style := uint32(w32.GetWindowLong(playerHWND, w32.GWL_STYLE))
+	return style&uint32(w32.WS_CHILD) == 0
 }
 
 // The main React WebView uses Wails' topmost DirectComposition target. Mount
@@ -210,11 +647,51 @@ func detachListenNativeEmbeddedWebViewForFullscreen(playerNativeWindow unsafe.Po
 	if playerHWND == 0 || !w32.IsWindow(playerHWND) {
 		return false
 	}
-	_ = hideListenNativeEmbeddedWebView(playerNativeWindow)
-	// Wails fullscreen changes the top-level window style and monitor bounds; it
-	// cannot escape clipping while the player is still a WS_CHILD of React.
-	style := uint32(w32.GetWindowLong(playerHWND, w32.GWL_STYLE))
-	return style&uint32(w32.WS_CHILD) == 0
+	var detached bool
+	application.InvokeSync(func() {
+		listenWindowsEmbeddedWebViewLock.Lock()
+		defer listenWindowsEmbeddedWebViewLock.Unlock()
+
+		if parkingState := listenWindowsMediaWebViewParkingForHWNDLocked(playerHWND); parkingState != nil {
+			parkingState.parkingRequested = false
+			detached = listenWindowsDetachEmbeddedWebViewToTopLevelLocked(
+				playerHWND,
+				parkingState,
+			)
+			return
+		}
+		// Unregistered transient players retain the legacy inline restore path.
+		// Wails fullscreen changes top-level style and monitor bounds and cannot
+		// escape clipping while the player is still a WS_CHILD of React.
+		style := uint32(w32.GetWindowLong(playerHWND, w32.GWL_STYLE))
+		detached = style&uint32(w32.WS_CHILD) == 0
+	})
+	return detached
+}
+
+func listenWindowsDetachEmbeddedWebViewToTopLevelLocked(
+	playerHWND w32.HWND,
+	parkingState *listenWindowsMediaWebViewParkingState,
+) bool {
+	state := listenWindowsEmbeddedWebView
+	if !state.active ||
+		state.playerHWND != playerHWND ||
+		parkingState == nil ||
+		parkingState.playerHWND != playerHWND {
+		return false
+	}
+	detached := listenWindowsRestoreMediaWebViewTopLevelLocked(parkingState, true)
+	if !detached {
+		parkingState.parkingRequested = true
+		_ = listenWindowsApplyMediaWebViewParkingLocked(parkingState)
+	}
+	listenWindowsRestoreEmbeddedHostBackground(state)
+	listenWindowsReleaseEmbeddedHostController(state.hostWindow)
+	if state.hostHWND != 0 && w32.IsWindow(state.hostHWND) {
+		w32.InvalidateRect(state.hostHWND, nil, false)
+	}
+	listenWindowsEmbeddedWebView = listenWindowsEmbeddedWebViewState{}
+	return detached
 }
 
 func listenNativeEmbeddedVideoFullscreenOwnsPresentation(nativeWindow unsafe.Pointer) (bool, bool) {
@@ -243,7 +720,7 @@ func listenEmbeddedVideoFullscreenAllowsHostGeometry() bool {
 
 func loadListenYouTubeMusicURL(window *application.WebviewWindow, targetURL string, cookies []appcookies.Record) {
 	loadListenWindowsExternalVideoURL(window, targetURL, func() {
-		prepareListenWindowsWebView(window, cookies)
+		prepareListenWindowsWebView(window, targetURL, cookies)
 	})
 }
 
@@ -311,7 +788,10 @@ func loadListenWindowsExternalVideoURL(
 		return
 	}
 	policy, allowed := webViewRemoteNavigationPolicyForPlayer(window.Name(), targetURL)
-	if !allowed || !installListenWindowsRemoteNavigationPolicy(window, policy) {
+	if !allowed {
+		return
+	}
+	if !installListenWindowsRemoteNavigationPolicy(window, policy) {
 		return
 	}
 	if prepare != nil {
@@ -374,18 +854,44 @@ func releaseRSSSitePlayerWindowFeatures(window *application.WebviewWindow) {
 	}
 }
 
-func scheduleListenYouTubeCookieSync(_ *application.WebviewWindow, _ listenPlayerCookieProvider) {}
+func readListenWindowsYouTubeCookies(
+	ctx context.Context,
+	window *application.WebviewWindow,
+) ([]appcookies.Record, error) {
+	records, err := readConnectorWindowsWebViewCookies(ctx, window, listenYouTubeCookieDomains)
+	if err != nil {
+		return nil, err
+	}
+	return youtubecookies.Runtime(records, time.Now()), nil
+}
 
-func prepareListenWindowsWebView(window *application.WebviewWindow, cookies []appcookies.Record) {
+func prepareListenWindowsWebView(
+	window *application.WebviewWindow,
+	targetURL string,
+	cookies []appcookies.Record,
+) {
+	application.InvokeSync(func() {
+		if webview := listenWindowsWebViewForWindow(window); webview != nil {
+			configureListenWindowsWebView(window, webview)
+			installListenWindowsWebResourceHeaders(window, webview)
+		}
+	})
+	readContext, cancelRead := context.WithTimeout(context.Background(), 6*time.Second)
+	currentCookies, readErr := readListenWindowsYouTubeCookies(readContext, window)
+	cancelRead()
+	now := time.Now()
+	restoreCookies := planListenPlaybackCookieRestore(
+		cookies,
+		currentCookies,
+		now,
+		readErr == nil,
+	)
 	application.InvokeSync(func() {
 		webview := listenWindowsWebViewForWindow(window)
 		if webview == nil {
 			return
 		}
-		configureListenWindowsWebView(window, webview)
-		installListenWindowsYouTubeAdBlocker(window, webview)
-		installListenWindowsWebResourceHeaders(window, webview)
-		if len(cookies) == 0 {
+		if len(restoreCookies) == 0 {
 			return
 		}
 		manager, err := webview.GetCookieManager()
@@ -394,7 +900,7 @@ func prepareListenWindowsWebView(window *application.WebviewWindow, cookies []ap
 		}
 		defer manager.Release()
 
-		for _, record := range cookies {
+		for _, record := range restoreCookies {
 			addListenWindowsWebViewCookie(manager, record)
 		}
 	})
@@ -446,18 +952,6 @@ func installListenWindowsEmbeddedFullscreen(window *application.WebviewWindow, w
 		return embeddedHandled
 	}) {
 		listenWindowsEmbeddedFullscreenWindowIDs.Delete(window.ID())
-	}
-}
-
-func installListenWindowsYouTubeAdBlocker(window *application.WebviewWindow, webview *listenWindowsWebViewBridge) {
-	if window == nil || webview == nil {
-		return
-	}
-	if _, loaded := listenWindowsYouTubeAdBlockerWindowIDs.LoadOrStore(window.ID(), struct{}{}); loaded {
-		return
-	}
-	if err := webview.AddScriptToExecuteOnDocumentCreated(listenYouTubeAdBlockScript()); err != nil {
-		listenWindowsYouTubeAdBlockerWindowIDs.Delete(window.ID())
 	}
 }
 
@@ -532,27 +1026,37 @@ func listenWindowsUsesYouTubeUserAgent(rawURL string) bool {
 		strings.HasSuffix(host, ".ggpht.com")
 }
 
-func addListenWindowsWebViewCookie(manager *edge.ICoreWebView2CookieManager, record appcookies.Record) {
+func addListenWindowsWebViewCookie(
+	manager *edge.ICoreWebView2CookieManager,
+	record appcookies.Record,
+) bool {
 	if manager == nil {
-		return
+		return false
 	}
 
 	name := strings.TrimSpace(record.Name)
 	domain := strings.TrimSpace(record.Domain)
 	path := strings.TrimSpace(record.Path)
 	if name == "" || record.Value == "" || domain == "" {
-		return
+		return false
 	}
 	if path == "" {
 		path = "/"
 	}
 
 	if addListenWindowsWebViewCookieWithDomain(manager, record, name, domain, path) {
-		return
+		return true
 	}
 	if strings.HasPrefix(domain, ".") {
-		_ = addListenWindowsWebViewCookieWithDomain(manager, record, name, strings.TrimPrefix(domain, "."), path)
+		return addListenWindowsWebViewCookieWithDomain(
+			manager,
+			record,
+			name,
+			strings.TrimPrefix(domain, "."),
+			path,
+		)
 	}
+	return false
 }
 
 func addListenWindowsWebViewCookieWithDomain(
@@ -616,7 +1120,9 @@ func listenWindowsPutMediaControllerVisibility(
 		return err
 	}
 	if visible {
-		_ = webview.Controller().NotifyParentWindowPositionChanged()
+		if err := webview.Controller().NotifyParentWindowPositionChanged(); err != nil {
+			return fmt.Errorf("notify media WebView2 parent position: %w", err)
+		}
 	}
 	return nil
 }
@@ -682,6 +1188,7 @@ func listenWindowsShowEmbeddedWebView(
 	defer listenWindowsEmbeddedWebViewLock.Unlock()
 
 	interactiveOverlay := rect.Interactive
+	parkingState := listenWindowsMediaWebViewParkingForWindowLocked(playerWindow)
 	hostChanged := listenWindowsEmbeddedWebView.hostHWND != hostHWND ||
 		(listenWindowsEmbeddedWebView.active && listenWindowsEmbeddedWebView.interactiveOverlay != interactiveOverlay)
 	if hostWebView != nil && listenWindowsEmbeddedWebView.hostWindow != hostWebView.window {
@@ -705,6 +1212,7 @@ func listenWindowsShowEmbeddedWebView(
 	if !listenWindowsEmbeddedWebView.active {
 		listenWindowsEmbeddedWebView = listenWindowsEmbeddedWebViewState{
 			active:             true,
+			restoreToParking:   parkingState != nil,
 			playerHWND:         playerHWND,
 			playerWindow:       playerWindow,
 			hostHWND:           hostHWND,
@@ -752,7 +1260,7 @@ func listenWindowsShowEmbeddedWebView(
 	if listenWindowsEmbeddedWebView.hostTransparent {
 		insertAfter = w32.HWND_BOTTOM
 	}
-	w32.SetWindowPos(
+	if !w32.SetWindowPos(
 		playerHWND,
 		insertAfter,
 		frame.X,
@@ -760,7 +1268,10 @@ func listenWindowsShowEmbeddedWebView(
 		frame.Width,
 		frame.Height,
 		listenWindowsEmbeddedWindowPositionFlags(),
-	)
+	) {
+		listenWindowsRestoreEmbeddedWebViewLocked()
+		return false
+	}
 	if err := listenWindowsActivateEmbeddedMediaController(playerWindow, playerHWND); err != nil {
 		listenWindowsRestoreEmbeddedWebViewLocked()
 		return false
@@ -768,6 +1279,9 @@ func listenWindowsShowEmbeddedWebView(
 	w32.ShowWindow(playerHWND, w32.SW_SHOWNA)
 	w32.InvalidateRect(hostHWND, nil, false)
 	w32.InvalidateRect(playerHWND, nil, false)
+	if parkingState != nil {
+		parkingState.parked = false
+	}
 	return true
 }
 
@@ -801,7 +1315,7 @@ func listenWindowsBeginEmbeddedFullscreen(playerHWND w32.HWND) bool {
 	if state.hostTransparent {
 		insertAfter = w32.HWND_BOTTOM
 	}
-	w32.SetWindowPos(
+	if !w32.SetWindowPos(
 		playerHWND,
 		insertAfter,
 		0,
@@ -809,7 +1323,15 @@ func listenWindowsBeginEmbeddedFullscreen(playerHWND w32.HWND) bool {
 		width,
 		height,
 		listenWindowsEmbeddedWindowPositionFlags(),
-	)
+	) {
+		listenWindowsSetEmbeddedWindowRegion(
+			playerHWND,
+			state.embeddedFrame.Width,
+			state.embeddedFrame.Height,
+			state.embeddedRadius,
+		)
+		return false
+	}
 	state.fullscreen = true
 	w32.InvalidateRect(state.hostHWND, nil, false)
 	return true
@@ -836,7 +1358,7 @@ func listenWindowsEndEmbeddedFullscreen(playerHWND w32.HWND) bool {
 	if state.hostTransparent {
 		insertAfter = w32.HWND_BOTTOM
 	}
-	w32.SetWindowPos(
+	if !w32.SetWindowPos(
 		playerHWND,
 		insertAfter,
 		frame.X,
@@ -844,7 +1366,12 @@ func listenWindowsEndEmbeddedFullscreen(playerHWND w32.HWND) bool {
 		max(1, frame.Width),
 		max(1, frame.Height),
 		listenWindowsEmbeddedWindowPositionFlags(),
-	)
+	) {
+		// The fullscreen geometry remains authoritative until a later retry.
+		// Undo the premature inline clipping without lying about state.
+		listenWindowsSetWindowRgn(playerHWND, 0, true)
+		return false
+	}
 	state.embeddedFrame = frame
 	state.embeddedRadius = radius
 	state.fullscreen = false
@@ -857,6 +1384,16 @@ func listenWindowsHideEmbeddedWebView(playerHWND w32.HWND) bool {
 	defer listenWindowsEmbeddedWebViewLock.Unlock()
 
 	if !listenWindowsEmbeddedWebView.active {
+		parkingState := listenWindowsMediaWebViewParkingForHWNDLocked(playerHWND)
+		if parkingState == nil {
+			return false
+		}
+		if parkingState.parked {
+			return true
+		}
+		if parkingState.parkingRequested {
+			return listenWindowsApplyMediaWebViewParkingLocked(parkingState)
+		}
 		return false
 	}
 	if listenWindowsEmbeddedWebView.playerHWND != playerHWND &&
@@ -866,8 +1403,7 @@ func listenWindowsHideEmbeddedWebView(playerHWND w32.HWND) bool {
 	// NativeWindow returns nil once Wails marks a player window destroyed. In
 	// that close/error path, a missing handle may only restore an orphaned state;
 	// it must never tear down another live player's underlay.
-	listenWindowsRestoreEmbeddedWebViewLocked()
-	return true
+	return listenWindowsRestoreEmbeddedWebViewLocked()
 }
 
 type listenWindowsEmbeddedFrameRect struct {
@@ -953,6 +1489,9 @@ func listenWindowsApplyEmbeddedWindowStyle(playerHWND w32.HWND, originalStyle ui
 		exStyle |= uint32(w32.WS_EX_NOACTIVATE)
 	}
 	w32.SetWindowLong(playerHWND, w32.GWL_EXSTYLE, exStyle)
+	if exStyle&uint32(w32.WS_EX_LAYERED) != 0 {
+		w32.SetLayeredWindowAttributes(playerHWND, 0, 255, w32.LWA_ALPHA)
+	}
 }
 
 func listenWindowsEmbeddedWindowPositionFlags() uint {
@@ -962,41 +1501,47 @@ func listenWindowsEmbeddedWindowPositionFlags() uint {
 	return uint(w32.SWP_NOACTIVATE | w32.SWP_SHOWWINDOW | w32.SWP_FRAMECHANGED)
 }
 
-func listenWindowsRestoreEmbeddedWebViewLocked() {
-	listenWindowsRestoreEmbeddedWebViewLockedPreservingHost(nil, nil)
+func listenWindowsRestoreEmbeddedWebViewLocked() bool {
+	return listenWindowsRestoreEmbeddedWebViewLockedPreservingHost(nil, nil)
 }
 
 func listenWindowsRestoreEmbeddedWebViewLockedPreservingHost(
 	preserveWindow *application.WebviewWindow,
 	preserveController *edge.ICoreWebView2Controller2,
-) {
+) bool {
 	state := listenWindowsEmbeddedWebView
 	if !state.active {
-		return
+		return false
 	}
 
 	playerHWND := state.playerHWND
+	var parkingState *listenWindowsMediaWebViewParkingState
+	if state.restoreToParking {
+		parkingState = listenWindowsMediaWebViewParkingForWindowLocked(state.playerWindow)
+	}
 	if w32.IsWindow(playerHWND) {
 		w32.ShowWindow(playerHWND, w32.SW_HIDE)
-		_ = listenWindowsPutMediaControllerVisibility(state.playerWindow, playerHWND, false)
-		w32.EnableWindow(playerHWND, state.originalEnabled)
-		listenWindowsSetWindowRgn(playerHWND, 0, true)
-		w32.SetWindowLong(playerHWND, w32.GWL_STYLE, state.originalStyle)
-		w32.SetWindowLong(playerHWND, w32.GWL_EXSTYLE, state.originalEx)
-		listenWindowsSetParent(playerHWND, state.originalParent)
-		w32.SetWindowLongPtr(playerHWND, w32.GWLP_HWNDPARENT, state.originalOwner)
+		if parkingState == nil {
+			_ = listenWindowsPutMediaControllerVisibility(state.playerWindow, playerHWND, false)
+			w32.EnableWindow(playerHWND, state.originalEnabled)
+			listenWindowsSetWindowRgn(playerHWND, 0, true)
+			w32.SetWindowLong(playerHWND, w32.GWL_STYLE, state.originalStyle)
+			w32.SetWindowLong(playerHWND, w32.GWL_EXSTYLE, state.originalEx)
+			listenWindowsSetParent(playerHWND, state.originalParent)
+			w32.SetWindowLongPtr(playerHWND, w32.GWLP_HWNDPARENT, state.originalOwner)
 
-		width := int(state.originalRect.Right - state.originalRect.Left)
-		height := int(state.originalRect.Bottom - state.originalRect.Top)
-		w32.SetWindowPos(
-			playerHWND,
-			w32.HWND_TOP,
-			int(state.originalRect.Left),
-			int(state.originalRect.Top),
-			max(1, width),
-			max(1, height),
-			uint(w32.SWP_NOACTIVATE|w32.SWP_NOZORDER|w32.SWP_FRAMECHANGED|w32.SWP_HIDEWINDOW),
-		)
+			width := int(state.originalRect.Right - state.originalRect.Left)
+			height := int(state.originalRect.Bottom - state.originalRect.Top)
+			w32.SetWindowPos(
+				playerHWND,
+				w32.HWND_TOP,
+				int(state.originalRect.Left),
+				int(state.originalRect.Top),
+				max(1, width),
+				max(1, height),
+				uint(w32.SWP_NOACTIVATE|w32.SWP_NOZORDER|w32.SWP_FRAMECHANGED|w32.SWP_HIDEWINDOW),
+			)
+		}
 	}
 	listenWindowsRestoreEmbeddedHostBackground(state)
 	preserveHost := preserveWindow != nil && preserveController != nil &&
@@ -1008,6 +1553,11 @@ func listenWindowsRestoreEmbeddedWebViewLockedPreservingHost(
 		w32.InvalidateRect(state.hostHWND, nil, false)
 	}
 	listenWindowsEmbeddedWebView = listenWindowsEmbeddedWebViewState{}
+	restored := true
+	if parkingState != nil {
+		restored = listenWindowsApplyMediaWebViewParkingLocked(parkingState)
+	}
+	return restored
 }
 
 func listenWindowsRestoreEmbeddedHostBackground(state listenWindowsEmbeddedWebViewState) {
@@ -1031,6 +1581,12 @@ func listenWindowsEmbeddedHostControllerIsLive(state listenWindowsEmbeddedWebVie
 
 func listenWindowsGetParent(hwnd w32.HWND) w32.HWND {
 	parent, _, _ := listenWindowsProcGetParent.Call(uintptr(hwnd))
+	return w32.HWND(parent)
+}
+
+func listenWindowsGetAncestorParent(hwnd w32.HWND) w32.HWND {
+	const gaParent = 1
+	parent, _, _ := listenWindowsProcGetAncestor.Call(uintptr(hwnd), gaParent)
 	return w32.HWND(parent)
 }
 
@@ -1250,11 +1806,14 @@ func (bridge *listenWindowsWebViewBridge) GetCookieManager() (*edge.ICoreWebView
 	return core2.GetCookieManager()
 }
 
-func (bridge *listenWindowsWebViewBridge) AddScriptToExecuteOnDocumentCreated(script string) error {
-	if bridge == nil || bridge.core == nil {
-		return errors.New("WebView2 core is not ready")
+func (bridge *listenWindowsWebViewBridge) beginDocumentStartScriptRegistration(
+	script string,
+) (*listenWindowsDocumentStartScriptRegistration, error) {
+	core := listenWindowsWebViewCore(bridge)
+	if core == nil {
+		return nil, errors.New("WebView2 core is not ready")
 	}
-	return bridge.core.AddScriptToExecuteOnDocumentCreated(script, nil)
+	return core.beginDocumentStartScriptRegistration(script)
 }
 
 // wrapCallback replaces an internal Chromium callback with a function of its
@@ -1313,7 +1872,9 @@ func (bridge *listenWindowsWebViewBridge) WrapWebResourceRequested(
 // WrapNavigationCompleted runs callback after Wails has processed the event.
 // That ordering matters for hidden media windows because Wails' first-paint
 // handler ends by setting the controller visibility back to false.
-func (bridge *listenWindowsWebViewBridge) WrapNavigationCompleted(callback func()) bool {
+func (bridge *listenWindowsWebViewBridge) WrapNavigationCompleted(
+	callback func(),
+) bool {
 	if callback == nil {
 		return false
 	}
@@ -1586,6 +2147,32 @@ type listenWindowsEventRegistrationToken struct {
 	value int64
 }
 
+const listenWindowsDocumentStartRegistrationTimeout = 2 * time.Second
+
+type listenWindowsDocumentStartScriptRegistration struct {
+	done             chan struct{}
+	completeOnce     sync.Once
+	ownerReleaseOnce sync.Once
+
+	mu        sync.RWMutex
+	errorCode uintptr
+	scriptID  string
+	handler   *listenWindowsDocumentStartScriptCompletedHandler
+}
+
+type listenWindowsDocumentStartScriptCompletedHandlerVtbl struct {
+	QueryInterface edge.ComProc
+	AddRef         edge.ComProc
+	Release        edge.ComProc
+	Invoke         edge.ComProc
+}
+
+type listenWindowsDocumentStartScriptCompletedHandler struct {
+	vtbl         *listenWindowsDocumentStartScriptCompletedHandlerVtbl
+	registration *listenWindowsDocumentStartScriptRegistration
+	refCount     atomic.Int32
+}
+
 type listenWindowsNavigationStartingEventArgs struct {
 	vtbl *listenWindowsNavigationStartingEventArgsVtbl
 }
@@ -1676,6 +2263,18 @@ var (
 		Data3: 0x4989,
 		Data4: [8]byte{0x97, 0xaf, 0x2d, 0x3f, 0xa7, 0xab, 0x56, 0x51},
 	}
+	listenWindowsDocumentStartScriptCompletedHandlerIID = windows.GUID{
+		Data1: 0xb99369f3,
+		Data2: 0x9b11,
+		Data3: 0x47b5,
+		Data4: [8]byte{0xbc, 0x6f, 0x8e, 0x78, 0x95, 0xfc, 0xea, 0x17},
+	}
+	listenWindowsDocumentStartScriptCompletedHandlerVTable = listenWindowsDocumentStartScriptCompletedHandlerVtbl{
+		QueryInterface: edge.NewComProc(listenWindowsDocumentStartScriptCompletedHandlerQueryInterface),
+		AddRef:         edge.NewComProc(listenWindowsDocumentStartScriptCompletedHandlerAddRef),
+		Release:        edge.NewComProc(listenWindowsDocumentStartScriptCompletedHandlerRelease),
+		Invoke:         edge.NewComProc(listenWindowsDocumentStartScriptCompletedHandlerInvoke),
+	}
 	listenWindowsNavigationStartingEventHandlerVTable = listenWindowsNavigationStartingEventHandlerVtbl{
 		QueryInterface: edge.NewComProc(listenWindowsNavigationStartingEventHandlerQueryInterface),
 		AddRef:         edge.NewComProc(listenWindowsNavigationStartingEventHandlerAddRef),
@@ -1737,6 +2336,110 @@ func (args *listenWindowsNewWindowRequestedEventArgs) Handle() error {
 		return syscall.Errno(hr)
 	}
 	return nil
+}
+
+func (registration *listenWindowsDocumentStartScriptRegistration) complete(
+	errorCode uintptr,
+	scriptID string,
+) {
+	if registration == nil {
+		return
+	}
+	registration.completeOnce.Do(func() {
+		registration.mu.Lock()
+		registration.errorCode = errorCode
+		registration.scriptID = scriptID
+		registration.mu.Unlock()
+		close(registration.done)
+	})
+}
+
+func (registration *listenWindowsDocumentStartScriptRegistration) wait(
+	timeout time.Duration,
+) error {
+	if registration == nil {
+		return errors.New("WebView2 document-start registration is unavailable")
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-registration.done:
+		registration.mu.RLock()
+		errorCode := registration.errorCode
+		scriptID := registration.scriptID
+		registration.mu.RUnlock()
+		if code := uint32(errorCode); code != uint32(windows.S_OK) {
+			return fmt.Errorf(
+				"WebView2 document-start registration failed (HRESULT 0x%08X): %w",
+				code,
+				syscall.Errno(code),
+			)
+		}
+		if strings.TrimSpace(scriptID) == "" {
+			return errors.New("WebView2 document-start registration returned an empty script ID")
+		}
+		return nil
+	case <-timer.C:
+		return fmt.Errorf(
+			"WebView2 document-start registration timed out after %s",
+			timeout,
+		)
+	}
+}
+
+func (registration *listenWindowsDocumentStartScriptRegistration) releaseOwner() {
+	if registration == nil {
+		return
+	}
+	registration.ownerReleaseOnce.Do(func() {
+		if registration.handler != nil {
+			listenWindowsDocumentStartScriptCompletedHandlerRelease(registration.handler)
+		}
+	})
+}
+
+func (core *listenWindowsCoreWebView2) beginDocumentStartScriptRegistration(
+	script string,
+) (*listenWindowsDocumentStartScriptRegistration, error) {
+	if core == nil || core.vtbl == nil {
+		return nil, errors.New("WebView2 core is unavailable")
+	}
+	if script == "" {
+		return nil, errors.New("WebView2 document-start script is empty")
+	}
+	utf16Script, err := windows.UTF16PtrFromString(script)
+	if err != nil {
+		return nil, err
+	}
+	registration := &listenWindowsDocumentStartScriptRegistration{
+		done: make(chan struct{}),
+	}
+	handler := &listenWindowsDocumentStartScriptCompletedHandler{
+		vtbl:         &listenWindowsDocumentStartScriptCompletedHandlerVTable,
+		registration: registration,
+	}
+	handler.refCount.Store(1)
+	registration.handler = handler
+	// The WebView2 API retains the COM interface, but the Go GC cannot observe
+	// that native reference. Keep a Go root until COM and our owner both release.
+	listenWindowsPendingDocumentStartRegistrations.Store(handler, handler)
+
+	hr, _, _ := core.vtbl.AddScriptToExecuteOnDocumentCreated.Call(
+		uintptr(unsafe.Pointer(core)),
+		uintptr(unsafe.Pointer(utf16Script)),
+		uintptr(unsafe.Pointer(handler)),
+	)
+	runtime.KeepAlive(utf16Script)
+	runtime.KeepAlive(handler)
+	if windows.Handle(hr) != windows.S_OK {
+		registration.releaseOwner()
+		return nil, fmt.Errorf(
+			"submit WebView2 document-start registration (HRESULT 0x%08X): %w",
+			uint32(hr),
+			syscall.Errno(uint32(hr)),
+		)
+	}
+	return registration, nil
 }
 
 func (core *listenWindowsCoreWebView2) addNavigationStarting(
@@ -1839,6 +2542,71 @@ func (state *listenWindowsRemoteNavigationState) allows(rawURL string) bool {
 	return policy.allows(rawURL)
 }
 
+func listenWindowsDocumentStartScriptCompletedHandlerQueryInterface(
+	this *listenWindowsDocumentStartScriptCompletedHandler,
+	refiid uintptr,
+	object uintptr,
+) uintptr {
+	result := listenWindowsRemoteEventHandlerQueryInterface(
+		unsafe.Pointer(this),
+		refiid,
+		object,
+		listenWindowsDocumentStartScriptCompletedHandlerIID,
+	)
+	if result == uintptr(windows.S_OK) {
+		listenWindowsDocumentStartScriptCompletedHandlerAddRef(this)
+	}
+	return result
+}
+
+func listenWindowsDocumentStartScriptCompletedHandlerAddRef(
+	this *listenWindowsDocumentStartScriptCompletedHandler,
+) uintptr {
+	if this == nil {
+		return 0
+	}
+	return uintptr(this.refCount.Add(1))
+}
+
+func listenWindowsDocumentStartScriptCompletedHandlerRelease(
+	this *listenWindowsDocumentStartScriptCompletedHandler,
+) uintptr {
+	if this == nil {
+		return 0
+	}
+	remaining := this.refCount.Add(-1)
+	if remaining <= 0 {
+		listenWindowsPendingDocumentStartRegistrations.Delete(this)
+		return 0
+	}
+	return uintptr(remaining)
+}
+
+func listenWindowsDocumentStartScriptCompletedHandlerInvoke(
+	this *listenWindowsDocumentStartScriptCompletedHandler,
+	errorCode uintptr,
+	scriptID *uint16,
+) uintptr {
+	if this == nil || this.registration == nil {
+		return uintptr(windows.S_OK)
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			this.registration.complete(uintptr(0x80004005), "")
+			this.registration.releaseOwner()
+		}
+	}()
+	id := ""
+	if scriptID != nil {
+		// The completion callback lends this LPCWSTR only for Invoke. Copy it
+		// and never pass its native address beyond the callback.
+		id = windows.UTF16PtrToString(scriptID)
+	}
+	this.registration.complete(errorCode, id)
+	this.registration.releaseOwner()
+	return uintptr(windows.S_OK)
+}
+
 func listenWindowsRemoteEventHandlerQueryInterface(
 	this unsafe.Pointer,
 	refiid uintptr,
@@ -1897,12 +2665,16 @@ func listenWindowsNavigationStartingEventHandlerInvoke(
 	// URI extraction and policy evaluation both fail closed. The deferred guard
 	// also cancels if an unexpected Go panic crosses this COM callback boundary.
 	defer func() {
-		if recover() != nil {
+		if recovered := recover(); recovered != nil {
 			_ = args.Cancel()
 		}
 	}()
 	rawURL, err := args.URI()
-	if err != nil || this == nil || this.state == nil || !this.state.allows(rawURL) {
+	allowed := err == nil && this != nil && this.state != nil
+	if allowed && !this.state.allows(rawURL) {
+		allowed = false
+	}
+	if !allowed {
 		_ = args.Cancel()
 	}
 	return uintptr(windows.S_OK)
@@ -2183,72 +2955,195 @@ func execListenYouTubeMusicJS(window *application.WebviewWindow, script string) 
 }
 
 // Wails alpha2.117 hides both the outer HWND and the WebView2 controller for a
-// logically hidden window. Dedicated YouTube media windows must keep the
-// controller visible so WebView2 does not put their timers and media pipeline
-// into efficiency mode; the HWND itself remains hidden.
-func hideListenYouTubeMediaWindow(window *application.WebviewWindow) {
+// logically hidden window. Persistent media players return to their 1x1
+// main-window parking child after every standalone/inline presentation. The
+// controller-only fallback below is limited to transient non-music windows;
+// the persistent music and radio path requires a successful anchor return.
+func hideListenYouTubeMediaWindow(window *application.WebviewWindow) bool {
 	if window == nil {
-		return
+		return false
 	}
 	window.Hide()
+	if parkListenMediaWebView(window) {
+		return true
+	}
+	if window.Name() == listenPlayerWindowName ||
+		window.Name() == listenLivePlayerWindowName {
+		return false
+	}
+	zap.L().Warn(
+		"media WebView parking failed; using controller-visible fallback",
+		zap.String("window", window.Name()),
+	)
 	application.InvokeSync(func() {
 		webview := listenWindowsWebViewForWindow(window)
 		if webview == nil || webview.Controller() == nil {
 			return
 		}
-		_ = webview.Controller().PutIsVisible(true)
+		if err := webview.Controller().PutIsVisible(true); err != nil {
+			zap.L().Warn(
+				"media WebView controller visibility fallback failed",
+				zap.String("window", window.Name()),
+				zap.Error(err),
+			)
+		}
 	})
+	return true
+}
+
+func attachListenWindowsDocumentStartBridge(
+	window *application.WebviewWindow,
+	script string,
+	afterNavigationCompleted func(),
+) (func(), bool) {
+	if window == nil || script == "" {
+		return nil, false
+	}
+
+	fallbackRequired := &atomic.Bool{}
+	var registration *listenWindowsDocumentStartScriptRegistration
+	var registrationErr error
+	nativeReady := false
+	navigationFallbackInstalled := false
+	application.InvokeSync(func() {
+		webview := listenWindowsWebViewForWindow(window)
+		if webview == nil || webview.Controller() == nil {
+			return
+		}
+		// Only submit on WebView2's UI STA. The completion callback also needs
+		// that STA, so the bounded wait happens after InvokeSync returns.
+		registration, registrationErr = webview.beginDocumentStartScriptRegistration(script)
+		if registrationErr != nil {
+			fallbackRequired.Store(true)
+		}
+		// Wails' NavigationCompleted callback performs a first-paint Hide/Show
+		// and then re-hides logically hidden windows. Run after that callback and
+		// retain a late-injection path for older/policy-restricted WebView2 hosts.
+		navigationFallbackInstalled = webview.WrapNavigationCompleted(func() {
+			if window.NativeWindow() == nil {
+				return
+			}
+			if fallbackRequired.Load() {
+				// NavigationCompleted runs on WebView2's UI STA. ExecJS and the
+				// parking helper synchronously dispatch to that same thread, so
+				// leave the callback before invoking either one.
+				go execListenYouTubeMusicJS(window, script)
+			}
+			if afterNavigationCompleted != nil {
+				afterNavigationCompleted()
+			}
+		})
+		if err := webview.Controller().PutIsVisible(true); err != nil {
+			// This is a liveness hint, not a bridge capability. Managed WebView2
+			// policies may reject it while document-start injection still works.
+			zap.L().Warn(
+				"media WebView2 initial visibility hint failed",
+				zap.String("window", window.Name()),
+				zap.Error(err),
+			)
+		}
+		nativeReady = true
+	})
+	if !nativeReady {
+		if registration != nil {
+			registration.releaseOwner()
+		}
+		return nil, false
+	}
+	if !navigationFallbackInstalled {
+		zap.L().Warn(
+			"media WebView2 navigation compatibility hook unavailable",
+			zap.String("window", window.Name()),
+		)
+	}
+
+	if registrationErr == nil {
+		if registration == nil {
+			registrationErr = errors.New("WebView2 document-start registration was not created")
+		} else {
+			registrationErr = registration.wait(listenWindowsDocumentStartRegistrationTimeout)
+		}
+	}
+	if registrationErr != nil {
+		// Registration failure must not turn WebView2 availability into a hard
+		// startup/playback gate. The post-navigation bridge is less early but is
+		// compatible with managed/older runtimes and remains observable in logs.
+		fallbackRequired.Store(true)
+		zap.L().Warn(
+			"WebView2 document-start bridge unavailable; using navigation fallback",
+			zap.String("window", window.Name()),
+			zap.Error(registrationErr),
+		)
+		if !navigationFallbackInstalled {
+			// There is no verified early registration and no compatible late
+			// injection point. Preserve a clear playback error instead of
+			// pretending that the bridge was installed.
+			if registration != nil {
+				registration.releaseOwner()
+			}
+			return nil, false
+		}
+	}
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if registration != nil {
+				registration.releaseOwner()
+			}
+		})
+	}, true
 }
 
 func attachListenYouTubeMusicBridge(window *application.WebviewWindow, script string) (func(), bool) {
 	if window == nil || script == "" {
 		return nil, false
 	}
-
-	installed := false
-	application.InvokeSync(func() {
-		webview := listenWindowsWebViewForWindow(window)
-		if webview == nil || webview.Controller() == nil {
-			return
-		}
-		// Music and Live pages can autoplay during their own bootstrap. Install
-		// the request/volume guards before the first remote document executes so
-		// a stale 100% media element never becomes audible for one frame.
-		if err := webview.AddScriptToExecuteOnDocumentCreated(script); err != nil {
-			return
-		}
-		// Wails' NavigationCompleted callback performs a first-paint Hide/Show
-		// and then re-hides logically hidden windows. Run after that callback and
-		// reassert the background-media exception on every navigation.
-		if !webview.WrapNavigationCompleted(func() {
-			if window.NativeWindow() == nil {
-				return
+	documentStartScript := script
+	includesYouTubeAdBlocker := window.Name() == listenPlayerWindowName ||
+		window.Name() == listenLivePlayerWindowName
+	if includesYouTubeAdBlocker {
+		// Register one composite script so both the bridge and ad blocker share
+		// the same completion barrier before the first YouTube navigation.
+		documentStartScript += "\n" + listenYouTubeAdBlockScript()
+	}
+	ensureCurrentLocalDocument := window.Name() == localMediaWindowName
+	registrationHook, installed := attachListenWindowsDocumentStartBridge(
+		window,
+		documentStartScript,
+		func() {
+			if ensureCurrentLocalDocument {
+				// Local's NavigateToString starts inside NewWithOptions, before
+				// this attach point. Reinstall after that one current document
+				// commits; the bridge's window guard makes this idempotent.
+				go execListenYouTubeMusicJS(window, script)
 			}
-			current := listenWindowsWebViewForWindow(window)
-			if current == nil || current.Controller() == nil {
-				return
-			}
-			_ = current.Controller().PutIsVisible(true)
-		}) {
-			return
-		}
-		if err := webview.Controller().PutIsVisible(true); err != nil {
-			return
-		}
-		installed = true
-	})
+			go reassertListenMediaWebViewParking(window)
+		},
+	)
 	if !installed {
 		// Capability registration may already own native COM handlers by this
 		// point. Release them before the caller closes the rejected window.
 		releaseListenWindowsRemoteNavigationPolicy(window)
 		return nil, false
 	}
-	// The dedicated player WebView owns the document-created registration for
-	// its lifetime. Its cleanup also removes the navigation/popup policy before
-	// Reset navigates the window back to about:blank and destroys it.
+	if ensureCurrentLocalDocument {
+		// If the local document committed before the callback wrapper was
+		// installed, force Wails' runtime-ready boundary before injecting. The
+		// custom NavigateToString document does not emit that message itself.
+		// If navigation is still in flight, the idempotent completion injection
+		// above installs the bridge into the replacement document.
+		execListenYouTubeMusicJS(window, script)
+	}
+	var once sync.Once
 	return func() {
-		listenWindowsMediaVisibilityWindows.Delete(window.ID())
-		releaseListenWindowsRemoteNavigationPolicy(window)
+		once.Do(func() {
+			if registrationHook != nil {
+				registrationHook()
+			}
+			listenWindowsMediaVisibilityWindows.Delete(window.ID())
+			releaseListenWindowsRemoteNavigationPolicy(window)
+		})
 	}, true
 }
 
@@ -2261,48 +3156,19 @@ func attachRSSVideoPlayerDocumentStartBridge(
 	window *application.WebviewWindow,
 	script string,
 ) (func(), bool) {
-	if window == nil || script == "" {
-		return nil, false
-	}
-	installed := false
-	application.InvokeSync(func() {
-		webview := listenWindowsWebViewForWindow(window)
-		if webview == nil || webview.Controller() == nil {
-			return
-		}
-		// Use WebView2's document-created API directly so registration failure is
-		// observable and createWindow can fail closed before authenticated
-		// navigation begins. The untyped nil is the optional completion handler.
-		if err := webview.AddScriptToExecuteOnDocumentCreated(script); err != nil {
-			return
-		}
+	return attachListenWindowsDocumentStartBridge(window, script, func() {
 		// The React surface is intentionally withheld until this hidden page
 		// discovers its media element and reports controls. Wails otherwise puts
 		// the controller into efficiency mode after first navigation, which can
 		// stall that readiness bridge before the surface is ever eligible to show.
-		if !webview.WrapNavigationCompleted(func() {
-			if window.NativeWindow() == nil {
-				return
-			}
+		if window != nil && window.NativeWindow() != nil {
 			current := listenWindowsWebViewForWindow(window)
 			if current == nil || current.Controller() == nil {
 				return
 			}
 			_ = current.Controller().PutIsVisible(true)
-		}) {
-			return
 		}
-		if err := webview.Controller().PutIsVisible(true); err != nil {
-			return
-		}
-		installed = true
 	})
-	if !installed {
-		return nil, false
-	}
-	// The Bilibili player gets a dedicated WebView per session. Destroying that
-	// WebView releases the CoreWebView2 and its document-created registrations.
-	return nil, true
 }
 
 func markListenYouTubeMusicRuntimeReady(window *application.WebviewWindow) {

@@ -719,6 +719,7 @@
       "nextTrack": "下一首",
       "pause": "暫停",
       "play": "播放",
+      "forceRefresh": "強制重新整理",
       "openLogs": "開啟日誌目錄"
     },
     "sidebar": {
@@ -1925,6 +1926,8 @@
       "loadingStatus": "載入中",
       "errorStatus": "播放異常",
       "errorCodeLabel": "錯誤代碼",
+      "youtubeVerificationRequired": "YouTube 需要驗證身分，請切換網路或稍後再試",
+      "youtubeRegionUnavailable": "YouTube 無法在你所在的地區使用",
       "idleSubtitle": "暫無播放內容",
       "previous": "上一曲",
       "next": "下一曲",

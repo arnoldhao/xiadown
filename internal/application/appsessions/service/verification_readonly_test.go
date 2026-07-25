@@ -19,6 +19,22 @@ type readTrackingAppSessionBrowser struct {
 	doneOnce     sync.Once
 }
 
+type runtimeHydratingVerificationProvider struct {
+	*appSessionProviderStub
+	runtimeRecords []appcookies.Record
+	hydrationCalls int
+}
+
+func (provider *runtimeHydratingVerificationProvider) EnsureAppSessionRuntimeCookies(
+	context.Context,
+	string,
+	bool,
+) error {
+	provider.hydrationCalls++
+	provider.loadRecords = append([]appcookies.Record(nil), provider.runtimeRecords...)
+	return nil
+}
+
 func newReadTrackingAppSessionBrowser(records ...appcookies.Record) *readTrackingAppSessionBrowser {
 	return &readTrackingAppSessionBrowser{
 		cookies: append([]appcookies.Record(nil), records...),
@@ -47,7 +63,7 @@ func (browser *readTrackingAppSessionBrowser) cookieReadCount() int {
 	return browser.cookiesCalls
 }
 
-func TestVerifyAppSessionUsesStoredSnapshotAndPreservesBrowserSource(t *testing.T) {
+func TestVerifyAppSessionUsesReadOnlyRuntimeSnapshotAndPreservesBrowserSource(t *testing.T) {
 	createdAt := time.Date(2026, 7, 17, 9, 0, 0, 0, time.UTC)
 	lastSyncedAt := createdAt.Add(20 * time.Minute)
 	previousVerifiedAt := createdAt.Add(30 * time.Minute)
@@ -69,9 +85,15 @@ func TestVerifyAppSessionUsesStoredSnapshotAndPreservesBrowserSource(t *testing.
 		t.Fatalf("create session: %v", err)
 	}
 
-	provider := &appSessionProviderStub{loadRecords: []appcookies.Record{{
-		Name: "SAPISID", Value: "safari-secret", Domain: ".youtube.com", Path: "/",
-	}}}
+	provider := &runtimeHydratingVerificationProvider{
+		appSessionProviderStub: &appSessionProviderStub{loadRecords: []appcookies.Record{{
+			Name: "SAPISID", Value: "stable-backup-only", Domain: ".youtube.com", Path: "/",
+		}}},
+		runtimeRecords: []appcookies.Record{
+			{Name: "SAPISID", Value: "runtime-secret", Domain: ".youtube.com", Path: "/"},
+			{Name: "LOGIN_INFO", Value: "runtime-login-info", Domain: ".youtube.com", Path: "/"},
+		},
+	}
 	fetchStarted := make(chan []appcookies.Record, 1)
 	releaseFetch := make(chan struct{})
 	startedEvent := make(chan AppSessionChangeEvent, 1)
@@ -112,13 +134,27 @@ func TestVerifyAppSessionUsesStoredSnapshotAndPreservesBrowserSource(t *testing.
 		result.LastSyncedAt != lastSyncedAt.Format(time.RFC3339) {
 		t.Fatalf("verification changed source metadata: %#v", result)
 	}
-	if provider.loadCount != 1 || provider.saved || provider.cleared || provider.cacheCalls != 0 {
-		t.Fatalf("provider load/save/clear/cache = %d/%v/%v/%d", provider.loadCount, provider.saved, provider.cleared, provider.cacheCalls)
+	if provider.hydrationCalls != 1 || provider.loadCount != 1 ||
+		provider.saved || provider.cleared || provider.cacheCalls != 0 {
+		t.Fatalf(
+			"provider hydrate/load/save/clear/cache = %d/%d/%v/%v/%d",
+			provider.hydrationCalls,
+			provider.loadCount,
+			provider.saved,
+			provider.cleared,
+			provider.cacheCalls,
+		)
 	}
 
 	select {
 	case records := <-fetchStarted:
-		if len(records) != 1 || records[0].Value != "safari-secret" {
+		values := make(map[string]string, len(records))
+		for _, record := range records {
+			values[record.Name] = record.Value
+		}
+		if len(records) != 2 ||
+			values["SAPISID"] != "runtime-secret" ||
+			values["LOGIN_INFO"] != "runtime-login-info" {
 			t.Fatalf("account fetcher records = %#v", records)
 		}
 	case <-time.After(time.Second):

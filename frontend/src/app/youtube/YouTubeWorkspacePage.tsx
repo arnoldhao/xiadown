@@ -19,6 +19,10 @@ import {
 
 import { ListenInfiniteScrollSentinel } from "@/app/main/listen/infinite-scroll-sentinel";
 import {
+	LISTEN_YOUTUBE_REGION_UNAVAILABLE_ERROR_CODE,
+	LISTEN_YOUTUBE_VERIFICATION_REQUIRED_ERROR_CODE,
+} from "@/app/main/listen/catalog";
+import {
 	acceptYouTubeWorkspacePlay,
 	appendYouTubeWorkspaceBrowsePage,
   browseYouTubeWorkspace,
@@ -1953,11 +1957,7 @@ function YouTubeWorkspacePlayer({
 		    data-intent="danger"
 		    role="alert"
 		  >
-		    {readErrorMessage(
-			  status.errorMessage || status.errorCode,
-			  text,
-			  "playback",
-		    ) || text.youtube.errors.playerUnavailable}
+		    {readYouTubePlaybackErrorMessage(status, text)}
           </p>
 		</GlassSurface>
       ) : null}
@@ -2226,4 +2226,22 @@ function readErrorMessage(
   scope: "browse" | "playback" | "control" = "browse",
 ) {
   return resolveYouTubeWorkspaceErrorMessage(reason, text.youtube.errors, scope);
+}
+
+function readYouTubePlaybackErrorMessage(
+	status: YouTubePlayerStatus,
+	text: ReturnType<typeof getXiaText>,
+) {
+	const errorCode = String(status.errorCode || "").trim();
+	if (errorCode === LISTEN_YOUTUBE_VERIFICATION_REQUIRED_ERROR_CODE) {
+		return text.listen.youtubeVerificationRequired;
+	}
+	if (errorCode === LISTEN_YOUTUBE_REGION_UNAVAILABLE_ERROR_CODE) {
+		return text.listen.youtubeRegionUnavailable;
+	}
+	return (
+		String(status.errorMessage || "").trim() ||
+		errorCode ||
+		text.youtube.errors.playerUnavailable
+	);
 }

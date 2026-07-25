@@ -17,6 +17,14 @@ type youtubeWorkspaceService interface {
 	PreparePlayback(youtubeworkspace.Video) (youtubeworkspace.PlaybackDescriptor, error)
 }
 
+type youtubeWorkspaceForceRefreshService interface {
+	ForceRefresh()
+}
+
+type youtubeWorkspacePlayerResetter interface {
+	Reset() error
+}
+
 // Kept separate from youtubeWorkspaceService so older test doubles and
 // alternate workspace implementations remain source-compatible.
 type youtubeWorkspaceVideoDetailsService interface {
@@ -102,6 +110,26 @@ func NewYouTubeWorkspaceHandler(
 
 func (handler *YouTubeWorkspaceHandler) ServiceName() string {
 	return "YouTubeWorkspaceHandler"
+}
+
+func (handler *YouTubeWorkspaceHandler) ForceRefresh(_ context.Context) error {
+	if handler == nil {
+		return fmt.Errorf("youtube workspace unavailable")
+	}
+	handler.browseMu.Lock()
+	if handler.browseCancel != nil {
+		handler.browseCancel()
+		handler.browseCancel = nil
+	}
+	handler.browseGeneration++
+	handler.browseMu.Unlock()
+	if refresher, ok := handler.service.(youtubeWorkspaceForceRefreshService); ok {
+		refresher.ForceRefresh()
+	}
+	if resetter, ok := handler.player.(youtubeWorkspacePlayerResetter); ok {
+		return resetter.Reset()
+	}
+	return nil
 }
 
 func (handler *YouTubeWorkspaceHandler) Browse(

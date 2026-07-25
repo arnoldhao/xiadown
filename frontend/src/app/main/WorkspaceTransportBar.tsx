@@ -86,11 +86,18 @@ export function resolveWorkspaceTransportStatus(
 }
 
 export function resolveWorkspaceTransportArtistParts(
-  status: Pick<ListenNowPlayingStatus, "artists" | "subtitle">,
+  status: Pick<
+    ListenNowPlayingStatus,
+    "artists" | "subtitle" | "subtitleTone"
+  >,
 ): WorkspaceTransportArtistPart[] {
   const artists: ListenTrackArtist[] = [];
   const seen = new Set<string>();
-  for (const candidate of status.artists ?? []) {
+  for (
+    const candidate of status.subtitleTone === "danger"
+      ? []
+      : status.artists ?? []
+  ) {
     const name = candidate.name.trim();
     const browseId = candidate.browseId?.trim() ?? "";
     if (!name) {
@@ -252,7 +259,10 @@ export function MusicWorkspaceTransportBar(props: {
   const timelineDecorative = !seekable && !timelineProgressbar;
   const artistParts = resolveWorkspaceTransportArtistParts(status);
   const menuArtists = resolveWorkspaceTransportMenuArtists(artistParts);
-  const onOpenArtist = idle ? undefined : props.onOpenArtist;
+  const onOpenArtist =
+    idle || status.subtitleTone === "danger"
+      ? undefined
+      : props.onOpenArtist;
   const onDownload = idle ? undefined : props.onDownload;
   const onFavorite = idle ? undefined : props.onFavorite;
   const onOpenURL = idle ? undefined : props.onOpenURL;
@@ -372,6 +382,7 @@ export function MusicWorkspaceTransportBar(props: {
           </span>
           <span
             className="app-workspace-transport__artists"
+            data-tone={status.subtitleTone}
             aria-label={status.subtitle || status.title}
           >
             {artistParts.map((part, index) =>

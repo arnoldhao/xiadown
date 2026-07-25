@@ -921,7 +921,12 @@ export function PlayerCompanionView(props: {
         <ListenSidebarArtwork status={status} />
       </div>
       <div className="app-workspace-player-companion__title">{status.title}</div>
-      <div className="app-workspace-player-companion__subtitle">{status.subtitle}</div>
+      <div
+        className="app-workspace-player-companion__subtitle"
+        data-tone={status.subtitleTone}
+      >
+        {status.subtitle}
+      </div>
       <div className="app-workspace-player-companion__timeline">
         <span style={{ width: `${percent}%` }} />
       </div>

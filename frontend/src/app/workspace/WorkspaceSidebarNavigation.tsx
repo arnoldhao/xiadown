@@ -20,6 +20,11 @@ export interface WorkspaceSidebarNavigationProps
   glass?: boolean;
   sections: readonly WorkspaceSidebarSection[];
   onNavigate: (routeId: WorkspaceRouteId) => void;
+  onRouteContextMenu?: (
+    routeId: WorkspaceRouteId,
+    point: { x: number; y: number },
+    returnFocus: HTMLButtonElement,
+  ) => void;
 }
 
 export function WorkspaceSidebarNavigation({
@@ -27,6 +32,7 @@ export function WorkspaceSidebarNavigation({
   activeRouteId,
   sections,
   onNavigate,
+  onRouteContextMenu,
   header,
   controlPanel,
   activity,
@@ -87,6 +93,7 @@ export function WorkspaceSidebarNavigation({
             activeRouteId={activeRouteId}
             key={section.id}
             onNavigate={onNavigate}
+            onRouteContextMenu={onRouteContextMenu}
             section={section}
           />
         ))}
@@ -121,12 +128,14 @@ export function WorkspaceSidebarFooter({
 interface WorkspaceNavigationSectionProps {
   activeRouteId?: WorkspaceRouteId | null;
   onNavigate: (routeId: WorkspaceRouteId) => void;
+  onRouteContextMenu?: WorkspaceSidebarNavigationProps["onRouteContextMenu"];
   section: WorkspaceSidebarSection;
 }
 
 function WorkspaceNavigationSection({
   activeRouteId,
   onNavigate,
+  onRouteContextMenu,
   section,
 }: WorkspaceNavigationSectionProps) {
   const hasItems = Boolean(section.items?.length);
@@ -176,6 +185,7 @@ function WorkspaceNavigationSection({
               item={item}
               key={item.routeId}
               onNavigate={onNavigate}
+              onRouteContextMenu={onRouteContextMenu}
             />
           ))}
         </ul>
@@ -193,12 +203,14 @@ interface WorkspaceNavigationItemProps {
   active: boolean;
   item: WorkspaceSidebarNavigationItem;
   onNavigate: (routeId: WorkspaceRouteId) => void;
+  onRouteContextMenu?: WorkspaceSidebarNavigationProps["onRouteContextMenu"];
 }
 
 function WorkspaceNavigationItem({
   active,
   item,
   onNavigate,
+  onRouteContextMenu,
 }: WorkspaceNavigationItemProps) {
   return (
     <li className="app-workspace-nav-list__item">
@@ -210,8 +222,37 @@ function WorkspaceNavigationItem({
         data-route-id={item.routeId}
         disabled={item.disabled}
         onClick={() => onNavigate(item.routeId)}
-        onContextMenu={item.onContextMenu}
-        onKeyDown={item.onKeyDown}
+        onContextMenu={(event) => {
+          item.onContextMenu?.(event);
+          if (event.defaultPrevented || !onRouteContextMenu) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          onRouteContextMenu(
+            item.routeId,
+            { x: event.clientX, y: event.clientY },
+            event.currentTarget,
+          );
+        }}
+        onKeyDown={(event) => {
+          item.onKeyDown?.(event);
+          if (
+            event.defaultPrevented ||
+            !onRouteContextMenu ||
+            (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10"))
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          onRouteContextMenu(
+            item.routeId,
+            { x: rect.left + rect.width / 2, y: rect.bottom },
+            event.currentTarget,
+          );
+        }}
         title={item.tooltip}
         type="button"
       >

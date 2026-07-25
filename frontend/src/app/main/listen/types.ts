@@ -542,6 +542,8 @@ export type ListenNowPlayingStatus = {
   mediaId?: string;
   title: string;
   subtitle: string;
+  /** Uses status styling when the subtitle temporarily replaces artist metadata. */
+  subtitleTone?: "default" | "danger";
   /** Structured artist targets for surfaces that support per-artist navigation. */
   artists?: ListenTrackArtist[];
   artworkURL: string;

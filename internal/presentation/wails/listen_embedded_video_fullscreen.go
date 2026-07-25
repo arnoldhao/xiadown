@@ -2,7 +2,6 @@ package wails
 
 import (
 	"fmt"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +14,8 @@ const (
 	listenEmbeddedVideoFullscreenResultType = "embedded-video-fullscreen-result"
 	listenEmbeddedVideoFullscreenChangeType = "embedded-video-fullscreen-change"
 	listenEmbeddedVideoFullscreenTimeout    = 4 * time.Second
+	listenVideoWindowWidth                  = 720
+	listenVideoWindowHeight                 = 405
 )
 
 func prepareListenNativeFullscreenWindow(
@@ -38,13 +39,10 @@ func prepareListenNativeFullscreenWindow(
 }
 
 func listenNativeWindowFullscreenPreparationDelay() time.Duration {
-	// AppKit needs one run-loop turn after the WKWebView is restored to its
-	// owning NSWindow. Windows' reparent/style restoration is synchronous and a
-	// delay only creates a pre-fullscreen Escape race.
-	if runtime.GOOS == "darwin" {
-		return 250 * time.Millisecond
-	}
-	return 0
+	// Both desktop platforms use the same presentation sequence: move the
+	// persistent WebView into its player window, show one normal frame, then
+	// ask the OS to enter fullscreen.
+	return 250 * time.Millisecond
 }
 
 type listenEmbeddedVideoFullscreenResult struct {

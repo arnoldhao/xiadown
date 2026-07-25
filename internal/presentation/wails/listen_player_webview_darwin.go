@@ -7,9 +7,9 @@ package wails
 #cgo LDFLAGS: -framework Cocoa -framework WebKit -framework AVKit
 
 #include <math.h>
+#include <stdint.h>
 #include <stdatomic.h>
 #include <stdlib.h>
-#include <string.h>
 #import <AVKit/AVKit.h>
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
@@ -21,7 +21,11 @@ static NSInteger listenAirPlayPickerGeneration = 0;
 static const void *listenNavigationGenerationKey = &listenNavigationGenerationKey;
 static const void *listenRSSBilibiliNavigationPolicyKey = &listenRSSBilibiliNavigationPolicyKey;
 static const void *listenRSSBilibiliDocumentStartScriptKey = &listenRSSBilibiliDocumentStartScriptKey;
+static const void *listenPersistentMediaDocumentStartScriptKey = &listenPersistentMediaDocumentStartScriptKey;
 static const void *listenRSSSiteNavigationPolicyKey = &listenRSSSiteNavigationPolicyKey;
+static const void *listenMediaWebViewParkingEntryKey = &listenMediaWebViewParkingEntryKey;
+static const void *listenMediaWebViewParkingWebViewKey = &listenMediaWebViewParkingWebViewKey;
+static NSUInteger listenMediaWebViewParkingNextSlot = 0;
 static id listenRSSBilibiliFullscreenEscapeMonitor = nil;
 static NSWindow *listenRSSBilibiliFullscreenEscapeWindow = nil;
 static id listenRSSBilibiliFullscreenWillEnterObserver = nil;
@@ -252,6 +256,11 @@ static WKWebView* listenWebViewForWindow(void *nativeWindow) {
 		if ([candidate isKindOfClass:[WKWebView class]]) {
 			return (WKWebView*)candidate;
 		}
+	}
+
+	id parkedWebView = objc_getAssociatedObject(window, listenMediaWebViewParkingWebViewKey);
+	if ([parkedWebView isKindOfClass:[WKWebView class]]) {
+		return (WKWebView*)parkedWebView;
 	}
 
 	return listenFindWKWebView([window contentView]);
@@ -726,15 +735,15 @@ static void listenRemoveRSSSiteNavigationPolicy(void *nativeWindow) {
 // paint and the first media lifecycle events can already have fired. Keep the
 // script isolated to the main frame so untrusted player subframes cannot gain
 // XiaDown's native messaging contract.
-static void listenRemoveRSSBilibiliDocumentStartScript(void *nativeWindow) {
+static void listenRemoveDocumentStartScript(void *nativeWindow, const void *scriptKey) {
 	@autoreleasepool {
 		WKWebView *webView = listenWebViewForWindow(nativeWindow);
-		if (webView == nil) {
+		if (webView == nil || scriptKey == NULL) {
 			return;
 		}
 		NSString *source = (NSString*)objc_getAssociatedObject(
 			webView,
-			listenRSSBilibiliDocumentStartScriptKey
+			scriptKey
 		);
 		if (source.length == 0) {
 			return;
@@ -755,26 +764,36 @@ static void listenRemoveRSSBilibiliDocumentStartScript(void *nativeWindow) {
 		}
 		objc_setAssociatedObject(
 			webView,
-			listenRSSBilibiliDocumentStartScriptKey,
+			scriptKey,
 			nil,
 			OBJC_ASSOCIATION_ASSIGN
 		);
 	}
 }
 
-static int listenInstallRSSBilibiliDocumentStartScript(void *nativeWindow, const char *bridgeScript) {
+static int listenInstallDocumentStartScript(
+	void *nativeWindow,
+	const char *bridgeScript,
+	const void *scriptKey,
+	NSString *ownershipMarker
+) {
 	@autoreleasepool {
 		WKWebView *webView = listenWebViewForWindow(nativeWindow);
-		if (webView == nil || bridgeScript == NULL) {
+		if (webView == nil || bridgeScript == NULL || scriptKey == NULL ||
+			ownershipMarker.length == 0) {
 			return 0;
 		}
 		WKUserContentController *controller = webView.configuration.userContentController;
-		NSString *source = [NSString stringWithUTF8String:bridgeScript];
-		if (controller == nil || source.length == 0) {
+		NSString *payload = [NSString stringWithUTF8String:bridgeScript];
+		if (controller == nil || payload.length == 0) {
 			return 0;
 		}
+		// The marker makes the owned source unique even if another component
+		// installs the same payload. Cleanup can then preserve every unrelated
+		// Wails/application script while using WebKit's remove-all-only API.
+		NSString *source = [ownershipMarker stringByAppendingString:payload];
 
-		listenRemoveRSSBilibiliDocumentStartScript(nativeWindow);
+		listenRemoveDocumentStartScript(nativeWindow, scriptKey);
 		WKUserScript *script = [[WKUserScript alloc]
 			initWithSource:source
 			injectionTime:WKUserScriptInjectionTimeAtDocumentStart
@@ -783,12 +802,44 @@ static int listenInstallRSSBilibiliDocumentStartScript(void *nativeWindow, const
 		[script release];
 		objc_setAssociatedObject(
 			webView,
-			listenRSSBilibiliDocumentStartScriptKey,
+			scriptKey,
 			source,
 			OBJC_ASSOCIATION_COPY_NONATOMIC
 		);
-		return 1;
+		for (WKUserScript *registeredScript in controller.userScripts) {
+			if ([registeredScript.source isEqualToString:source]) {
+				return 1;
+			}
+		}
+		listenRemoveDocumentStartScript(nativeWindow, scriptKey);
+		return 0;
 	}
+}
+
+static void listenRemoveRSSBilibiliDocumentStartScript(void *nativeWindow) {
+	listenRemoveDocumentStartScript(nativeWindow, listenRSSBilibiliDocumentStartScriptKey);
+}
+
+static int listenInstallRSSBilibiliDocumentStartScript(void *nativeWindow, const char *bridgeScript) {
+	return listenInstallDocumentStartScript(
+		nativeWindow,
+		bridgeScript,
+		listenRSSBilibiliDocumentStartScriptKey,
+		@"// xiadown-owned:rss-bilibili-document-start\n"
+	);
+}
+
+static void listenRemovePersistentMediaDocumentStartScript(void *nativeWindow) {
+	listenRemoveDocumentStartScript(nativeWindow, listenPersistentMediaDocumentStartScriptKey);
+}
+
+static int listenInstallPersistentMediaDocumentStartScript(void *nativeWindow, const char *bridgeScript) {
+	return listenInstallDocumentStartScript(
+		nativeWindow,
+		bridgeScript,
+		listenPersistentMediaDocumentStartScriptKey,
+		@"// xiadown-owned:persistent-media-document-start\n"
+	);
 }
 
 @interface ListenEmbeddedContainerView : NSView
@@ -804,6 +855,42 @@ static int listenInstallRSSBilibiliDocumentStartScript(void *nativeWindow, const
 	}
 	return [super hitTest:point];
 }
+@end
+
+// A parking entry is attached to its player NSWindow with an Objective-C
+// associated object. This gives every persistent media WebView an independent
+// 1x1 host while leaving the existing singleton embedded container responsible
+// only for the one video surface that can be visible through the React hole.
+@interface ListenMediaWebViewParkingEntry : NSObject {
+@public
+	NSWindow *playerWindow;
+	NSWindow *hostWindow;
+	WKWebView *webView;
+	NSView *originalSuperview;
+	NSRect originalFrame;
+	BOOL originalHidden;
+	BOOL originalWantsLayer;
+	BOOL originalMasksToBounds;
+	CGFloat originalCornerRadius;
+	CGFloat originalZPosition;
+	BOOL originalTranslatesAutoresizingMaskIntoConstraints;
+	NSUInteger originalAutoresizingMask;
+	NSUInteger slotIndex;
+	ListenEmbeddedContainerView *containerView;
+}
+@end
+
+@implementation ListenMediaWebViewParkingEntry
+
+- (void)dealloc {
+	[containerView removeFromSuperview];
+	[containerView release];
+	[originalSuperview release];
+	[webView release];
+	[hostWindow release];
+	[super dealloc];
+}
+
 @end
 
 static WKWebView *listenEmbeddedWebView = nil;
@@ -825,6 +912,17 @@ static BOOL listenEmbeddedHostOriginalDrawsBackground = YES;
 static BOOL listenEmbeddedHostOriginalScrollDrawsBackground = YES;
 static NSColor *listenEmbeddedHostOriginalUnderPageBackgroundColor = nil;
 
+static ListenMediaWebViewParkingEntry *listenMediaWebViewParkingEntry(NSWindow *playerWindow) {
+	if (playerWindow == nil) {
+		return nil;
+	}
+	id entry = objc_getAssociatedObject(playerWindow, listenMediaWebViewParkingEntryKey);
+	if (![entry isKindOfClass:[ListenMediaWebViewParkingEntry class]]) {
+		return nil;
+	}
+	return (ListenMediaWebViewParkingEntry*)entry;
+}
+
 // Returns -1 when the public state is unavailable, 0 when the WebView is
 // inline, and 1 while WebKit owns it for an entering, active, or exiting
 // fullscreen presentation. WebKit moves the WKWebView out of the player
@@ -842,6 +940,11 @@ static int listenEmbeddedWebViewOwnsFullscreenPresentation(void *nativeWindow) {
 		}
 		if (webView == nil) {
 			webView = listenWebViewForWindow(nativeWindow);
+		}
+		if (webView == nil) {
+			ListenMediaWebViewParkingEntry *entry =
+				listenMediaWebViewParkingEntry(playerWindow);
+			webView = entry != nil ? entry->webView : nil;
 		}
 		if (webView == nil) {
 			return -1;
@@ -966,6 +1069,345 @@ static int listenRestoreActiveEmbeddedWebView(void) {
 	listenRestoreEmbeddedHostWebView();
 	listenResetEmbeddedWebViewState();
 	return 1;
+}
+
+static int listenParkMediaWebView(void *playerNativeWindow);
+static int listenUnparkMediaWebView(void *playerNativeWindow);
+static void listenReleaseMediaWebViewParking(void *playerNativeWindow);
+
+static NSView *listenMediaWebViewParkingRoot(
+	ListenMediaWebViewParkingEntry *entry,
+	WKWebView **hostWebViewOut
+) {
+	if (hostWebViewOut != NULL) {
+		*hostWebViewOut = nil;
+	}
+	if (entry == nil || entry->hostWindow == nil) {
+		return nil;
+	}
+	NSView *contentView = entry->hostWindow.contentView;
+	WKWebView *hostWebView = listenWebViewForWindow((void*)entry->hostWindow);
+	if (hostWebViewOut != NULL) {
+		*hostWebViewOut = hostWebView;
+	}
+	if (hostWebView != nil && hostWebView.superview != nil) {
+		return hostWebView.superview;
+	}
+	return contentView;
+}
+
+static BOOL listenAttachMediaWebViewParkingContainer(
+	ListenMediaWebViewParkingEntry *entry
+) {
+	if (entry == nil || entry->containerView == nil) {
+		return NO;
+	}
+	WKWebView *hostWebView = nil;
+	NSView *rootView = listenMediaWebViewParkingRoot(entry, &hostWebView);
+	if (rootView == nil || rootView == entry->webView) {
+		return NO;
+	}
+	ListenEmbeddedContainerView *container = entry->containerView;
+	if (container.superview != rootView) {
+		[container removeFromSuperview];
+		NSView *relativeView =
+			hostWebView != nil && hostWebView.superview == rootView ?
+				(NSView*)hostWebView :
+				nil;
+		[rootView addSubview:container positioned:NSWindowAbove relativeTo:relativeView];
+	} else if (hostWebView != nil && hostWebView.superview == rootView) {
+		[rootView addSubview:container positioned:NSWindowAbove relativeTo:hostWebView];
+	}
+
+	NSRect bounds = rootView.bounds;
+	NSUInteger columns = MAX((NSUInteger)1, (NSUInteger)floor(NSWidth(bounds)));
+	NSUInteger rows = MAX((NSUInteger)1, (NSUInteger)floor(NSHeight(bounds)));
+	CGFloat x = NSMinX(bounds) + (entry->slotIndex % columns);
+	CGFloat y = NSMinY(bounds) + ((entry->slotIndex / columns) % rows);
+	container.translatesAutoresizingMaskIntoConstraints = YES;
+	container.autoresizingMask = NSViewNotSizable;
+	container.frame = NSMakeRect(x, y, 1, 1);
+	container.hidden = NO;
+	container.alphaValue = 0;
+	container.listenInteractive = NO;
+	container.wantsLayer = YES;
+	if (container.layer != nil) {
+		container.layer.opacity = 0;
+		container.layer.masksToBounds = YES;
+		container.layer.cornerRadius = 0;
+		CGFloat hostZPosition =
+			hostWebView != nil && hostWebView.layer != nil ?
+				hostWebView.layer.zPosition :
+				0;
+		container.layer.zPosition = hostZPosition + 1;
+	}
+	return YES;
+}
+
+static void listenRestoreMediaWebViewToOriginalHost(
+	ListenMediaWebViewParkingEntry *entry
+) {
+	if (entry == nil || entry->webView == nil) {
+		return;
+	}
+	WKWebView *webView = entry->webView;
+	NSView *targetSuperview = entry->originalSuperview;
+	if (targetSuperview != nil) {
+		if (webView.superview != targetSuperview) {
+			[webView retain];
+			[webView removeFromSuperview];
+			[targetSuperview addSubview:webView positioned:NSWindowAbove relativeTo:nil];
+			[webView release];
+		}
+	} else if (entry->playerWindow != nil &&
+		entry->playerWindow.contentView != webView) {
+		[webView retain];
+		[webView removeFromSuperview];
+		entry->playerWindow.contentView = webView;
+		[webView release];
+	}
+
+	webView.translatesAutoresizingMaskIntoConstraints =
+		entry->originalTranslatesAutoresizingMaskIntoConstraints;
+	webView.frame = entry->originalFrame;
+	webView.hidden = entry->originalHidden;
+	webView.autoresizingMask = entry->originalAutoresizingMask;
+	if ([webView respondsToSelector:@selector(setWantsLayer:)]) {
+		webView.wantsLayer = entry->originalWantsLayer;
+		if (webView.layer != nil) {
+			webView.layer.cornerRadius = entry->originalCornerRadius;
+			webView.layer.masksToBounds = entry->originalMasksToBounds;
+			webView.layer.zPosition = entry->originalZPosition;
+		}
+	}
+	[webView setNeedsLayout:YES];
+	[webView setNeedsDisplay:YES];
+}
+
+static int listenRegisterMediaWebViewParking(
+	void *playerNativeWindow,
+	void *hostNativeWindow
+) {
+	@autoreleasepool {
+		if (playerNativeWindow == NULL || hostNativeWindow == NULL ||
+			playerNativeWindow == hostNativeWindow) {
+			return 0;
+		}
+		NSWindow *playerWindow = (NSWindow*)playerNativeWindow;
+		NSWindow *hostWindow = (NSWindow*)hostNativeWindow;
+		WKWebView *webView = listenWebViewForWindow(playerNativeWindow);
+		if (webView == nil || hostWindow.contentView == nil) {
+			return 0;
+		}
+
+		ListenMediaWebViewParkingEntry *existing =
+			listenMediaWebViewParkingEntry(playerWindow);
+		if (existing != nil) {
+			if (existing->webView != webView) {
+				listenReleaseMediaWebViewParking(playerNativeWindow);
+			} else {
+				if (existing->hostWindow != hostWindow) {
+					[hostWindow retain];
+					[existing->hostWindow release];
+					existing->hostWindow = hostWindow;
+				}
+				return listenParkMediaWebView(playerNativeWindow) > 0 ? 1 : 0;
+			}
+		}
+
+		ListenMediaWebViewParkingEntry *entry =
+			[[ListenMediaWebViewParkingEntry alloc] init];
+		entry->playerWindow = playerWindow;
+		entry->hostWindow = [hostWindow retain];
+		entry->webView = [webView retain];
+		entry->originalSuperview = [webView.superview retain];
+		entry->originalFrame = webView.frame;
+		entry->originalHidden = webView.hidden;
+		entry->originalWantsLayer = webView.wantsLayer;
+		entry->originalMasksToBounds =
+			webView.layer != nil ? webView.layer.masksToBounds : NO;
+		entry->originalCornerRadius =
+			webView.layer != nil ? webView.layer.cornerRadius : 0;
+		entry->originalZPosition =
+			webView.layer != nil ? webView.layer.zPosition : 0;
+		entry->originalTranslatesAutoresizingMaskIntoConstraints =
+			webView.translatesAutoresizingMaskIntoConstraints;
+		entry->originalAutoresizingMask = webView.autoresizingMask;
+		entry->slotIndex = listenMediaWebViewParkingNextSlot++;
+		entry->containerView =
+			[[ListenEmbeddedContainerView alloc] initWithFrame:NSMakeRect(0, 0, 1, 1)];
+
+		objc_setAssociatedObject(
+			playerWindow,
+			listenMediaWebViewParkingWebViewKey,
+			webView,
+			OBJC_ASSOCIATION_RETAIN_NONATOMIC
+		);
+		objc_setAssociatedObject(
+			playerWindow,
+			listenMediaWebViewParkingEntryKey,
+			entry,
+			OBJC_ASSOCIATION_RETAIN_NONATOMIC
+		);
+		[entry release];
+
+		if (listenParkMediaWebView(playerNativeWindow) > 0) {
+			return 1;
+		}
+		listenReleaseMediaWebViewParking(playerNativeWindow);
+		return 0;
+	}
+}
+
+// Returns -1 when the player was never registered, 0 on transition failure,
+// and 1 once its WebView is attached to its independent parking container.
+static int listenParkMediaWebView(void *playerNativeWindow) {
+	@autoreleasepool {
+		if (playerNativeWindow == NULL) {
+			return -1;
+		}
+		NSWindow *playerWindow = (NSWindow*)playerNativeWindow;
+		ListenMediaWebViewParkingEntry *entry =
+			listenMediaWebViewParkingEntry(playerWindow);
+		if (entry == nil || entry->webView == nil) {
+			return -1;
+		}
+		BOOL movesDirectlyFromEmbedded =
+			listenEmbeddedPlayerWindow == playerWindow &&
+			listenEmbeddedWebView == entry->webView;
+		if (listenEmbeddedPlayerWindow == playerWindow &&
+			!movesDirectlyFromEmbedded) {
+			return 0;
+		}
+		if (!listenAttachMediaWebViewParkingContainer(entry)) {
+			return 0;
+		}
+
+		WKWebView *webView = entry->webView;
+		ListenEmbeddedContainerView *container = entry->containerView;
+		if (webView.superview != container) {
+			[webView retain];
+			[webView removeFromSuperview];
+			[container addSubview:webView positioned:NSWindowAbove relativeTo:nil];
+			[webView release];
+		}
+		if (movesDirectlyFromEmbedded) {
+			if (listenEmbeddedContainerView != nil) {
+				[listenEmbeddedContainerView removeFromSuperview];
+				[listenEmbeddedContainerView release];
+				listenEmbeddedContainerView = nil;
+			}
+			listenRestoreEmbeddedHostWebView();
+			listenResetEmbeddedWebViewState();
+		}
+		webView.hidden = NO;
+		webView.translatesAutoresizingMaskIntoConstraints = YES;
+		webView.frame = container.bounds;
+		webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+		webView.wantsLayer = YES;
+		if (webView.layer != nil) {
+			webView.layer.zPosition = 0;
+			webView.layer.cornerRadius = 0;
+			webView.layer.masksToBounds = YES;
+		}
+		[webView setNeedsLayout:YES];
+		[webView setNeedsDisplay:YES];
+		[container setNeedsLayout:YES];
+		[container setNeedsDisplay:YES];
+		if (entry->hostWindow != nil) {
+			[entry->hostWindow displayIfNeeded];
+		}
+		return 1;
+	}
+}
+
+// Returns -1 when the player is not a persistent parked player. Callers that
+// also support transient RSS WebViews can then fall back to the legacy restore.
+static int listenUnparkMediaWebView(void *playerNativeWindow) {
+	@autoreleasepool {
+		if (playerNativeWindow == NULL) {
+			return -1;
+		}
+		NSWindow *playerWindow = (NSWindow*)playerNativeWindow;
+		ListenMediaWebViewParkingEntry *entry =
+			listenMediaWebViewParkingEntry(playerWindow);
+		if (entry == nil || entry->webView == nil) {
+			return -1;
+		}
+		BOOL movesDirectlyFromEmbedded =
+			listenEmbeddedPlayerWindow == playerWindow &&
+			listenEmbeddedWebView == entry->webView;
+		if (listenEmbeddedPlayerWindow == playerWindow &&
+			!movesDirectlyFromEmbedded) {
+			return 0;
+		}
+		listenRestoreMediaWebViewToOriginalHost(entry);
+		if (movesDirectlyFromEmbedded) {
+			if (listenEmbeddedContainerView != nil) {
+				[listenEmbeddedContainerView removeFromSuperview];
+				[listenEmbeddedContainerView release];
+				listenEmbeddedContainerView = nil;
+			}
+			listenRestoreEmbeddedHostWebView();
+			listenResetEmbeddedWebViewState();
+		}
+		return entry->webView.superview == entry->originalSuperview ||
+			(entry->originalSuperview == nil &&
+			 entry->playerWindow != nil &&
+			 entry->playerWindow.contentView == entry->webView) ? 1 : 0;
+	}
+}
+
+static void listenReassertMediaWebViewParking(void *playerNativeWindow) {
+	@autoreleasepool {
+		if (playerNativeWindow == NULL) {
+			return;
+		}
+		ListenMediaWebViewParkingEntry *entry =
+			listenMediaWebViewParkingEntry((NSWindow*)playerNativeWindow);
+		if (entry == nil || entry->webView == nil ||
+			entry->webView.superview != entry->containerView) {
+			return;
+		}
+		listenParkMediaWebView(playerNativeWindow);
+	}
+}
+
+static void listenReleaseMediaWebViewParking(void *playerNativeWindow) {
+	@autoreleasepool {
+		if (playerNativeWindow == NULL) {
+			return;
+		}
+		NSWindow *playerWindow = (NSWindow*)playerNativeWindow;
+		ListenMediaWebViewParkingEntry *entry =
+			listenMediaWebViewParkingEntry(playerWindow);
+		if (entry == nil) {
+			objc_setAssociatedObject(
+				playerWindow,
+				listenMediaWebViewParkingWebViewKey,
+				nil,
+				OBJC_ASSOCIATION_ASSIGN
+			);
+			return;
+		}
+		if (listenEmbeddedPlayerWindow == playerWindow) {
+			listenRestoreActiveEmbeddedWebView();
+		}
+		listenRestoreMediaWebViewToOriginalHost(entry);
+		[entry->containerView removeFromSuperview];
+		objc_setAssociatedObject(
+			playerWindow,
+			listenMediaWebViewParkingEntryKey,
+			nil,
+			OBJC_ASSOCIATION_ASSIGN
+		);
+		objc_setAssociatedObject(
+			playerWindow,
+			listenMediaWebViewParkingWebViewKey,
+			nil,
+			OBJC_ASSOCIATION_ASSIGN
+		);
+	}
 }
 
 static void listenConfigureHostWebViewForEmbeddedUnderlay(WKWebView *hostWebView) {
@@ -1110,6 +1552,11 @@ static int listenShowEmbeddedWebView(void *playerNativeWindow, void *hostNativeW
 			listenEmbeddedPlayerWindow == playerWindow) {
 			webView = listenEmbeddedWebView;
 		}
+		if (webView == nil) {
+			ListenMediaWebViewParkingEntry *entry =
+				listenMediaWebViewParkingEntry(playerWindow);
+			webView = entry != nil ? entry->webView : nil;
+		}
 		NSWindow *hostWindow = (NSWindow*)hostNativeWindow;
 		NSView *contentView = hostWindow.contentView;
 		WKWebView *hostWebView = listenWebViewForWindow(hostNativeWindow);
@@ -1121,7 +1568,11 @@ static int listenShowEmbeddedWebView(void *playerNativeWindow, void *hostNativeW
 			contentView;
 
 		if (listenEmbeddedWebView != nil && listenEmbeddedWebView != webView) {
+			NSWindow *previousPlayerWindow = listenEmbeddedPlayerWindow;
 			listenRestoreActiveEmbeddedWebView();
+			if (listenMediaWebViewParkingEntry(previousPlayerWindow) != nil) {
+				listenParkMediaWebView((void*)previousPlayerWindow);
+			}
 		}
 		BOOL interactiveOverlay = interactive > 1;
 		if (!interactiveOverlay) {
@@ -1203,7 +1654,13 @@ static int listenHideEmbeddedWebView(void *playerNativeWindow) {
 			listenEmbeddedPlayerWindow != (NSWindow*)playerNativeWindow) {
 			return 0;
 		}
-		return listenRestoreActiveEmbeddedWebView();
+		int restored = listenRestoreActiveEmbeddedWebView();
+		if (playerNativeWindow != NULL &&
+			listenMediaWebViewParkingEntry((NSWindow*)playerNativeWindow) != nil) {
+			int parked = listenParkMediaWebView(playerNativeWindow);
+			return parked > 0 ? 1 : 0;
+		}
+		return restored;
 	}
 }
 
@@ -1814,7 +2271,6 @@ static void listenEvaluateYouTubeMusicJavaScript(void *nativeWindow, const char 
 import "C"
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -1828,19 +2284,6 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
-
-type listenCookieRuntimeSyncMonitorEntry struct {
-	generation uint64
-	cancel     context.CancelFunc
-}
-
-var listenCookieRuntimeSyncMonitors struct {
-	sync.Mutex
-	next   uint64
-	active map[uintptr]listenCookieRuntimeSyncMonitorEntry
-}
-
-const listenCookieRuntimeSharedStoreKey uintptr = 1
 
 func listenYouTubeMusicUserAgent() string {
 	return youtubemusic.BrowserUserAgent
@@ -1872,7 +2315,9 @@ func installRSSVideoPlayerNativeFullscreenEscape(
 	nativeWindow := window.NativeWindow()
 	installed := false
 	application.InvokeSync(func() {
-		installed = C.listenInstallRSSBilibiliFullscreenEscapeMonitor(nativeWindow) != 0
+		installed = C.listenInstallRSSBilibiliFullscreenEscapeMonitor(
+			nativeWindow,
+		) != 0
 	})
 	if !installed {
 		return nil
@@ -1887,10 +2332,14 @@ func installRSSVideoPlayerNativeFullscreenEscape(
 	}
 }
 
-func installListenNativeWindowFullscreenEscape(_ *application.WebviewWindow) func() {
-	// AppKit owns the standard Escape gesture for a fullscreen NSWindow. RSS
-	// keeps its stronger transition-aware monitor above for its frameless page.
-	return nil
+func installListenNativeWindowFullscreenEscape(
+	window *application.WebviewWindow,
+) func() {
+	// The remote WKWebView is the first responder after it moves back into the
+	// player NSWindow. It can consume Escape before AppKit applies the standard
+	// fullscreen gesture, so use the same transition-aware native monitor as
+	// the RSS video window.
+	return installRSSVideoPlayerNativeFullscreenEscape(window)
 }
 
 func showListenNativeAirPlayPicker(nativeWindow unsafe.Pointer, anchor ListenAirPlayAnchor) bool {
@@ -1916,6 +2365,70 @@ func boolToCInt(value bool) C.int {
 		return 1
 	}
 	return 0
+}
+
+func registerListenMediaWebViewParking(playerWindow, hostWindow *application.WebviewWindow) bool {
+	if playerWindow == nil || hostWindow == nil {
+		return false
+	}
+	playerNativeWindow := playerWindow.NativeWindow()
+	hostNativeWindow := hostWindow.NativeWindow()
+	if playerNativeWindow == nil || hostNativeWindow == nil {
+		return false
+	}
+
+	var registered C.int
+	application.InvokeSync(func() {
+		registered = C.listenRegisterMediaWebViewParking(
+			playerNativeWindow,
+			hostNativeWindow,
+		)
+	})
+	return registered != 0
+}
+
+func parkListenMediaWebView(playerWindow *application.WebviewWindow) bool {
+	if playerWindow == nil || playerWindow.NativeWindow() == nil {
+		return false
+	}
+	nativeWindow := playerWindow.NativeWindow()
+	var parked C.int
+	application.InvokeSync(func() {
+		parked = C.listenParkMediaWebView(nativeWindow)
+	})
+	return parked > 0
+}
+
+func unparkListenMediaWebView(playerWindow *application.WebviewWindow) bool {
+	if playerWindow == nil || playerWindow.NativeWindow() == nil {
+		return false
+	}
+	nativeWindow := playerWindow.NativeWindow()
+	var unparked C.int
+	application.InvokeSync(func() {
+		unparked = C.listenUnparkMediaWebView(nativeWindow)
+	})
+	return unparked > 0
+}
+
+func reassertListenMediaWebViewParking(playerWindow *application.WebviewWindow) {
+	if playerWindow == nil || playerWindow.NativeWindow() == nil {
+		return
+	}
+	nativeWindow := playerWindow.NativeWindow()
+	application.InvokeSync(func() {
+		C.listenReassertMediaWebViewParking(nativeWindow)
+	})
+}
+
+func releaseListenMediaWebViewParking(playerWindow *application.WebviewWindow) {
+	if playerWindow == nil || playerWindow.NativeWindow() == nil {
+		return
+	}
+	nativeWindow := playerWindow.NativeWindow()
+	application.InvokeSync(func() {
+		C.listenReleaseMediaWebViewParking(nativeWindow)
+	})
 }
 
 func showListenNativeEmbeddedWebViewMode(playerNativeWindow unsafe.Pointer, hostNativeWindow unsafe.Pointer, rect ListenEmbeddedVideoRect, interactiveMode C.int) bool {
@@ -1993,7 +2506,20 @@ func hideListenNativeEmbeddedWebView(playerNativeWindow unsafe.Pointer) bool {
 }
 
 func detachListenNativeEmbeddedWebViewForFullscreen(playerNativeWindow unsafe.Pointer) bool {
-	return hideListenNativeEmbeddedWebView(playerNativeWindow)
+	if playerNativeWindow == nil {
+		return false
+	}
+
+	var result C.int
+	application.InvokeSync(func() {
+		result = C.listenUnparkMediaWebView(playerNativeWindow)
+		if result < 0 {
+			// Transient RSS players do not participate in persistent parking.
+			// Preserve their existing detach-to-original-window behaviour.
+			result = C.listenHideEmbeddedWebView(playerNativeWindow)
+		}
+	})
+	return result > 0
 }
 
 func listenNativeEmbeddedVideoFullscreenOwnsPresentation(nativeWindow unsafe.Pointer) (bool, bool) {
@@ -2029,11 +2555,11 @@ func loadListenYouTubeMusicURL(window *application.WebviewWindow, targetURL stri
 		return
 	}
 	storedCookies, readErr := readListenYouTubeMusicCookies(window)
+	now := time.Now()
 	restoreCookies := planListenPlaybackCookieRestore(
 		cookies,
 		storedCookies,
-		targetURL,
-		time.Now(),
+		now,
 		readErr == nil,
 	)
 	data, _ := json.Marshal(restoreCookies)
@@ -2155,99 +2681,6 @@ func readListenSharedYouTubeCookies() ([]appcookies.Record, error) {
 	return youtubecookies.Runtime(records, time.Now()), nil
 }
 
-func scheduleListenYouTubeCookieSync(window *application.WebviewWindow, provider listenPlayerCookieProvider) {
-	syncProvider, ok := provider.(listenPlayerCookieSyncProvider)
-	if !ok || window == nil || window.NativeWindow() == nil {
-		return
-	}
-	key := listenCookieRuntimeSharedStoreKey
-	ctx := context.Background()
-	monitorContext, cancel := context.WithCancel(ctx)
-	listenCookieRuntimeSyncMonitors.Lock()
-	listenCookieRuntimeSyncMonitors.next++
-	generation := listenCookieRuntimeSyncMonitors.next
-	if listenCookieRuntimeSyncMonitors.active == nil {
-		listenCookieRuntimeSyncMonitors.active = make(map[uintptr]listenCookieRuntimeSyncMonitorEntry)
-	}
-	previous := listenCookieRuntimeSyncMonitors.active[key]
-	listenCookieRuntimeSyncMonitors.active[key] = listenCookieRuntimeSyncMonitorEntry{
-		generation: generation,
-		cancel:     cancel,
-	}
-	listenCookieRuntimeSyncMonitors.Unlock()
-	if previous.cancel != nil {
-		previous.cancel()
-	}
-	go monitorListenYouTubeCookieSync(window, syncProvider, monitorContext, key, generation, time.Now())
-}
-
-func monitorListenYouTubeCookieSync(
-	window *application.WebviewWindow,
-	provider listenPlayerCookieSyncProvider,
-	ctx context.Context,
-	key uintptr,
-	generation uint64,
-	started time.Time,
-) {
-	defer finishListenYouTubeCookieSync(key, generation)
-	for _, after := range []time.Duration{
-		time.Second,
-		3 * time.Second,
-		10 * time.Second,
-		30 * time.Second,
-		60 * time.Second,
-	} {
-		wait := time.Until(started.Add(after))
-		if wait > 0 {
-			timer := time.NewTimer(wait)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-		}
-		if !listenYouTubeCookieSyncIsCurrent(key, generation) || window == nil || window.NativeWindow() == nil {
-			return
-		}
-		epoch, sequence := provider.BeginCookieSync("youtube")
-		if epoch == 0 || sequence == 0 {
-			return
-		}
-		records, err := readListenYouTubeMusicCookies(window)
-		if ctx.Err() != nil || !listenYouTubeCookieSyncIsCurrent(key, generation) {
-			return
-		}
-		if err == nil {
-			err = provider.SyncRecordsForSiteKey(ctx, "youtube", records, epoch, sequence)
-		}
-		if err != nil {
-			continue
-		}
-	}
-}
-
-func finishListenYouTubeCookieSync(key uintptr, generation uint64) {
-	var cancel context.CancelFunc
-	listenCookieRuntimeSyncMonitors.Lock()
-	entry, exists := listenCookieRuntimeSyncMonitors.active[key]
-	if exists && entry.generation == generation {
-		cancel = entry.cancel
-		delete(listenCookieRuntimeSyncMonitors.active, key)
-	}
-	listenCookieRuntimeSyncMonitors.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-func listenYouTubeCookieSyncIsCurrent(key uintptr, generation uint64) bool {
-	listenCookieRuntimeSyncMonitors.Lock()
-	entry, exists := listenCookieRuntimeSyncMonitors.active[key]
-	listenCookieRuntimeSyncMonitors.Unlock()
-	return exists && entry.generation == generation
-}
-
 func execListenYouTubeMusicJS(window *application.WebviewWindow, script string) {
 	if window == nil || script == "" {
 		return
@@ -2267,16 +2700,48 @@ func execListenYouTubeMusicJS(window *application.WebviewWindow, script string) 
 	})
 }
 
-func hideListenYouTubeMediaWindow(window *application.WebviewWindow) {
-	if window != nil {
-		window.Hide()
+func hideListenYouTubeMediaWindow(window *application.WebviewWindow) bool {
+	if window == nil {
+		return false
 	}
+	window.Hide()
+	// A standalone/native-fullscreen player has its WebView restored to the
+	// player NSWindow. Move it back into the live 1×1 host after hiding so
+	// audio never falls back to an occluded top-level window.
+	return parkListenMediaWebView(window)
 }
 
 func attachListenYouTubeMusicBridge(window *application.WebviewWindow, script string) (func(), bool) {
-	// WebKit receives the bridge through WebviewWindowOptions.JS. There is no
-	// extra native registration to release on this platform.
-	return nil, window != nil && script != ""
+	if window == nil || window.NativeWindow() == nil || script == "" {
+		return nil, false
+	}
+	cScript := C.CString(script)
+	defer C.free(unsafe.Pointer(cScript))
+	var installed C.int
+	application.InvokeSync(func() {
+		installed = C.listenInstallPersistentMediaDocumentStartScript(window.NativeWindow(), cScript)
+	})
+	if installed == 0 {
+		// Keep Wails' WebviewWindowOptions.JS did-finish path as a compatibility
+		// fallback. A native early-injection limitation must never make the
+		// otherwise usable player WebView fatal.
+		return nil, true
+	}
+
+	// WebviewWindowOptions.JS remains as a harmless did-finish fallback for
+	// Wails' initial local document. Remote Music/Live navigations use this
+	// native WKUserScript path and therefore see the bridge before page code.
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if window.NativeWindow() == nil {
+				return
+			}
+			application.InvokeSync(func() {
+				C.listenRemovePersistentMediaDocumentStartScript(window.NativeWindow())
+			})
+		})
+	}, true
 }
 
 func attachRSSVideoPlayerDocumentStartBridge(

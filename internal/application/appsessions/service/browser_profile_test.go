@@ -240,9 +240,10 @@ func TestCurrentChromeImportConsumesSnapshotWithoutPersistingInternalProfileID(t
 	}
 	repo := newAppSessionRepoStub(current)
 	provider := &appSessionProviderStub{}
-	reader := &countingBrowserProfileReader{records: []appcookies.Record{{
-		Name: "SAPISID", Value: "live-secret", Domain: ".youtube.com", Path: "/",
-	}}}
+	reader := &countingBrowserProfileReader{records: []appcookies.Record{
+		{Name: "SAPISID", Value: "live-secret", Domain: ".youtube.com", Path: "/"},
+		{Name: "__Secure-3PSIDTS", Value: "rotating-secret", Domain: ".youtube.com", Path: "/"},
+	}}
 	committer := &recordingAppSessionImportCommitter{repo: repo}
 	service := NewAppSessionsService(
 		repo,
@@ -275,6 +276,13 @@ func TestCurrentChromeImportConsumesSnapshotWithoutPersistingInternalProfileID(t
 	}
 	if committer.session.SourceBrowser != "chrome" || committer.session.SourceProfile != "" {
 		t.Fatalf("persisted current Chrome source = %q/%q", committer.session.SourceBrowser, committer.session.SourceProfile)
+	}
+	persisted := appcookies.DecodeJSON(string(committer.plaintext))
+	if len(persisted) != 1 || persisted[0].Name != "SAPISID" {
+		t.Fatalf("persisted YouTube profile cookies = %#v, want stable-only", persisted)
+	}
+	if len(provider.cacheRecord) != 2 {
+		t.Fatalf("runtime YouTube profile cache = %#v, want complete snapshot", provider.cacheRecord)
 	}
 }
 

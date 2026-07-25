@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"runtime"
 	"strings"
@@ -25,11 +26,13 @@ const (
 // playing while workspaces and companion views are mounted or replaced.
 type NativeLocalMediaWebviewTransport struct {
 	app     *application.App
+	windows *WindowManager
 	baseURL string
 
 	mu                sync.Mutex
 	window            *application.WebviewWindow
 	closeHook         func()
+	bridgeHook        func()
 	ready             bool
 	closed            bool
 	current           listenplayback.NativeLocalMediaRequest
@@ -59,12 +62,20 @@ const (
 	localMediaReadyStop
 )
 
-func NewNativeLocalMediaWebviewTransport(app *application.App, baseURL string) *NativeLocalMediaWebviewTransport {
-	return &NativeLocalMediaWebviewTransport{
+func NewNativeLocalMediaWebviewTransport(
+	app *application.App,
+	baseURL string,
+	windows ...*WindowManager,
+) *NativeLocalMediaWebviewTransport {
+	transport := &NativeLocalMediaWebviewTransport{
 		app:         app,
 		baseURL:     strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		subscribers: make(map[uint64]listenplayback.PlaybackBackendEventListener),
 	}
+	if len(windows) > 0 {
+		transport.windows = windows[0]
+	}
+	return transport
 }
 
 func (transport *NativeLocalMediaWebviewTransport) Availability() (bool, string) {
@@ -241,8 +252,10 @@ func (transport *NativeLocalMediaWebviewTransport) Close() error {
 	transport.closed = true
 	window := transport.window
 	closeHook := transport.closeHook
+	bridgeHook := transport.bridgeHook
 	transport.window = nil
 	transport.closeHook = nil
+	transport.bridgeHook = nil
 	transport.ready = false
 	transport.current = listenplayback.NativeLocalMediaRequest{}
 	transport.desiredPlaying = false
@@ -251,8 +264,12 @@ func (transport *NativeLocalMediaWebviewTransport) Close() error {
 	if closeHook != nil {
 		closeHook()
 	}
+	if bridgeHook != nil {
+		bridgeHook()
+	}
 	if window != nil {
 		execListenYouTubeMusicJS(window, localMediaSimpleCommandScript("stop"))
+		releaseListenMediaWebViewParking(window)
 		releaseWebViewRemoteCapabilityPolicy(window)
 		window.Close()
 	}
@@ -352,16 +369,41 @@ func (transport *NativeLocalMediaWebviewTransport) ensureWindowLocked() (*applic
 		JS:            localMediaBridgeScript,
 		Windows: application.WindowsWindow{
 			HiddenOnTaskbar: true,
+			Permissions: map[application.CoreWebView2PermissionKind]application.CoreWebView2PermissionState{
+				remoteMediaWebViewAutoplayPermissionKind: application.CoreWebView2PermissionStateAllow,
+			},
+		},
+		Mac: application.MacWindow{
+			WebviewPreferences: application.MacWebviewPreferences{
+				EnableAutoplayWithoutUserAction: application.Enabled,
+			},
 		},
 	}))
 	if window == nil {
 		return nil, fmt.Errorf("failed to create local media player window")
 	}
 	registerWebViewRemoteCapabilityPolicy(window)
+	bridgeHook, bridgeInstalled := attachListenYouTubeMusicBridge(window, localMediaBridgeScript)
+	if !bridgeInstalled {
+		releaseWebViewRemoteCapabilityPolicy(window)
+		window.Close()
+		return nil, fmt.Errorf("failed to install the local media WebView bridge")
+	}
+	parkingRegistered := transport.windows != nil &&
+		transport.windows.mainWindow != nil &&
+		registerListenMediaWebViewParking(window, transport.windows.mainWindow)
+	if !parkingRegistered {
+		log.Printf(
+			"media WebView parking unavailable for %q; using hidden-window fallback",
+			localMediaWindowName,
+		)
+		hideListenYouTubeMediaWindow(window)
+	}
 	transport.closeHook = window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
-		window.Hide()
+		hideListenYouTubeMediaWindow(window)
 	})
+	transport.bridgeHook = bridgeHook
 	transport.window = window
 	return window, nil
 }

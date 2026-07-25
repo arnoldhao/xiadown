@@ -212,19 +212,27 @@ func TestWindowsRSSBilibiliCanonicalPageKeepsDocumentCreatedBridge(t *testing.T)
 	}
 	attach := rssVideoFunctionSource(t, string(source), "func attachRSSVideoPlayerDocumentStartBridge(")
 	for _, required := range []string{
+		"attachListenWindowsDocumentStartBridge(window, script",
 		"listenWindowsWebViewForWindow(window)",
-		"webview.AddScriptToExecuteOnDocumentCreated(script)",
-		"webview.WrapNavigationCompleted",
-		"webview.Controller().PutIsVisible(true)",
-		"return nil, false",
+		"current.Controller().PutIsVisible(true)",
 	} {
 		if !strings.Contains(attach, required) {
 			t.Fatalf("Windows RSS canonical-page bridge is missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"WebViewNavigationCompleted", "ExecuteScript", "ExecJS"} {
-		if strings.Contains(attach, forbidden) {
-			t.Fatalf("Windows RSS canonical-page bridge must not depend on late injection via %q", forbidden)
+	registration := rssVideoFunctionSource(
+		t,
+		string(source),
+		"func attachListenWindowsDocumentStartBridge(",
+	)
+	for _, required := range []string{
+		"webview.beginDocumentStartScriptRegistration(script)",
+		"registration.wait(listenWindowsDocumentStartRegistrationTimeout)",
+		"webview.WrapNavigationCompleted",
+		"go execListenYouTubeMusicJS(window, script)",
+	} {
+		if !strings.Contains(registration, required) {
+			t.Fatalf("Windows RSS canonical-page document-start barrier is missing %q", required)
 		}
 	}
 }

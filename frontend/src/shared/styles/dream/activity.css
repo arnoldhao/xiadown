@@ -653,6 +653,7 @@
 .app-workspace-player-companion__artwork { width: min(280px, 82%); aspect-ratio: 1; overflow: hidden; border-radius: var(--app-radius-media); box-shadow: 0 18px 42px hsl(var(--foreground) / 0.16); }
 .app-workspace-player-companion__title { width: 100%; margin-top: 20px; overflow: hidden; font-size: 16px; font-weight: 700; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .app-workspace-player-companion__subtitle { width: 100%; margin-top: 4px; overflow: hidden; color: hsl(var(--muted-foreground)); font-size: 12px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.app-workspace-player-companion__subtitle[data-tone="danger"] { color: var(--app-status-tone-error); font-size: 11px; font-weight: 500; }
 .app-workspace-player-companion__timeline { height: 4px; margin-top: 18px; background: hsl(var(--muted)); }
 .app-workspace-player-companion__controls {
   display: flex;

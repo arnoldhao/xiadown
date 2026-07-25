@@ -239,6 +239,18 @@ func (service *PlayerService) Stop(ctx context.Context) error {
 	return service.executeActions(ctx, transportAction{kind: "pause"})
 }
 
+// ForceRefresh drops cached online-library responses before stopping the
+// current transport. The next play creates a fresh native document.
+func (service *PlayerService) ForceRefresh(ctx context.Context) error {
+	if service == nil {
+		return nil
+	}
+	if refresher, ok := service.library.(LibraryCacheRefresher); ok {
+		refresher.ForceRefresh()
+	}
+	return service.Stop(ctx)
+}
+
 func (service *PlayerService) preparePlayTrackLocked(
 	track Track,
 	strategy VideoLoadStrategy,

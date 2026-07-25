@@ -719,6 +719,7 @@
       "nextTrack": "Berikutnya",
       "pause": "Jeda",
       "play": "Putar",
+      "forceRefresh": "Paksa muat ulang",
       "openLogs": "Buka direktori log"
     },
     "sidebar": {
@@ -1928,6 +1929,8 @@
       "loadingStatus": "Memuat",
       "errorStatus": "Kesalahan pemutaran",
       "errorCodeLabel": "Kode kesalahan",
+      "youtubeVerificationRequired": "YouTube memerlukan verifikasi. Ganti jaringan atau coba lagi nanti.",
+      "youtubeRegionUnavailable": "YouTube tidak tersedia di wilayah Anda.",
       "idleSubtitle": "Tidak ada yang diputar.",
       "previous": "Sebelumnya",
       "next": "Berikutnya",

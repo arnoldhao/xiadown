@@ -3,8 +3,6 @@ package wails
 import (
 	"context"
 	"errors"
-	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -37,10 +35,10 @@ type NativeAppSessionProvider struct {
 
 	runtimeSyncMu                  sync.Mutex
 	youtubeRuntimeSyncAllowed      bool
-	youtubeStableSnapshotPersisted bool
 	youtubeRuntimeSyncEpoch        uint64
 	youtubeRuntimeSampleSequence   uint64
 	youtubeRuntimeAppliedSequence  uint64
+	youtubeNativeStoreRestoreEpoch uint64
 
 	webkitReady     chan struct{}
 	webkitReadyOnce sync.Once
@@ -112,10 +110,10 @@ func (provider *NativeAppSessionProvider) MarkWebKitReady() {
 	})
 }
 
-// EnsureAppSessionRuntimeCookies hydrates the request cache from WebKit's
-// shared default cookie store at most once per freshness window. The live
-// snapshot only flows into the request cache and platform-safe persistence;
-// it is never written back to WebKit.
+// EnsureAppSessionRuntimeCookies hydrates the request cache from the shared
+// native cookie store at most once per freshness window. Routine Music,
+// YouTube and Radio use may update this in-memory cache, but it never mutates
+// the persisted App Session credential snapshot.
 func (provider *NativeAppSessionProvider) EnsureAppSessionRuntimeCookies(
 	ctx context.Context,
 	siteKey string,
@@ -172,7 +170,8 @@ func (provider *NativeAppSessionProvider) EnsureAppSessionRuntimeCookies(
 		time.Since(provider.hydratedAt) < youtubeRuntimeHydrationFreshness {
 		return nil
 	}
-	if _, err := provider.LoadAppSessionCookies(ctx, "youtube"); err != nil {
+	storedRecords, err := provider.LoadAppSessionCookies(ctx, "youtube")
+	if err != nil {
 		if !errors.Is(err, appsessions.ErrNoCookies) || currentEpoch != 0 || !allowBootstrap {
 			return err
 		}
@@ -183,20 +182,26 @@ func (provider *NativeAppSessionProvider) EnsureAppSessionRuntimeCookies(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if bootstrapErr := provider.bootstrapYouTubeRuntimeCookies(ctx, records); bootstrapErr != nil {
+		if bootstrapErr := provider.bootstrapYouTubeRuntimeCookies(records); bootstrapErr != nil {
 			return bootstrapErr
 		}
 		provider.hydratedEpoch = provider.AppSessionCookieSyncEpoch("youtube")
 		provider.hydratedAt = time.Now()
 		return nil
 	}
+	records, sampledNativeStore, err := provider.ensureNativeYouTubeStableRestore(ctx, storedRecords)
+	if err != nil {
+		return err
+	}
 	epoch, sequence := provider.BeginAppSessionCookieSync("youtube")
 	if epoch == 0 {
 		return appsessions.ErrNoCookies
 	}
-	records, err := provider.loadRuntimeCookies()
-	if err != nil {
-		return err
+	if !sampledNativeStore {
+		records, err = provider.loadRuntimeCookies()
+		if err != nil {
+			return err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -209,6 +214,56 @@ func (provider *NativeAppSessionProvider) EnsureAppSessionRuntimeCookies(
 	return nil
 }
 
+// ensureNativeYouTubeStableRestore mirrors Kaset's startup restore boundary:
+// the encrypted stable backup may fill identities missing from the shared
+// browser store, but it never overwrites values already owned by that store.
+// Full runtime cookies enter the store only through explicit login/import or
+// normal browser response processing.
+func (provider *NativeAppSessionProvider) ensureNativeYouTubeStableRestore(
+	ctx context.Context,
+	records []appcookies.Record,
+) ([]appcookies.Record, bool, error) {
+	stable := nativeYouTubePersistentCookies(records, time.Now())
+	if len(stable) == 0 {
+		return nil, false, appsessions.ErrNoCookies
+	}
+
+	provider.runtimeSyncMu.Lock()
+	epoch := provider.youtubeRuntimeSyncEpoch
+	if !provider.youtubeRuntimeSyncAllowed || epoch == 0 {
+		provider.runtimeSyncMu.Unlock()
+		return nil, false, appsessions.ErrNoCookies
+	}
+	if provider.youtubeNativeStoreRestoreEpoch == epoch {
+		provider.runtimeSyncMu.Unlock()
+		return nil, false, nil
+	}
+	provider.runtimeSyncMu.Unlock()
+
+	live, err := provider.loadRuntimeCookies()
+	if err != nil && !errors.Is(err, appsessions.ErrNoCookies) {
+		return nil, true, err
+	}
+	missing := youtubecookies.MissingStableAuth(stable, live, time.Now())
+	if len(missing) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, true, err
+		}
+		if err := publishNativeYouTubeRuntimeCookies(provider.app, missing); err != nil {
+			return nil, true, err
+		}
+		live = youtubecookies.Runtime(append(live, missing...), time.Now())
+	}
+
+	provider.runtimeSyncMu.Lock()
+	defer provider.runtimeSyncMu.Unlock()
+	if !provider.youtubeRuntimeSyncAllowed || provider.youtubeRuntimeSyncEpoch != epoch {
+		return nil, true, appsessions.ErrNoCookies
+	}
+	provider.youtubeNativeStoreRestoreEpoch = epoch
+	return live, true, nil
+}
+
 func (provider *NativeAppSessionProvider) hydrateAuthoritativeYouTubeRuntimeCookies(
 	ctx context.Context,
 	allowBootstrap bool,
@@ -217,7 +272,7 @@ func (provider *NativeAppSessionProvider) hydrateAuthoritativeYouTubeRuntimeCook
 	expectedEpoch := provider.youtubeRuntimeSyncEpoch
 	allowed := provider.youtubeRuntimeSyncAllowed
 	if (expectedEpoch == 0 && !allowBootstrap) || (expectedEpoch != 0 && !allowed) {
-		// On macOS WebKit is authoritative. Cache its deliberately unavailable
+		// The shared native cookie store is authoritative. Cache its deliberately unavailable
 		// state as an empty, already-loaded entry so the caller cannot fall back
 		// to a stale compatibility Keychain snapshot.
 		provider.cookieCache.store("youtube", nil)
@@ -263,7 +318,6 @@ func (provider *NativeAppSessionProvider) hydrateAuthoritativeYouTubeRuntimeCook
 		// later, higher-sequence login snapshot may recover the session.
 		provider.cookieCache.store("youtube", nil)
 		provider.youtubeRuntimeAppliedSequence = expectedSequence
-		provider.youtubeStableSnapshotPersisted = true
 		return 0, appsessions.ErrNoCookies
 	}
 	if expectedEpoch == 0 {
@@ -273,9 +327,6 @@ func (provider *NativeAppSessionProvider) hydrateAuthoritativeYouTubeRuntimeCook
 	provider.cookieCache.store("youtube", runtimeRecords)
 	provider.youtubeRuntimeSyncAllowed = true
 	provider.youtubeRuntimeAppliedSequence = expectedSequence
-	// WebKit persists this authoritative snapshot. Mark persistence satisfied so
-	// routine live-sync checkpoints never fall back to a blocking Keychain write.
-	provider.youtubeStableSnapshotPersisted = true
 	return expectedEpoch, nil
 }
 
@@ -309,11 +360,10 @@ func (provider *NativeAppSessionProvider) acquireHydration(ctx context.Context) 
 	}
 }
 
-// bootstrapYouTubeRuntimeCookies recovers an initially missing vault entry
-// from an already authenticated WebKit store. Epoch zero is the one-time
-// bootstrap state; an explicit Clear advances the epoch and therefore cannot
-// be undone by an older live snapshot.
-func (provider *NativeAppSessionProvider) bootstrapYouTubeRuntimeCookies(ctx context.Context, records []appcookies.Record) error {
+// bootstrapYouTubeRuntimeCookies makes an already authenticated shared store
+// available to request consumers without reconstructing or replacing the
+// persisted App Session credential snapshot.
+func (provider *NativeAppSessionProvider) bootstrapYouTubeRuntimeCookies(records []appcookies.Record) error {
 	now := time.Now()
 	runtimeRecords := youtubecookies.Runtime(records, now)
 	persistedRecords := nativeYouTubePersistentCookies(runtimeRecords, now)
@@ -331,13 +381,9 @@ func (provider *NativeAppSessionProvider) bootstrapYouTubeRuntimeCookies(ctx con
 
 	provider.cookieCache.store("youtube", runtimeRecords)
 	provider.youtubeRuntimeSyncAllowed = true
-	provider.youtubeStableSnapshotPersisted = false
 	provider.youtubeRuntimeSyncEpoch = 1
 	provider.youtubeRuntimeAppliedSequence = 0
-	if err := provider.saveStoredCookies(ctx, "youtube", persistedRecords); err != nil {
-		return err
-	}
-	provider.youtubeStableSnapshotPersisted = true
+	provider.youtubeNativeStoreRestoreEpoch = provider.youtubeRuntimeSyncEpoch
 	return nil
 }
 
@@ -395,6 +441,24 @@ func connectorAppSessionInitialCookies(siteKey string, records []appcookies.Reco
 	return cloneAppSessionCookieRecords(records)
 }
 
+func planConnectorAppSessionCookieRestore(
+	siteKey string,
+	persisted []appcookies.Record,
+	current []appcookies.Record,
+	now time.Time,
+	storeAvailable bool,
+) []appcookies.Record {
+	if !strings.EqualFold(strings.TrimSpace(siteKey), "youtube") {
+		return cloneAppSessionCookieRecords(persisted)
+	}
+	return planListenPlaybackCookieRestore(
+		persisted,
+		current,
+		now,
+		storeAvailable,
+	)
+}
+
 func (provider *NativeAppSessionProvider) LoadAppSessionCookies(ctx context.Context, siteKey string) ([]appcookies.Record, error) {
 	if provider == nil {
 		return nil, appsessions.ErrNoCookies
@@ -408,7 +472,6 @@ func (provider *NativeAppSessionProvider) LoadAppSessionCookies(ctx context.Cont
 		defer provider.runtimeSyncMu.Unlock()
 	}
 	loadedFromPersistence := false
-	loadedStableSnapshotCanonical := false
 	records, available, err := provider.cookieCache.loadContext(ctx, siteKey, func() ([]appcookies.Record, bool, error) {
 		loadedFromPersistence = true
 		loaded, err := provider.loadStoredCookies(ctx, siteKey)
@@ -420,9 +483,7 @@ func (provider *NativeAppSessionProvider) LoadAppSessionCookies(ctx context.Cont
 		}
 		if youtube {
 			now := time.Now()
-			runtimeLoaded := youtubecookies.Runtime(loaded, now)
-			loaded = nativeYouTubePersistentCookies(runtimeLoaded, now)
-			loadedStableSnapshotCanonical = slices.Equal(runtimeLoaded, loaded)
+			loaded = nativeYouTubePersistentCookies(youtubecookies.Runtime(loaded, now), now)
 		}
 		return loaded, len(loaded) > 0, nil
 	})
@@ -437,9 +498,6 @@ func (provider *NativeAppSessionProvider) LoadAppSessionCookies(ctx context.Cont
 		if provider.youtubeRuntimeSyncEpoch == 0 {
 			provider.youtubeRuntimeSyncEpoch = 1
 		}
-		// Legacy snapshots containing any non-stable cookie are migrated after
-		// the first live sync. Canonical stable-only snapshots need no rewrite.
-		provider.youtubeStableSnapshotPersisted = loadedStableSnapshotCanonical
 	}
 	return records, nil
 }
@@ -470,20 +528,20 @@ func (provider *NativeAppSessionProvider) SaveAppSessionCookies(ctx context.Cont
 	provider.cookieCache.store(siteKey, cacheRecords)
 	if youtube {
 		provider.youtubeRuntimeSyncAllowed = true
-		provider.youtubeStableSnapshotPersisted = true
 		provider.youtubeRuntimeSyncEpoch++
 		if provider.youtubeRuntimeSyncEpoch == 0 {
 			provider.youtubeRuntimeSyncEpoch = 1
 		}
 		provider.youtubeRuntimeAppliedSequence = 0
+		provider.youtubeNativeStoreRestoreEpoch = provider.youtubeRuntimeSyncEpoch
 	}
 	return nil
 }
 
-// SyncAppSessionCookies updates the request-time cache from the live WebKit
-// store while using platform-safe persistence. It is intentionally distinct
-// from SaveAppSessionCookies: after an explicit Clear, delayed WebKit samples
-// must not be allowed to recreate the session.
+// SyncAppSessionCookies applies a shared native-store read to the in-memory
+// request cache. It never writes the App Session vault/SQLite snapshot.
+// Explicit login/import uses SaveAppSessionCookies or
+// CacheImportedAppSessionCookies; explicit logout uses ClearAppSession.
 func (provider *NativeAppSessionProvider) SyncAppSessionCookies(
 	ctx context.Context,
 	siteKey string,
@@ -518,28 +576,18 @@ func (provider *NativeAppSessionProvider) SyncAppSessionCookies(
 		return appsessions.ErrNoCookies
 	}
 
-	current, available, _ := provider.cookieCache.load(siteKey, nil)
+	current, _, _ := provider.cookieCache.load(siteKey, nil)
 	currentStable := nativeYouTubePersistentCookies(current, now)
-	// The master key is process-cached, so routine persistence only encrypts
-	// the stable snapshot and writes SQLite; it never enters a Keychain hot
-	// path or prompts for authentication.
-	needsPersistentWrite := !provider.youtubeStableSnapshotPersisted ||
-		!available || !slices.Equal(currentStable, stableRecords)
-	if needsPersistentWrite {
-		provider.youtubeStableSnapshotPersisted = false
+	missingStable := youtubecookies.MissingStableAuth(
+		currentStable,
+		stableRecords,
+		now,
+	)
+	if len(missingStable) > 0 {
+		return appsessions.ErrNoCookies
 	}
-
-	// The live snapshot wins immediately for API consumers, even if a later
-	// vault write fails and needs to be retried at the next checkpoint.
 	provider.cookieCache.store(siteKey, runtimeRecords)
 	provider.youtubeRuntimeAppliedSequence = expectedSequence
-	if !needsPersistentWrite {
-		return nil
-	}
-	if err := provider.saveStoredCookies(ctx, siteKey, stableRecords); err != nil {
-		return err
-	}
-	provider.youtubeStableSnapshotPersisted = true
 	return nil
 }
 
@@ -563,12 +611,12 @@ func (provider *NativeAppSessionProvider) ClearAppSession(ctx context.Context, s
 	provider.cookieCache.store(siteKey, nil)
 	if youtube {
 		provider.youtubeRuntimeSyncAllowed = false
-		provider.youtubeStableSnapshotPersisted = false
 		provider.youtubeRuntimeSyncEpoch++
 		if provider.youtubeRuntimeSyncEpoch == 0 {
 			provider.youtubeRuntimeSyncEpoch = 1
 		}
 		provider.youtubeRuntimeAppliedSequence = 0
+		provider.youtubeNativeStoreRestoreEpoch = 0
 		provider.runtimeSyncMu.Unlock()
 	}
 	if ctx == nil {
@@ -602,13 +650,24 @@ func (provider *NativeAppSessionProvider) CacheImportedAppSessionCookies(siteKey
 	}
 	provider.cookieCache.store(siteKey, cacheRecords)
 	if youtube {
+		nativePublishErr := publishNativeYouTubeRuntimeCookies(provider.app, cacheRecords)
+		if nativePublishErr != nil {
+			zap.L().Error(
+				"youtube imported cookies native publish failed",
+				zap.Error(nativePublishErr),
+			)
+		}
 		provider.youtubeRuntimeSyncAllowed = len(cacheRecords) > 0
-		provider.youtubeStableSnapshotPersisted = len(cacheRecords) > 0
 		provider.youtubeRuntimeSyncEpoch++
 		if provider.youtubeRuntimeSyncEpoch == 0 {
 			provider.youtubeRuntimeSyncEpoch = 1
 		}
 		provider.youtubeRuntimeAppliedSequence = 0
+		if nativePublishErr == nil {
+			provider.youtubeNativeStoreRestoreEpoch = provider.youtubeRuntimeSyncEpoch
+		} else {
+			provider.youtubeNativeStoreRestoreEpoch = 0
+		}
 	}
 }
 
@@ -668,18 +727,14 @@ func (provider *NativeAppSessionProvider) loadRuntimeCookies() ([]appcookies.Rec
 	if provider == nil || provider.app == nil {
 		return nil, appsessions.ErrUnsupported
 	}
-	return loadNativeYouTubeRuntimeCookies()
+	return loadNativeYouTubeRuntimeCookies(provider.app)
 }
 
-// macOS persists only stable bootstrap credentials because its live WebKit
-// store supplies the rotating request-time cookies. Other platforms keep the
-// full Runtime snapshot until they gain an equivalent native live-store
-// reader; WebView restore still applies StableAuth on every platform.
+// Every platform persists only the Kaset-compatible stable bootstrap
+// credentials. Rotating request-time cookies belong exclusively to the live
+// native cookie store and the in-memory request cache.
 func nativeYouTubePersistentCookies(records []appcookies.Record, now time.Time) []appcookies.Record {
-	if runtime.GOOS == "darwin" {
-		return youtubecookies.StableAuth(records, now)
-	}
-	return youtubecookies.Runtime(records, now)
+	return youtubecookies.StableAuth(records, now)
 }
 
 func (provider *NativeAppSessionProvider) saveStoredCookies(ctx context.Context, siteKey string, records []appcookies.Record) error {

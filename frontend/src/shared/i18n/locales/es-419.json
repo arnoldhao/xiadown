@@ -719,6 +719,7 @@
       "nextTrack": "Siguiente",
       "pause": "Pausar",
       "play": "Reproducir",
+      "forceRefresh": "Forzar actualización",
       "openLogs": "Abrir carpeta de registros"
     },
     "sidebar": {
@@ -1928,6 +1929,8 @@
       "loadingStatus": "Cargando",
       "errorStatus": "Error de reproducción",
       "errorCodeLabel": "Código de error",
+      "youtubeVerificationRequired": "YouTube requiere verificación. Cambia de red o vuelve a intentarlo más tarde.",
+      "youtubeRegionUnavailable": "YouTube no está disponible en tu región.",
       "idleSubtitle": "No se está reproduciendo nada.",
       "previous": "Anterior",
       "next": "Siguiente",

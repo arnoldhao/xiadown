@@ -35,7 +35,7 @@ LISTEN_PRIMARY_PLAY_BUTTON_HOVER_CLASS,
 LISTEN_PRIMARY_PLAY_BUTTON_SIZE_CLASS,
 LISTEN_PRIMARY_PLAY_ICON_SIZE_CLASS,
 } from "@/shared/styles/listen";
-import { LISTEN_LIVE_PLAYER_EVENT,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_EVENT,LISTEN_NATIVE_PLAYER_SERVICE } from "@/app/main/listen/catalog";
+import { LISTEN_LIVE_PLAYER_EVENT,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_EVENT,LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_YOUTUBE_REGION_UNAVAILABLE_ERROR_CODE,LISTEN_YOUTUBE_VERIFICATION_REQUIRED_ERROR_CODE } from "@/app/main/listen/catalog";
 import { listenArtistBrowseTrack } from "@/app/main/listen/artist-navigation";
 import { callListenLyricsCandidate,callListenLyricsForTrackCached,callListenTrackLyricsCached,resolveListenLyricsOnlineArtist } from "@/app/main/listen/lyrics-api";
 import { ListenLyricsControls } from "@/app/main/listen/lyrics-controls";
@@ -268,6 +268,8 @@ export function ListenPlayback(props: {
     bufferedTime: number;
   };
   onlineState: ListenRemotePlaybackState;
+  onlinePlaybackErrorCode?: string;
+  onlinePlaybackErrorMessage?: string;
   onlineObservedPlaybackAudioQuality: ListenObservedPlaybackAudioQuality | "";
   favoriteActive: boolean;
   favoriteBusy: boolean;
@@ -285,6 +287,8 @@ export function ListenPlayback(props: {
   onEnded: () => void;
   onOnlinePlayingChange: (playing: boolean) => void;
   onOnlineStateChange: (state: ListenRemotePlaybackState) => void;
+  onOnlinePlaybackErrorCodeChange?: (code: string) => void;
+  onOnlinePlaybackErrorMessageChange?: (message: string) => void;
   onOnlineProgressChange: (
     videoId: string,
     currentTime: number,
@@ -1111,6 +1115,8 @@ export function ListenPlayback(props: {
         muted={props.muted}
         volume={props.volume}
         state={props.onlineState}
+        playbackErrorCode={props.onlinePlaybackErrorCode}
+        playbackErrorMessage={props.onlinePlaybackErrorMessage}
         observedPlaybackAudioQuality={
           props.mode === "muse" ? (props.onlineObservedPlaybackAudioQuality ?? "") : undefined
         }
@@ -1120,6 +1126,8 @@ export function ListenPlayback(props: {
         onEnded={props.onEnded}
         onPlayingChange={props.onOnlinePlayingChange}
         onStateChange={props.onOnlineStateChange}
+        onPlaybackErrorCodeChange={props.onOnlinePlaybackErrorCodeChange}
+        onPlaybackErrorMessageChange={props.onOnlinePlaybackErrorMessageChange}
         onProgressChange={props.onOnlineProgressChange}
         onNativeTrackChange={props.onOnlineNativeTrackChange}
         onSelectQueueTrack={props.onSelectOnlineQueueTrack}
@@ -1488,6 +1496,8 @@ export function ListenYouTubePlayback(props: {
   muted: boolean;
   volume: number;
   state: ListenRemotePlaybackState;
+  playbackErrorCode?: string;
+  playbackErrorMessage?: string;
   observedPlaybackAudioQuality?: ListenObservedPlaybackAudioQuality | "";
   pet: Pet | null;
   petImageURL: string;
@@ -1495,6 +1505,8 @@ export function ListenYouTubePlayback(props: {
   onEnded: () => void;
   onPlayingChange: (playing: boolean) => void;
   onStateChange: (state: ListenRemotePlaybackState) => void;
+  onPlaybackErrorCodeChange?: (code: string) => void;
+  onPlaybackErrorMessageChange?: (message: string) => void;
   onProgressChange: (
     videoId: string,
     currentTime: number,
@@ -1842,6 +1854,8 @@ export function ListenYouTubePlayback(props: {
     setPlaybackAdvertisingProgress(null);
     setPlaybackErrorLabel("");
     setPlaybackErrorMessage("");
+    props.onPlaybackErrorCodeChange?.("");
+    props.onPlaybackErrorMessageChange?.("");
     setLyricsPlaybackRate(1);
     setLyricsState({
       videoId: props.track.videoId,
@@ -1852,7 +1866,12 @@ export function ListenYouTubePlayback(props: {
     if (isLive) {
       setMediaMode("cover");
     }
-  }, [isLive, props.track.videoId]);
+  }, [
+    isLive,
+    props.onPlaybackErrorCodeChange,
+    props.onPlaybackErrorMessageChange,
+    props.track.videoId,
+  ]);
 
 	React.useEffect(() => {
 		setEmbeddedVideoFullscreen(false);
@@ -2275,6 +2294,9 @@ export function ListenYouTubePlayback(props: {
         ...rect,
         interactive: false,
         sequence: createListenNativeVideoSequence(requestId),
+        presentation: props.workspaceFullscreen
+          ? ("app-fullscreen" as const)
+          : ("embedded-video" as const),
       };
       liveNativeVideoRectRef.current = nextRect;
       if (!liveVideoModeActive) {
@@ -2303,7 +2325,7 @@ export function ListenYouTubePlayback(props: {
           return false;
         });
     },
-    [callNativePlayer, liveVideoModeActive],
+    [callNativePlayer, liveVideoModeActive, props.workspaceFullscreen],
   );
 
   React.useEffect(() => {
@@ -2418,6 +2440,9 @@ export function ListenYouTubePlayback(props: {
         ...rect,
         interactive: false,
         sequence: createListenNativeVideoSequence(requestId),
+        presentation: props.workspaceFullscreen
+          ? ("app-fullscreen" as const)
+          : ("embedded-video" as const),
       };
       inlineNativeVideoRectRef.current = nextRect;
       if (!inlineVideoRevealReady) {
@@ -2449,7 +2474,7 @@ export function ListenYouTubePlayback(props: {
           return false;
         });
     },
-    [callNativePlayer, inlineVideoRevealReady],
+    [callNativePlayer, inlineVideoRevealReady, props.workspaceFullscreen],
   );
 
   React.useEffect(() => {
@@ -2640,6 +2665,8 @@ export function ListenYouTubePlayback(props: {
       setPlaybackAdvertisingProgress(null);
       setPlaybackErrorLabel("");
       setPlaybackErrorMessage("");
+      props.onPlaybackErrorCodeChange?.("");
+      props.onPlaybackErrorMessageChange?.("");
       props.onStateChange("loading");
       props.onPlayingChange(false);
       const inactiveRequestRef = isLive
@@ -2691,6 +2718,8 @@ export function ListenYouTubePlayback(props: {
       props.muted,
       props.onPlayingChange,
       props.onStateChange,
+      props.onPlaybackErrorCodeChange,
+      props.onPlaybackErrorMessageChange,
       props.text.locale,
       props.track.channel,
       props.track.title,
@@ -2793,20 +2822,6 @@ export function ListenYouTubePlayback(props: {
       muted: props.muted,
     }).catch(() => {});
   }, [callNativePlayer, isLive, props.enabled, props.muted, props.volume]);
-
-  React.useEffect(
-    () => {
-      if (!props.enabled) {
-        return;
-      }
-      return () => {
-        void Call.ByName(`${playerService}.Pause`).catch(
-          () => {},
-        );
-      };
-    },
-    [playerService, props.enabled],
-  );
 
   React.useEffect(() => {
     if (!props.enabled) {
@@ -2938,6 +2953,8 @@ export function ListenYouTubePlayback(props: {
           setPlaybackAdvertisingProgress(null);
           setPlaybackErrorLabel(errorCode);
           setPlaybackErrorMessage(errorMessage);
+          props.onPlaybackErrorCodeChange?.(errorCode);
+          props.onPlaybackErrorMessageChange?.(errorMessage);
         } else {
           const advertising = Boolean(data.advertising || data.ad);
           setPlaybackAdvertising(advertising);
@@ -2964,6 +2981,8 @@ export function ListenYouTubePlayback(props: {
           }
           setPlaybackErrorLabel("");
           setPlaybackErrorMessage("");
+          props.onPlaybackErrorCodeChange?.("");
+          props.onPlaybackErrorMessageChange?.("");
         }
       };
 
@@ -3090,11 +3109,12 @@ export function ListenYouTubePlayback(props: {
     props.onEnded,
     props.onNext,
     props.onNativeTrackChange,
+    props.onPlaybackErrorCodeChange,
+    props.onPlaybackErrorMessageChange,
     props.onPlayingChange,
     props.onPrevious,
     props.onProgressChange,
     props.onStateChange,
-    props.text.listen.errorStatus,
     props.progress.duration,
     props.state,
     props.track.videoId,
@@ -3184,6 +3204,8 @@ export function ListenYouTubePlayback(props: {
     setPlaybackAdvertisingProgress(null);
     setPlaybackErrorLabel("");
     setPlaybackErrorMessage("");
+    props.onPlaybackErrorCodeChange?.("");
+    props.onPlaybackErrorMessageChange?.("");
     props.onProgressChange(
       props.track.videoId,
       0,
@@ -3198,6 +3220,8 @@ export function ListenYouTubePlayback(props: {
   }, [
     callNativePlayer,
     props.onPlayingChange,
+    props.onPlaybackErrorCodeChange,
+    props.onPlaybackErrorMessageChange,
     props.onProgressChange,
     props.onStateChange,
     props.progress.duration,
@@ -3362,6 +3386,26 @@ export function ListenYouTubePlayback(props: {
             : "companion",
       )
     : null;
+  const effectivePlaybackErrorCode =
+    playbackErrorLabel || props.playbackErrorCode || "";
+  const effectivePlaybackErrorMessage =
+    playbackErrorMessage.trim() || props.playbackErrorMessage?.trim() || "";
+  const playbackErrorActive =
+    props.state === "error" ||
+    effectivePlaybackErrorCode !== "" ||
+    effectivePlaybackErrorMessage !== "";
+  const playbackErrorSubtitle =
+    effectivePlaybackErrorCode ===
+    LISTEN_YOUTUBE_VERIFICATION_REQUIRED_ERROR_CODE
+      ? props.text.listen.youtubeVerificationRequired
+      : effectivePlaybackErrorCode ===
+          LISTEN_YOUTUBE_REGION_UNAVAILABLE_ERROR_CODE
+        ? props.text.listen.youtubeRegionUnavailable
+        : playbackErrorActive
+          ? effectivePlaybackErrorMessage || effectivePlaybackErrorCode
+          : "";
+  const playbackStatusActive = playbackErrorSubtitle !== "";
+  const playbackSubtitle = playbackErrorSubtitle || artistName;
 
   return (
     <div className={cn(
@@ -3470,15 +3514,22 @@ export function ListenYouTubePlayback(props: {
         lyricsKind={onlineLyricsCurrentState.data?.kind}
         lyricsLoading={onlineLyricsCurrentState.loading}
         title={props.track.title}
-        subtitle={artistName}
-        subtitleArtistParts={artistName && !isLive ? artistLabelParts : undefined}
+        subtitle={playbackSubtitle}
+        subtitleDanger={playbackStatusActive}
+        subtitleArtistParts={
+          artistName && !isLive && !playbackStatusActive
+            ? artistLabelParts
+            : undefined
+        }
         onSubtitleClick={
-          artistName && !isLive
+          artistName && !isLive && !playbackStatusActive
             ? () => props.onOpenArtist(props.track)
             : undefined
         }
         onSubtitleArtistClick={
-          artistName && !isLive ? handleSubtitleArtistClick : undefined
+          artistName && !isLive && !playbackStatusActive
+            ? handleSubtitleArtistClick
+            : undefined
         }
         infoActions={
           <>
@@ -3519,13 +3570,6 @@ export function ListenYouTubePlayback(props: {
         advertising={playbackAdvertising}
         advertisingLabel={playbackAdvertisingLabel}
         progressLoading={progressLoading}
-        errorActive={props.state === "error"}
-        errorLabel={
-          props.state === "error"
-            ? playbackErrorLabel
-            : ""
-        }
-        errorTitle={props.state === "error" ? playbackErrorMessage : ""}
         onSeek={isLive ? undefined : handleOnlineSeek}
         onStopPlayback={handleStopPlayback}
         onFitLiveVideoWindow={handleFitLiveVideoWindow}
@@ -3653,6 +3697,7 @@ function ListenPlayerChrome(props: {
   disabled?: boolean;
   title: string;
   subtitle: string;
+  subtitleDanger?: boolean;
   subtitleArtistParts?: ListenArtistLabelPart[];
   onSubtitleClick?: () => void;
   onSubtitleArtistClick?: (artist: string) => void;
@@ -3665,9 +3710,6 @@ function ListenPlayerChrome(props: {
   advertising?: boolean;
   advertisingLabel?: string;
   progressLoading?: boolean;
-  errorActive?: boolean;
-  errorLabel?: string;
-  errorTitle?: string;
   onSeek?: (seconds: number) => void;
   onStopPlayback?: () => void;
   onFitLiveVideoWindow?: () => void;
@@ -3935,6 +3977,7 @@ function ListenPlayerChrome(props: {
             petImageURL={props.petImageURL ?? ""}
             title={props.title}
             subtitle={props.subtitle}
+            subtitleDanger={props.subtitleDanger}
             listOpen={props.listOpen === true}
             reserveWindowControls={props.reserveWindowControls}
             playing={props.playing}
@@ -4016,7 +4059,11 @@ function ListenPlayerChrome(props: {
                         <ListenSubtitleText
                           text={props.subtitle || props.text.listen.nowPlaying}
                           artistParts={props.subtitleArtistParts}
-                          className="listen-single-lyrics-panel__subtitle mt-0.5"
+                          className={cn(
+                            "listen-single-lyrics-panel__subtitle mt-0.5",
+                            props.subtitleDanger &&
+                              "listen-playback-status-subtitle",
+                          )}
                           onClick={props.subtitle ? props.onSubtitleClick : undefined}
                           onArtistClick={props.onSubtitleArtistClick}
                         />
@@ -4077,6 +4124,7 @@ function ListenPlayerChrome(props: {
                       title={props.title}
                       subtitle={props.subtitle}
                       subtitleArtistParts={props.subtitleArtistParts}
+                      subtitleDanger={props.subtitleDanger}
                       onSubtitleClick={props.onSubtitleClick}
                       onSubtitleArtistClick={props.onSubtitleArtistClick}
                       actions={props.infoActions}
@@ -4102,9 +4150,6 @@ function ListenPlayerChrome(props: {
                       advertising={props.advertising}
                       advertisingLabel={props.advertisingLabel}
                       loading={props.progressLoading}
-                      errorActive={props.errorActive}
-                      errorLabel={props.errorLabel}
-                      errorTitle={props.errorTitle}
                       onSeek={props.onSeek}
                     />
                     <ListenPlayerTransport
@@ -4198,9 +4243,6 @@ function ListenPlayerChrome(props: {
                   advertising={props.advertising}
                   advertisingLabel={props.advertisingLabel}
                   loading={props.progressLoading}
-                  errorActive={props.errorActive}
-                  errorLabel={props.errorLabel}
-                  errorTitle={props.errorTitle}
                   onSeek={props.onSeek}
                 />
               </div>

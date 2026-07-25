@@ -498,6 +498,13 @@
   line-height: 1.25rem;
 }
 
+.listen-playback-status-subtitle {
+  color: var(--app-status-tone-error);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1rem;
+}
+
 .listen-player-secondary-media {
   opacity: 0;
 }

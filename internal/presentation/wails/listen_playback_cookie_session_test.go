@@ -19,7 +19,6 @@ func TestPlaybackCookieRestoreSeedsOnlyStableAuth(t *testing.T) {
 	plan := planListenPlaybackCookieRestore(
 		persisted,
 		nil,
-		"https://www.youtube.com/watch?v=test",
 		now,
 		true,
 	)
@@ -48,10 +47,35 @@ func TestPlaybackCookieRestoreNeverOverwritesExistingLiveStore(t *testing.T) {
 		"https://www.youtube.com/watch?v=regular",
 		"https://music.youtube.com/watch?v=music",
 	} {
-		plan := planListenPlaybackCookieRestore(persisted, current, targetURL, now, true)
+		plan := planListenPlaybackCookieRestore(persisted, current, now, true)
 		if len(plan) != 0 {
 			t.Fatalf("target %s would overwrite live B with persisted A: %#v", targetURL, plan)
 		}
+	}
+}
+
+func TestPlaybackCookieRestoreFillsMissingCrossDomainStableAuth(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	persisted := []appcookies.Record{
+		{Name: "SAPISID", Value: "persisted-google", Domain: ".google.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+		{Name: "__Secure-3PAPISID", Value: "persisted-youtube", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+	}
+	current := []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "newer-live-youtube", Domain: ".youtube.com", Path: "/", Expires: now.Add(2 * time.Hour).Unix()},
+		{Name: "__Secure-ROLLOUT_TOKEN", Value: "runtime", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+	}
+
+	plan := planListenPlaybackCookieRestore(
+		persisted,
+		current,
+		now,
+		true,
+	)
+	if len(plan) != 1 ||
+		plan[0].Name != "SAPISID" ||
+		plan[0].Domain != ".google.com" ||
+		plan[0].Value != "persisted-google" {
+		t.Fatalf("cross-domain restore plan = %#v, want only missing Google auth", plan)
 	}
 }
 
@@ -60,7 +84,6 @@ func TestPlaybackCookieRestoreFailsClosedWhenStoreCannotBeRead(t *testing.T) {
 	plan := planListenPlaybackCookieRestore(
 		[]appcookies.Record{{Name: "SAPISID", Value: "persisted", Domain: ".youtube.com", Path: "/"}},
 		nil,
-		"https://www.youtube.com/watch?v=test",
 		now,
 		false,
 	)

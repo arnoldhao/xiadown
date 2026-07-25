@@ -579,6 +579,12 @@ func (client *Client) clearRequestCache() {
 	client.requestCache = make(map[string]requestCacheEntry)
 }
 
+// ForceRefresh invalidates account-scoped read responses so the next request
+// observes the current network and App Session cookies.
+func (client *Client) ForceRefresh() {
+	client.clearRequestCache()
+}
+
 func (client *Client) deleteCachedRequest(key string) {
 	if client == nil || key == "" {
 		return

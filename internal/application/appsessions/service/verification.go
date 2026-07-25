@@ -11,10 +11,10 @@ import (
 	"xiadown/internal/domain/appsessions"
 )
 
-// VerifyAppSession validates the credential snapshot already owned by XiaDown.
-// It deliberately avoids StartAppSession and browser runtime hydration: a
-// verification must not observe, import, or persist mutations from the shared
-// WebView cookie store.
+// VerifyAppSession validates the complete read-only runtime snapshot currently
+// owned by XiaDown. Runtime hydration may read the shared native cookie store,
+// but it never imports or persists browser mutations into the App Session
+// credential backup.
 func (service *AppSessionsService) VerifyAppSession(ctx context.Context, request dto.VerifyAppSessionRequest) (dto.AppSession, error) {
 	if service == nil || service.repo == nil || service.provider == nil {
 		return dto.AppSession{}, appsessions.ErrUnsupported
@@ -33,18 +33,19 @@ func (service *AppSessionsService) VerifyAppSession(ctx context.Context, request
 		service.credentialMutationMu.Unlock()
 		return dto.AppSession{}, err
 	}
-	records, err := service.provider.LoadAppSessionCookies(ctx, current.SiteKey)
+	records, err := service.RecordsForSiteKey(ctx, current.SiteKey)
 	if err != nil {
 		service.credentialMutationMu.Unlock()
 		return dto.AppSession{}, err
 	}
 	records = canonicalAppSessionCookies(filterAppSessionCookies(current.SiteKey, records))
+	observedAt := service.now()
 	if !appSessionHasAuthenticationCookies(current.SiteKey, records) {
 		service.credentialMutationMu.Unlock()
 		return dto.AppSession{}, appsessions.ErrNoCookies
 	}
 
-	startedAt := service.now().UTC().Round(0)
+	startedAt := observedAt.UTC().Round(0)
 	params := appSessionParamsPreservingState(current, startedAt)
 	params.AccountVerificationStatus = string(appsessions.AccountVerificationVerifying)
 	params.AccountVerificationError = ""

@@ -131,6 +131,25 @@ func TestConnectorAppSessionYouTubeInitialCookiesAreStableOnly(t *testing.T) {
 	}
 }
 
+func TestNativeYouTubePersistenceExcludesRuntimeCookies(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	persisted := nativeYouTubePersistentCookies([]appcookies.Record{
+		{Name: "SAPISID", Value: "stable", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+		{Name: "SID", Value: "stable-sid", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+		{Name: "LOGIN_INFO", Value: "runtime", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+		{Name: "__Secure-3PSIDCC", Value: "rotating-cc", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+		{Name: "__Secure-3PSIDTS", Value: "rotating-ts", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix()},
+	}, now)
+	if len(persisted) != 2 {
+		t.Fatalf("persistent YouTube cookies = %#v, want stable-only", persisted)
+	}
+	for _, record := range persisted {
+		if record.Name != "SAPISID" && record.Name != "SID" {
+			t.Fatalf("runtime cookie entered YouTube persistence: %#v", record)
+		}
+	}
+}
+
 func TestNativeAppSessionProviderLoadsPlatformYouTubePersistence(t *testing.T) {
 	stored := []appcookies.Record{
 		{Name: "SAPISID", Value: "stable", Domain: ".youtube.com", Path: "/", Expires: 4_102_444_800},
@@ -335,7 +354,7 @@ func TestNativeAppSessionProviderHydrationWaitsForWebKitReady(t *testing.T) {
 	}
 }
 
-func TestNativeAppSessionProviderRecoversMissingVaultFromConnectedLiveStore(t *testing.T) {
+func TestNativeAppSessionProviderUsesConnectedLiveStoreWithoutRewritingMissingVault(t *testing.T) {
 	var saved []appcookies.Record
 	var persistenceLoads atomic.Int32
 	live := []appcookies.Record{
@@ -367,9 +386,8 @@ func TestNativeAppSessionProviderRecoversMissingVaultFromConnectedLiveStore(t *t
 	if persistenceLoads.Load() != 1 {
 		t.Fatalf("vault bootstrap loads = %d, want 1", persistenceLoads.Load())
 	}
-	expectedSaved := nativeYouTubePersistentCookies(live, time.Now())
-	if !slices.Equal(saved, expectedSaved) {
-		t.Fatalf("bootstrap persistence = %#v, want %#v", saved, expectedSaved)
+	if len(saved) != 0 {
+		t.Fatalf("routine native-store bootstrap rewrote App Session persistence: %#v", saved)
 	}
 	if epoch := provider.AppSessionCookieSyncEpoch("youtube"); epoch != 1 {
 		t.Fatalf("bootstrap epoch = %d, want 1", epoch)
@@ -758,11 +776,9 @@ func TestNativeAppSessionProviderSyncSeparatesRuntimeAndPersistentCookies(t *tes
 	if err := provider.SyncAppSessionCookies(context.Background(), "youtube", live, epoch, sequence); err != nil {
 		t.Fatalf("sync live YouTube cookies: %v", err)
 	}
-	expectedSaved := nativeYouTubePersistentCookies(live, time.Now())
-	expectedSaveCount := 1
-	if len(saved) != expectedSaveCount ||
-		(expectedSaveCount == 1 && !slices.Equal(saved[0], expectedSaved)) {
-		t.Fatalf("persistent snapshots = %#v, want count %d and snapshot %#v", saved, expectedSaveCount, expectedSaved)
+	const expectedSaveCount = 0
+	if len(saved) != expectedSaveCount {
+		t.Fatalf("runtime hydration rewrote App Session persistence: %#v", saved)
 	}
 	runtimeRecords, err := provider.LoadAppSessionCookies(context.Background(), "youtube")
 	if err != nil {
@@ -864,6 +880,43 @@ func TestNativeAppSessionProviderRejectsIncompleteRuntimeSnapshot(t *testing.T) 
 	}
 }
 
+func TestNativeAppSessionProviderRejectsAuthenticatedPartialStableSnapshot(t *testing.T) {
+	var saves atomic.Int32
+	persisted := []appcookies.Record{
+		{Name: "SAPISID", Value: "google-auth", Domain: ".google.com", Path: "/", Expires: 4_102_444_800},
+		{Name: "__Secure-3PAPISID", Value: "youtube-auth", Domain: ".youtube.com", Path: "/", Expires: 4_102_444_800},
+	}
+	provider := &NativeAppSessionProvider{
+		loadStored: func(string) ([]appcookies.Record, error) {
+			return persisted, nil
+		},
+		saveStored: func(string, []appcookies.Record) error {
+			saves.Add(1)
+			return nil
+		},
+	}
+	if _, err := provider.LoadAppSessionCookies(context.Background(), "youtube"); err != nil {
+		t.Fatalf("prime provider: %v", err)
+	}
+	epoch, sequence := nextYouTubeCookieSyncToken(t, provider)
+	partial := []appcookies.Record{
+		{Name: "__Secure-3PAPISID", Value: "youtube-auth", Domain: ".youtube.com", Path: "/", Expires: 4_102_444_800},
+		{Name: "__Secure-ROLLOUT_TOKEN", Value: "runtime", Domain: ".youtube.com", Path: "/", Expires: 4_102_444_800},
+	}
+	if err := provider.SyncAppSessionCookies(
+		context.Background(), "youtube", partial, epoch, sequence,
+	); !errors.Is(err, appsessions.ErrNoCookies) {
+		t.Fatalf("authenticated partial snapshot error = %v, want no cookies", err)
+	}
+	if saves.Load() != 0 {
+		t.Fatalf("authenticated partial snapshot rewrote persistence %d times", saves.Load())
+	}
+	records, err := provider.LoadAppSessionCookies(context.Background(), "youtube")
+	if err != nil || !slices.Equal(records, persisted) {
+		t.Fatalf("authenticated partial snapshot replaced master: records=%#v err=%v", records, err)
+	}
+}
+
 func TestNativeAppSessionProviderDoesNotRewriteCanonicalPersistence(t *testing.T) {
 	var saveCount int
 	live := []appcookies.Record{
@@ -922,16 +975,14 @@ func TestNativeAppSessionProviderClearBlocksDelayedRuntimeSync(t *testing.T) {
 	}
 }
 
-func TestNativeAppSessionProviderRetriesFailedStablePersistence(t *testing.T) {
+func TestNativeAppSessionProviderRuntimeSyncNeverWritesPersistence(t *testing.T) {
 	var attempts atomic.Int32
 	provider := &NativeAppSessionProvider{
 		loadStored: func(string) ([]appcookies.Record, error) {
 			return []appcookies.Record{{Name: "SAPISID", Value: "stable-a", Domain: ".youtube.com", Path: "/", Expires: 4_102_444_800}}, nil
 		},
 		saveStored: func(string, []appcookies.Record) error {
-			if attempts.Add(1) == 1 {
-				return errors.New("transient vault failure")
-			}
+			attempts.Add(1)
 			return nil
 		},
 	}
@@ -940,15 +991,11 @@ func TestNativeAppSessionProviderRetriesFailedStablePersistence(t *testing.T) {
 	}
 	epoch, sequence := nextYouTubeCookieSyncToken(t, provider)
 	live := []appcookies.Record{{Name: "SAPISID", Value: "stable-b", Domain: ".youtube.com", Path: "/", Expires: 4_102_444_800}}
-	if err := provider.SyncAppSessionCookies(context.Background(), "youtube", live, epoch, sequence); err == nil {
-		t.Fatal("expected first stable persistence attempt to fail")
-	}
-	epoch, sequence = nextYouTubeCookieSyncToken(t, provider)
 	if err := provider.SyncAppSessionCookies(context.Background(), "youtube", live, epoch, sequence); err != nil {
-		t.Fatalf("stable persistence was not retried: %v", err)
+		t.Fatalf("runtime sync: %v", err)
 	}
-	if attempts.Load() != 2 {
-		t.Fatalf("stable persistence attempts = %d, want 2", attempts.Load())
+	if attempts.Load() != 0 {
+		t.Fatalf("runtime sync wrote App Session persistence %d times", attempts.Load())
 	}
 }
 

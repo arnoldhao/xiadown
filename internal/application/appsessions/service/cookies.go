@@ -6,43 +6,8 @@ import (
 	"time"
 
 	appcookies "xiadown/internal/application/cookies"
-	"xiadown/internal/domain/appsessions"
+	"xiadown/internal/application/youtubecookies"
 )
-
-// SyncRecordsForSiteKey accepts a full live browser snapshot. Providers that
-// support runtime synchronization keep it in memory for request consumers and
-// may persist a smaller safe subset.
-func (service *AppSessionsService) SyncRecordsForSiteKey(
-	ctx context.Context,
-	siteKey string,
-	records []appcookies.Record,
-	expectedEpoch uint64,
-	expectedSequence uint64,
-) error {
-	if service == nil || service.provider == nil {
-		return appsessions.ErrUnsupported
-	}
-	siteKey = strings.TrimSpace(siteKey)
-	if !isSupportedSiteKey(siteKey) {
-		return appsessions.ErrSessionNotFound
-	}
-	provider, ok := service.provider.(AppSessionRuntimeCookieSyncProvider)
-	if !ok {
-		return appsessions.ErrUnsupported
-	}
-	return provider.SyncAppSessionCookies(ctx, siteKey, records, expectedEpoch, expectedSequence)
-}
-
-func (service *AppSessionsService) BeginCookieSync(siteKey string) (uint64, uint64) {
-	if service == nil || service.provider == nil {
-		return 0, 0
-	}
-	provider, ok := service.provider.(AppSessionRuntimeCookieSyncProvider)
-	if !ok {
-		return 0, 0
-	}
-	return provider.BeginAppSessionCookieSync(strings.TrimSpace(siteKey))
-}
 
 func (service *AppSessionsService) storedCookies(ctx context.Context, siteKey string) []appcookies.Record {
 	if service == nil || service.provider == nil {
@@ -65,6 +30,14 @@ func filterAppSessionCookiesAt(siteKey string, records []appcookies.Record, now 
 	}
 	filtered := appcookies.FilterByDomains(records, appSessionCookieDomains(siteKey))
 	return removeExpiredCookies(filtered, now)
+}
+
+func persistentAppSessionCookies(siteKey string, records []appcookies.Record, now time.Time) []appcookies.Record {
+	filtered := filterAppSessionCookiesAt(siteKey, records, now)
+	if strings.EqualFold(strings.TrimSpace(siteKey), "youtube") {
+		return youtubecookies.StableAuth(filtered, now)
+	}
+	return filtered
 }
 
 func removeExpiredCookies(records []appcookies.Record, now time.Time) []appcookies.Record {
