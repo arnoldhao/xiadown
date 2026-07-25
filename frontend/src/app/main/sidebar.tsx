@@ -346,6 +346,7 @@ export function ListenNowPlayingHoverPanel(props: {
         props.className,
       )}
       data-embedded={props.embedded ? "true" : undefined}
+      data-subtitle-tone={props.status?.subtitleTone}
       data-surface={surface}
       aria-label={`${props.text.listen.nowPlaying}: ${text.title}`}
     >

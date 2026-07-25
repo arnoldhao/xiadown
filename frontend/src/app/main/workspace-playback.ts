@@ -324,7 +324,11 @@ export function projectCoordinatorPlaybackStatus(
     playbackSourceLabel: matchingListenStatus?.playbackSourceLabel,
     title: session.item.title,
     subtitle:
-      session.item.artist || session.item.artists?.join(", ") || provider,
+      matchingListenStatus?.subtitle ||
+      session.item.artist ||
+      session.item.artists?.join(", ") ||
+      provider,
+    subtitleTone: matchingListenStatus?.subtitleTone,
     artists: matchingListenStatus?.artists,
     artworkURL: artworkCandidates[0] || "",
     artworkCandidates,

@@ -719,6 +719,7 @@
       "nextTrack": "Tiếp",
       "pause": "Tạm dừng",
       "play": "Phát",
+      "forceRefresh": "Buộc làm mới",
       "openLogs": "Mở thư mục log"
     },
     "sidebar": {
@@ -1928,6 +1929,8 @@
       "loadingStatus": "Đang tải",
       "errorStatus": "Lỗi phát",
       "errorCodeLabel": "Mã lỗi",
+      "youtubeVerificationRequired": "YouTube yêu cầu xác minh. Hãy đổi mạng hoặc thử lại sau.",
+      "youtubeRegionUnavailable": "YouTube không hoạt động ở khu vực của bạn.",
       "idleSubtitle": "Không có gì đang phát.",
       "previous": "Trước",
       "next": "Tiếp",

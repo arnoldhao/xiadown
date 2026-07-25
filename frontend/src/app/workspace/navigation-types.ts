@@ -38,6 +38,11 @@ export interface WideWorkspaceSidebarProps
   activeRouteId?: WorkspaceRouteId | null;
   glass?: boolean;
   onNavigate: (routeId: WorkspaceRouteId) => void;
+  onRouteContextMenu?: (
+    routeId: WorkspaceRouteId,
+    point: { x: number; y: number },
+    returnFocus: HTMLButtonElement,
+  ) => void;
 }
 
 export interface WorkspaceSidebarRegionCatalog {

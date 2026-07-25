@@ -37,6 +37,7 @@ export function ListenTrackInfoRow(props: {
   title: string;
   subtitle: string;
   subtitleArtistParts?: ListenArtistLabelPart[];
+  subtitleDanger?: boolean;
   onSubtitleClick?: () => void;
   onSubtitleArtistClick?: (artist: string) => void;
   actions?: React.ReactNode;
@@ -51,7 +52,10 @@ export function ListenTrackInfoRow(props: {
         <ListenSubtitleText
           text={props.subtitle}
           artistParts={props.subtitleArtistParts}
-          className="listen-track-info-row__subtitle mt-0.5"
+          className={cn(
+            "listen-track-info-row__subtitle mt-0.5",
+            props.subtitleDanger && "listen-playback-status-subtitle",
+          )}
           onClick={props.onSubtitleClick}
           onArtistClick={props.onSubtitleArtistClick}
         />

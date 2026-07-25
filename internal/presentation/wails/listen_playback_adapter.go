@@ -99,12 +99,22 @@ type listenPlaybackLibraryClient interface {
 	TrackMetadata(ctx context.Context, videoID string) (youtubemusic.TrackMetadata, error)
 }
 
+type listenPlaybackLibraryCacheRefresher interface {
+	ForceRefresh()
+}
+
 type listenPlaybackLibraryAdapter struct {
 	client listenPlaybackLibraryClient
 }
 
 func NewListenPlaybackLibraryClient(client listenPlaybackLibraryClient) listenPlaybackLibraryAdapter {
 	return listenPlaybackLibraryAdapter{client: client}
+}
+
+func (adapter listenPlaybackLibraryAdapter) ForceRefresh() {
+	if refresher, ok := adapter.client.(listenPlaybackLibraryCacheRefresher); ok {
+		refresher.ForceRefresh()
+	}
 }
 
 func (adapter listenPlaybackLibraryAdapter) Radio(ctx context.Context, videoID string, limit int) ([]listenplayback.Track, error) {

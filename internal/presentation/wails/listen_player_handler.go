@@ -14,7 +14,6 @@ import (
 
 	appcookies "xiadown/internal/application/cookies"
 	"xiadown/internal/application/listenplayback"
-	"xiadown/internal/application/youtubecookies"
 	"xiadown/internal/application/youtubemusic"
 	"xiadown/internal/domain/settings"
 
@@ -77,6 +76,7 @@ type ListenEmbeddedVideoRect struct {
 	Radius         float64 `json:"radius,omitempty"`
 	Interactive    bool    `json:"interactive,omitempty"`
 	Sequence       uint64  `json:"sequence,omitempty"`
+	Presentation   string  `json:"presentation,omitempty"`
 }
 
 type ListenEmbeddedVideoHideRequest struct {
@@ -211,6 +211,21 @@ func (handler *ListenPlayerHandler) Reset(ctx context.Context) error {
 	return handler.player.Reset()
 }
 
+func (handler *ListenPlayerHandler) ForceRefresh(ctx context.Context) error {
+	if handler == nil || handler.player == nil {
+		return fmt.Errorf("listen player unavailable")
+	}
+	var refreshErr error
+	if handler.service != nil {
+		refreshErr = handler.service.ForceRefresh(ctx)
+	}
+	resetErr := handler.player.Reset()
+	if refreshErr != nil {
+		return refreshErr
+	}
+	return resetErr
+}
+
 func (handler *ListenPlayerHandler) ShowWindow(_ context.Context) error {
 	if handler == nil || handler.player == nil {
 		return fmt.Errorf("listen player unavailable")
@@ -321,6 +336,7 @@ type ListenYouTubeMusicPlayer struct {
 	bridgeHook                     func()
 	fullscreenHook                 func()
 	unfullscreenHook               func()
+	fullscreenEscapeHook           func()
 	currentVideo                   string
 	loadedLanguage                 string
 	currentState                   string
@@ -406,7 +422,8 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	if !listenYouTubeVideoIDPattern.MatchString(request.VideoID) {
 		return fmt.Errorf("invalid youtube video id")
 	}
-	cookies := player.playbackCookies(context.Background())
+	targetURL := listenYouTubeMusicWatchURL(request.VideoID, request.Language)
+	cookies := loadListenPlaybackCookies(context.Background(), player.cookies)
 
 	player.mu.Lock()
 	if request.PlaybackAudioQuality == "" {
@@ -482,8 +499,9 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	player.duration = 0
 	player.bufferedTime = 0
 	player.lastPlayAt = time.Now()
+	var windowCreateErr error
 	if window == nil {
-		window = player.createWindowLocked(request)
+		window, windowCreateErr = player.createWindowLocked(request)
 	}
 	player.currentVideo = request.VideoID
 	player.loadedLanguage = request.Language
@@ -501,7 +519,23 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	})
 
 	if window == nil {
-		return fmt.Errorf("listen player window unavailable")
+		if windowCreateErr == nil {
+			windowCreateErr = fmt.Errorf("listen player window unavailable")
+		}
+		player.mu.Lock()
+		player.currentState = "error"
+		player.errorCode = "webview-unavailable"
+		player.errorMessage = windowCreateErr.Error()
+		player.mu.Unlock()
+		player.dispatch(map[string]any{
+			"source":       listenPlayerSource,
+			"type":         "state",
+			"state":        "error",
+			"errorCode":    "webview-unavailable",
+			"errorMessage": windowCreateErr.Error(),
+			"message":      windowCreateErr.Error(),
+		})
+		return windowCreateErr
 	}
 	if embeddedVisible && applyInlineGeometry {
 		listenClaimEmbeddedVideoOwner(window)
@@ -520,8 +554,7 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	}
 
 	if createdWindow {
-		loadListenYouTubeMusicURL(window, listenYouTubeMusicWatchURL(request.VideoID, request.Language), cookies)
-		scheduleListenYouTubeCookieSync(window, player.cookies)
+		loadListenYouTubeMusicURL(window, targetURL, cookies)
 		if embeddedVisible && applyInlineGeometry {
 			player.scheduleEmbeddedVideoModeRefresh(window)
 		}
@@ -532,8 +565,7 @@ func (player *ListenYouTubeMusicPlayer) Play(request ListenPlayerPlayRequest) er
 	}
 
 	execListenYouTubeMusicJS(window, listenYouTubeMusicPrepareLoadScript(request))
-	loadListenYouTubeMusicURL(window, listenYouTubeMusicWatchURL(request.VideoID, request.Language), cookies)
-	scheduleListenYouTubeCookieSync(window, player.cookies)
+	loadListenYouTubeMusicURL(window, targetURL, cookies)
 	if embeddedVisible && applyInlineGeometry {
 		player.scheduleEmbeddedVideoModeRefresh(window)
 	}
@@ -648,11 +680,13 @@ func (player *ListenYouTubeMusicPlayer) Reset() error {
 	bridgeHook := player.bridgeHook
 	fullscreenHook := player.fullscreenHook
 	unfullscreenHook := player.unfullscreenHook
+	fullscreenEscapeHook := player.fullscreenEscapeHook
 	player.window = nil
 	player.closeHook = nil
 	player.bridgeHook = nil
 	player.fullscreenHook = nil
 	player.unfullscreenHook = nil
+	player.fullscreenEscapeHook = nil
 	player.currentVideo = ""
 	player.loadedLanguage = ""
 	player.currentState = "idle"
@@ -690,6 +724,9 @@ func (player *ListenYouTubeMusicPlayer) Reset() error {
 	if unfullscreenHook != nil {
 		unfullscreenHook()
 	}
+	if fullscreenEscapeHook != nil {
+		fullscreenEscapeHook()
+	}
 	if window != nil {
 		if window.IsFullscreen() {
 			window.UnFullscreen()
@@ -702,6 +739,8 @@ func (player *ListenYouTubeMusicPlayer) Reset() error {
 		hideListenNativeEmbeddedWebView(window.NativeWindow())
 		execListenYouTubeMusicJS(window, listenYouTubeMusicPauseScript())
 		window.SetURL(listenYouTubeMusicBlankURL)
+		releaseListenMediaWebViewParking(window)
+		releaseWebViewRemoteCapabilityPolicy(window)
 		window.Close()
 	}
 	player.dispatchPlaybackState("idle", "reset")
@@ -713,6 +752,9 @@ func (player *ListenYouTubeMusicPlayer) ShowWindow() error {
 	if window == nil {
 		return nil
 	}
+	if !unparkListenMediaWebView(window) {
+		return fmt.Errorf("listen player window could not leave its anchor")
+	}
 	window.Show()
 	window.Focus()
 	return nil
@@ -723,7 +765,9 @@ func (player *ListenYouTubeMusicPlayer) HideWindow() error {
 	if window == nil {
 		return nil
 	}
-	hideListenYouTubeMediaWindow(window)
+	if !hideListenYouTubeMediaWindow(window) {
+		return fmt.Errorf("listen player window could not return to its anchor")
+	}
 	return nil
 }
 
@@ -753,11 +797,14 @@ func (player *ListenYouTubeMusicPlayer) ShowVideoWindow() error {
 	}
 	if wasEmbeddedVisible {
 		listenReleaseEmbeddedVideoOwner(listenEmbeddedVideoOwnerID(window))
-		hideListenNativeEmbeddedWebView(window.NativeWindow())
+	}
+	if !unparkListenMediaWebView(window) {
+		err := fmt.Errorf("listen video window could not leave its anchor")
+		return err
 	}
 	window.SetTitle("Listen Video")
 	window.SetMinSize(320, 180)
-	window.SetSize(720, 405)
+	window.SetSize(listenVideoWindowWidth, listenVideoWindowHeight)
 	window.Show()
 	execListenYouTubeMusicJS(window, listenYouTubeMusicVideoModeScript())
 	player.scheduleVideoModeRefresh(window)
@@ -800,7 +847,9 @@ func (player *ListenYouTubeMusicPlayer) HideVideoWindowForSequence(sequence uint
 	listenReleaseEmbeddedVideoOwner(listenEmbeddedVideoOwnerID(window))
 	hideListenNativeEmbeddedWebView(window.NativeWindow())
 	execListenYouTubeMusicJS(window, listenYouTubeMusicExitVideoModeScript())
-	hideListenYouTubeMediaWindow(window)
+	if !hideListenYouTubeMediaWindow(window) {
+		return false, fmt.Errorf("listen video window could not return to its anchor")
+	}
 	return true, nil
 }
 
@@ -856,11 +905,12 @@ func (player *ListenYouTubeMusicPlayer) ShowEmbeddedVideo(rect ListenEmbeddedVid
 		return false, nil
 	}
 	resizeReady := player.waitForEmbeddedVideoResize(waitForResize)
-	return listenEmbeddedVideoRevealReady(
+	ready := listenEmbeddedVideoRevealReady(
 		shown,
 		resizeReady,
 		listenEmbeddedVideoOwnerActive(owner),
-	), nil
+	)
+	return ready, nil
 }
 
 func (player *ListenYouTubeMusicPlayer) HideEmbeddedVideo() error {
@@ -894,12 +944,15 @@ func (player *ListenYouTubeMusicPlayer) HideEmbeddedVideoForSequence(sequence ui
 		return false, nil
 	}
 	if nativeFullscreen {
-		return true, player.exitEmbeddedVideoNativeWindowFullscreenLocked(window)
+		err := player.exitEmbeddedVideoNativeWindowFullscreenLocked(window)
+		return true, err
 	}
 	listenReleaseEmbeddedVideoOwner(listenEmbeddedVideoOwnerID(window))
-	hideListenNativeEmbeddedWebView(window.NativeWindow())
+	if !hideListenNativeEmbeddedWebView(window.NativeWindow()) {
+		err := fmt.Errorf("embedded listen video could not return to its anchor")
+		return false, err
+	}
 	execListenYouTubeMusicJS(window, listenYouTubeMusicExitVideoModeScript())
-	hideListenYouTubeMediaWindow(window)
 	return true, nil
 }
 
@@ -919,17 +972,21 @@ func (player *ListenYouTubeMusicPlayer) RequestEmbeddedVideoFullscreen() error {
 	}
 	player.mu.Unlock()
 	if window == nil || !visible {
-		return fmt.Errorf("embedded listen video unavailable")
+		err := fmt.Errorf("embedded listen video unavailable")
+		return err
 	}
+	var err error
 	if listenEmbeddedVideoUsesNativeWindowFullscreen() {
-		return player.requestEmbeddedVideoNativeWindowFullscreenLocked(window)
+		err = player.requestEmbeddedVideoNativeWindowFullscreenLocked(window)
+	} else {
+		err = requestListenEmbeddedVideoFullscreen(
+			window,
+			listenPlayerSource,
+			&player.embeddedFullscreen,
+			true,
+		)
 	}
-	return requestListenEmbeddedVideoFullscreen(
-		window,
-		listenPlayerSource,
-		&player.embeddedFullscreen,
-		true,
-	)
+	return err
 }
 
 func (player *ListenYouTubeMusicPlayer) ExitEmbeddedVideoFullscreen() error {
@@ -944,17 +1001,21 @@ func (player *ListenYouTubeMusicPlayer) ExitEmbeddedVideoFullscreen() error {
 		listenEmbeddedVideoUsesNativeWindowFullscreen()
 	player.mu.Unlock()
 	if window == nil {
-		return fmt.Errorf("embedded listen video unavailable")
+		err := fmt.Errorf("embedded listen video unavailable")
+		return err
 	}
+	var err error
 	if nativeFullscreen {
-		return player.exitEmbeddedVideoNativeWindowFullscreenLocked(window)
+		err = player.exitEmbeddedVideoNativeWindowFullscreenLocked(window)
+	} else {
+		err = requestListenEmbeddedVideoFullscreen(
+			window,
+			listenPlayerSource,
+			&player.embeddedFullscreen,
+			false,
+		)
 	}
-	return requestListenEmbeddedVideoFullscreen(
-		window,
-		listenPlayerSource,
-		&player.embeddedFullscreen,
-		false,
-	)
+	return err
 }
 
 func (player *ListenYouTubeMusicPlayer) requestEmbeddedVideoNativeWindowFullscreenLocked(
@@ -976,6 +1037,7 @@ func (player *ListenYouTubeMusicPlayer) requestEmbeddedVideoNativeWindowFullscre
 	player.embeddedNativeFullscreenWaiter = waiter
 	player.embeddedFullscreenActive = false
 	player.embeddedFullscreenTransition = true
+	embeddedRect := player.embeddedRect
 	player.mu.Unlock()
 
 	execListenYouTubeMusicJS(window, listenYouTubeMusicVideoModeScript())
@@ -987,14 +1049,24 @@ func (player *ListenYouTubeMusicPlayer) requestEmbeddedVideoNativeWindowFullscre
 		}
 		player.mu.Unlock()
 		completeListenNativeFullscreenWaiter(pendingWaiter, false)
-		return fmt.Errorf("embedded listen video could not detach for native fullscreen")
+		if shown, _ := player.showEmbeddedVideoWindow(window, embeddedRect); shown {
+			execListenYouTubeMusicJS(window, listenYouTubeMusicVideoModeScript(embeddedRect))
+			player.scheduleEmbeddedVideoModeRefresh(window)
+		}
+		detachErr := fmt.Errorf("embedded listen video could not detach for native fullscreen")
+		return detachErr
 	}
 	window.SetTitle("Listen Video")
 	var hostWindow *application.WebviewWindow
 	if player.windows != nil {
 		hostWindow = player.windows.mainWindow
 	}
-	prepareListenNativeFullscreenWindow(window, hostWindow, 960, 540)
+	prepareListenNativeFullscreenWindow(
+		window,
+		hostWindow,
+		listenVideoWindowWidth,
+		listenVideoWindowHeight,
+	)
 	window.Show()
 	window.Focus()
 	if delay := listenNativeWindowFullscreenPreparationDelay(); delay > 0 {
@@ -1007,7 +1079,8 @@ func (player *ListenYouTubeMusicPlayer) requestEmbeddedVideoNativeWindowFullscre
 		player.embeddedNativeWindowFullscreen
 	player.mu.Unlock()
 	if !valid {
-		return fmt.Errorf("stale listen video fullscreen request")
+		err := fmt.Errorf("stale listen video fullscreen request")
+		return err
 	}
 	window.Fullscreen()
 	entered := waitForListenNativeWindowFullscreenState(
@@ -1041,7 +1114,8 @@ func (player *ListenYouTubeMusicPlayer) requestEmbeddedVideoNativeWindowFullscre
 	if valid {
 		player.restoreEmbeddedAfterNativeWindowFullscreenLocked(window, generation)
 	}
-	return fmt.Errorf("the native listen video window did not enter fullscreen")
+	err := fmt.Errorf("the native listen video window did not enter fullscreen")
+	return err
 }
 
 func (player *ListenYouTubeMusicPlayer) exitEmbeddedVideoNativeWindowFullscreenLocked(
@@ -1163,21 +1237,28 @@ func (player *ListenYouTubeMusicPlayer) restoreEmbeddedAfterNativeWindowFullscre
 	muted := player.targetMuted
 	player.mu.Unlock()
 
-	hideListenYouTubeMediaWindow(window)
 	shown := false
+	var restoreErr error
 	if shouldEmbed {
+		window.Hide()
 		owner := listenClaimEmbeddedVideoOwner(window)
-		shown, _ = player.showEmbeddedVideoWindow(window, rect)
+		shown, restoreErr = player.showEmbeddedVideoWindow(window, rect)
 		if shown {
 			execListenYouTubeMusicJS(window, listenYouTubeMusicVideoModeScript(rect))
 			execListenYouTubeMusicJS(window, listenYouTubeMusicVolumeScript(volume, muted))
 		} else {
 			listenReleaseEmbeddedVideoOwner(owner)
+			if restoreErr == nil {
+				restoreErr = fmt.Errorf("listen video could not return from system fullscreen")
+			}
 		}
 	} else {
 		listenReleaseEmbeddedVideoOwner(listenEmbeddedVideoOwnerID(window))
 		hideListenNativeEmbeddedWebView(window.NativeWindow())
 		execListenYouTubeMusicJS(window, listenYouTubeMusicExitVideoModeScript())
+		if !hideListenYouTubeMediaWindow(window) {
+			restoreErr = fmt.Errorf("listen video could not return from system fullscreen to its anchor")
+		}
 	}
 
 	player.mu.Lock()
@@ -1327,6 +1408,9 @@ func (player *ListenYouTubeMusicPlayer) HandleRawMessage(window application.Wind
 	}
 	if eventType == "PLAYBACK_AUDIO_QUALITY_OBSERVED" {
 		player.handleListenPlayerObservedAudioQuality(payload)
+		return true
+	}
+	if !applyListenYouTubePageError(payload) {
 		return true
 	}
 	state := listenPayloadString(payload, "state")
@@ -1792,19 +1876,21 @@ func (player *ListenYouTubeMusicPlayer) handlePlayerWindowClose(
 	}
 }
 
-func (player *ListenYouTubeMusicPlayer) createWindowLocked(request ListenPlayerPlayRequest) *application.WebviewWindow {
+func (player *ListenYouTubeMusicPlayer) createWindowLocked(
+	request ListenPlayerPlayRequest,
+) (*application.WebviewWindow, error) {
 	if player.app == nil {
-		return nil
+		return nil, fmt.Errorf("listen player application is unavailable")
 	}
 
 	bridgeScript := listenYouTubeMusicBridgeScript(request)
 	window := player.app.Window.NewWithOptions(withRemoteWebViewPermissionPolicy(application.WebviewWindowOptions{
 		Name:        listenPlayerWindowName,
 		Title:       "Listen YouTube Music",
-		Width:       420,
-		Height:      180,
+		Width:       listenVideoWindowWidth,
+		Height:      listenVideoWindowHeight,
 		MinWidth:    320,
-		MinHeight:   120,
+		MinHeight:   180,
 		URL:         listenYouTubeMusicBlankURL,
 		JS:          bridgeScript,
 		Hidden:      true,
@@ -1816,16 +1902,32 @@ func (player *ListenYouTubeMusicPlayer) createWindowLocked(request ListenPlayerP
 		},
 		Mac: application.MacWindow{
 			WebviewPreferences: application.MacWebviewPreferences{
-				FullscreenEnabled: application.Enabled,
+				FullscreenEnabled:               application.Enabled,
+				EnableAutoplayWithoutUserAction: application.Enabled,
 			},
 		},
 	}))
+	if window == nil {
+		return nil, fmt.Errorf("failed to create listen player WebView")
+	}
 	registerWebViewRemoteCapabilityPolicy(window)
 	configureListenYouTubeMusicNativeWindow(window.NativeWindow(), listenYouTubeMusicUserAgent())
 	bridgeHook, bridgeInstalled := attachListenYouTubeMusicBridge(window, bridgeScript)
 	if !bridgeInstalled {
+		releaseWebViewRemoteCapabilityPolicy(window)
 		window.Close()
-		return nil
+		return nil, fmt.Errorf("failed to install the listen player WebView bridge")
+	}
+	if player.windows == nil ||
+		player.windows.mainWindow == nil ||
+		!registerListenMediaWebViewParking(window, player.windows.mainWindow) {
+		anchorErr := fmt.Errorf("failed to attach the listen player WebView to its anchor")
+		if bridgeHook != nil {
+			bridgeHook()
+		}
+		releaseWebViewRemoteCapabilityPolicy(window)
+		window.Close()
+		return nil, anchorErr
 	}
 	player.closeHook = window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
@@ -1837,25 +1939,10 @@ func (player *ListenYouTubeMusicPlayer) createWindowLocked(request ListenPlayerP
 	player.unfullscreenHook = window.RegisterHook(events.Common.WindowUnFullscreen, func(_ *application.WindowEvent) {
 		player.handleNativeWindowFullscreenEvent(window, false)
 	})
-	installListenNativeWindowFullscreenEscape(window)
+	player.fullscreenEscapeHook = installListenNativeWindowFullscreenEscape(window)
 	player.bridgeHook = bridgeHook
 	player.window = window
-	return window
-}
-
-func (player *ListenYouTubeMusicPlayer) playbackCookies(ctx context.Context) []appcookies.Record {
-	if player == nil || player.cookies == nil {
-		return nil
-	}
-	records, err := player.cookies.RecordsForSiteKey(ctx, "youtube")
-	if err != nil {
-		return nil
-	}
-	return filterListenPlaybackCookies(appcookies.MatchURL(records, listenYouTubeMusicOrigin+"/"), time.Now())
-}
-
-func filterListenPlaybackCookies(records []appcookies.Record, now time.Time) []appcookies.Record {
-	return youtubecookies.StableAuth(records, now)
+	return window, nil
 }
 
 func (player *ListenYouTubeMusicPlayer) dispatch(payload map[string]any) {
@@ -2165,6 +2252,21 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
 	const RESTART_FROM_START_SETTLE_MS = 1500;
 	const RESTART_FROM_START_PROGRESS_HEADROOM_SECONDS = 1.5;
 	const PLAY_WHEN_READY_SETTLE_MS = 2000;
+  function listenYouTubeBridgePlayerHost() {
+    return document.querySelector("ytmusic-player");
+  }
+  function listenYouTubeBridgePlayerApi() {
+    const player = listenYouTubeBridgePlayerHost();
+    return player && player.playerApi
+      ? player.playerApi
+      : document.getElementById("movie_player");
+  }
+  function listenYouTubeBridgePageError() {
+    return document.querySelector(
+      "ytmusic-error-page, ytmusic-player-error-message-renderer, #error-screen, .error-content"
+    );
+  }
+%s
 	const PLAY_WHEN_READY_MAX_MS = AUTOPLAY_ATTEMPTS * AUTOPLAY_INTERVAL_MS;
 	  let lastUpdateAt = 0;
 	  let pollTimer = null;
@@ -3641,6 +3743,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       networkState: payloadMedia.networkState,
       url: window.location.href
     };
+    Object.assign(payload, pageErrorSnapshot());
     if (error.errored) {
       payload.code = error.code || (video && video.error ? video.error.code || 0 : 0);
       payload.message = error.message;
@@ -4082,7 +4185,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     scheduleVolumeBurst();
     applyPlaybackAudioQuality();
     const bootMetadata = metadataSnapshot();
-    post({
+    post(Object.assign({
       type: "ready",
       state: "loading",
       videoId: bootMetadata.videoId,
@@ -4093,7 +4196,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
       likeStatus: bootMetadata.likeStatus,
       metadataSource: bootMetadata.metadataSource,
       url: window.location.href
-    });
+    }, pageErrorSnapshot()));
     attachVideoListeners();
     const playerBar = document.querySelector("ytmusic-player-bar");
     if (playerBar) {
@@ -4223,7 +4326,7 @@ func listenYouTubeMusicBridgeScript(request ListenPlayerPlayRequest) string {
     document.addEventListener("DOMContentLoaded", boot, { once: true });
   }
 })();
-`, listenPlayerSource, string(initial))
+`, listenPlayerSource, string(initial), listenYouTubePlayabilityBridgeScript)
 }
 
 func listenYouTubeMusicPrepareLoadScript(request ListenPlayerPlayRequest) string {
@@ -4499,7 +4602,7 @@ func listenYouTubeMusicVideoModeScript(rects ...ListenEmbeddedVideoRect) string 
     "html, body, * { visibility: hidden !important; }",
     "html, body { background: #000 !important; overflow: hidden !important; visibility: visible !important; }",
     ".listen-video-visible { visibility: visible !important; display: block !important; opacity: 1 !important; padding: 0 !important; margin: 0 !important; background: #000 !important; z-index: 2147483640 !important; }",
-    ".listen-video-visible { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; overflow: visible !important; }",
+    ".listen-video-visible { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; overflow: visible !important; transform: none !important; translate: none !important; scale: none !important; rotate: none !important; transition: none !important; animation: none !important; }",
     "video.listen-video-visible, .video-stream.listen-video-visible { z-index: 2147483647 !important; object-fit: contain !important; }"
   ].join("\n");
 

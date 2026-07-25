@@ -343,6 +343,13 @@
   white-space: nowrap;
 }
 
+.app-workspace-transport__artists[data-tone="danger"] {
+  color: var(--app-status-tone-error);
+  font-size: 8px;
+  font-weight: 500;
+  line-height: 12px;
+}
+
 .app-workspace-transport__track-artist-open {
   --app-button-inline-size: auto;
   --app-button-block-size: auto;

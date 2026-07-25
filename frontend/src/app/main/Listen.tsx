@@ -17,207 +17,30 @@ import { fetchCompleteListenPlaylistQueue,fetchListenArtist,fetchListenLibrary,f
 import type { ListenLiveUserCatalog } from "@/app/main/listen/api";
 import { handleListenYouTubeAppSessionEvent } from "@/app/main/listen/app-session-event";
 import { beginListenArtistRequest,createListenArtistIdentity,createListenArtistRequestRegistry,finishListenArtistRequest,invalidateListenArtistRequests,isListenArtistRequestCurrent,synchronizeListenArtistRequestIdentity } from "@/app/main/listen/artist-request-race";
-import { LISTEN_LIKED_SONGS_SHELF_ID,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_YOUTUBE_APP_SESSION_CHANGED_EVENT } from "@/app/main/listen/catalog";
+import { LISTEN_LIKED_SONGS_SHELF_ID,LISTEN_LIVE_PLAYER_SERVICE,LISTEN_NATIVE_PLAYER_SERVICE,LISTEN_YOUTUBE_APP_SESSION_CHANGED_EVENT,LISTEN_YOUTUBE_REGION_UNAVAILABLE_ERROR_CODE,LISTEN_YOUTUBE_VERIFICATION_REQUIRED_ERROR_CODE } from "@/app/main/listen/catalog";
 import { clampVolume,matchesQuery,normalizeSearch,resolveListenLiveSelectionId,resolveQueueIndex,useListenLocalTracks } from "@/app/main/listen/local-library";
 import { ListenLocalRelinkRepair } from "@/app/main/listen/LocalRelinkRepair";
 import { mergeListenLibraryPagePlaylists } from "@/app/main/listen/library-pagination";
 import { isListenLibraryPageRequestCurrent,isListenLibraryRequestReady,isSameListenArtistBrowseIdentity,resolveListenLibraryPageCacheKey,type ListenLibraryPageCacheEntry } from "@/app/main/listen/library-view-state";
+import { createNativeOnlineItem,mergeListenNativeTrackItem,nativeStatusToPlayerEvent,normalizeListenTrackArtists } from "@/app/main/listen/native-playback-projection";
 import { abortListenPaginationRequests,abortStaleListenPaginationRequests,beginListenPaginationRequest,createListenPaginationContextKey,finishListenPaginationRequest,isListenPaginationContextCurrent,resolveListenNextContinuation,type ListenPaginationKind,type ListenPaginationRequestRegistry } from "@/app/main/listen/pagination-race";
 import { ListenPageView } from "@/app/main/listen/PageView";
 import { applyListenPlaylistPlaybackFallback,placeListenPlaylistQueueContinuation,resolveListenPlaylistPlaybackFallbackArtist,resolveListenPlaylistQueueAction,startListenPlaylistPlayback,startListenPlaylistPlaybackFromIndex,startListenPlaylistQueueAction } from "@/app/main/listen/playlist-playback";
 import { resolveListenWorkspaceViewMode,resolveMusicWorkspaceRoute,shouldLoadListenWorkspaceBrowse } from "@/app/main/listen/workspace-routes";
 import { callListenPlaybackAppendToQueue,callListenPlaybackClearQueue,callListenPlaybackInsertNextInQueue,callListenPlaybackMergeTrackMetadata,callListenPlaybackMoveQueueItem,callListenPlaybackNext,callListenPlaybackObserveNativeEvent,callListenPlaybackPause,callListenPlaybackPlayFromQueue,callListenPlaybackPlayPause,callListenPlaybackPlayQueue,callListenPlaybackPlayTrack,callListenPlaybackPrevious,callListenPlaybackRedoQueue,callListenPlaybackRemoveFromQueue,callListenPlaybackResume,callListenPlaybackSeek,callListenPlaybackSetLanguage,callListenPlaybackSetRepeatMode,callListenPlaybackSetShuffle,callListenPlaybackSetVolume,callListenPlaybackUndoQueue,createListenPlaybackQueueIdentity,listenRepeatModeFromPlayMode,type ListenPlaybackSnapshot } from "@/app/main/listen/playback-api";
-import { hasTrustedListenOnlineArtist,isListenLiveEventForSession,isMissingListenArtistLabel,resolveListenPlaybackActivity } from "@/app/main/listen/playback-helpers";
+import { hasTrustedListenOnlineArtist,isListenLiveEventForSession,resolveListenPlaybackActivity } from "@/app/main/listen/playback-helpers";
 import { useListenPlaybackStore } from "@/app/main/listen/playback-store";
 import { pushListenForwardSkipIndex,resolveListenQueueNextAction,resolveListenQueuePreviousAction } from "@/app/main/listen/queue";
 import { buildListenPosterCandidates,dedupeLibraryShelves,dedupeOnlineItems,dedupePlaylistItems,readListenStorageState,updateListenProgressMap,writeListenStorageState } from "@/app/main/listen/storage";
-import type { ListenArtistBrowseState,ListenArtistItem,ListenCategoryItem,ListenLibraryShelf,ListenLiveGroup,ListenLiveStatus,ListenMode,ListenNativePlayerEvent,ListenNowPlayingStatus,ListenOnlineBrowseDetail,ListenOnlineBrowseSource,ListenOnlineItem,ListenPageProps,ListenPlayMode,ListenPlaybackProgressState,ListenPlayerCommand,ListenPlaylistItem,ListenPlaylistLibraryAction,ListenRemotePlaybackState,ListenSidebarView,ListenTrackArtist } from "@/app/main/listen/types";
+import type { ListenArtistBrowseState,ListenArtistItem,ListenCategoryItem,ListenLibraryShelf,ListenLiveGroup,ListenLiveStatus,ListenMode,ListenNativePlayerEvent,ListenNowPlayingStatus,ListenOnlineBrowseDetail,ListenOnlineBrowseSource,ListenOnlineItem,ListenPageProps,ListenPlayMode,ListenPlaybackProgressState,ListenPlayerCommand,ListenPlaylistItem,ListenPlaylistLibraryAction,ListenRemotePlaybackState,ListenSidebarView } from "@/app/main/listen/types";
 import { useListenLocalQueue } from "@/app/main/listen/useListenLocalQueue";
 import { openListenArtistFromPlayerSurface } from "@/app/main/listen/workspace-player-shared";
 export { ListenLocalPreviewPlayer } from "@/app/main/listen/LocalPreviewPlayer";
 export type { ListenExternalCommand,ListenLocalPreviewTrack,ListenMode,ListenNowPlayingStatus,ListenPlaybackSource } from "@/app/main/listen/types";
 
-const LISTEN_UNKNOWN_ARTIST = "Unknown Artist";
 const LISTEN_LIVE_STATUS_POLL_MS = 60_000;
 const LISTEN_LIVE_STATUS_WARM_POLL_MS = 4_000;
 const LISTEN_ARTIST_SHELF_CONTINUATION_MAX_PAGES = 20;
-
-function mergeListenNativeTrackItem(
-  incoming: ListenOnlineItem,
-  current: ListenOnlineItem,
-): ListenOnlineItem {
-  const videoId = current.videoId || incoming.videoId;
-  const incomingTitle = incoming.title.trim();
-  const currentTitle = current.title.trim();
-  const incomingArtistTrusted = hasTrustedListenOnlineArtist(incoming);
-  const currentArtistTrusted = hasTrustedListenOnlineArtist(current);
-  const incomingVideoKnown = incoming.videoAvailabilityKnown === true;
-  const currentVideoKnown = current.videoAvailabilityKnown === true;
-  const incomingArtists = normalizeListenTrackArtists(incoming.artists);
-  const currentArtists = normalizeListenTrackArtists(current.artists);
-  return {
-    ...current,
-    videoId,
-    title:
-      incomingTitle && incomingTitle !== videoId
-        ? incoming.title
-        : currentTitle || videoId,
-    channel: incomingArtistTrusted
-      ? incoming.channel
-      : currentArtistTrusted
-        ? current.channel
-        : LISTEN_UNKNOWN_ARTIST,
-    artists: incomingArtists ?? currentArtists,
-    artistBrowseId: incoming.artistBrowseId || current.artistBrowseId,
-    artistSource: incomingArtistTrusted
-      ? incoming.artistSource || (incoming.artistBrowseId ? "api-linked" : undefined)
-      : currentArtistTrusted
-        ? current.artistSource || (current.artistBrowseId ? "api-linked" : undefined)
-        : incoming.artistSource || current.artistSource,
-    description: incoming.description || current.description,
-    durationLabel: incoming.durationLabel || current.durationLabel,
-    playCountLabel: incoming.playCountLabel || current.playCountLabel,
-    thumbnailUrl: incoming.thumbnailUrl || current.thumbnailUrl,
-    musicVideoType: incoming.musicVideoType || current.musicVideoType,
-    hasVideo: incomingVideoKnown
-      ? incoming.hasVideo === true
-      : incoming.hasVideo === true || current.hasVideo === true,
-    videoAvailabilityKnown:
-      incomingVideoKnown || currentVideoKnown ? true : undefined,
-  };
-}
-
-function normalizeListenTrackArtists(
-  artists: ListenTrackArtist[] | undefined,
-): ListenTrackArtist[] | undefined {
-  if (!Array.isArray(artists) || artists.length === 0) {
-    return undefined;
-  }
-  const result: ListenTrackArtist[] = [];
-  const seen = new Set<string>();
-  for (const artist of artists) {
-    const name = artist.name.trim();
-    const browseId = artist.browseId?.trim() ?? "";
-    if (!name) {
-      continue;
-    }
-    const key = browseId || name.toLocaleLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push({
-      name,
-      browseId: browseId || undefined,
-      thumbnailUrl: artist.thumbnailUrl?.trim() || undefined,
-    });
-  }
-  return result.length > 0 ? result : undefined;
-}
-
-const LISTEN_REMOTE_PLAYBACK_STATES: ListenRemotePlaybackState[] = [
-  "idle",
-  "loading",
-  "playing",
-  "paused",
-  "buffering",
-  "ended",
-  "error",
-];
-
-function stringFromNativeStatus(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function secondsFromNativeStatus(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.max(0, value)
-    : 0;
-}
-
-function normalizeNativePlaybackState(
-  value: unknown,
-  fallback: ListenRemotePlaybackState,
-): ListenRemotePlaybackState {
-  const state = stringFromNativeStatus(value) as ListenRemotePlaybackState;
-  return LISTEN_REMOTE_PLAYBACK_STATES.includes(state) ? state : fallback;
-}
-
-function createNativeOnlineItem(params: {
-  videoId: string;
-  title?: string;
-  artist?: string;
-  thumbnailUrl?: string;
-}): ListenOnlineItem {
-  const videoId = params.videoId.trim();
-  const title = params.title?.trim() || videoId;
-  const rawArtist = params.artist?.trim() || "YouTube Music";
-  const artist = isMissingListenArtistLabel(rawArtist)
-    ? LISTEN_UNKNOWN_ARTIST
-    : rawArtist;
-  const thumbnailUrl = params.thumbnailUrl?.trim() || "";
-  return {
-    id: `ytmusic-native-${videoId}`,
-    group: "playlist",
-    videoId,
-    title,
-    channel: artist,
-    artistSource: "observed",
-    description: "",
-    durationLabel: "",
-    thumbnailUrl: thumbnailUrl,
-  };
-}
-
-function nativeStatusToPlayerEvent(
-  value: unknown,
-  source = "listen-youtube-music-player",
-): ListenNativePlayerEvent | null {
-  const record =
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>)
-      : null;
-  if (!record || record.available !== true) {
-    return null;
-  }
-  const videoId =
-    stringFromNativeStatus(record.observedVideoId) ||
-    stringFromNativeStatus(record.videoId);
-  if (!videoId) {
-    return null;
-  }
-  const state = normalizeNativePlaybackState(record.state, "paused");
-  if (state === "idle") {
-    return null;
-  }
-  return {
-    source,
-    provider:
-      record.provider === "stream" ||
-      record.provider === "youtube" ||
-      record.provider === "youtube_music" ||
-      record.provider === "local"
-        ? record.provider
-        : undefined,
-    sessionId: stringFromNativeStatus(record.sessionId),
-    type: "status",
-    state,
-    videoId,
-    observedVideoId: videoId,
-    requestedVideoId: stringFromNativeStatus(record.videoId),
-    title: stringFromNativeStatus(record.title),
-    artist: stringFromNativeStatus(record.artist),
-    thumbnailUrl: stringFromNativeStatus(record.thumbnailUrl),
-    likeStatus: stringFromNativeStatus(record.likeStatus),
-    currentTime: secondsFromNativeStatus(record.currentTime),
-    duration: secondsFromNativeStatus(record.duration),
-    bufferedTime: secondsFromNativeStatus(record.bufferedTime),
-    advertising: record.advertising === true,
-    adLabel: stringFromNativeStatus(record.adLabel),
-    errorCode: stringFromNativeStatus(record.errorCode),
-    errorMessage: stringFromNativeStatus(record.errorMessage),
-  };
-}
 
 function favoriteFromLikeStatus(value?: string) {
   switch ((value ?? "").trim().toUpperCase()) {
@@ -457,6 +280,10 @@ export function ListenPage(props: ListenPageProps) {
   const [livePlaying, setLivePlaying] = React.useState(false);
   const [liveState, setLiveState] =
     React.useState<ListenRemotePlaybackState>("idle");
+  const [onlinePlaybackErrorCode, setOnlinePlaybackErrorCode] =
+    React.useState("");
+  const [onlinePlaybackErrorMessage, setOnlinePlaybackErrorMessage] =
+    React.useState("");
   const [liveProgress, setLiveProgress] = React.useState<
     ListenPlaybackProgressState & { videoId: string }
   >({
@@ -2143,6 +1970,11 @@ export function ListenPage(props: ListenPageProps) {
       : false;
 
   React.useEffect(() => {
+    setOnlinePlaybackErrorCode("");
+    setOnlinePlaybackErrorMessage("");
+  }, [activeOnline?.videoId, playbackMode]);
+
+  React.useEffect(() => {
     if (playbackMode !== "muse" || !musePlayback.hydrated) {
       return;
     }
@@ -2238,6 +2070,16 @@ export function ListenPage(props: ListenPageProps) {
       : props.controlCommand?.command === "play" &&
         props.controlCommand.id === handledExternalCommandRef.current;
   const listenNowPlayingStatus = React.useMemo<ListenNowPlayingStatus>(() => {
+    const youtubePlaybackErrorSubtitle =
+      onlinePlaybackErrorCode ===
+      LISTEN_YOUTUBE_VERIFICATION_REQUIRED_ERROR_CODE
+        ? props.text.listen.youtubeVerificationRequired
+        : onlinePlaybackErrorCode ===
+            LISTEN_YOUTUBE_REGION_UNAVAILABLE_ERROR_CODE
+          ? props.text.listen.youtubeRegionUnavailable
+          : onlineState === "error"
+            ? onlinePlaybackErrorMessage || onlinePlaybackErrorCode
+            : "";
     const onlineHasPlayableBuffer =
       onlinePlaying &&
       (playbackMode === "hush" ||
@@ -2309,8 +2151,14 @@ export function ListenPage(props: ListenPageProps) {
       live: playbackMode === "hush" || activeOnline?.group === "live",
       mediaId: activeOnline?.videoId ?? "",
       title: activeOnline?.title ?? activeModeTitle,
-      subtitle: activeOnline?.channel ?? activeModeTitle,
-      artists: normalizeListenTrackArtists(activeOnline?.artists),
+      subtitle:
+        youtubePlaybackErrorSubtitle ||
+        activeOnline?.channel ||
+        activeModeTitle,
+      subtitleTone: youtubePlaybackErrorSubtitle ? "danger" : "default",
+      artists: youtubePlaybackErrorSubtitle
+        ? []
+        : normalizeListenTrackArtists(activeOnline?.artists),
       artworkURL: onlineArtworkCandidates[0] ?? "",
       artworkCandidates: onlineArtworkCandidates,
       playbackSource: playbackMode === "hush" ? "radio" : "youtube_music",
@@ -2349,10 +2197,14 @@ export function ListenPage(props: ListenPageProps) {
     onlineProgress.currentTime,
     onlineProgress.duration,
     onlineFavoriteByVideoId,
+    onlinePlaybackErrorCode,
+    onlinePlaybackErrorMessage,
     onlineState,
     playbackSessionStarted,
     playbackMode,
     props.text.listen.linger,
+    props.text.listen.youtubeRegionUnavailable,
+    props.text.listen.youtubeVerificationRequired,
     props.text.common.unknown,
     props.text.workspace.local,
     props.text.workspace.radio,
@@ -4982,8 +4834,8 @@ export function ListenPage(props: ListenPageProps) {
     <>
       <ListenPageView
         page={props}
-        state={{ isWindows, isMac, listOpen, query, searchPlaceholder, mode: activeViewMode, playbackMode, sidebarView, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, selectedLiveGroupId, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistDetailAuthorBrowseId: playlistDetailMetadata.authorBrowseId, playlistDetailTrackCountLabel: playlistDetailMetadata.trackCountLabel, playlistDetailDurationLabel: playlistDetailMetadata.durationLabel, playlistDetailTitle, playlistDetailDescription, playlistDetailThumbnailURL, playlistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, libraryErrorRetryable, libraryRequestReady, librarySettled, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localPlaybackQueue, localQueueCanUndo, localQueueCanRedo, localTracksLoading: localTrackIndex.loading, localTracksRefreshing: localTrackIndex.refreshing, localTracksClearingMissing: localTrackIndex.clearingMissing, localTracksError: localTrackIndex.error, activeOnline, selectedLocal: activeLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems: playbackMode === "hush" ? liveQueue : onlinePlaybackQueue, onlinePlaying, onlinePlaybackArmed, onlinePlaybackActionPending, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, onlineObservedPlaybackAudioQuality, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy: youtubeConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind }}
-        actions={{ setListOpen, setQuery, selectFirstResult, setMode: setLegacyBrowseMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary: () => setLibraryReloadToken((current) => current + 1), changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, clearLocalQueue, removeLocalQueueItem, moveLocalQueueItem, undoLocalQueueEdit, redoLocalQueueEdit, retryLocalTracks: localTrackIndex.retry, playLocalBrowseTrack, setSelectedLocalId, setLocalPlayerCommand, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, shufflePlaylist, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, playOnlineSearchResults, shuffleOnlineSearchResults, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks: localTrackIndex.refresh, openRepairMissingLocalTracks: () => setLocalRelinkDialogOpen(true), handlePlaybackEnded, setOnlinePlaying: setLivePlaying, setOnlineState: setLiveState, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode: setPlayModeFromView, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse: openOnlineArtistFromPlayer, openSelectedLocalDirectory }}
+        state={{ isWindows, isMac, listOpen, query, searchPlaceholder, mode: activeViewMode, playbackMode, sidebarView, effectiveSidebarView, onlineBrowseSource, onlineBrowseDetail, liveGroups, selectedLiveGroupId, liveStatusByVideoId, liveCatalogLoading, liveCatalogError, liveCatalogMessage, liveUserCatalog, liveUserCatalogLoading, liveUserCatalogSaving, liveUserCatalogError, curatedLiveItems, liveSelectionArmed, selectedLiveId, filteredOnlineQueueItems, onlineQueueTitle, onlineQueueCanUndo, onlineQueueCanRedo, selectedOnlineId, filteredLocalTracks, selectedLocalId, localPlaying, liveSearchNotice, showArtistDetail, artistBrowsePage, artistActionBusy, filteredArtistShelves, browsePlaylistId, savedPlaylistIds, playlistMutationAction, playlistMutationPlaylistId, filteredArtistTracks, showPlaylistDetail, selectedPlaylist, playlistLoading, playlistAppending, playlistDetailAuthor, playlistDetailAuthorBrowseId: playlistDetailMetadata.authorBrowseId, playlistDetailTrackCountLabel: playlistDetailMetadata.trackCountLabel, playlistDetailDurationLabel: playlistDetailMetadata.durationLabel, playlistDetailTitle, playlistDetailDescription, playlistDetailThumbnailURL, playlistTracks, playlistContinuation, normalizedQuery, libraryLoading, libraryAppending, libraryError, libraryErrorCode, libraryErrorRetryable, libraryRequestReady, librarySettled, searchLoading, searchAppending, searchItems, searchArtists, searchPlaylists, searchContinuation, libraryArtists, displayedLibraryPlaylists, showLibraryPlaylistGroup, homeShelves, libraryContinuation, onlineSearchNotice, localTracks, localPlaybackQueue, localQueueCanUndo, localQueueCanRedo, localTracksLoading: localTrackIndex.loading, localTracksRefreshing: localTrackIndex.refreshing, localTracksClearingMissing: localTrackIndex.clearingMissing, localTracksError: localTrackIndex.error, activeOnline, selectedLocal: activeLocal, onlinePlayerCommand, localPlayerCommand, onlineQueueItems: playbackMode === "hush" ? liveQueue : onlinePlaybackQueue, onlinePlaying, onlinePlaybackArmed, onlinePlaybackActionPending, selectedLocalResumeTime, activeOnlineResumeTime, onlineProgress, onlineState, onlinePlaybackErrorCode, onlinePlaybackErrorMessage, onlineObservedPlaybackAudioQuality, activeOnlineFavorite, activeOnlineFavoriteBusy, localProgress, muted, volume, playMode, museConnectBusy: youtubeConnectBusy, museAccountName, museAccountAvatarURL, museAccountConnected, museAccountBusy, museManualRefreshKind }}
+        actions={{ setListOpen, setQuery, selectFirstResult, setMode: setLegacyBrowseMode, setSidebarView, reloadLiveCatalog, saveLiveUserCatalog, reloadLibrary: () => setLibraryReloadToken((current) => current + 1), changeOnlineBrowseSource, openOnlineBrowseCategory, closeOnlineBrowseDetail, loadMoreLibrary, activateLiveSelection, selectOnlineQueueTrack, selectLocalQueueTrack, clearLocalQueue, removeLocalQueueItem, moveLocalQueueItem, undoLocalQueueEdit, redoLocalQueueEdit, retryLocalTracks: localTrackIndex.retry, playLocalBrowseTrack, setSelectedLocalId, setLocalPlayerCommand, closeArtistBrowse, playArtistFromIndex, shuffleArtist, loadMoreArtist, loadArtistShelfTracks, playArtistMix, toggleArtistSubscription, openPlaylistBrowse, updatePlaylistLibrary, setBrowsePlaylistId, playPlaylistFromIndex, shufflePlaylist, playPlaylistNext, addPlaylistToQueue, loadMorePlaylist, playOnlineShelfTrack, playOnlineShelfAll, shuffleOnlineShelf, playOnlineSearchTrack, playOnlineSearchResults, shuffleOnlineSearchResults, loadMoreSearch, openSearchArtistBrowse, clearOnlineQueue, removeOnlineQueueItem, moveOnlineQueueItem, undoOnlineQueueEdit, redoOnlineQueueEdit, refreshLocalTracks: localTrackIndex.refresh, openRepairMissingLocalTracks: () => setLocalRelinkDialogOpen(true), handlePlaybackEnded, setOnlinePlaying: setLivePlaying, setOnlineState: setLiveState, setOnlinePlaybackErrorCode, setOnlinePlaybackErrorMessage, handleOnlineProgressChange, handleOnlineNativeTrackChange, setLocalPlaying, handleLocalProgressChange, setPlaybackSessionStarted, connectYouTube, refreshMusePage, signOutMuseAccount, playPrevious, playNext, togglePlayMode, setPlayMode: setPlayModeFromView, togglePlayback, toggleMute, handleVolumeChange, toggleOnlineFavorite, openOnlineArtistBrowse: openOnlineArtistFromPlayer, openSelectedLocalDirectory }}
       />
       <ListenLocalRelinkRepair
         open={localRelinkDialogOpen}

@@ -719,6 +719,7 @@
       "nextTrack": "Next",
       "pause": "Pause",
       "play": "Play",
+      "forceRefresh": "Force Refresh",
       "openLogs": "Open Log Directory"
     },
     "sidebar": {
@@ -1925,6 +1926,8 @@
       "loadingStatus": "Loading",
       "errorStatus": "Playback Error",
       "errorCodeLabel": "Error Code",
+      "youtubeVerificationRequired": "YouTube requires verification. Switch networks or try again later.",
+      "youtubeRegionUnavailable": "YouTube is unavailable in your region.",
       "idleSubtitle": "Nothing is playing.",
       "previous": "Previous",
       "next": "Next",

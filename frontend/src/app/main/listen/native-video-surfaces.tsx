@@ -51,6 +51,7 @@ export type ListenNativeVideoRect = ListenAirPlayAnchor & {
   radius?: number;
   interactive?: boolean;
   sequence?: number;
+  presentation?: "embedded-video" | "app-fullscreen";
 };
 
 export const LISTEN_LIVE_VIDEO_ASPECT_RATIO = 16 / 9;
@@ -380,6 +381,7 @@ export function ListenLiveVideoShell(props: {
   petImageURL: string;
   title: string;
   subtitle: string;
+  subtitleDanger?: boolean;
   listOpen: boolean;
   reserveWindowControls: boolean;
   playing: boolean;
@@ -703,7 +705,13 @@ export function ListenLiveVideoShell(props: {
                   <span className="listen-video-title-separator" aria-hidden="true">
                     ·
                   </span>
-                  <span className="listen-video-author">
+                  <span
+                    className={cn(
+                      "listen-video-author",
+                      props.subtitleDanger &&
+                        "listen-playback-status-subtitle",
+                    )}
+                  >
                     <ListenScrollingText text={authorLabel} as="span" />
                   </span>
                 </>
@@ -729,9 +737,13 @@ export function ListenLiveVideoShell(props: {
                   </Tooltip>
                 </div>
               ) : null}
-              <span className={cn("listen-video-playback-status", statusClass)}>
-                <span>{statusLabel}</span>
-              </span>
+              {!props.subtitleDanger ? (
+                <span
+                  className={cn("listen-video-playback-status", statusClass)}
+                >
+                  <span>{statusLabel}</span>
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="listen-video-actions wails-no-drag">

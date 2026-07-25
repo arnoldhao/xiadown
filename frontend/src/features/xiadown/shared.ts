@@ -225,6 +225,7 @@ function buildText(language: SupportedLanguage) {
       nextTrack: t("xiadown.actions.nextTrack", language),
       pause: t("xiadown.actions.pause", language),
       play: t("xiadown.actions.play", language),
+      forceRefresh: t("xiadown.actions.forceRefresh", language),
       openLogs: t("xiadown.actions.openLogs", language),
     },
     sidebar: {
@@ -1523,6 +1524,14 @@ function buildText(language: SupportedLanguage) {
       loadingStatus: t("xiadown.listen.loadingStatus", language),
       errorStatus: t("xiadown.listen.errorStatus", language),
       errorCodeLabel: t("xiadown.listen.errorCodeLabel", language),
+      youtubeVerificationRequired: t(
+        "xiadown.listen.youtubeVerificationRequired",
+        language,
+      ),
+      youtubeRegionUnavailable: t(
+        "xiadown.listen.youtubeRegionUnavailable",
+        language,
+      ),
       idleSubtitle: t("xiadown.listen.idleSubtitle", language),
       previous: t("xiadown.listen.previous", language),
       next: t("xiadown.listen.next", language),

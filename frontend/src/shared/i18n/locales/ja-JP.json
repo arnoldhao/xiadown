@@ -719,6 +719,7 @@
       "nextTrack": "次へ",
       "pause": "一時停止",
       "play": "再生",
+      "forceRefresh": "強制再読み込み",
       "openLogs": "ログフォルダを開く"
     },
     "sidebar": {
@@ -1925,6 +1926,8 @@
       "loadingStatus": "読み込み中",
       "errorStatus": "再生エラー",
       "errorCodeLabel": "エラーコード",
+      "youtubeVerificationRequired": "YouTube の確認が必要です。ネットワークを切り替えるか、しばらくしてから再試行してください。",
+      "youtubeRegionUnavailable": "お住まいの地域では YouTube をご利用いただけません。",
       "idleSubtitle": "何も再生していません。",
       "previous": "前へ",
       "next": "次へ",

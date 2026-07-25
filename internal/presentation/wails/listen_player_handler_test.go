@@ -49,10 +49,11 @@ func TestListenMusicNativeWindowFullscreenEventConfirmsEnter(t *testing.T) {
 	}
 }
 
-func TestFilterListenPlaybackCookiesKeepsOnlyStableYouTubeCookies(t *testing.T) {
+func TestFilterListenPlaybackCookiesKeepsStableYouTubeAndGoogleCookies(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	records := []appcookies.Record{
 		{Name: "SID", Value: "sid", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix(), Secure: true},
+		{Name: "SAPISID", Value: "google-auth", Domain: ".google.com", Path: "/", Expires: now.Add(time.Hour).Unix(), Secure: true},
 		{Name: "__Secure-1PSIDTS", Value: "rotating", Domain: ".youtube.com", Path: "/", Expires: now.Add(time.Hour).Unix(), Secure: true},
 		{Name: "expired", Value: "gone", Domain: ".youtube.com", Path: "/", Expires: now.Add(-time.Hour).Unix()},
 		{Name: "missing-domain", Value: "value", Path: "/"},
@@ -60,11 +61,12 @@ func TestFilterListenPlaybackCookiesKeepsOnlyStableYouTubeCookies(t *testing.T) 
 	}
 
 	cookies := filterListenPlaybackCookies(records, now)
-	if len(cookies) != 1 {
-		t.Fatalf("expected one usable cookie, got %d", len(cookies))
+	if len(cookies) != 2 {
+		t.Fatalf("expected two cross-domain stable cookies, got %d", len(cookies))
 	}
-	if cookies[0].Name != "SID" || cookies[0].Value != "sid" {
-		t.Fatalf("unexpected cookie: %+v", cookies[0])
+	if cookies[0].Name != "SAPISID" || cookies[0].Domain != ".google.com" ||
+		cookies[1].Name != "SID" || cookies[1].Domain != ".youtube.com" {
+		t.Fatalf("unexpected cookies: %+v", cookies)
 	}
 }
 

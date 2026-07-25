@@ -43,6 +43,10 @@ type innerTubeUserAgentSetter interface {
 	setUserAgent(string)
 }
 
+type innerTubeCacheInvalidator interface {
+	clearCache()
+}
+
 type Service struct {
 	requester innerTubeRequester
 
@@ -79,6 +83,21 @@ func (service *Service) SetUserAgent(userAgent string) {
 	if setter, ok := service.requester.(innerTubeUserAgentSetter); ok {
 		setter.setUserAgent(userAgent)
 	}
+}
+
+// ForceRefresh clears account-scoped InnerTube responses and continuation
+// routing so subsequent browse requests use current network and cookie state.
+func (service *Service) ForceRefresh() {
+	if service == nil {
+		return
+	}
+	if invalidator, ok := service.requester.(innerTubeCacheInvalidator); ok {
+		invalidator.clearCache()
+	}
+	service.continuationMu.Lock()
+	service.continuationEndpoints = make(map[string]continuationEndpointEntry)
+	service.continuationSequence = 0
+	service.continuationMu.Unlock()
 }
 
 type routeSpec struct {

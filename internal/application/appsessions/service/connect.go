@@ -323,7 +323,8 @@ func (service *AppSessionsService) performFinalize(ctx context.Context, session 
 	}
 	committed := false
 	if service.importCommitter != nil {
-		encoded, encodeErr := appcookies.EncodeJSON(filtered)
+		persistent := persistentAppSessionCookies(session.SiteKey, filtered, now)
+		encoded, encodeErr := appcookies.EncodeJSON(persistent)
 		if encodeErr != nil || encoded == "" {
 			service.cleanupSession(session)
 			if encodeErr != nil {

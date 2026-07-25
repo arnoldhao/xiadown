@@ -451,7 +451,7 @@ func CreateApplication(assets fs.FS) (*application.App, error) {
 	_, _ = listenPlaybackService.RestorePlaybackSession(ctx)
 	listenPlaybackSnapshotUnsubscribe = wails.NewListenPlaybackSnapshotEmitter(app, listenPlaybackService)
 	youTubeMusicPlaybackBackend := listenplayback.NewPlayerServiceBackend(listenPlaybackService)
-	localMediaTransport = wails.NewNativeLocalMediaWebviewTransport(app, realtimeServer.HTTPURL())
+	localMediaTransport = wails.NewNativeLocalMediaWebviewTransport(app, realtimeServer.HTTPURL(), windowManager)
 	localMediaBackend = listenplayback.NewNativeLocalMediaBackend(localMediaTransport)
 	streamPlaybackBackend := wails.NewListenLivePlayerBackend(listenplayback.PlaybackProviderStream, listenLivePlayer)
 	youtubePlaybackBackend := wails.NewListenLivePlayerBackend(listenplayback.PlaybackProviderYouTube, listenLivePlayer)

@@ -121,8 +121,6 @@ func releaseRSSVideoPlayerWindowFeatures(_ *application.WebviewWindow) {}
 
 func releaseRSSSitePlayerWindowFeatures(_ *application.WebviewWindow) {}
 
-func scheduleListenYouTubeCookieSync(_ *application.WebviewWindow, _ listenPlayerCookieProvider) {}
-
 func execListenYouTubeMusicJS(window *application.WebviewWindow, script string) {
 	if window == nil || script == "" {
 		return
@@ -131,11 +129,39 @@ func execListenYouTubeMusicJS(window *application.WebviewWindow, script string) 
 	window.ExecJS(script)
 }
 
-func hideListenYouTubeMediaWindow(window *application.WebviewWindow) {
-	if window != nil {
-		window.Hide()
+func hideListenYouTubeMediaWindow(window *application.WebviewWindow) bool {
+	if window == nil {
+		return false
 	}
+	window.Hide()
+	return parkListenMediaWebView(window)
 }
+
+// Persistent media WebViews use a native parking host on macOS and Windows.
+// Other backends keep their existing hidden-window lifecycle, so registration
+// and presentation transitions are successful no-ops here.
+func registerListenMediaWebViewParking(
+	playerWindow *application.WebviewWindow,
+	hostWindow *application.WebviewWindow,
+) bool {
+	return playerWindow != nil && hostWindow != nil
+}
+
+func parkListenMediaWebView(playerWindow *application.WebviewWindow) bool {
+	if playerWindow == nil {
+		return false
+	}
+	playerWindow.Hide()
+	return true
+}
+
+func unparkListenMediaWebView(playerWindow *application.WebviewWindow) bool {
+	return playerWindow != nil
+}
+
+func reassertListenMediaWebViewParking(_ *application.WebviewWindow) {}
+
+func releaseListenMediaWebViewParking(_ *application.WebviewWindow) {}
 
 func attachListenYouTubeMusicBridge(window *application.WebviewWindow, script string) (func(), bool) {
 	if window == nil || script == "" {

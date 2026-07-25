@@ -949,6 +949,7 @@ func (player *rssBilibiliVideoPlayer) requestNativeWindowFullscreenLocked(
 	player.nativeFullscreenWaiter = waiter
 	player.fullscreenTransition = true
 	player.status.Fullscreen = false
+	embeddedRect := player.embeddedRect
 	player.mu.Unlock()
 
 	// Match the YouTube station: return the singleton WebView to its owning
@@ -975,6 +976,18 @@ func (player *rssBilibiliVideoPlayer) requestNativeWindowFullscreenLocked(
 			"fullscreenPresentation",
 			false,
 		))
+		if player.windows != nil && player.windows.mainWindow != nil {
+			embeddedRect.Interactive = false
+			// Detach does not release aperture ownership. Reuse the original ID
+			// so a concurrent player switch cannot be overwritten by recovery.
+			owner := listenEmbeddedVideoOwnerID(window)
+			_ = rssShowNativeEmbeddedWebViewForOwner(
+				owner,
+				window,
+				player.windows.mainWindow,
+				embeddedRect,
+			)
+		}
 		return fmt.Errorf("embedded RSS Bilibili video could not detach for native fullscreen")
 	}
 	window.SetTitle("Bilibili")

@@ -59,6 +59,7 @@ type ListenExternalCommand,
 type ListenNowPlayingStatus,
 type ListenPlaybackSource
 } from "@/app/main/Listen";
+import { forceRefreshListenOnline } from "@/app/main/listen/api";
 import { adaptCatalogItems } from "@/app/library/catalog-adapter";
 import {
   adaptAvailableLegacyImageFiles,
@@ -91,6 +92,7 @@ import {
   SniffWorkspaceSourceSelect,
 } from "@/app/sniff-desk/workspace-filters";
 import {
+  forceRefreshYouTubeWorkspace,
   type YouTubeWorkspaceExternalCommand,
   type YouTubeWorkspacePlaybackState,
 } from "@/app/youtube";
@@ -697,6 +699,19 @@ export function MainApp() {
     React.useState<YouTubeWorkspacePlaybackState | null>(null);
   const [youtubeControlCommand, setYouTubeControlCommand] =
     React.useState<YouTubeWorkspaceExternalCommand | null>(null);
+  const [musicForceRefreshToken, setMusicForceRefreshToken] =
+    React.useState(0);
+  const [youtubeForceRefreshToken, setYouTubeForceRefreshToken] =
+    React.useState(0);
+  const [workspaceRouteContextMenu, setWorkspaceRouteContextMenu] =
+    React.useState<{
+      workspaceId: typeof APP_WORKSPACE_IDS.music | typeof APP_WORKSPACE_IDS.youtube;
+      routeId: string;
+      x: number;
+      y: number;
+    } | null>(null);
+  const workspaceRouteContextReturnFocusRef =
+    React.useRef<HTMLButtonElement | null>(null);
   const coordinatorPlaybackSession = playbackCoordinator.snapshot.active;
   const recoveredYouTubePlayback = React.useMemo(
     () => recoverYouTubeWorkspacePlayback(coordinatorPlaybackSession),
@@ -2425,6 +2440,42 @@ export function MainApp() {
     className: workspaceSidebarClassName,
     onNavigate: (routeId: string) => navigateWorkspace({ routeId }),
   };
+  const forceRefreshWorkspaceRoute = React.useCallback(async () => {
+    const target = workspaceRouteContextMenu;
+    if (!target) {
+      return;
+    }
+    setWorkspaceRouteContextMenu(null);
+    navigateWorkspace({ routeId: target.routeId }, target.workspaceId);
+    if (target.workspaceId === APP_WORKSPACE_IDS.music) {
+      setListenNowPlaying(null);
+    } else {
+      setYouTubePlayback(null);
+    }
+    try {
+      if (target.workspaceId === APP_WORKSPACE_IDS.music) {
+        await forceRefreshListenOnline();
+      } else {
+        await forceRefreshYouTubeWorkspace();
+      }
+    } catch (error) {
+      messageBus.publishToast({
+        intent: "warning",
+        title: text.actions.forceRefresh,
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      if (target.workspaceId === APP_WORKSPACE_IDS.music) {
+        setMusicForceRefreshToken((value) => value + 1);
+      } else {
+        setYouTubeForceRefreshToken((value) => value + 1);
+      }
+    }
+  }, [
+    navigateWorkspace,
+    text.actions.forceRefresh,
+    workspaceRouteContextMenu,
+  ]);
   const workspaceNavigation =
     activeWorkspaceId === APP_WORKSPACE_IDS.library ? (
       <LibraryWorkspaceSidebar
@@ -2454,6 +2505,18 @@ export function MainApp() {
       <MusicWorkspaceSidebar
         {...workspaceSidebarChrome}
         scope={musicWorkspaceScope}
+        onRouteContextMenu={
+          musicWorkspaceScope === "online"
+            ? (routeId, point, returnFocus) => {
+                workspaceRouteContextReturnFocusRef.current = returnFocus;
+                setWorkspaceRouteContextMenu({
+                  workspaceId: APP_WORKSPACE_IDS.music,
+                  routeId,
+                  ...point,
+                });
+              }
+            : undefined
+        }
         catalog={{
           sidebarAriaLabel: text.workspace.music,
           sections: {
@@ -2562,6 +2625,14 @@ export function MainApp() {
     ) : (
       <YouTubeWorkspaceSidebar
         {...workspaceSidebarChrome}
+        onRouteContextMenu={(routeId, point, returnFocus) => {
+          workspaceRouteContextReturnFocusRef.current = returnFocus;
+          setWorkspaceRouteContextMenu({
+            workspaceId: APP_WORKSPACE_IDS.youtube,
+            routeId,
+            ...point,
+          });
+        }}
         catalog={{
           sidebarAriaLabel: text.workspace.youtube,
           sections: {
@@ -2827,6 +2898,7 @@ export function MainApp() {
             onDownload={openRSSDownloadDialog}
           /> : null}
           {shouldMountYouTubeWorkspace ? <YouTubeWorkspacePage
+            key={`youtube-workspace:${youtubeForceRefreshToken}`}
             active={activeWorkspaceId === APP_WORKSPACE_IDS.youtube}
             externalCommand={youtubeControlCommand}
             routeId={workspaceLocations[APP_WORKSPACE_IDS.youtube]?.routeId ?? "home"}
@@ -2844,6 +2916,7 @@ export function MainApp() {
             reserveWindowControls={primaryWindowsChromeVisible}
           /> : null}
           {shouldMountMusicWorkspace ? <ListenPage
+            key={`music-workspace:${musicForceRefreshToken}`}
             active={activeWorkspaceId === APP_WORKSPACE_IDS.music}
             workspaceLayout
             workspaceRouteId={musicWorkspaceRouteId}
@@ -3135,6 +3208,53 @@ export function MainApp() {
           />
         </React.Suspense>
       ) : null}
+      <DropdownMenu
+        modal={false}
+        open={workspaceRouteContextMenu !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWorkspaceRouteContextMenu(null);
+          }
+        }}
+      >
+        {workspaceRouteContextMenu ? (
+          <DropdownMenuTrigger asChild>
+            <button
+              aria-hidden="true"
+              className="fixed z-50 h-px w-px"
+              style={{
+                left: workspaceRouteContextMenu.x,
+                top: workspaceRouteContextMenu.y,
+              }}
+              tabIndex={-1}
+              type="button"
+            />
+          </DropdownMenuTrigger>
+        ) : null}
+        <DropdownMenuContent
+          align="start"
+          aria-label={text.actions.forceRefresh}
+          className={SIDEBAR_DROPDOWN_CONTENT_CLASS_NAME}
+          side="bottom"
+          sideOffset={2}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = workspaceRouteContextReturnFocusRef.current;
+            workspaceRouteContextReturnFocusRef.current = null;
+            if (target?.isConnected) {
+              target.focus();
+            }
+          }}
+        >
+          <DropdownMenuItem
+            className={SIDEBAR_DROPDOWN_ITEM_CLASS_NAME}
+            onSelect={() => void forceRefreshWorkspaceRoute()}
+          >
+            <RefreshCcw className="h-4 w-4 shrink-0" />
+            <span>{text.actions.forceRefresh}</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       {rssEditingSubscription ? (
         <RSSSubscriptionDialog
           categories={rssCategoriesQuery.data ?? []}

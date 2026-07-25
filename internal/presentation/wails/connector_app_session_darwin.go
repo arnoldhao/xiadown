@@ -421,6 +421,56 @@ static void connectorAppSessionSetCookies(void *nativeWindow, const char *target
 	dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
 }
 
+// Explicit App Session import publishes the complete runtime snapshot into
+// WebKit's shared persistent store. This is deliberately separate from player
+// navigation: Music and Radio consume this store but never write App Session
+// snapshots back into the application credential model.
+static int connectorAppSessionSetDefaultCookies(const char *cookiesJSON) {
+	if (cookiesJSON == NULL) {
+		return 0;
+	}
+	NSArray<NSHTTPCookie*> *cookies = [connectorAppSessionCookiesFromJSON(cookiesJSON, nil) retain];
+	if (cookies.count == 0) {
+		[cookies release];
+		return 0;
+	}
+	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+	__block int result = 0;
+	void (^work)(void) = ^{
+		@autoreleasepool {
+			WKHTTPCookieStore *cookieStore =
+				[WKWebsiteDataStore defaultDataStore].httpCookieStore;
+			if (cookieStore == nil) {
+				[cookies release];
+				dispatch_semaphore_signal(semaphore);
+				return;
+			}
+			result = 1;
+			__block NSInteger pending = cookies.count;
+			for (NSHTTPCookie *cookie in cookies) {
+				[cookieStore setCookie:cookie completionHandler:^{
+					pending -= 1;
+					if (pending <= 0) {
+						result = 1;
+						[cookies release];
+						dispatch_semaphore_signal(semaphore);
+					}
+				}];
+			}
+		}
+	};
+	if ([NSThread isMainThread]) {
+		work();
+		return result;
+	}
+	dispatch_async(dispatch_get_main_queue(), work);
+	long status = dispatch_semaphore_wait(
+		semaphore,
+		dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)
+	);
+	return status == 0 ? result : 0;
+}
+
 static char* connectorAppSessionReadCookiesJSON(void *nativeWindow) {
 	__block char *result = NULL;
 	dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
@@ -645,6 +695,7 @@ import "C"
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 	"unsafe"
@@ -652,11 +703,29 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	appcookies "xiadown/internal/application/cookies"
+	"xiadown/internal/application/youtubecookies"
 	"xiadown/internal/domain/appsessions"
 )
 
-func loadNativeYouTubeRuntimeCookies() ([]appcookies.Record, error) {
+func loadNativeYouTubeRuntimeCookies(_ *application.App) ([]appcookies.Record, error) {
 	return readListenSharedYouTubeCookies()
+}
+
+func publishNativeYouTubeRuntimeCookies(_ *application.App, records []appcookies.Record) error {
+	records = youtubecookies.Runtime(records, time.Now())
+	if len(records) == 0 {
+		return appsessions.ErrNoCookies
+	}
+	data, err := json.Marshal(records)
+	if err != nil {
+		return err
+	}
+	cCookies := C.CString(string(data))
+	defer C.free(unsafe.Pointer(cCookies))
+	if C.connectorAppSessionSetDefaultCookies(cCookies) == 0 {
+		return errors.New("publish cookies to shared WebKit store failed")
+	}
+	return nil
 }
 
 func connectorAppSessionNativeSupported() bool {
@@ -675,11 +744,12 @@ func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, t
 	configureConnectorAppSessionNativeWindow(nativeWindow, appSessionWebViewUserAgent(siteKey))
 	if strings.EqualFold(strings.TrimSpace(siteKey), "youtube") {
 		current, err := readListenSharedYouTubeCookies()
-		records = planListenPlaybackCookieRestore(
+		now := time.Now()
+		records = planConnectorAppSessionCookieRestore(
+			siteKey,
 			records,
 			current,
-			targetURL,
-			time.Now(),
+			now,
 			err == nil,
 		)
 	}

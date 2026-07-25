@@ -1286,6 +1286,12 @@
     line-height: 1rem;
   }
 
+  .listen-now-playing-panel[data-subtitle-tone="danger"]
+    .listen-panel-subtitle {
+    color: var(--app-status-tone-error);
+    font-size: 0.625rem;
+  }
+
   .listen-mini-progress-row {
     display: flex;
     height: 1.125rem;
@@ -1660,6 +1666,16 @@
     font-size: 11px;
     font-weight: 650;
     line-height: 14px;
+  }
+
+  .listen-video-title-line
+    > .listen-video-author.listen-playback-status-subtitle {
+    max-width: 42%;
+    color: var(--app-status-tone-error);
+    -webkit-text-fill-color: var(--app-status-tone-error);
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 12px;
   }
 
   .listen-video-title-separator {

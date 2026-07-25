@@ -50,17 +50,6 @@ type AppSessionProvider interface {
 	ClearAppSession(ctx context.Context, siteKey string, domains []string) error
 }
 
-type AppSessionRuntimeCookieSyncProvider interface {
-	BeginAppSessionCookieSync(siteKey string) (epoch uint64, sequence uint64)
-	SyncAppSessionCookies(
-		ctx context.Context,
-		siteKey string,
-		records []appcookies.Record,
-		expectedEpoch uint64,
-		expectedSequence uint64,
-	) error
-}
-
 type AppSessionBrowserProfileReader interface {
 	ReadBrowserProfileCookies(
 		ctx context.Context,

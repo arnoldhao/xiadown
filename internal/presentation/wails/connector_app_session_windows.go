@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	appcookies "xiadown/internal/application/cookies"
+	"xiadown/internal/application/youtubecookies"
 	"xiadown/internal/domain/appsessions"
 )
 
@@ -30,8 +31,85 @@ func connectorAppSessionNativeSupported() bool {
 	return true
 }
 
-func loadNativeYouTubeRuntimeCookies() ([]appcookies.Record, error) {
-	return nil, appsessions.ErrUnsupported
+func loadNativeYouTubeRuntimeCookies(app *application.App) ([]appcookies.Record, error) {
+	window, err := connectorWindowsSharedCookieWindow(app)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	records, err := readConnectorWindowsWebViewCookies(
+		ctx,
+		window,
+		listenYouTubeCookieDomains,
+	)
+	if err != nil {
+		return nil, err
+	}
+	records = youtubecookies.Runtime(records, time.Now())
+	if len(records) == 0 {
+		return nil, appsessions.ErrNoCookies
+	}
+	return records, nil
+}
+
+func publishNativeYouTubeRuntimeCookies(app *application.App, records []appcookies.Record) error {
+	window, err := connectorWindowsSharedCookieWindow(app)
+	if err != nil {
+		return err
+	}
+	records = youtubecookies.Runtime(records, time.Now())
+	if len(records) == 0 {
+		return appsessions.ErrNoCookies
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	if err := connectorWindowsWaitForCookieManager(ctx, window); err != nil {
+		return err
+	}
+
+	var publishErr error
+	application.InvokeSync(func() {
+		webview := listenWindowsWebViewForWindow(window)
+		if webview == nil {
+			publishErr = appsessions.ErrSessionDead
+			return
+		}
+		manager, err := webview.GetCookieManager()
+		if err != nil || manager == nil {
+			if err == nil {
+				err = appsessions.ErrSessionDead
+			}
+			publishErr = err
+			return
+		}
+		defer manager.Release()
+		for _, record := range records {
+			if !addConnectorWindowsWebViewCookie(manager, record) {
+				publishErr = fmt.Errorf(
+					"publish cookie to shared WebView2 store failed: %s",
+					strings.TrimSpace(record.Name),
+				)
+				return
+			}
+		}
+	})
+	return publishErr
+}
+
+func connectorWindowsSharedCookieWindow(app *application.App) (*application.WebviewWindow, error) {
+	if app == nil {
+		return nil, appsessions.ErrUnsupported
+	}
+	window, exists := app.Window.GetByName("main")
+	if !exists || window == nil {
+		return nil, appsessions.ErrSessionDead
+	}
+	webviewWindow, ok := window.(*application.WebviewWindow)
+	if !ok || webviewWindow == nil {
+		return nil, appsessions.ErrSessionDead
+	}
+	return webviewWindow, nil
 }
 
 func connectorAppSessionCaptureBeforeClose() bool {
@@ -82,17 +160,30 @@ func clearConnectorAppSessionNativeRuntimeData(ctx context.Context, app *applica
 	return clearConnectorWindowsWebViewStorageForDomains(clearCtx, window, domains)
 }
 
-func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, _ string, siteKey string, records []appcookies.Record, domains []string) {
+func prepareConnectorAppSessionNativeWindow(window *application.WebviewWindow, targetURL string, siteKey string, records []appcookies.Record, domains []string) {
 	if window == nil {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(siteKey), "youtube") {
+		readContext, cancelRead := context.WithTimeout(context.Background(), 6*time.Second)
+		current, readErr := readConnectorWindowsWebViewCookies(readContext, window, domains)
+		cancelRead()
+		now := time.Now()
+		records = planConnectorAppSessionCookieRestore(
+			siteKey,
+			records,
+			current,
+			now,
+			readErr == nil,
+		)
+	}
+
 	application.InvokeSync(func() {
 		webview := listenWindowsWebViewForWindow(window)
 		if webview == nil {
 			return
 		}
 		configureConnectorAppSessionWindowsWebView(window, webview, siteKey)
-
 		manager, err := webview.GetCookieManager()
 		if err != nil || manager == nil {
 			return
@@ -729,25 +820,32 @@ func connectorWindowsCookieRecord(cookie *edge.ICoreWebView2Cookie) (appcookies.
 	return record, true
 }
 
-func addConnectorWindowsWebViewCookie(manager *edge.ICoreWebView2CookieManager, record appcookies.Record) {
+func addConnectorWindowsWebViewCookie(manager *edge.ICoreWebView2CookieManager, record appcookies.Record) bool {
 	if manager == nil {
-		return
+		return false
 	}
 	name := strings.TrimSpace(record.Name)
 	domain := strings.TrimSpace(record.Domain)
 	path := strings.TrimSpace(record.Path)
 	if name == "" || record.Value == "" || domain == "" {
-		return
+		return false
 	}
 	if path == "" {
 		path = "/"
 	}
 	if addConnectorWindowsWebViewCookieWithDomain(manager, record, name, domain, path) {
-		return
+		return true
 	}
 	if strings.HasPrefix(domain, ".") {
-		_ = addConnectorWindowsWebViewCookieWithDomain(manager, record, name, strings.TrimPrefix(domain, "."), path)
+		return addConnectorWindowsWebViewCookieWithDomain(
+			manager,
+			record,
+			name,
+			strings.TrimPrefix(domain, "."),
+			path,
+		)
 	}
+	return false
 }
 
 func clearConnectorWindowsWebViewCookiesForDomains(ctx context.Context, window *application.WebviewWindow, domains []string) error {

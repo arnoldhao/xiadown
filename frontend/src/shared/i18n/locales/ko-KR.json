@@ -719,6 +719,7 @@
       "nextTrack": "다음",
       "pause": "일시정지",
       "play": "재생",
+      "forceRefresh": "강제 새로고침",
       "openLogs": "로그 폴더 열기"
     },
     "sidebar": {
@@ -1925,6 +1926,8 @@
       "loadingStatus": "로드 중",
       "errorStatus": "재생 오류",
       "errorCodeLabel": "오류 코드",
+      "youtubeVerificationRequired": "YouTube 확인이 필요합니다. 네트워크를 전환하거나 나중에 다시 시도하세요.",
+      "youtubeRegionUnavailable": "현재 지역에서는 YouTube를 이용할 수 없습니다.",
       "idleSubtitle": "재생 중인 항목이 없습니다.",
       "previous": "이전",
       "next": "다음",

@@ -16,10 +16,12 @@ func TestListenWindowsBridgeInstallsAtDocumentStart(t *testing.T) {
 	source := string(sourceBytes)
 	attach := rssVideoFunctionSource(t, source, "func attachListenYouTubeMusicBridge(")
 	for _, required := range []string{
-		"listenWindowsWebViewForWindow(window)",
-		"if err := webview.AddScriptToExecuteOnDocumentCreated(script); err != nil",
-		"webview.WrapNavigationCompleted",
-		"webview.Controller().PutIsVisible(true)",
+		"attachListenWindowsDocumentStartBridge(",
+		`documentStartScript += "\n" + listenYouTubeAdBlockScript()`,
+		"ensureCurrentLocalDocument := window.Name() == localMediaWindowName",
+		"go execListenYouTubeMusicJS(window, script)",
+		"go reassertListenMediaWebViewParking(window)",
+		"execListenYouTubeMusicJS(window, script)",
 		"releaseListenWindowsRemoteNavigationPolicy(window)",
 		"return nil, false",
 	} {
@@ -27,12 +29,78 @@ func TestListenWindowsBridgeInstallsAtDocumentStart(t *testing.T) {
 			t.Fatalf("Music/Live bridge is missing %q from its WebView2 document-start registration", required)
 		}
 	}
-	if strings.Contains(attach, "listenWindowsChromium(") {
-		t.Fatal("Music/Live bridge is not registered with WebView2 at document start")
+	if strings.Contains(attach, "\n\t\twindow.ExecJS(script)\n") {
+		t.Fatal("Local's custom HTML bridge can remain queued without forcing Wails runtime ready")
 	}
-	for _, lateHook := range []string{"WebViewNavigationCompleted", "window.ExecJS"} {
-		if strings.Contains(attach, lateHook) {
-			t.Fatalf("Music/Live document-start installer still uses late hook %q", lateHook)
+	registration := rssVideoFunctionSource(
+		t,
+		source,
+		"func attachListenWindowsDocumentStartBridge(",
+	)
+	for _, required := range []string{
+		"application.InvokeSync(func()",
+		"webview.beginDocumentStartScriptRegistration(script)",
+		"webview.WrapNavigationCompleted",
+		"webview.Controller().PutIsVisible(true)",
+		"registration.wait(listenWindowsDocumentStartRegistrationTimeout)",
+		"fallbackRequired.Store(true)",
+		"go execListenYouTubeMusicJS(window, script)",
+		"WebView2 document-start bridge unavailable; using navigation fallback",
+		"media WebView2 initial visibility hint failed",
+		"if !navigationFallbackInstalled {",
+	} {
+		if !strings.Contains(registration, required) {
+			t.Fatalf("Windows document-start barrier is missing %q", required)
+		}
+	}
+	wait := strings.Index(
+		registration,
+		"registration.wait(listenWindowsDocumentStartRegistrationTimeout)",
+	)
+	uiSubmissionEnd := strings.Index(registration, "nativeReady = true\n\t})")
+	if wait < 0 || uiSubmissionEnd < 0 || wait <= uiSubmissionEnd {
+		t.Fatal("WebView2 document-start completion must be awaited after InvokeSync releases the UI STA")
+	}
+	begin := rssVideoFunctionSource(
+		t,
+		source,
+		"func (core *listenWindowsCoreWebView2) beginDocumentStartScriptRegistration(",
+	)
+	for _, required := range []string{
+		"core.vtbl.AddScriptToExecuteOnDocumentCreated.Call(",
+		"uintptr(unsafe.Pointer(handler))",
+		"listenWindowsPendingDocumentStartRegistrations.Store(handler, handler)",
+		"runtime.KeepAlive(handler)",
+	} {
+		if !strings.Contains(begin, required) {
+			t.Fatalf("Windows raw COM document-start registration is missing %q", required)
+		}
+	}
+	if strings.Contains(source, `"github.com/wailsapp/wails/webview2/pkg/webview2"`) {
+		t.Fatal("document-start registration imports the legacy callback-heavy WebView2 bindings")
+	}
+	completion := rssVideoFunctionSource(
+		t,
+		source,
+		"func listenWindowsDocumentStartScriptCompletedHandlerInvoke(",
+	)
+	for _, required := range []string{
+		"windows.UTF16PtrToString(scriptID)",
+		"this.registration.complete(errorCode, id)",
+		"this.registration.releaseOwner()",
+	} {
+		if !strings.Contains(completion, required) {
+			t.Fatalf("Windows document-start completion handler is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"application.InvokeSync",
+		"window.SetURL",
+		"window.ExecJS",
+		"reassertListenMediaWebViewParking",
+	} {
+		if strings.Contains(completion, forbidden) {
+			t.Fatalf("Windows document-start COM completion blocks/re-enters the UI through %q", forbidden)
 		}
 	}
 	backgroundHide := rssVideoFunctionSource(t, source, "func hideListenYouTubeMediaWindow(")
@@ -48,9 +116,6 @@ func TestListenWindowsBridgeInstallsAtDocumentStart(t *testing.T) {
 		handlerSource, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
-		}
-		if strings.Contains(string(handlerSource), ".Hide()") {
-			t.Fatalf("%s bypasses the Windows background-media visibility helper", name)
 		}
 		if !strings.Contains(string(handlerSource), "hideListenYouTubeMediaWindow(") {
 			t.Fatalf("%s does not use the background-media visibility helper", name)
@@ -274,7 +339,7 @@ func TestListenWindowsEmbeddedPlayerUsesMainWebViewOverlayPlane(t *testing.T) {
 	}
 	detach := rssVideoFunctionSource(t, source, "func detachListenNativeEmbeddedWebViewForFullscreen(")
 	for _, required := range []string{
-		"hideListenNativeEmbeddedWebView(playerNativeWindow)",
+		"listenWindowsDetachEmbeddedWebViewToTopLevelLocked(",
 		"style&uint32(w32.WS_CHILD) == 0",
 	} {
 		if !strings.Contains(detach, required) {

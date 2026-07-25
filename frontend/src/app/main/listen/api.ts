@@ -1,4 +1,8 @@
-import { LISTEN_LIVE_GROUPS } from "@/app/main/listen/catalog";
+import {
+  LISTEN_LIVE_GROUPS,
+  LISTEN_LIVE_PLAYER_SERVICE,
+  LISTEN_NATIVE_PLAYER_SERVICE,
+} from "@/app/main/listen/catalog";
 import { dedupeLibraryShelves,dedupeOnlineItems,dedupePlaylistItems,isListenLibraryShelfKind,isListenOnlineGroup } from "@/app/main/listen/storage";
 import type { ListenArtistItem,ListenArtistItemDTO,ListenArtistResponseDTO,ListenArtistSubscriptionResponseDTO,ListenCategoryItem,ListenCategoryItemDTO,ListenLibraryResponseDTO,ListenLibraryShelf,ListenLibraryShelfDTO,ListenLiveCatalog,ListenLiveCatalogDTO,ListenLiveGroup,ListenLiveStatus,ListenLiveStatusDTO,ListenLiveStatusResponseDTO,ListenLiveStatusValue,ListenLyricsData,ListenLyricsKind,ListenLyricsResponseDTO,ListenOnlineBrowseSource,ListenOnlineGroup,ListenOnlineItem,ListenPlaylistItem,ListenPlaylistItemDTO,ListenPlaylistLibraryAction,ListenPlaylistLibraryResponseDTO,ListenSearchItemDTO,ListenSearchResponseDTO,ListenTrackArtist,ListenTrackFavoriteResponseDTO,ListenTrackResponseDTO } from "@/app/main/listen/types";
 
@@ -99,6 +103,20 @@ export class ListenAPIError extends Error {
     this.detail = options.detail ?? "";
     this.source = options.source ?? "";
     this.retryable = options.retryable === true;
+  }
+}
+
+export async function forceRefreshListenOnline() {
+  const { Call } = await import("@wailsio/runtime");
+  const results = await Promise.allSettled([
+    Call.ByName(`${LISTEN_NATIVE_PLAYER_SERVICE}.ForceRefresh`),
+    Call.ByName(`${LISTEN_LIVE_PLAYER_SERVICE}.ForceRefresh`),
+  ]);
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure) {
+    throw failure.reason;
   }
 }
 

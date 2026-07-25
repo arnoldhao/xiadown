@@ -28,6 +28,10 @@ type LibraryClient interface {
 	TrackMetadata(ctx context.Context, videoID string) (Track, error)
 }
 
+type LibraryCacheRefresher interface {
+	ForceRefresh()
+}
+
 type MixQueueResult struct {
 	Tracks            []Track
 	ContinuationToken string
