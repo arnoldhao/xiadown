@@ -146,6 +146,7 @@ var commandRegistry = map[string]egressRegistryEntry{
 var commandContextRegistry = map[string]egressRegistryEntry{
 	"internal/application/dependencies/service/service.go":                   {count: 2, routeClass: "local-tool", reason: "installed dependency version probes only"},
 	"internal/application/library/service/catalog_video_thumbnail.go":        {count: 1, routeClass: "local-file-tool", reason: "bounded ffmpeg local video thumbnail generation with network protocols denied"},
+	"internal/application/library/service/embedded_artwork.go":               {count: 1, routeClass: "local-file-tool", reason: "bounded ffmpeg local embedded-artwork extraction with network protocols denied"},
 	"internal/application/library/service/listen_local_content_identity.go":  {count: 1, routeClass: "local-file-tool", reason: "bounded ffprobe audio-packet identity sampling with network protocols denied"},
 	"internal/application/library/service/listen_local_metadata.go":          {count: 1, routeClass: "local-file-tool", reason: "ffmpeg local metadata rewrite with network protocols denied"},
 	"internal/application/library/service/listen_local_metadata_manifest.go": {count: 1, routeClass: "local-file-tool", reason: "ffprobe local metadata read with network protocols denied"},

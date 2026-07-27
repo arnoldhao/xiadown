@@ -305,10 +305,93 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
   pointer-events: none;
 }
 
-.app-library-item__artwork > .app-library-artwork {
+.app-library-item__artwork > .app-library-artwork,
+.app-library-item__artwork > .app-library-card-preview,
+.app-library-card-preview > .app-library-artwork {
   width: 100%;
   height: 100%;
+}
+
+.app-library-item__artwork > .app-library-artwork,
+.app-library-card-preview > .app-library-artwork {
   object-fit: cover;
+}
+
+.app-library-card-preview {
+  position: relative;
+  display: block;
+  overflow: hidden;
+}
+
+.app-library-card-preview__pdf,
+.app-library-card-preview__log {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.app-library-card-preview__pdf {
+  display: block;
+  box-sizing: border-box;
+  object-fit: contain;
+}
+
+.app-library-card-preview__log {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
+  padding: 10% 9% 8%;
+}
+
+.app-library-card-preview__log-chrome {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.22rem;
+  margin-bottom: 9%;
+}
+
+.app-library-card-preview__log-chrome > i {
+  display: block;
+  width: 0.3rem;
+  height: 0.3rem;
+}
+
+.app-library-card-preview__log-lines {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.34rem;
+  overflow: hidden;
+}
+
+.app-library-card-preview__log-line {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.app-library-card-preview__log-fade {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 30%;
+  pointer-events: none;
+}
+
+.app-library-items[data-view="list"] .app-library-card-preview__log {
+  padding: 13% 10%;
+}
+
+.app-library-items[data-view="list"]
+  .app-library-card-preview__log-line:nth-child(n + 4) {
+  display: none;
 }
 
 /* The folder is the Task card's primary silhouette, not artwork placed inside
@@ -871,6 +954,27 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
   justify-self: center;
 }
 
+.app-library-preview__availability-notice {
+  display: flex;
+  min-height: 3.25rem;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 0.8rem;
+}
+
+.app-library-preview__availability-notice > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.app-library-preview__availability-notice strong,
+.app-library-preview__availability-notice small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .app-library-preview__title-marquee {
   display: block;
   width: 100%;
@@ -935,6 +1039,17 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
 .app-library-preview__inline-rename[data-placement="context"]
   .app-library-preview__inline-rename-value {
   flex: 1 1 auto;
+}
+
+.app-library-preview__inline-rename[data-placement="row"]
+  .app-library-preview__inline-rename-display {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.app-library-preview__inline-rename[data-placement="row"]
+  .app-library-preview__inline-rename-value {
+  overflow: hidden;
 }
 
 .app-library-preview__inline-rename-editor {
@@ -1210,6 +1325,96 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
   min-height: 22rem;
 }
 
+.app-library-pdf__stage {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: min(54vh, 34rem);
+  min-height: 22rem;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.app-library-pdf-ipod__display > .app-library-pdf__stage--ipod {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-library-pdf__stage > canvas {
+  display: block;
+  margin: 0 auto;
+}
+
+.app-library-pdf__loading,
+.app-library-pdf__error {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+}
+
+.app-library-pdf__loading {
+  display: grid;
+  place-items: center;
+}
+
+.app-library-pdf__error {
+  width: min(100% - 2rem, 18rem);
+  margin: 0;
+}
+
+.app-library-pdf__toolbar,
+.app-library-pdf__page-controls,
+.app-library-pdf__zoom-controls,
+.app-library-pdf__toolbar-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.app-library-pdf__toolbar {
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.app-library-pdf__page-controls,
+.app-library-pdf__zoom-controls,
+.app-library-pdf__toolbar-actions {
+  gap: 0.2rem;
+}
+
+.app-library-pdf__page-controls > span {
+  min-width: 4.5rem;
+}
+
+.app-library-pdf__zoom-value {
+  display: inline-flex;
+  min-width: 4.2rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.app-library-pdf__zoom-value > svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.app-library-pdf-dialog__stage.app-media-preview-dialog-stage {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+.app-library-pdf-dialog > .app-library-pdf__toolbar {
+  width: 100%;
+  min-width: 0;
+}
+
 .app-library-preview__audio {
   position: relative;
   isolation: isolate;
@@ -1365,10 +1570,22 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
 }
 
 .app-library-ipod__range > div {
-  display: flex;
+  display: grid;
   min-width: 0;
-  justify-content: space-between;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
   gap: 0.5rem;
+}
+
+.app-library-ipod__range > div > span:last-child {
+  justify-self: end;
+}
+
+.app-library-ipod__range-mode {
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  place-items: center;
 }
 
 .app-library-ipod__wheel {
@@ -1411,6 +1628,143 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
 
 .app-library-ipod__error {
   margin: 0;
+}
+
+.app-library-log-ipod__display {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-library-log-ipod__chrome {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.34rem 0.45rem 0.28rem;
+}
+
+.app-library-log-ipod__chrome > i {
+  width: 0.34rem;
+  height: 0.34rem;
+  flex: 0 0 auto;
+}
+
+.app-library-log-ipod__chrome > span {
+  margin-inline-start: auto;
+}
+
+.app-library-log-ipod__display > pre {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  padding: 0.15rem 0.5rem 0.42rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-library-log-dialog__stage.app-media-preview-dialog-stage {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.app-library-log-dialog__stage > pre {
+  min-width: 100%;
+  margin: 0;
+  padding: 1rem 1.1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-library-log-dialog__loading,
+.app-library-log-dialog__error {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  justify-self: center;
+  gap: 0.45rem;
+}
+
+.app-library-playable-dialog__stage.app-media-preview-dialog-stage {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: 16 / 9;
+  place-items: center;
+  overflow: hidden;
+}
+
+.app-library-playable-dialog__stage > video,
+.app-library-playable-dialog__audio {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app-library-playable-dialog__stage > video {
+  display: block;
+  object-fit: contain;
+}
+
+.app-library-playable-dialog__audio {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  place-items: center;
+}
+
+.app-library-playable-dialog__audio > .app-library-artwork {
+  width: min(100%, 18rem);
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+}
+
+.app-library-playable-dialog__audio > audio {
+  width: min(100%, 28rem);
+}
+
+.app-library-ipod-dialog__stage.app-media-preview-dialog-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.app-library-ipod-dialog__zoom-content {
+  display: grid;
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+}
+
+.app-library-ipod-dialog__zoom-content > .app-library-ipod-dialog__image {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+.app-library-ipod-dialog__zoom-indicator {
+  position: sticky;
+  grid-area: 1 / 1;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  justify-self: end;
+  align-self: end;
+  pointer-events: none;
 }
 
 .app-library-preview__stage > div:last-child {
@@ -1483,21 +1837,27 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
 }
 
 .app-library-preview__task-file > header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   align-items: baseline;
-  justify-content: space-between;
   gap: 0.65rem;
 }
 
 .app-library-preview__task-file > header strong {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .app-library-preview__task-file > header > .app-library-preview__inline-rename {
-  flex: 1 1 auto;
+  width: auto;
+}
+
+.app-library-preview__task-file > header > small {
+  white-space: nowrap;
 }
 
 .app-library-preview__task-file > dl {
@@ -1842,119 +2202,38 @@ select.app-library-preview__category-select.app-dream-select.app-control-compact
   flex-direction: column;
 }
 
-.app-catalog-management__sections {
+.app-catalog-roots-layout {
   display: grid;
-  gap: 1.2rem;
-}
-
-.app-catalog-management__sections section h3,
-.app-catalog-management__section-title {
-  margin: 0 0 0.65rem;
-}
-
-.app-catalog-management__section-title {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   gap: 1rem;
 }
 
-.app-catalog-management__section-title div {
-  display: grid;
-  gap: 0.18rem;
-}
-
-.app-catalog-management__status {
-  padding: 0.22rem 0.48rem;
-}
-
-.app-catalog-management__metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.55rem;
-}
-
-.app-catalog-management__metrics--categories {
-  grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr));
-}
-
-.app-catalog-management__metrics > div {
-  display: grid;
-  min-width: 0;
-  gap: 0.2rem;
-  padding: 0.7rem;
-}
-
-.app-catalog-management__metrics span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.app-catalog-roots {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.app-catalog-roots-layout {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.app-catalog-roots__add {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(7.5rem, auto) auto;
-  gap: 0.5rem;
-}
-
-.app-catalog-roots__add input,
-.app-catalog-roots__add select {
-  min-width: 0;
-  padding: 0.5rem 0.58rem;
-}
-
-.app-catalog-roots__add button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0 0.7rem;
-}
-
-.app-catalog-roots article {
-  padding: 0.8rem;
-}
-
-.app-catalog-roots__head {
+.app-catalog-roots__error {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0;
 }
 
-.app-catalog-roots__head div {
-  display: grid;
-  min-width: 0;
-  gap: 0.17rem;
+.app-catalog-roots__error > svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: 0 0 auto;
+  margin-top: 0.12rem;
 }
 
-.app-catalog-roots code {
+.app-catalog-root-remove-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+}
+
+.app-catalog-root-remove-dialog__path {
   display: block;
   overflow: hidden;
-  margin-top: 0.62rem;
-  padding: 0.45rem 0.55rem;
+  padding: 0.7rem 0.8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.app-catalog-roots p {
-  margin: 0.45rem 0 0;
-}
-
 @media (max-width: 760px) {
-  .app-catalog-roots__add {
-    grid-template-columns: 1fr;
-  }
-
   .app-library-manage-actions button span {
     position: absolute;
     width: 1px;
@@ -1963,10 +2242,6 @@ select.app-library-preview__category-select.app-dream-select.app-control-compact
     clip: rect(0 0 0 0);
   }
 
-  .app-catalog-management__metrics,
-  .app-catalog-management__metrics--categories {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @container app-library-primary (max-width: 47.5rem) {

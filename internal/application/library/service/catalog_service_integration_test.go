@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +44,18 @@ func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 	catalogs := libraryrepo.NewSQLiteCatalogRepository(db.Bun)
 	if err := catalogs.Save(ctx, catalog); err != nil {
 		t.Fatalf("save catalog: %v", err)
+	}
+	roots := libraryrepo.NewSQLiteStorageRootRepository(db.Bun)
+	storageRoot, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: "root-managed", CatalogID: catalog.ID, Name: "Managed files",
+		Path: filepath.Dir(legacyPath), VolumeID: "volume-managed",
+		Mode: "managed", Status: "online", CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new storage root: %v", err)
+	}
+	if err := roots.Save(ctx, storageRoot); err != nil {
+		t.Fatalf("save storage root: %v", err)
 	}
 	legacyLibrary, err := library.NewLibrary(library.LibraryParams{ID: "bundle-1", Name: "Movie", CreatedAt: &now, UpdatedAt: &now})
 	if err != nil {
@@ -89,7 +102,6 @@ func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 		t.Fatalf("save asset: %v", err)
 	}
 
-	roots := libraryrepo.NewSQLiteStorageRootRepository(db.Bun)
 	collections := libraryrepo.NewSQLiteCatalogCollectionRepository(db.Bun)
 	tags := libraryrepo.NewSQLiteCatalogTagRepository(db.Bun)
 	userStates := libraryrepo.NewSQLiteUserStateRepository(db.Bun)
@@ -123,8 +135,76 @@ func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 	detail, err := service.GetCatalogItem(ctx, dto.GetCatalogItemRequest{ID: item.ID})
 	if err != nil || len(detail.Assets) != 1 || len(detail.Representations) != 1 ||
 		detail.Representations[0].Kind != "original" || !detail.Assets[0].FileAvailable ||
-		detail.Assets[0].File == nil || detail.Assets[0].File.Storage.LocalPath != legacyPath {
+		detail.Assets[0].File == nil || detail.Assets[0].File.Storage.LocalPath != legacyPath ||
+		detail.Source == nil || detail.Source.OriginKind != "import" ||
+		detail.Source.StorageMode != "managed" ||
+		detail.Source.StorageRootID != storageRoot.ID ||
+		detail.Source.ImportBatchID != "batch-1" ||
+		detail.Source.ImportPath != legacyPath {
 		t.Fatalf("unexpected item detail: %#v, err=%v", detail, err)
+	}
+	if listed.Items[0].Availability != "available" ||
+		detail.Item.Availability != "available" ||
+		detail.Assets[0].Availability != "available" {
+		t.Fatalf("healthy availability was not projected: list=%#v detail=%#v", listed.Items[0], detail)
+	}
+
+	offlineRoot := storageRoot
+	offlineRoot.Status = library.StorageRootStatusOffline
+	offlineRoot.VolumeID = ""
+	offlineRoot.UpdatedAt = time.Now().UTC()
+	if err := roots.Save(ctx, offlineRoot); err != nil {
+		t.Fatalf("mark root offline: %v", err)
+	}
+	offline, err := service.ListCatalogItems(ctx, dto.ListCatalogItemsRequest{Category: "video"})
+	if err != nil || len(offline.Items) != 1 || offline.Items[0].Availability != "offline" {
+		t.Fatalf("offline item availability: %#v err=%v", offline, err)
+	}
+	offlineDetail, err := service.GetCatalogItem(ctx, dto.GetCatalogItemRequest{ID: item.ID})
+	if err != nil || offlineDetail.Item.Availability != "offline" ||
+		offlineDetail.Assets[0].FileAvailable ||
+		offlineDetail.Assets[0].Availability != "offline" ||
+		offlineDetail.Representations[0].Availability != "offline" {
+		t.Fatalf("offline detail availability: %#v err=%v", offlineDetail, err)
+	}
+
+	availabilityChanges := make([]string, 0, 1)
+	service.SetCatalogAvailabilityChangeNotifier(func(_ context.Context, rootID string) {
+		availabilityChanges = append(availabilityChanges, rootID)
+	})
+	onlineRoot, err := service.CheckCatalogStorageRoot(
+		ctx,
+		dto.CheckCatalogStorageRootRequest{ID: storageRoot.ID},
+	)
+	if err != nil || onlineRoot.Status != "online" ||
+		len(availabilityChanges) != 1 || availabilityChanges[0] != storageRoot.ID {
+		t.Fatalf("restore root online: root=%#v changes=%v err=%v", onlineRoot, availabilityChanges, err)
+	}
+	if _, err := db.SQL.ExecContext(ctx, `
+INSERT INTO library_storage_root_sync_entries (
+  root_id, relative_path, size_bytes, modified_unix_nano, content_hash,
+  file_id, status, last_seen_generation, last_error, created_at, updated_at
+) VALUES (?, ?, 0, 0, '', ?, 'missing', 1, '', ?, ?)
+`, storageRoot.ID, filepath.Base(legacyPath), legacyFile.ID, now, now); err != nil {
+		t.Fatalf("seed missing sync entry: %v", err)
+	}
+	missing, err := service.ListCatalogItems(ctx, dto.ListCatalogItemsRequest{Category: "video"})
+	if err != nil || len(missing.Items) != 1 || missing.Items[0].Availability != "missing" {
+		t.Fatalf("missing item availability: %#v err=%v", missing, err)
+	}
+	missingDetail, err := service.GetCatalogItem(ctx, dto.GetCatalogItemRequest{ID: item.ID})
+	if err != nil || missingDetail.Item.Availability != "missing" ||
+		missingDetail.Assets[0].FileAvailable ||
+		missingDetail.Assets[0].Availability != "missing" ||
+		missingDetail.Representations[0].Availability != "missing" {
+		t.Fatalf("missing detail availability: %#v err=%v", missingDetail, err)
+	}
+	if _, err := db.SQL.ExecContext(ctx, `
+UPDATE library_storage_root_sync_entries
+SET status = 'active', updated_at = ?
+WHERE root_id = ? AND file_id = ?
+`, time.Now().UTC(), storageRoot.ID, legacyFile.ID); err != nil {
+		t.Fatalf("restore active sync entry: %v", err)
 	}
 
 	newTitle := "Edited Movie"
@@ -137,6 +217,12 @@ func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 	_, err = service.UpdateCatalogItem(ctx, dto.UpdateCatalogItemRequest{ID: item.ID, ExpectedRevision: 1, Title: &newTitle})
 	if !errors.Is(err, library.ErrCatalogRevisionConflict) {
 		t.Fatalf("expected stale update conflict, got %v", err)
+	}
+	offlineForRestore := storageRoot
+	offlineForRestore.Status = library.StorageRootStatusOffline
+	offlineForRestore.UpdatedAt = time.Now().UTC()
+	if err := roots.Save(ctx, offlineForRestore); err != nil {
+		t.Fatalf("mark root offline before lifecycle restore: %v", err)
 	}
 	trashed, err := service.TrashCatalogItem(ctx, dto.CatalogItemLifecycleRequest{
 		ID: item.ID, ExpectedRevision: 2, ActorID: "desktop-user",
@@ -179,8 +265,15 @@ func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 	restored, err := service.RestoreCatalogItem(ctx, dto.CatalogItemLifecycleRequest{
 		ID: item.ID, ExpectedRevision: 3, ActorID: "desktop-user",
 	})
-	if err != nil || restored.Item.Status != "active" || restored.Item.Revision != 4 {
+	if err != nil || restored.Item.Status != "active" ||
+		restored.Item.Availability != "offline" ||
+		restored.Item.Revision != 4 {
 		t.Fatalf("restore item: %#v, err=%v", restored, err)
+	}
+	onlineAfterRestore := storageRoot
+	onlineAfterRestore.UpdatedAt = time.Now().UTC()
+	if err := roots.Save(ctx, onlineAfterRestore); err != nil {
+		t.Fatalf("restore root after lifecycle test: %v", err)
 	}
 	if err := db.SQL.QueryRowContext(ctx, "SELECT COUNT(*) FROM library_catalog_tombstones WHERE entity_id = ?", item.ID).Scan(&tombstones); err != nil || tombstones != 0 {
 		t.Fatalf("restore left current tombstone, count=%d err=%v", tombstones, err)
@@ -305,7 +398,8 @@ func TestCatalogServiceItemLifecycleAndManagement(t *testing.T) {
 		t.Fatalf("idempotent item-tag replacement advanced the change feed: %#v, err=%v", repeatChanges, err)
 	}
 	root, err := service.SaveCatalogStorageRoot(ctx, dto.SaveCatalogStorageRootRequest{
-		Name: "Managed files", Path: filepath.Dir(legacyPath), Mode: "managed",
+		ID: storageRoot.ID, Name: "Managed files",
+		Path: filepath.Dir(legacyPath), Mode: "managed",
 	})
 	if err != nil || root.Status != "online" {
 		t.Fatalf("save storage root: %#v, err=%v", root, err)
@@ -382,13 +476,34 @@ func TestCatalogOverviewCountsOnlyDistinctActionableMissingLocalFiles(t *testing
 		t.Fatalf("save library: %v", err)
 	}
 
-	existingPath := filepath.Join(t.TempDir(), "existing.mp3")
+	rootPath := t.TempDir()
+	roots := libraryrepo.NewSQLiteStorageRootRepository(db.Bun)
+	root, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: "root-overview", CatalogID: catalog.ID, Name: "Overview root",
+		Path: rootPath, VolumeID: "volume-overview",
+		Mode: "referenced", Status: "online", CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new overview root: %v", err)
+	}
+	if err := roots.Save(ctx, root); err != nil {
+		t.Fatalf("save overview root: %v", err)
+	}
+	existingPath := filepath.Join(rootPath, "existing.mp3")
 	if err := os.WriteFile(existingPath, []byte("audio"), 0o600); err != nil {
 		t.Fatalf("write existing file: %v", err)
 	}
-	missingPath := filepath.Join(t.TempDir(), "missing.mp3")
-	deletedPath := filepath.Join(t.TempDir(), "deleted.mp3")
-	indeterminatePath := t.TempDir() // Directories are not proof that a file is missing.
+	missingPath := filepath.Join(rootPath, "missing.mp3")
+	deletedPath := filepath.Join(rootPath, "deleted.mp3")
+	for _, path := range []string{missingPath, deletedPath} {
+		if err := os.WriteFile(path, []byte("indexed"), 0o600); err != nil {
+			t.Fatalf("write indexed fixture: %v", err)
+		}
+	}
+	indeterminatePath := filepath.Join(rootPath, "indeterminate")
+	if err := os.MkdirAll(indeterminatePath, 0o755); err != nil {
+		t.Fatalf("create indeterminate directory: %v", err)
+	}
 
 	files := libraryrepo.NewSQLiteFileRepository(db.Bun)
 	items := libraryrepo.NewSQLiteCatalogItemRepository(db.Bun)
@@ -441,6 +556,11 @@ func TestCatalogOverviewCountsOnlyDistinctActionableMissingLocalFiles(t *testing
 			t.Fatalf("save asset %s: %v", testCase.id, err)
 		}
 	}
+	for _, path := range []string{missingPath, deletedPath} {
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("remove indexed fixture: %v", err)
+		}
+	}
 	// Simulate a corrupt dangling Catalog asset. Integrity audit owns this case;
 	// there is no Library file record for file maintenance to act on.
 	conn, err := db.SQL.Conn(ctx)
@@ -488,7 +608,7 @@ func TestCatalogOverviewCountsOnlyDistinctActionableMissingLocalFiles(t *testing
 
 	service := application.NewCatalogService(
 		catalogs, items, assets, files,
-		libraryrepo.NewSQLiteStorageRootRepository(db.Bun),
+		roots,
 		libraryrepo.NewSQLiteCatalogCollectionRepository(db.Bun),
 		libraryrepo.NewSQLiteCatalogTagRepository(db.Bun),
 		libraryrepo.NewSQLiteUserStateRepository(db.Bun),
@@ -498,11 +618,152 @@ func TestCatalogOverviewCountsOnlyDistinctActionableMissingLocalFiles(t *testing
 	if err != nil {
 		t.Fatalf("get overview: %v", err)
 	}
-	if overview.Health.AssetLinks != 7 || overview.Health.UnavailableAssetFiles != 1 {
+	if overview.Health.AssetLinks != 5 || overview.Health.UnavailableAssetFiles != 1 {
 		t.Fatalf("unexpected overview health: %#v", overview.Health)
 	}
-	if overview.TotalSizeBytes != 53 {
-		t.Fatalf("overview total size = %d, want unique linked file size 53", overview.TotalSizeBytes)
+	if overview.TotalSizeBytes != 36 {
+		t.Fatalf("overview total size = %d, want rooted unique file size 36", overview.TotalSizeBytes)
+	}
+}
+
+func TestCatalogBrowseOnlyReturnsItemsBackedByStorageRoots(t *testing.T) {
+	ctx := context.Background()
+	db := openCatalogServiceTestDatabase(t, "catalog-storage-scope.db")
+	now := time.Now().UTC()
+
+	catalog, err := library.NewCatalog(library.CatalogParams{
+		ID: "catalog-storage-scope", Name: "Library",
+		Status: "active", IsDefault: true, CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogs := libraryrepo.NewSQLiteCatalogRepository(db.Bun)
+	if err := catalogs.Save(ctx, catalog); err != nil {
+		t.Fatal(err)
+	}
+	rootPath := t.TempDir()
+	root, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: "root-storage-scope", CatalogID: catalog.ID, Name: "Reference",
+		Path: rootPath, VolumeID: "volume-storage-scope",
+		Mode: "referenced", Status: "online", CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := libraryrepo.NewSQLiteStorageRootRepository(db.Bun)
+	if err := roots.Save(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := library.NewLibrary(library.LibraryParams{
+		ID: "bundle-storage-scope", Name: "Files",
+		CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := libraryrepo.NewSQLiteLibraryRepository(db.Bun).Save(ctx, bundle); err != nil {
+		t.Fatal(err)
+	}
+
+	insidePath := filepath.Join(rootPath, "inside.mp4")
+	artworkPath := filepath.Join(rootPath, "outside-cover.jpg")
+	outsidePath := filepath.Join(t.TempDir(), "outside.mp4")
+	for path, body := range map[string]string{
+		insidePath: "inside", artworkPath: "cover", outsidePath: "outside",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := libraryrepo.NewSQLiteFileRepository(db.Bun)
+	for _, file := range []struct {
+		id, kind, name, path string
+	}{
+		{"file-inside", "video", "inside.mp4", insidePath},
+		{"file-outside", "video", "outside.mp4", outsidePath},
+		{"file-outside-artwork", "thumbnail", "outside-cover.jpg", artworkPath},
+	} {
+		item, buildErr := library.NewLibraryFile(library.LibraryFileParams{
+			ID: file.id, LibraryID: bundle.ID, Kind: file.kind,
+			Name: file.name, Storage: library.FileStorage{
+				Mode: "local_path", LocalPath: file.path,
+			},
+			Origin: library.FileOrigin{
+				Kind: "import",
+				Import: &library.ImportOrigin{
+					BatchID:    "batch-storage-scope",
+					ImportPath: file.path, ImportedAt: now,
+				},
+			},
+			CreatedAt: &now, UpdatedAt: &now,
+		})
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		if err := files.Save(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items := libraryrepo.NewSQLiteCatalogItemRepository(db.Bun)
+	assets := libraryrepo.NewSQLiteItemAssetRepository(db.Bun)
+	for _, item := range []struct {
+		id, title, fileID string
+	}{
+		{"item-inside", "Inside", "file-inside"},
+		{"item-outside", "Outside", "file-outside"},
+	} {
+		catalogItem, buildErr := library.NewItem(library.ItemParams{
+			ID: item.id, CatalogID: catalog.ID, Category: "video",
+			Status: "active", Title: item.title, Revision: 1,
+			CreatedAt: &now, UpdatedAt: &now,
+		})
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		if err := items.Save(ctx, catalogItem); err != nil {
+			t.Fatal(err)
+		}
+		asset, buildErr := library.NewItemAsset(library.ItemAssetParams{
+			ID: "asset-" + item.id, ItemID: item.id, FileID: item.fileID,
+			Role: "original", CreatedAt: &now, UpdatedAt: &now,
+		})
+		if buildErr != nil {
+			t.Fatal(buildErr)
+		}
+		if err := assets.Save(ctx, asset); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artwork, err := library.NewItemAsset(library.ItemAssetParams{
+		ID: "asset-outside-artwork", ItemID: "item-outside",
+		FileID: "file-outside-artwork", Role: "artwork",
+		CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := assets.Save(ctx, artwork); err != nil {
+		t.Fatal(err)
+	}
+
+	service := application.NewCatalogService(
+		catalogs, items, assets, files, roots,
+		libraryrepo.NewSQLiteCatalogCollectionRepository(db.Bun),
+		libraryrepo.NewSQLiteCatalogTagRepository(db.Bun),
+		libraryrepo.NewSQLiteUserStateRepository(db.Bun),
+		libraryrepo.NewSQLiteCatalogMutationRepository(db.Bun), nil,
+	)
+	listed, err := service.ListCatalogItems(ctx, dto.ListCatalogItemsRequest{
+		Status: "all", ExcludeTrashed: true,
+	})
+	if err != nil || listed.Total != 1 || len(listed.Items) != 1 ||
+		listed.Items[0].ID != "item-inside" {
+		t.Fatalf("storage-scoped browse = %#v, err=%v", listed, err)
+	}
+	snapshot, err := service.ListCatalogSnapshotItems(ctx, catalog.ID, "", 10)
+	if err != nil || len(snapshot) != 1 || snapshot[0].ID != "item-inside" {
+		t.Fatalf("storage-scoped snapshot = %#v, err=%v", snapshot, err)
 	}
 }
 
@@ -535,6 +796,22 @@ func TestCatalogServiceRejectsInvalidFiltersAndMissingStorageRoot(t *testing.T) 
 	if err != nil || root.Status != "offline" || root.LastError != "" {
 		t.Fatalf("unexpected missing root status: %#v, err=%v", root, err)
 	}
+	if root.Emoji == "" {
+		t.Fatal("new storage root did not receive a persisted emoji")
+	}
+	fox := "🦊"
+	root, err = service.UpdateCatalogStorageRoot(ctx, dto.UpdateCatalogStorageRootRequest{
+		ID: root.ID, Name: root.Name, Mode: root.Mode, Emoji: &fox,
+	})
+	if err != nil || root.Emoji != fox {
+		t.Fatalf("update storage root emoji: root=%#v err=%v", root, err)
+	}
+	invalidEmoji := "not an emoji"
+	if _, err := service.UpdateCatalogStorageRoot(ctx, dto.UpdateCatalogStorageRootRequest{
+		ID: root.ID, Name: root.Name, Mode: root.Mode, Emoji: &invalidEmoji,
+	}); err == nil {
+		t.Fatal("expected invalid storage root emoji to be rejected")
+	}
 	managedDirectory := t.TempDir()
 	managedPath, err := service.EnsureManagedImportRoot(ctx, managedDirectory)
 	expectedManagedDirectory, _ := filepath.EvalSymlinks(managedDirectory)
@@ -548,5 +825,312 @@ func TestCatalogServiceRejectsInvalidFiltersAndMissingStorageRoot(t *testing.T) 
 	}
 	if err != nil || len(roots) != 2 || !hasManagedRoot {
 		t.Fatalf("managed root was not persisted: %#v, err=%v", roots, err)
+	}
+}
+
+func TestCatalogServiceDefaultRootBackfillLifecycleAndRelocation(t *testing.T) {
+	ctx := context.Background()
+	db := openCatalogServiceTestDatabase(t, "catalog-storage-root-lifecycle.db")
+	now := time.Now().UTC()
+
+	catalog, err := library.NewCatalog(library.CatalogParams{
+		ID: "catalog-storage", Name: "Library", Status: "active", IsDefault: true,
+		CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new catalog: %v", err)
+	}
+	catalogs := libraryrepo.NewSQLiteCatalogRepository(db.Bun)
+	if err := catalogs.Save(ctx, catalog); err != nil {
+		t.Fatalf("save catalog: %v", err)
+	}
+	bundle, err := library.NewLibrary(library.LibraryParams{
+		ID: "library-storage", Name: "Existing Library", CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new Library: %v", err)
+	}
+	if err := libraryrepo.NewSQLiteLibraryRepository(db.Bun).Save(ctx, bundle); err != nil {
+		t.Fatalf("save Library: %v", err)
+	}
+	downloadParent := t.TempDir()
+	downloadRoot := filepath.Join(downloadParent, "xiadown")
+	if err := os.MkdirAll(filepath.Join(downloadRoot, "resource"), 0o755); err != nil {
+		t.Fatalf("create download root: %v", err)
+	}
+	expectedDownloadRoot, err := filepath.EvalSymlinks(downloadRoot)
+	if err != nil {
+		t.Fatalf("resolve download root: %v", err)
+	}
+	expectedDownloadParent := filepath.Dir(expectedDownloadRoot)
+	existingPath := filepath.Join(downloadRoot, "resource", "existing.mp4")
+	if err := os.WriteFile(existingPath, []byte("existing-media"), 0o600); err != nil {
+		t.Fatalf("write existing media: %v", err)
+	}
+	size := int64(len("existing-media"))
+	existingFile, err := library.NewLibraryFile(library.LibraryFileParams{
+		ID: "file-storage-existing", LibraryID: bundle.ID, Kind: "video", Name: "existing.mp4",
+		Storage:   library.FileStorage{Mode: "local_path", LocalPath: existingPath},
+		Origin:    library.FileOrigin{Kind: "download", OperationID: "operation-storage-existing"},
+		Media:     &library.MediaInfo{Format: "mp4", SizeBytes: &size},
+		CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new existing file: %v", err)
+	}
+	files := libraryrepo.NewSQLiteFileRepository(db.Bun)
+	if err := files.Save(ctx, existingFile); err != nil {
+		t.Fatalf("save existing file: %v", err)
+	}
+	item, err := library.NewItem(library.ItemParams{
+		ID: "item-storage-existing", CatalogID: catalog.ID, Category: "video",
+		Status: "active", Title: "Existing", Revision: 1,
+		CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new item: %v", err)
+	}
+	items := libraryrepo.NewSQLiteCatalogItemRepository(db.Bun)
+	if err := items.Save(ctx, item); err != nil {
+		t.Fatalf("save item: %v", err)
+	}
+	asset, err := library.NewItemAsset(library.ItemAssetParams{
+		ID: "asset-storage-existing", ItemID: item.ID, FileID: existingFile.ID,
+		Role: "original", CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new item asset: %v", err)
+	}
+	assets := libraryrepo.NewSQLiteItemAssetRepository(db.Bun)
+	if err := assets.Save(ctx, asset); err != nil {
+		t.Fatalf("save item asset: %v", err)
+	}
+
+	roots := libraryrepo.NewSQLiteStorageRootRepository(db.Bun)
+	legacyRoot, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: "root-storage-legacy-parent", CatalogID: catalog.ID, Name: "XiaDown Downloads",
+		Path: downloadParent, Mode: "managed", IsDefault: true, Status: "online",
+		LastCheckedAt: &now, CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new legacy parent root: %v", err)
+	}
+	if err := roots.SaveAsDefault(ctx, legacyRoot); err != nil {
+		t.Fatalf("save legacy parent root: %v", err)
+	}
+	strayPath := filepath.Join(downloadParent, "yt-dlp", "stray.mp3")
+	if err := os.MkdirAll(filepath.Dir(strayPath), 0o755); err != nil {
+		t.Fatalf("create stray parent directory: %v", err)
+	}
+	if err := os.WriteFile(strayPath, []byte("stray"), 0o600); err != nil {
+		t.Fatalf("write stray parent file: %v", err)
+	}
+	strayFile, err := library.NewLibraryFile(library.LibraryFileParams{
+		ID: "file-storage-stray-parent", LibraryID: bundle.ID, Kind: "audio", Name: "stray.mp3",
+		Storage: library.FileStorage{
+			Mode: "local_path", LocalPath: strayPath,
+			RootID: legacyRoot.ID, RelativePath: "yt-dlp/stray.mp3",
+		},
+		Origin:    library.FileOrigin{Kind: "download", OperationID: "operation-storage-stray"},
+		CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new stray parent file: %v", err)
+	}
+	if err := files.Save(ctx, strayFile); err != nil {
+		t.Fatalf("save stray parent file: %v", err)
+	}
+	service := application.NewCatalogService(
+		catalogs, items, assets, files, roots,
+		libraryrepo.NewSQLiteCatalogCollectionRepository(db.Bun),
+		libraryrepo.NewSQLiteCatalogTagRepository(db.Bun),
+		libraryrepo.NewSQLiteUserStateRepository(db.Bun),
+		libraryrepo.NewSQLiteCatalogMutationRepository(db.Bun), nil,
+	)
+	defaultRoot, err := service.EnsureDefaultDownloadStorageRoot(ctx, downloadParent)
+	if err != nil {
+		t.Fatalf("ensure default download root: %v", err)
+	}
+	if defaultRoot.ID != legacyRoot.ID || defaultRoot.Path != expectedDownloadRoot ||
+		defaultRoot.LocationPath != expectedDownloadParent ||
+		!defaultRoot.IsDefault || defaultRoot.Mode != "managed" ||
+		defaultRoot.FileCount != 1 || defaultRoot.AssetCount != 1 ||
+		defaultRoot.VideoCount != 1 || defaultRoot.AudioCount != 0 ||
+		defaultRoot.SizeBytes != size || defaultRoot.TotalBytes <= 0 {
+		t.Fatalf("unexpected default root statistics: %#v", defaultRoot)
+	}
+	storedRoots, err := roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil || len(storedRoots) != 1 || storedRoots[0].Path != expectedDownloadRoot {
+		t.Fatalf("legacy parent root was not repaired in place: roots=%#v err=%v", storedRoots, err)
+	}
+	realVolumeID := storedRoots[0].VolumeID
+	if strings.TrimSpace(realVolumeID) == "" {
+		t.Fatal("default root did not persist its storage volume identity")
+	}
+	guardedRoot := storedRoots[0]
+	guardedRoot.VolumeID = "different-persisted-volume"
+	if err := roots.SaveAsDefault(ctx, guardedRoot); err != nil {
+		t.Fatalf("seed changed storage volume identity: %v", err)
+	}
+	if _, err := service.EnsureDefaultDownloadStorageRoot(
+		ctx,
+		downloadParent,
+	); err == nil || !strings.Contains(err.Error(), "volume identity changed") {
+		t.Fatalf("expected changed storage volume to be rejected, got %v", err)
+	}
+	preservedRoot, err := roots.Get(ctx, guardedRoot.ID)
+	if err != nil ||
+		preservedRoot.VolumeID != guardedRoot.VolumeID ||
+		preservedRoot.Status != library.StorageRootStatusError ||
+		preservedRoot.LastError != "storage volume identity changed" {
+		t.Fatalf(
+			"changed storage volume overwrote the persisted binding: root=%#v err=%v",
+			preservedRoot,
+			err,
+		)
+	}
+	preservedRoot.VolumeID = realVolumeID
+	if err := roots.SaveAsDefault(ctx, preservedRoot); err != nil {
+		t.Fatalf("restore expected storage volume identity: %v", err)
+	}
+	recoveredRoot, err := service.EnsureDefaultDownloadStorageRoot(ctx, downloadParent)
+	if err != nil ||
+		recoveredRoot.VolumeID != realVolumeID ||
+		recoveredRoot.Status != string(library.StorageRootStatusOnline) {
+		t.Fatalf("recover default storage root identity: root=%#v err=%v", recoveredRoot, err)
+	}
+	loaded, err := files.Get(ctx, existingFile.ID)
+	if err != nil {
+		t.Fatalf("load backfilled file: %v", err)
+	}
+	if loaded.Storage.LocalPath != existingPath ||
+		loaded.Storage.RootID != defaultRoot.ID ||
+		loaded.Storage.RelativePath != "resource/existing.mp4" {
+		t.Fatalf("existing file was not additively backfilled: %#v", loaded.Storage)
+	}
+	strayLoaded, err := files.Get(ctx, strayFile.ID)
+	if err != nil || strayLoaded.Storage.LocalPath != strayPath ||
+		strayLoaded.Storage.RootID != "" || strayLoaded.Storage.RelativePath != "" {
+		t.Fatalf("file outside repaired managed root was not safely detached: %#v err=%v", strayLoaded.Storage, err)
+	}
+
+	secondPath := filepath.Join(t.TempDir(), "second-downloads")
+	if err := os.MkdirAll(secondPath, 0o755); err != nil {
+		t.Fatalf("create second root: %v", err)
+	}
+	second, err := service.SaveCatalogStorageRoot(ctx, dto.SaveCatalogStorageRootRequest{
+		Name: "Second Downloads", Path: secondPath, Mode: "managed",
+	})
+	if err != nil {
+		t.Fatalf("save second managed root: %v", err)
+	}
+	var syncedPath string
+	service.SetDefaultStorageRootPathUpdater(func(_ context.Context, path string) error {
+		syncedPath = path
+		return nil
+	})
+	second, err = service.SetDefaultCatalogStorageRoot(ctx, dto.CatalogStorageRootIDRequest{ID: second.ID})
+	if err != nil {
+		t.Fatalf("set second default root: %v", err)
+	}
+	expectedSecondParent, err := filepath.EvalSymlinks(secondPath)
+	if err != nil {
+		t.Fatalf("resolve second root parent: %v", err)
+	}
+	expectedSecondPath := filepath.Join(expectedSecondParent, "xiadown")
+	resolvedDefault, err := service.DefaultStorageRootPath(ctx)
+	if err != nil || second.Path != expectedSecondPath ||
+		second.LocationPath != expectedSecondParent ||
+		resolvedDefault != expectedSecondPath || syncedPath != expectedSecondPath || !second.IsDefault {
+		t.Fatalf("default root did not synchronize: root=%#v resolved=%q synced=%q err=%v", second, resolvedDefault, syncedPath, err)
+	}
+
+	service.SetDefaultStorageRootPathUpdater(func(context.Context, string) error {
+		return errors.New("settings unavailable")
+	})
+	if _, err := service.SetDefaultCatalogStorageRoot(
+		ctx,
+		dto.CatalogStorageRootIDRequest{ID: defaultRoot.ID},
+	); err == nil {
+		t.Fatal("expected failed settings synchronization")
+	}
+	resolvedDefault, err = service.DefaultStorageRootPath(ctx)
+	if err != nil || resolvedDefault != second.Path {
+		t.Fatalf("failed default switch was not rolled back: path=%q err=%v", resolvedDefault, err)
+	}
+
+	service.SetDefaultStorageRootPathUpdater(func(_ context.Context, path string) error {
+		syncedPath = path
+		return nil
+	})
+	relocatedPath := filepath.Join(t.TempDir(), "relocated-downloads")
+	if err := os.MkdirAll(relocatedPath, 0o755); err != nil {
+		t.Fatalf("create relocated root: %v", err)
+	}
+	expectedRelocatedParent, err := filepath.EvalSymlinks(relocatedPath)
+	if err != nil {
+		t.Fatalf("resolve relocated root: %v", err)
+	}
+	expectedRelocatedPath := filepath.Join(expectedRelocatedParent, "xiadown")
+	relocated, err := service.RelocateCatalogStorageRoot(ctx, dto.RelocateCatalogStorageRootRequest{
+		ID: second.ID, Path: relocatedPath,
+	})
+	if err != nil {
+		t.Fatalf("relocate default root: %v", err)
+	}
+	resolvedDefault, err = service.DefaultStorageRootPath(ctx)
+	if err != nil || relocated.Path != expectedRelocatedPath ||
+		relocated.LocationPath != expectedRelocatedParent ||
+		resolvedDefault != expectedRelocatedPath || syncedPath != expectedRelocatedParent {
+		t.Fatalf("relocated default root did not synchronize: root=%#v resolved=%q synced=%q err=%v", relocated, resolvedDefault, syncedPath, err)
+	}
+	if err := service.RemoveCatalogStorageRoot(
+		ctx,
+		dto.CatalogStorageRootIDRequest{ID: defaultRoot.ID},
+	); err == nil {
+		t.Fatal("managed root owning existing files was removed")
+	}
+
+	referencePath := filepath.Join(t.TempDir(), "referenced")
+	if err := os.MkdirAll(referencePath, 0o755); err != nil {
+		t.Fatalf("create referenced root: %v", err)
+	}
+	referenceRoot, err := service.SaveCatalogStorageRoot(ctx, dto.SaveCatalogStorageRootRequest{
+		Name: "Referenced", Path: referencePath, Mode: "referenced",
+	})
+	if err != nil {
+		t.Fatalf("save referenced root: %v", err)
+	}
+	if referenceRoot.LocationPath != referenceRoot.Path {
+		t.Fatalf("referenced root location changed: root=%#v", referenceRoot)
+	}
+	referencedFile, err := library.NewLibraryFile(library.LibraryFileParams{
+		ID: "file-storage-referenced", LibraryID: bundle.ID, Kind: "video", Name: "reference.mp4",
+		Storage: library.FileStorage{
+			Mode: "local_path", LocalPath: filepath.Join(referencePath, "reference.mp4"),
+		},
+		Origin: library.FileOrigin{Kind: "import", Import: &library.ImportOrigin{
+			BatchID: "batch-storage-reference", ImportPath: filepath.Join(referencePath, "reference.mp4"),
+			ImportedAt: now, KeepSourceFile: true,
+		}},
+		CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new referenced file: %v", err)
+	}
+	if err := files.Save(ctx, referencedFile); err != nil {
+		t.Fatalf("save referenced file: %v", err)
+	}
+	if err := service.RemoveCatalogStorageRoot(
+		ctx,
+		dto.CatalogStorageRootIDRequest{ID: referenceRoot.ID},
+	); err != nil {
+		t.Fatalf("remove referenced root: %v", err)
+	}
+	referencedFile, err = files.Get(ctx, referencedFile.ID)
+	if err != nil || referencedFile.Storage.RootID != "" ||
+		referencedFile.Storage.RelativePath != "" ||
+		referencedFile.Storage.LocalPath != filepath.Join(referencePath, "reference.mp4") {
+		t.Fatalf("referenced root removal lost compatibility path or retained ownership: %#v err=%v", referencedFile.Storage, err)
 	}
 }

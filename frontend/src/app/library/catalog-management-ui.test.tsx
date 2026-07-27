@@ -39,6 +39,7 @@ const detail: CatalogItemDetail = {
     catalogId: "catalog-1",
     category: "video",
     status: "active",
+    availability: "available",
     title: "Catalog Film",
     sortTitle: "Catalog Film",
     description: "Verified description",
@@ -55,6 +56,7 @@ const detail: CatalogItemDetail = {
     label: "Original master",
     position: 0,
     fileAvailable: true,
+    availability: "available",
     file: {
       id: "file-1",
       libraryId: "legacy-1",
@@ -74,6 +76,14 @@ const detail: CatalogItemDetail = {
     createdAt: "2026-01-01T10:00:00Z",
     updatedAt: "2026-02-01T10:00:00Z",
   }],
+  source: {
+    originKind: "download",
+    storageMode: "managed",
+    storageRootId: "root-downloads",
+    storageRootName: "XiaDown Downloads",
+    storageRootPath: "/Users/arnold/Downloads",
+    operationId: "operation-download-1",
+  },
   representations: [{
     id: "representation-1",
     catalogId: "catalog-1",
@@ -177,9 +187,8 @@ describe("catalog item companion", () => {
     expect(previewMarkup).toContain("app-library-preview__overview--pending");
     expect(previewMarkup).toContain("app-library-preview__title-marquee");
     expect(previewMarkup).not.toContain("app-library-preview__identity");
-    expect(previewMarkup.indexOf("<dt>Category</dt>")).toBeLessThan(
-      previewMarkup.indexOf("<dt>Status</dt>"),
-    );
+    expect(previewMarkup).toContain("<dt>Category</dt>");
+    expect(previewMarkup).not.toContain("<dt>Status</dt>");
     expect(previewMarkup).toContain("Loading");
     expect(infoMarkup).toContain("app-library-preview__identity");
     expect(infoMarkup).toContain('data-compact="true"');
@@ -193,11 +202,10 @@ describe("catalog item companion", () => {
     expect(markup).toContain('title="Catalog Film" aria-label="Catalog Film"');
     expect(markup).toContain('aria-label="Rename: Catalog Film"');
     expect(markup).not.toContain("Verified description");
-    expect(markup.indexOf("<dt>Category</dt>")).toBeLessThan(
-      markup.indexOf("<dt>Status</dt>"),
-    );
+    expect(markup).toContain("<dt>Category</dt>");
+    expect(markup).not.toContain("<dt>Status</dt>");
     expect(markup).not.toContain("<dt>Format</dt>");
-    expect(markup).toContain('data-tone="success"');
+    expect(markup).not.toContain('data-tone="success"');
     expect(markup).not.toContain("app-library-preview__metadata-summary");
     expect(markup).not.toContain("media.director");
     expect(markup).not.toContain("A. Director");
@@ -250,6 +258,38 @@ describe("catalog item companion", () => {
     );
     expect(imageMarkup).toContain('data-preview-kind="image"');
     expect(imageMarkup).toContain("/api/library/asset/portrait.png?path=%2FVolumes%2FPhotos%2Fportrait.png");
+  });
+
+  test("explains an offline volume without offering a broken file preview", () => {
+    const offlineDetail: CatalogItemDetail = {
+      ...detail,
+      item: { ...detail.item, availability: "offline" },
+      assets: detail.assets.map((asset) => ({
+        ...asset,
+        fileAvailable: false,
+        availability: "offline",
+      })),
+      representations: detail.representations.map((representation) => ({
+        ...representation,
+        availability: "offline",
+      })),
+    };
+    const seed = (client: QueryClient) => {
+      client.setQueryData(catalogKeys.item("item-1", ""), offlineDetail);
+    };
+    const previewMarkup = renderCatalog("preview", seed);
+    const infoMarkup = renderCatalog("info", seed);
+
+    expect(previewMarkup).toContain('data-availability="offline"');
+    expect(previewMarkup).toContain("Offline");
+    expect(previewMarkup).toContain("XiaDown Downloads");
+    expect(previewMarkup).not.toContain("<dt>Status</dt>");
+    expect(previewMarkup).not.toContain(
+      "/api/library/asset/catalog-film.mov?path=",
+    );
+    expect(infoMarkup).toContain("<dt>Availability</dt>");
+    expect(infoMarkup).toContain("<span>Offline</span>");
+    expect(infoMarkup).not.toContain('aria-label="Open location"');
   });
 
   test("uses an available transcode after the downloaded original was replaced", () => {
@@ -403,9 +443,15 @@ describe("catalog item companion", () => {
     expect(markup).toContain("/Volumes/Media/catalog-film.mov");
     expect(markup).toContain("<dt>Format</dt>");
     expect(markup).toContain("<dt>Size</dt>");
+    expect(markup).toContain("<dt>Source</dt>");
+    expect(markup).toContain("Downloaded");
+    expect(markup).toContain("<dt>Storage mode</dt>");
+    expect(markup).toContain("Managed by XiaDown");
+    expect(markup).toContain("XiaDown Downloads");
+    expect(markup).toContain("operation-download-1");
     expect(markup).toContain("app-library-preview__location-value");
     expect(markup).toContain('aria-label="Open Directory"');
-    expect(markup).not.toContain("app-library-preview__copy-value");
+    expect(markup).toContain("app-library-preview__copy-value");
     expect(markup).toContain(
       'data-library-preview-section="info"><dl class="app-library-preview__info app-dialog-list-card app-dialog-list-card-content"',
     );
@@ -414,6 +460,32 @@ describe("catalog item companion", () => {
     expect(markup).not.toContain("Save changes");
     expect(markup).not.toContain("app-library-preview__delete-button");
     expect(markup).not.toContain("Delete</button>");
+  });
+
+  test("describes referenced imports without inventing download information", () => {
+    const markup = renderCatalog("info", (client) => {
+      client.setQueryData(catalogKeys.item("item-1", ""), {
+        ...detail,
+        source: {
+          originKind: "import",
+          storageMode: "referenced",
+          storageRootId: "root-reference",
+          storageRootName: "Creator Media",
+          storageRootPath: "/Volumes/Creator",
+          importBatchId: "batch-reference-1",
+          importPath: "/Volumes/Creator/catalog-film.mov",
+          importedAt: "2026-01-03T10:00:00Z",
+          keepSourceFile: true,
+        },
+      } satisfies CatalogItemDetail);
+    });
+
+    expect(markup).toContain("Referenced import");
+    expect(markup).toContain("Reference existing files");
+    expect(markup).toContain("Creator Media");
+    expect(markup).toContain("/Volumes/Creator/catalog-film.mov");
+    expect(markup).toContain("batch-reference-1");
+    expect(markup).not.toContain("Related task");
   });
 
   test("reveals catalog files by persisted file id and legacy files by local path", async () => {

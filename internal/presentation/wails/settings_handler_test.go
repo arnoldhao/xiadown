@@ -96,6 +96,43 @@ func TestUpdateSettingsAppliesAutostartAndPersistsSetting(t *testing.T) {
 	}
 }
 
+func TestUpdateSettingsSynchronizesDownloadRootAndRollsBackBothSidesOnFailure(t *testing.T) {
+	ctx := context.Background()
+	repo := &settingsMemoryRepository{}
+	settingsService := settingsservice.NewSettingsService(repo, nil, settings.DefaultSettings())
+	previous, err := settingsService.GetSettings(ctx)
+	if err != nil {
+		t.Fatalf("get default settings: %v", err)
+	}
+	syncer := &recordingDownloadRootSyncer{failuresRemaining: 1}
+	handler := &SettingsHandler{
+		service:            settingsService,
+		downloadRootSyncer: syncer,
+	}
+	nextPath := t.TempDir()
+	if _, err := handler.UpdateSettings(ctx, dto.UpdateSettingsRequest{
+		DownloadDirectory: &nextPath,
+	}); err == nil {
+		t.Fatal("expected download root synchronization failure")
+	}
+	current, err := settingsService.GetSettings(ctx)
+	if err != nil {
+		t.Fatalf("get rolled-back settings: %v", err)
+	}
+	if current.DownloadDirectory != previous.DownloadDirectory {
+		t.Fatalf(
+			"download setting was not rolled back: got %q want %q",
+			current.DownloadDirectory,
+			previous.DownloadDirectory,
+		)
+	}
+	if len(syncer.paths) != 2 ||
+		syncer.paths[0] != nextPath ||
+		syncer.paths[1] != previous.DownloadDirectory {
+		t.Fatalf("root synchronization calls = %#v", syncer.paths)
+	}
+}
+
 func TestUpdateSettingsRollsBackWhenAutostartUnavailable(t *testing.T) {
 	repo := &settingsMemoryRepository{}
 	handler := &SettingsHandler{
@@ -254,6 +291,23 @@ type recordingAutoStartManager struct {
 func (manager *recordingAutoStartManager) SetEnabled(enabled bool) error {
 	manager.calls = append(manager.calls, enabled)
 	return manager.err
+}
+
+type recordingDownloadRootSyncer struct {
+	paths             []string
+	failuresRemaining int
+}
+
+func (syncer *recordingDownloadRootSyncer) SyncDefaultDownloadStorageRoot(
+	_ context.Context,
+	path string,
+) error {
+	syncer.paths = append(syncer.paths, path)
+	if syncer.failuresRemaining > 0 {
+		syncer.failuresRemaining--
+		return errors.New("root unavailable")
+	}
+	return nil
 }
 
 type settingsMemoryRepository struct {

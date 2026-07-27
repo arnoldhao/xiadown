@@ -6,6 +6,7 @@ import { COMPLETED_DEFAULT_COVER_IMAGE_URLS } from "@/shared/assets/default-cove
 
 import {
   adaptCatalogItems,
+  buildCatalogCardPreviewURL,
   buildCatalogVideoThumbnailURL,
   isBrowserImagePreviewPath,
 } from "./catalog-adapter";
@@ -15,6 +16,7 @@ const baseItem: CatalogItem = {
   catalogId: "catalog-1",
   category: "video",
   status: "active",
+  availability: "available",
   title: "A film",
   sortTitle: "A film",
   revision: 1,
@@ -69,7 +71,8 @@ describe("Catalog list artwork", () => {
 
   test("does not offer video generation for unavailable or non-video items", () => {
     for (const item of [
-      { ...baseItem, status: "missing" as const, primaryFileId: "video-file" },
+      { ...baseItem, status: "missing" as const, availability: "missing" as const, primaryFileId: "video-file" },
+      { ...baseItem, availability: "offline" as const, primaryFileId: "video-file" },
       { ...baseItem, category: "audio" as const, primaryFileId: "audio-file" },
     ]) {
       const [adapted] = adaptCatalogItems([item], {
@@ -83,6 +86,56 @@ describe("Catalog list artwork", () => {
     }
     expect(buildCatalogVideoThumbnailURL("", "item-1")).toBe("");
     expect(buildCatalogVideoThumbnailURL("http://127.0.0.1", " ")).toBe("");
+  });
+
+  test("offers opaque lazy card previews for PDF and LOG without artwork", () => {
+    const [pdf] = adaptCatalogItems([{
+      ...baseItem,
+      id: "pdf one",
+      category: "book",
+      format: "pdf",
+      primaryFileId: "pdf-file",
+      title: "Guide",
+    }], { httpBaseURL: "http://127.0.0.1:43127/_xiadown/token/" });
+    expect(pdf?.cardPreview).toEqual({
+      kind: "pdf",
+      sourceURL:
+        "http://127.0.0.1:43127/_xiadown/token/api/library/card-preview/pdf/pdf%20one?v=2026-07-13T00%3A00%3A00Z",
+      cacheKey: "pdf one:2026-07-13T00:00:00Z:",
+    });
+
+    const [log] = adaptCatalogItems([{
+      ...baseItem,
+      id: "log-one",
+      category: "other",
+      kind: "other",
+      format: "log",
+      primaryFileId: "log-file",
+      title: "download.log",
+    }], { httpBaseURL: "http://127.0.0.1:43127/_xiadown/token" });
+    expect(log?.otherGroup).toBe("document");
+    expect(log?.cardPreview?.kind).toBe("log");
+    expect(log?.cardPreview?.sourceURL).toContain(
+      "/api/library/card-preview/log/log-one",
+    );
+    expect(buildCatalogCardPreviewURL("", "pdf", "item-1")).toBe("");
+    expect(buildCatalogCardPreviewURL("http://127.0.0.1", "log", " ")).toBe("");
+  });
+
+  test("keeps explicit artwork ahead of derived PDF and LOG card previews", () => {
+    const artwork = file("cover-file", "cover.webp", "thumbnail");
+    const [adapted] = adaptCatalogItems([{
+      ...baseItem,
+      category: "book",
+      format: "pdf",
+      primaryFileId: "pdf-file",
+      artworkFileId: artwork.id,
+    }], {
+      filesById: new Map([[artwork.id, artwork]]),
+      httpBaseURL: "http://127.0.0.1:43127",
+    });
+    expect(adapted?.coverURL).toContain("cover.webp");
+    expect(adapted?.cardPreview).toBeUndefined();
   });
 
   test("uses an artwork asset for video, audio and books without matching titles", () => {

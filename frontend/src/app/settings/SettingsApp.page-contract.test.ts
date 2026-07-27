@@ -71,6 +71,44 @@ describe("Settings standalone page contract", () => {
     expect(source).toContain('openExternalURL("https://xiadown.app/")');
   });
 
+  test("separates official web links from contact channels and includes Xiaohongshu", async () => {
+    const source = await Bun.file(settingsAppURL).text();
+    const webStart = source.indexOf(
+      "<SettingsCompactRow label={text.about.web}>",
+    );
+    const contactStart = source.indexOf(
+      "<SettingsCompactRow label={text.about.contact}>",
+      webStart,
+    );
+    const feedbackStart = source.indexOf(
+      "<SettingsCompactRow label={text.about.feedback}>",
+      contactStart,
+    );
+    const webRow = source.slice(webStart, contactStart);
+    const contactRow = source.slice(contactStart, feedbackStart);
+
+    expect(webStart).toBeGreaterThan(-1);
+    expect(contactStart).toBeGreaterThan(webStart);
+    expect(feedbackStart).toBeGreaterThan(contactStart);
+    expect(webRow).toContain('openExternalURL("https://xiadown.app/")');
+    expect(webRow).toContain(
+      'openExternalURL("https://github.com/arnoldhao/xiadown")',
+    );
+    expect(contactRow).toContain("openAboutContactEmail");
+    expect(contactRow).toContain('openExternalURL("https://x.com/ArnoldHaoCA")');
+    expect(contactRow).toContain(
+      "openExternalURL(ABOUT_XIAOHONGSHU_URL)",
+    );
+    expect(contactRow).toContain(
+      '<SiteBrandIcon siteKey="xiaohongshu" className="h-4 w-4" />',
+    );
+    expect(source).toContain(
+      '"https://www.xiaohongshu.com/user/profile/64dccf7d000000000100577e"',
+    );
+    expect(contactRow).not.toContain("https://xiadown.app/");
+    expect(contactRow).not.toContain("https://github.com/arnoldhao/xiadown");
+  });
+
   test("moves data and browser profile management into General sheets", async () => {
     const [source, sheets] = await Promise.all([
       Bun.file(settingsAppURL).text(),

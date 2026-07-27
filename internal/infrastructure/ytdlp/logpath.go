@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	domainsettings "xiadown/internal/domain/settings"
 )
 
 func BuildLogPath(downloadDirectory string, jobID string) (string, error) {
@@ -14,7 +16,7 @@ func BuildLogPath(downloadDirectory string, jobID string) (string, error) {
 	if trimmed == "" {
 		return "", fmt.Errorf("download directory not found")
 	}
-	logDir := filepath.Join(trimmed, "xiadown", "yt-dlp", "logs")
+	logDir := filepath.Join(domainsettings.ManagedDownloadDirectory(trimmed), "yt-dlp", "logs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return "", err
 	}
@@ -34,7 +36,7 @@ func DefaultLogPath(downloadDirectory string, jobID string) string {
 	if filename == ".log" {
 		return ""
 	}
-	return filepath.Join(trimmed, "xiadown", "yt-dlp", "logs", filename)
+	return filepath.Join(domainsettings.ManagedDownloadDirectory(trimmed), "yt-dlp", "logs", filename)
 }
 
 func ResolveLogPathFromMetadata(metadataJSON string) string {

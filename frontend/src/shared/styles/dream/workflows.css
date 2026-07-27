@@ -1370,7 +1370,7 @@
   min-height: 0;
   max-height: none;
   aspect-ratio: 16 / 9;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .app-library-ipod-dialog__image.app-media-preview-dialog-image {
@@ -1382,10 +1382,114 @@
   object-fit: contain;
 }
 
+/*
+ * PDF lightboxes use the same media-dialog chrome and title treatment as
+ * image lightboxes. Their center row remains a scrollable document viewport,
+ * with the page and zoom controls anchored in the final row.
+ */
+.app-library-pdf-dialog.app-media-preview-dialog {
+  width: min(64rem, calc(100vw - 2rem));
+  min-width: 0;
+  max-width: none;
+  height: min(48rem, calc(100vh - 2rem));
+  max-height: calc(100vh - 2rem);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.app-library-playable-dialog.app-media-preview-dialog {
+  width: min(
+    64rem,
+    calc(100vw - 2rem),
+    calc(177.7778vh - 8.75rem)
+  );
+  min-width: 0;
+  max-width: none;
+  max-height: calc(100vh - 2rem);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-library-playable-dialog__header,
+.app-library-playable-dialog__title {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-library-playable-dialog__header {
+  overflow: hidden;
+}
+
+.app-library-playable-dialog__title {
+  display: block;
+  overflow: hidden;
+  padding-inline-end: 2rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-library-pdf-dialog__header,
+.app-library-pdf-dialog__title {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-library-pdf-dialog__header {
+  overflow: hidden;
+}
+
+.app-library-pdf-dialog__title {
+  display: block;
+  overflow: hidden;
+  padding-inline-end: 2rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-library-log-dialog.app-media-preview-dialog {
+  width: min(64rem, calc(100vw - 2rem));
+  min-width: 0;
+  max-width: none;
+  height: auto;
+  max-height: calc(100vh - 2rem);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-library-log-dialog__header,
+.app-library-log-dialog__title {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.app-library-log-dialog__header {
+  overflow: hidden;
+}
+
+.app-library-log-dialog__title {
+  display: block;
+  overflow: hidden;
+  padding-inline-end: 2rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @supports (height: 100dvh) {
   .app-library-ipod-dialog.app-media-preview-dialog {
     width: min(
       52rem,
+      calc(100dvw - 2rem),
+      calc(177.7778dvh - 8.75rem)
+    );
+    max-height: calc(100dvh - 2rem);
+  }
+
+  .app-library-pdf-dialog.app-media-preview-dialog {
+    width: min(64rem, calc(100dvw - 2rem));
+    height: min(48rem, calc(100dvh - 2rem));
+    max-height: calc(100dvh - 2rem);
+  }
+
+  .app-library-playable-dialog.app-media-preview-dialog {
+    width: min(
+      64rem,
       calc(100dvw - 2rem),
       calc(177.7778dvh - 8.75rem)
     );

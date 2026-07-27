@@ -2426,6 +2426,10 @@ components:
     ItemStatus:
       type: string
       enum: [active, needs_review, missing, trashed]
+    ItemAvailability:
+      type: string
+      description: Current physical usability, independent from the logical item lifecycle.
+      enum: [available, checking, offline, missing, error]
     ItemStatusFilter:
       type: string
       x-case-insensitive: true
@@ -2698,7 +2702,7 @@ components:
     LibraryItem:
       type: object
       additionalProperties: false
-      required: [id, catalogId, category, status, title, sortTitle, revision, createdAt, updatedAt]
+      required: [id, catalogId, category, status, availability, title, sortTitle, revision, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -2728,6 +2732,8 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/ItemStatus"
+        availability:
+          $ref: "#/components/schemas/ItemAvailability"
         title:
           type: string
         sortTitle:

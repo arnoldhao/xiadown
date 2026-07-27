@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -221,7 +222,7 @@ func TestSQLiteCatalogCoreRepositoriesRoundTripAndAtomicReplace(t *testing.T) {
 
 	rootRepo := NewSQLiteStorageRootRepository(db.Bun)
 	root, err := library.NewStorageRoot(library.StorageRootParams{
-		ID: "root-main", CatalogID: catalog.ID, Name: "Media", Path: filepath.Join(t.TempDir(), "media"),
+		ID: "root-main", CatalogID: catalog.ID, Name: "Media", Emoji: "🎬", Path: filepath.Dir(legacyFile.Storage.LocalPath),
 		VolumeID: "volume-1", Mode: "managed", Status: "online", LastCheckedAt: &now,
 		CreatedAt: &now, UpdatedAt: &now,
 	})
@@ -236,8 +237,93 @@ func TestSQLiteCatalogCoreRepositoriesRoundTripAndAtomicReplace(t *testing.T) {
 		t.Fatalf("unexpected storage roots: %#v, err=%v", roots, err)
 	}
 	loadedRoot, err := rootRepo.Get(ctx, root.ID)
-	if err != nil || loadedRoot.VolumeID != "volume-1" {
+	if err != nil || loadedRoot.VolumeID != "volume-1" || loadedRoot.Emoji != "🎬" {
 		t.Fatalf("unexpected storage root: %#v, err=%v", loadedRoot, err)
+	}
+	legacyFile.Storage.RootID = root.ID
+	legacyFile.Storage.RelativePath = "movie.mp4"
+	if err := os.WriteFile(legacyFile.Storage.LocalPath, []byte("movie"), 0o600); err != nil {
+		t.Fatalf("write rooted file fixture: %v", err)
+	}
+	if err := NewSQLiteFileRepository(db.Bun).Save(ctx, legacyFile); err != nil {
+		t.Fatalf("assign file to storage root: %v", err)
+	}
+	assignedFile, err := NewSQLiteFileRepository(db.Bun).Get(ctx, legacyFile.ID)
+	if err != nil || assignedFile.Storage.RootID != root.ID {
+		t.Fatalf("file storage root assignment=%#v err=%v", assignedFile.Storage, err)
+	}
+	page, total, err := itemRepo.ListCatalogItemsPage(
+		ctx,
+		catalog.ID,
+		library.CatalogItemPageQuery{
+			Category: "video", Query: "movie", Sort: "title_asc",
+			StorageScoped: true, Limit: 1,
+		},
+	)
+	if err != nil || total != 1 || len(page) != 1 || page[0].ID != itemA.ID {
+		t.Fatalf("unexpected storage-scoped Catalog page: %#v total=%d err=%v", page, total, err)
+	}
+	page, total, err = itemRepo.ListCatalogItemsPage(
+		ctx,
+		catalog.ID,
+		library.CatalogItemPageQuery{
+			Query: "B Book", Sort: "updated_desc", Limit: 1,
+		},
+	)
+	if err != nil || total != 1 || len(page) != 1 || page[0].ID != itemB.ID {
+		t.Fatalf("unexpected unscoped Catalog page: %#v total=%d err=%v", page, total, err)
+	}
+	page, total, err = itemRepo.ListCatalogItemsPage(
+		ctx,
+		catalog.ID,
+		library.CatalogItemPageQuery{
+			Query: "%", Sort: "updated_desc", Limit: 10,
+		},
+	)
+	if err != nil || total != 0 || len(page) != 0 {
+		t.Fatalf("search wildcard was not treated literally: %#v total=%d err=%v", page, total, err)
+	}
+	planRows, err := db.SQL.QueryContext(ctx, `
+EXPLAIN QUERY PLAN
+SELECT *
+FROM library_catalog_items AS catalog_item_row
+WHERE catalog_item_row.catalog_id = ?
+  AND EXISTS (
+    SELECT 1
+    FROM library_item_assets AS asset
+    JOIN library_files AS file ON file.id = asset.file_id
+    JOIN library_storage_roots AS root ON root.id = file.storage_root_id
+    WHERE asset.item_id = catalog_item_row.id
+      AND root.catalog_id = catalog_item_row.catalog_id
+      AND asset.role IN ('original', 'representation')
+  )
+  AND status <> 'trashed'
+  AND trashed_at IS NULL
+ORDER BY updated_at DESC, id ASC
+LIMIT 48
+`, catalog.ID)
+	if err != nil {
+		t.Fatalf("explain runtime Catalog browse: %v", err)
+	}
+	var browsePlan strings.Builder
+	for planRows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := planRows.Scan(&id, &parent, &unused, &detail); err != nil {
+			planRows.Close()
+			t.Fatalf("scan runtime Catalog browse plan: %v", err)
+		}
+		browsePlan.WriteString(detail)
+		browsePlan.WriteByte('\n')
+	}
+	if err := planRows.Close(); err != nil {
+		t.Fatalf("close runtime Catalog browse plan: %v", err)
+	}
+	if detail := browsePlan.String(); !strings.Contains(
+		detail,
+		"library_catalog_items_runtime_browse_idx",
+	) || strings.Contains(strings.ToUpper(detail), "USE TEMP B-TREE") {
+		t.Fatalf("runtime Catalog browse is not bounded by its sort index:\n%s", detail)
 	}
 
 	collectionRepo := NewSQLiteCatalogCollectionRepository(db.Bun)

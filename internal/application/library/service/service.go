@@ -92,6 +92,11 @@ type LibraryService struct {
 	databaseIntegrity        databaseIntegrityStatusProvider
 	catalogProjection        CatalogProjectionRunner
 	catalogMetadataSync      listenLocalCatalogMetadataSynchronizer
+	storageRoots             library.StorageRootRepository
+	defaultDownloadRoot      func(context.Context) (string, error)
+	embeddedArtworkDirectory string
+	embeddedArtworkExtractor func(context.Context, string, string) error
+	embeddedArtworkMu        sync.Mutex
 	nowFunc                  func() time.Time
 	runMu                    sync.Mutex
 	runCancels               map[string]context.CancelFunc
@@ -251,6 +256,15 @@ func (service *LibraryService) SetCatalogProjectionRunner(runner CatalogProjecti
 	service.catalogProjection = runner
 }
 
+func (service *LibraryService) SetStorageRootRepository(
+	repository library.StorageRootRepository,
+) {
+	if service == nil {
+		return
+	}
+	service.storageRoots = repository
+}
+
 func (service *LibraryService) SetListenLocalCatalogMetadataSynchronizer(
 	synchronizer listenLocalCatalogMetadataSynchronizer,
 ) {
@@ -267,6 +281,24 @@ func (service *LibraryService) SetListenLocalMusicMembershipRepository(
 		return
 	}
 	service.localMusicMemberships = repository
+}
+
+func (service *LibraryService) SetDefaultDownloadRootProvider(
+	provider func(context.Context) (string, error),
+) {
+	if service == nil {
+		return
+	}
+	service.defaultDownloadRoot = provider
+}
+
+// SetEmbeddedArtworkDirectory configures the private generated-artwork cache.
+// Referenced source folders are never modified.
+func (service *LibraryService) SetEmbeddedArtworkDirectory(path string) {
+	if service == nil {
+		return
+	}
+	service.embeddedArtworkDirectory = strings.TrimSpace(path)
 }
 
 func (service *LibraryService) syncCatalogProjection(ctx context.Context, libraryIDs ...string) error {
@@ -1390,14 +1422,17 @@ func (service *LibraryService) GetWorkspaceState(ctx context.Context, request dt
 	return toWorkspaceDTO(item), nil
 }
 
-func (service *LibraryService) OpenFileLocation(_ context.Context, request dto.OpenFileLocationRequest) error {
+func (service *LibraryService) OpenFileLocation(ctx context.Context, request dto.OpenFileLocationRequest) error {
 	fileID := strings.TrimSpace(request.FileID)
 	if fileID == "" {
 		return fmt.Errorf("fileId is required")
 	}
-	item, err := service.files.Get(context.Background(), fileID)
+	item, err := service.files.Get(ctx, fileID)
 	if err != nil {
 		return err
+	}
+	if !catalogFileCanAttemptRead(ctx, item, service.storageRoots) {
+		return fmt.Errorf("file is not currently available")
 	}
 	path := strings.TrimSpace(item.Storage.LocalPath)
 	if path == "" {
@@ -1410,7 +1445,12 @@ func (service *LibraryService) OpenFileLocation(_ context.Context, request dto.O
 		}
 		return opener.RevealPath(cleaned)
 	}
-	return opener.OpenDirectory(filepath.Dir(cleaned))
+	parent := filepath.Dir(cleaned)
+	info, err := os.Stat(parent)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("file location is not currently available")
+	}
+	return opener.OpenDirectory(parent)
 }
 
 func (service *LibraryService) OpenPath(_ context.Context, request dto.OpenPathRequest) error {
@@ -1705,6 +1745,7 @@ type importFileParams struct {
 	HistoryID              string
 	EventID                string
 	OptionalProbe          bool
+	SkipProbe              bool
 	DeferCatalogProjection bool
 }
 
@@ -1718,7 +1759,9 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 	storage := library.FileStorage{Mode: "local_path", LocalPath: params.Path}
 	media := mediaProbe{}
 	var err error
-	if params.OptionalProbe {
+	if params.SkipProbe {
+		media = probeLocalMedia(params.Path)
+	} else if params.OptionalProbe {
 		media = service.probeLocalMedia(ctx, params.Path)
 	} else {
 		media, err = service.probeRequiredMedia(ctx, params.Path)
@@ -1746,7 +1789,8 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 		Name:        resolveStoredFileName(params.Path, params.Name),
 		DisplayName: strings.TrimSpace(params.Name),
 		Metadata: library.FileMetadata{
-			Title: strings.TrimSpace(params.Name),
+			Title:  firstNonEmpty(media.Title, strings.TrimSpace(params.Name)),
+			Author: strings.TrimSpace(media.Artist),
 		},
 		Storage: storage,
 		Origin: library.FileOrigin{
@@ -1769,6 +1813,10 @@ func (service *LibraryService) createImportFile(ctx context.Context, params impo
 	if err := service.files.Save(ctx, fileItem); err != nil {
 		return library.LibraryFile{}, library.HistoryRecord{}, library.FileEventRecord{}, err
 	}
+	// Embedded artwork is a generated auxiliary asset. Keep it outside a
+	// referenced source folder and register it before the local-music and
+	// Catalog projections consume this import.
+	_, _ = service.ensureEmbeddedArtwork(ctx, fileItem, &media)
 	historyID := strings.TrimSpace(params.HistoryID)
 	if historyID == "" {
 		historyID = uuid.NewString()
@@ -1980,13 +2028,16 @@ func toDomainModuleConfig(config dto.LibraryModuleConfigDTO) library.ModuleConfi
 
 func toLibraryFileDTO(item library.LibraryFile) dto.LibraryFileDTO {
 	result := dto.LibraryFileDTO{
-		ID:                item.ID,
-		LibraryID:         item.LibraryID,
-		Kind:              string(item.Kind),
-		Name:              item.Name,
-		DisplayName:       resolveLibraryFileDisplayName(item),
-		FileName:          resolveLibraryFileName(item),
-		Storage:           dto.LibraryFileStorageDTO{Mode: item.Storage.Mode, LocalPath: item.Storage.LocalPath, DocumentID: item.Storage.DocumentID},
+		ID:          item.ID,
+		LibraryID:   item.LibraryID,
+		Kind:        string(item.Kind),
+		Name:        item.Name,
+		DisplayName: resolveLibraryFileDisplayName(item),
+		FileName:    resolveLibraryFileName(item),
+		Storage: dto.LibraryFileStorageDTO{
+			Mode: item.Storage.Mode, LocalPath: item.Storage.LocalPath, DocumentID: item.Storage.DocumentID,
+			RootID: item.Storage.RootID, RelativePath: item.Storage.RelativePath,
+		},
 		Lineage:           dto.LibraryFileLineageDTO{RootFileID: item.Lineage.RootFileID},
 		Metadata:          dto.LibraryFileMetaDTO{Title: item.Metadata.Title, Author: item.Metadata.Author, Extractor: item.Metadata.Extractor},
 		LatestOperationID: item.LatestOperationID,

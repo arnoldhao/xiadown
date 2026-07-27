@@ -181,9 +181,9 @@ func TestLibraryOpenAPICriticalSchemasPreservePublicJSONCasing(t *testing.T) {
 		[]string{"catalog", "categories", "statuses", "health", "sync", "capabilities"})
 	assertObjectSchema(t, schemas, "LibraryItem", []string{
 		"id", "catalogId", "category", "kind", "format", "durationMs", "sizeBytes",
-		"primaryAssetId", "primaryFileId", "artworkAssetId", "artworkFileId", "status",
+		"primaryAssetId", "primaryFileId", "artworkAssetId", "artworkFileId", "status", "availability",
 		"title", "sortTitle", "description", "revision", "trashedAt", "createdAt", "updatedAt",
-	}, []string{"id", "catalogId", "category", "status", "title", "sortTitle", "revision", "createdAt", "updatedAt"})
+	}, []string{"id", "catalogId", "category", "status", "availability", "title", "sortTitle", "revision", "createdAt", "updatedAt"})
 	assertObjectSchema(t, schemas, "LibrarySnapshotPage",
 		[]string{"items", "epoch", "highWater", "next", "hasMore"},
 		[]string{"items", "epoch", "highWater", "hasMore"})

@@ -104,14 +104,13 @@ describe("library preview companion presentation", () => {
     expect(markup).toContain('<span aria-hidden="true">Field Recording</span>');
     expect(markup).not.toContain("A quiet morning by the sea");
     expect(markup).toContain("Audio");
-    expect(markup).toContain('data-tone="success"');
+    expect(markup).not.toContain('data-tone="success"');
     expect(markup).toContain("app-library-preview__facts");
     expect(markup).toContain("app-dialog-list-card app-dialog-list-card-content");
     expect(markup).toContain("app-library-preview__fact app-dialog-row");
     expect(markup).not.toContain("Home Library");
-    expect(markup.indexOf("<dt>Category</dt>")).toBeLessThan(
-      markup.indexOf("<dt>Status</dt>"),
-    );
+    expect(markup).toContain("<dt>Category</dt>");
+    expect(markup).not.toContain("<dt>Status</dt>");
     expect(markup).not.toContain("<dt>Format</dt>");
   });
 
@@ -201,7 +200,7 @@ describe("library preview companion presentation", () => {
 
     expect(markup).not.toContain(zh("xiadown.libraryCatalog.library"));
     expect(markup).toContain(`<dt>${zh("xiadown.libraryCatalog.category")}</dt>`);
-    expect(markup).toContain(`<dt>${zh("xiadown.libraryCatalog.status")}</dt>`);
+    expect(markup).not.toContain(`<dt>${zh("xiadown.libraryCatalog.status")}</dt>`);
     expect(markup).not.toContain("Library · FLAC");
     expect(markup).not.toContain(labels.dateTimeValue(previewItem().updatedAt));
     expect(markup).not.toContain("Feb 1, 2026");
@@ -251,6 +250,9 @@ describe("library preview companion presentation", () => {
     expect(markup).toContain(`aria-label="${labels.play}"`);
     expect(markup).toContain(`aria-label="${labels.seek}"`);
     expect(markup).toContain(`aria-label="${labels.volume}"`);
+    expect(markup).toContain("app-library-ipod__range-mode");
+    expect(markup).toContain(`aria-label="${labels.preview}"`);
+    expect(markup).toContain("lucide-eye");
     expect(markup).not.toContain("lucide-maximize");
     expect(markup).not.toContain("lucide-heart");
     expect(markup).not.toContain("lucide-download");
@@ -331,6 +333,15 @@ describe("library preview companion presentation", () => {
     expect(css).toContain(".app-library-preview__tabs .app-dream-segment-switch-tab");
     expect(css).toContain(".app-library-ipod__wheel");
     expect(css).toContain(".app-library-ipod__screen");
+    expect(css).toMatch(
+      /\.app-library-preview__task-file > header\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/s,
+    );
+    expect(css).toMatch(
+      /\.app-library-preview__inline-rename\[data-placement="row"\]\s+\.app-library-preview__inline-rename-display\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/s,
+    );
+    expect(css).toMatch(
+      /\.app-library-preview__task-file > header strong\s*\{[^}]*display:\s*block[^}]*max-width:\s*100%[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
+    );
     expect(css).toMatch(
       /\.app-library-preview__media\[data-preview-kind="video"\]\s*\{[^}]*overflow:\s*hidden/s,
     );

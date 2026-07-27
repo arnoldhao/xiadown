@@ -121,6 +121,13 @@ func (service *Service) DryRun(ctx context.Context, command DryRunCommand) (Batc
 	if scanErr == nil {
 		candidates, scanErr = service.markExistingDuplicates(ctx, candidates)
 	}
+	if scanErr == nil && mode == importdomain.ModeReferenced && service.managedRoots != nil {
+		if registrar, ok := service.managedRoots.(ReferencedRootRegistrar); ok {
+			if err := registrar.EnsureReferencedImportRoots(ctx, command.ReferenceRoots); err != nil {
+				scanErr = fmt.Errorf("register referenced import root: %w", err)
+			}
+		}
+	}
 	if scanErr != nil {
 		failedAt := service.timestamp()
 		batch.Status = importdomain.BatchFailed

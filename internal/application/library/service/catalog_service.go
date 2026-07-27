@@ -11,12 +11,15 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
 	"xiadown/internal/application/library/catalogaudit"
 	"xiadown/internal/application/library/dto"
 	"xiadown/internal/domain/library"
+	domainsettings "xiadown/internal/domain/settings"
 )
 
 const (
@@ -27,24 +30,56 @@ const (
 
 var catalogUserStateNamespace = uuid.MustParse("83c619a1-d57c-43d4-8361-a7e6aa13568f")
 
+var catalogStorageRootEmojiOptions = [...]string{
+	"📁", "🗂️", "💾", "🎬",
+	"🎵", "📚", "🖼️", "🌈",
+	"🚀", "⭐", "🌙", "☁️",
+	"🧰", "🗄️", "📦", "💿",
+}
+
+func catalogStorageRootEmojiForID(id string) string {
+	var hash uint32 = 2166136261
+	for _, value := range []byte(strings.TrimSpace(id)) {
+		hash ^= uint32(value)
+		hash *= 16777619
+	}
+	return catalogStorageRootEmojiOptions[int(hash%uint32(len(catalogStorageRootEmojiOptions)))]
+}
+
+func normalizeCatalogStorageRootEmoji(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || !utf8.ValidString(value) || len(value) > 64 ||
+		len([]rune(value)) > 16 {
+		return "", false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.IsSpace(character) {
+			return "", false
+		}
+	}
+	return value, true
+}
+
 // CatalogService is the application boundary for the professional logical
 // library. Legacy LibraryFile remains the physical asset registry and is only
 // read here; lifecycle operations never remove a file from disk.
 type CatalogService struct {
-	catalogs     library.CatalogRepository
-	items        library.CatalogItemRepository
-	assets       library.ItemAssetRepository
-	files        library.FileRepository
-	roots        library.StorageRootRepository
-	collections  library.CatalogCollectionRepository
-	tags         library.CatalogTagRepository
-	userStates   library.UserStateRepository
-	mutations    library.CatalogMutationRepository
-	professional library.CatalogProfessionalMutationRepository
-	changes      library.CatalogChangeRepository
-	auditor      catalogaudit.Auditor
-	now          func() time.Time
-	newID        func() string
+	catalogs              library.CatalogRepository
+	items                 library.CatalogItemRepository
+	assets                library.ItemAssetRepository
+	files                 library.FileRepository
+	roots                 library.StorageRootRepository
+	collections           library.CatalogCollectionRepository
+	tags                  library.CatalogTagRepository
+	userStates            library.UserStateRepository
+	mutations             library.CatalogMutationRepository
+	professional          library.CatalogProfessionalMutationRepository
+	changes               library.CatalogChangeRepository
+	auditor               catalogaudit.Auditor
+	now                   func() time.Time
+	newID                 func() string
+	updateDefaultRootPath func(context.Context, string) error
+	availabilityChanged   func(context.Context, string)
 }
 
 type catalogCollectionPageRepository interface {
@@ -54,6 +89,45 @@ type catalogCollectionPageRepository interface {
 
 type catalogTagPageRepository interface {
 	ListByCatalogIDPage(context.Context, string, int, int) ([]library.Tag, error)
+}
+
+type catalogStorageScopedItemRepository interface {
+	ListStorageScopedByCatalogID(context.Context, string) ([]library.Item, error)
+	ListStorageScopedSnapshotPageByCatalogID(
+		context.Context,
+		string,
+		string,
+		int,
+	) ([]library.Item, error)
+}
+
+type catalogStorageRootDefaultRepository interface {
+	SaveAsDefault(context.Context, library.StorageRoot) error
+}
+
+type catalogStorageRootRelocationRepository interface {
+	SaveRelocatingFiles(context.Context, library.StorageRoot, map[string]string) error
+}
+
+type catalogStorageRootUsage struct {
+	FileCount  int
+	AssetCount int
+	VideoCount int
+	AudioCount int
+	SizeBytes  int64
+}
+
+// CatalogStorageRootMetadata is the bounded, filesystem-free view consumed by
+// background coordinators. UI statistics deliberately stay out of this type so
+// periodic root reconciliation never triggers file availability checks or
+// per-item asset queries.
+type CatalogStorageRootMetadata struct {
+	ID       string
+	Name     string
+	Path     string
+	VolumeID string
+	Mode     library.StorageRootMode
+	Status   library.StorageRootStatus
 }
 
 func NewCatalogService(
@@ -91,18 +165,44 @@ func (service *CatalogService) SetCatalogChangeRepository(repository library.Cat
 	service.changes = repository
 }
 
+// SetDefaultStorageRootPathUpdater keeps the user-facing download setting in
+// sync when the default root is changed from Library management.
+func (service *CatalogService) SetDefaultStorageRootPathUpdater(
+	updater func(context.Context, string) error,
+) {
+	if service == nil {
+		return
+	}
+	service.updateDefaultRootPath = updater
+}
+
+// SetCatalogAvailabilityChangeNotifier wires root health transitions to one
+// coalesced Library refresh without coupling CatalogService to a UI transport.
+func (service *CatalogService) SetCatalogAvailabilityChangeNotifier(
+	notifier func(context.Context, string),
+) {
+	if service == nil {
+		return
+	}
+	service.availabilityChanged = notifier
+}
+
 func (service *CatalogService) GetDefaultCatalogOverview(ctx context.Context) (dto.CatalogOverviewDTO, error) {
 	catalog, err := service.defaultCatalog(ctx)
 	if err != nil {
 		return dto.CatalogOverviewDTO{}, err
 	}
-	items, err := service.items.ListByCatalogID(ctx, catalog.ID)
+	items, err := service.listStorageScopedCatalogItems(ctx, catalog.ID)
 	if err != nil {
 		return dto.CatalogOverviewDTO{}, err
 	}
 	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
 	if err != nil {
 		return dto.CatalogOverviewDTO{}, err
+	}
+	rootIDs := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		rootIDs[root.ID] = struct{}{}
 	}
 	result := dto.CatalogOverviewDTO{Catalog: catalogDTO(catalog)}
 	seenFiles := make(map[string]struct{})
@@ -134,15 +234,8 @@ func (service *CatalogService) GetDefaultCatalogOverview(ctx context.Context) (d
 		if listErr != nil {
 			return dto.CatalogOverviewDTO{}, listErr
 		}
-		if len(assets) == 0 {
-			result.Health.ItemsWithoutAssets++
-		}
-		result.Health.AssetLinks += len(assets)
+		rootedAssetCount := 0
 		for _, asset := range assets {
-			if _, exists := seenFiles[asset.FileID]; exists {
-				continue
-			}
-			seenFiles[asset.FileID] = struct{}{}
 			file, getErr := service.files.Get(ctx, asset.FileID)
 			if errors.Is(getErr, sql.ErrNoRows) || errors.Is(getErr, library.ErrFileNotFound) {
 				// A dangling asset is a Catalog integrity finding, not a local file
@@ -152,6 +245,14 @@ func (service *CatalogService) GetDefaultCatalogOverview(ctx context.Context) (d
 			if getErr != nil {
 				return dto.CatalogOverviewDTO{}, getErr
 			}
+			if _, rooted := rootIDs[strings.TrimSpace(file.Storage.RootID)]; !rooted {
+				continue
+			}
+			rootedAssetCount++
+			if _, exists := seenFiles[asset.FileID]; exists {
+				continue
+			}
+			seenFiles[asset.FileID] = struct{}{}
 			if file.Media != nil && file.Media.SizeBytes != nil && *file.Media.SizeBytes > 0 {
 				result.TotalSizeBytes += *file.Media.SizeBytes
 			}
@@ -162,6 +263,10 @@ func (service *CatalogService) GetDefaultCatalogOverview(ctx context.Context) (d
 				result.Health.LegacyFilesWithErrors++
 			}
 		}
+		if rootedAssetCount == 0 {
+			result.Health.ItemsWithoutAssets++
+		}
+		result.Health.AssetLinks += rootedAssetCount
 	}
 	for _, root := range roots {
 		switch root.Status {
@@ -203,7 +308,42 @@ func (service *CatalogService) ListCatalogItems(ctx context.Context, request dto
 	if limit > maximumCatalogListLimit || request.Offset < 0 {
 		return dto.ListCatalogItemsResponse{}, fmt.Errorf("invalid catalog pagination")
 	}
-	items, err := service.items.ListByCatalogID(ctx, catalog.ID)
+	sortValue, err := normalizeCatalogSort(request.Sort)
+	if err != nil {
+		return dto.ListCatalogItemsResponse{}, err
+	}
+	if pager, ok := service.items.(library.CatalogItemPageRepository); ok {
+		pageItems, total, pageErr := pager.ListCatalogItemsPage(
+			ctx,
+			catalog.ID,
+			library.CatalogItemPageQuery{
+				Category:       catalogListFilterValue(category),
+				Status:         catalogListFilterValue(status),
+				Query:          strings.TrimSpace(request.Query),
+				Sort:           sortValue,
+				ExcludeTrashed: request.ExcludeTrashed,
+				StorageScoped:  status != string(library.ItemStatusTrashed),
+				Limit:          limit,
+				Offset:         request.Offset,
+			},
+		)
+		if pageErr != nil {
+			return dto.ListCatalogItemsResponse{}, pageErr
+		}
+		summaries, summaryErr := service.catalogListItemDTOs(ctx, pageItems)
+		if summaryErr != nil {
+			return dto.ListCatalogItemsResponse{}, summaryErr
+		}
+		return dto.ListCatalogItemsResponse{
+			Items: summaries, Total: total, Limit: limit, Offset: request.Offset,
+		}, nil
+	}
+	var items []library.Item
+	if status == string(library.ItemStatusTrashed) {
+		items, err = service.items.ListByCatalogID(ctx, catalog.ID)
+	} else {
+		items, err = service.listStorageScopedCatalogItems(ctx, catalog.ID)
+	}
 	if err != nil {
 		return dto.ListCatalogItemsResponse{}, err
 	}
@@ -225,7 +365,7 @@ func (service *CatalogService) ListCatalogItems(ctx context.Context, request dto
 		}
 		filtered = append(filtered, item)
 	}
-	if err := sortCatalogItems(filtered, request.Sort); err != nil {
+	if err := sortCatalogItems(filtered, sortValue); err != nil {
 		return dto.ListCatalogItemsResponse{}, err
 	}
 	result := dto.ListCatalogItemsResponse{Total: len(filtered), Limit: limit, Offset: request.Offset, Items: []dto.CatalogItemDTO{}}
@@ -236,15 +376,19 @@ func (service *CatalogService) ListCatalogItems(ctx context.Context, request dto
 	if end > len(filtered) {
 		end = len(filtered)
 	}
-	result.Items = make([]dto.CatalogItemDTO, 0, end-request.Offset)
-	for _, item := range filtered[request.Offset:end] {
-		summary, summaryErr := service.catalogListItemDTO(ctx, item)
-		if summaryErr != nil {
-			return dto.ListCatalogItemsResponse{}, summaryErr
-		}
-		result.Items = append(result.Items, summary)
+	result.Items, err = service.catalogListItemDTOs(ctx, filtered[request.Offset:end])
+	if err != nil {
+		return dto.ListCatalogItemsResponse{}, err
 	}
 	return result, nil
+}
+
+func catalogListFilterValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "all" {
+		return ""
+	}
+	return value
 }
 
 // ListCatalogSnapshotItems returns a path-free, presentation-ready keyset page
@@ -271,10 +415,15 @@ func (service *CatalogService) ListCatalogSnapshotItems(
 	}
 
 	var items []library.Item
-	if pager, ok := service.items.(library.CatalogItemSnapshotRepository); ok {
-		items, err = pager.ListSnapshotPageByCatalogID(ctx, catalogID, afterID, limit)
+	if pager, ok := service.items.(catalogStorageScopedItemRepository); ok {
+		items, err = pager.ListStorageScopedSnapshotPageByCatalogID(
+			ctx,
+			catalogID,
+			afterID,
+			limit,
+		)
 	} else {
-		items, err = service.items.ListByCatalogID(ctx, catalogID)
+		items, err = service.listStorageScopedCatalogItems(ctx, catalogID)
 		if err == nil {
 			items = catalogSnapshotFallbackPage(items, afterID, limit)
 		}
@@ -283,21 +432,15 @@ func (service *CatalogService) ListCatalogSnapshotItems(
 		return nil, err
 	}
 
-	result := make([]dto.CatalogItemDTO, 0, len(items))
 	previousID := afterID
 	for _, item := range items {
 		if item.CatalogID != catalogID || item.Status == library.ItemStatusTrashed || item.TrashedAt != nil ||
 			strings.Compare(item.ID, previousID) <= 0 {
 			return nil, errors.New("invalid Catalog snapshot keyset page")
 		}
-		summary, summaryErr := service.catalogListItemDTO(ctx, item)
-		if summaryErr != nil {
-			return nil, summaryErr
-		}
-		result = append(result, summary)
 		previousID = item.ID
 	}
-	return result, nil
+	return service.catalogListItemDTOs(ctx, items)
 }
 
 func catalogSnapshotFallbackPage(items []library.Item, afterID string, limit int) []library.Item {
@@ -315,12 +458,62 @@ func catalogSnapshotFallbackPage(items []library.Item, afterID string, limit int
 	return filtered
 }
 
+func (service *CatalogService) listStorageScopedCatalogItems(
+	ctx context.Context,
+	catalogID string,
+) ([]library.Item, error) {
+	if repository, ok := service.items.(catalogStorageScopedItemRepository); ok {
+		return repository.ListStorageScopedByCatalogID(ctx, catalogID)
+	}
+	items, err := service.items.ListByCatalogID(ctx, catalogID)
+	if err != nil {
+		return nil, err
+	}
+	roots, err := service.roots.ListByCatalogID(ctx, catalogID)
+	if err != nil {
+		return nil, err
+	}
+	rootIDs := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		rootIDs[root.ID] = struct{}{}
+	}
+	files, err := service.files.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rootedFileIDs := make(map[string]struct{}, len(files))
+	for _, file := range files {
+		if _, exists := rootIDs[strings.TrimSpace(file.Storage.RootID)]; exists {
+			rootedFileIDs[file.ID] = struct{}{}
+		}
+	}
+	result := make([]library.Item, 0, len(items))
+	for _, item := range items {
+		assets, listErr := service.assets.ListByItemID(ctx, item.ID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, asset := range assets {
+			if asset.Role != library.ItemAssetRoleOriginal &&
+				asset.Role != library.ItemAssetRoleRepresentation {
+				continue
+			}
+			if _, exists := rootedFileIDs[asset.FileID]; !exists {
+				continue
+			}
+			result = append(result, item)
+			break
+		}
+	}
+	return result, nil
+}
+
 // catalogListItemDTO enriches the logical item with a small, path-free summary
 // of its primary and artwork assets. Opaque asset IDs let remote clients request
 // content through the authenticated asset route; opaque file IDs let the
 // desktop reuse its already-loaded LibraryFile records without leaking a local
 // path into the public list contract.
-func (service *CatalogService) catalogListItemDTO(ctx context.Context, item library.Item) (dto.CatalogItemDTO, error) {
+func (service *CatalogService) catalogListItemDTOLegacy(ctx context.Context, item library.Item) (dto.CatalogItemDTO, error) {
 	result := catalogItemDTO(item)
 	assets, err := service.assets.ListByItemID(ctx, item.ID)
 	if err != nil {
@@ -373,6 +566,7 @@ func (service *CatalogService) catalogListItemDTO(ctx context.Context, item libr
 			result.DurationMs = primaryFile.Media.DurationMs
 			result.SizeBytes = primaryFile.Media.SizeBytes
 		}
+		result.Availability = string(service.catalogFileAvailability(ctx, primaryFile))
 	}
 	// Most downloaded items already carry an explicit artwork role. Only consult
 	// the representation table when that fast path did not find a cover, avoiding
@@ -448,24 +642,59 @@ func (service *CatalogService) GetCatalogItem(ctx context.Context, request dto.G
 	if err != nil {
 		return dto.CatalogItemDetailDTO{}, err
 	}
+	presentations, presentationSupported, err := service.catalogItemPresentations(
+		ctx,
+		[]library.Item{item},
+	)
+	if err != nil {
+		return dto.CatalogItemDetailDTO{}, err
+	}
+	presentation := presentations[item.ID]
+	presentationAssets := catalogPresentationAssetsByID(presentation)
+	if presentationSupported {
+		result.Item.Availability = string(presentation.availability)
+	}
 	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
 	if err != nil {
 		return dto.CatalogItemDetailDTO{}, err
 	}
 	assetRootIDs := make(map[string]string, len(assets))
+	filesByAssetID := make(map[string]library.LibraryFile, len(assets))
 	for _, asset := range assets {
 		assetDTO := catalogItemAssetDTO(asset)
+		assetDTO.Availability = string(library.ItemAvailabilityMissing)
 		file, getErr := service.files.Get(ctx, asset.FileID)
 		if getErr == nil {
+			filesByAssetID[asset.ID] = file
 			fileDTO := toLibraryFileDTO(file)
 			assetDTO.File = &fileDTO
-			assetDTO.FileAvailable = catalogFileAvailable(file)
-			assetDTO.StorageRootID = catalogStorageRootIDForPath(roots, file.Storage.LocalPath)
+			availability := library.ItemAvailabilityChecking
+			if snapshot, exists := presentationAssets[asset.ID]; exists {
+				availability = catalogPresentationAssetAvailability(snapshot)
+				assetDTO.StorageRootID = snapshot.StorageRootID
+			} else {
+				// SQLite supplies the physical state through the batch read
+				// model above. Only repositories without that projection need
+				// an on-demand filesystem check.
+				availability = service.catalogFileAvailability(ctx, file)
+			}
+			assetDTO.Availability = string(availability)
+			assetDTO.FileAvailable = availability == library.ItemAvailabilityAvailable
+			if assetDTO.StorageRootID == "" {
+				assetDTO.StorageRootID = catalogStorageRootIDForPath(roots, file.Storage.LocalPath)
+			}
 			assetRootIDs[asset.ID] = assetDTO.StorageRootID
 		} else if !errors.Is(getErr, sql.ErrNoRows) {
 			return dto.CatalogItemDetailDTO{}, getErr
 		}
 		result.Assets = append(result.Assets, assetDTO)
+	}
+	if primary, ok := selectCatalogPresentationPrimary(presentation.assets); ok {
+		if sourceFile, exists := filesByAssetID[primary.AssetID]; exists {
+			result.Source = catalogItemSourceDTO(sourceFile, roots)
+		}
+	} else if _, sourceFile, ok := selectCatalogPrimaryAsset(assets, filesByAssetID); ok {
+		result.Source = catalogItemSourceDTO(sourceFile, roots)
 	}
 	if service.professional != nil {
 		representations, listErr := service.professional.ListRepresentationsByItemID(ctx, item.ID)
@@ -475,6 +704,14 @@ func (service *CatalogService) GetCatalogItem(ctx context.Context, request dto.G
 		for _, representation := range representations {
 			representationDTO := catalogRepresentationDTO(representation)
 			representationDTO.StorageRootID = assetRootIDs[representation.AssetID]
+			if snapshot, exists := presentationAssets[representation.AssetID]; exists {
+				representationDTO.Availability = string(
+					catalogRepresentationPhysicalAvailability(
+						representation.Availability,
+						catalogPresentationAssetAvailability(snapshot),
+					),
+				)
+			}
 			result.Representations = append(result.Representations, representationDTO)
 		}
 		metadata, listErr := service.professional.ListMetadataEntriesByItemID(ctx, item.ID)
@@ -522,10 +759,26 @@ func (service *CatalogService) ListCatalogRepresentations(
 	if err != nil {
 		return nil, err
 	}
+	presentations, presentationSupported, err := service.catalogItemPresentations(
+		ctx,
+		[]library.Item{item},
+	)
+	if err != nil {
+		return nil, err
+	}
+	presentationAssets := catalogPresentationAssetsByID(presentations[item.ID])
 	result := make([]dto.CatalogRepresentationDTO, 0, len(items))
 	for _, representation := range items {
 		itemDTO := catalogRepresentationDTO(representation)
 		itemDTO.StorageRootID = rootIDs[representation.AssetID]
+		if presentationSupported {
+			if snapshot, exists := presentationAssets[representation.AssetID]; exists {
+				itemDTO.Availability = string(catalogRepresentationPhysicalAvailability(
+					representation.Availability,
+					catalogPresentationAssetAvailability(snapshot),
+				))
+			}
+		}
 		result = append(result, itemDTO)
 	}
 	return result, nil
@@ -1458,11 +1711,290 @@ func (service *CatalogService) ListCatalogStorageRoots(ctx context.Context) ([]d
 	if err != nil {
 		return nil, err
 	}
+	usage, err := service.catalogStorageRootUsage(ctx, catalog.ID, items)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]dto.CatalogStorageRootDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, catalogStorageRootDTO(item))
+		result = append(result, catalogStorageRootDTOWithUsage(item, usage[item.ID]))
 	}
 	return result, nil
+}
+
+// ListCatalogStorageRootMetadata reads only the Catalog and its root rows. It
+// is safe for watcher reconciliation and other periodic background work.
+func (service *CatalogService) ListCatalogStorageRootMetadata(
+	ctx context.Context,
+) ([]CatalogStorageRootMetadata, error) {
+	if service == nil || service.catalogs == nil || service.roots == nil {
+		return nil, errors.New("catalog storage root metadata unavailable")
+	}
+	catalog, err := service.activeDefaultCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items, err := service.roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]CatalogStorageRootMetadata, 0, len(items))
+	for _, item := range items {
+		result = append(result, CatalogStorageRootMetadata{
+			ID: item.ID, Name: item.Name, Path: item.Path,
+			VolumeID: item.VolumeID, Mode: item.Mode, Status: item.Status,
+		})
+	}
+	return result, nil
+}
+
+func (service *CatalogService) ListCatalogStorageVolumes(context.Context) ([]dto.CatalogStorageVolumeDTO, error) {
+	items, err := listCatalogStorageVolumes()
+	if err != nil {
+		return nil, err
+	}
+	return catalogStorageVolumeDTOs(items), nil
+}
+
+func (service *CatalogService) GetCatalogStorageRoot(
+	ctx context.Context,
+	request dto.CatalogStorageRootIDRequest,
+) (dto.CatalogStorageRootDTO, error) {
+	catalog, root, err := service.defaultCatalogStorageRoot(ctx, request.ID)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	usage, err := service.catalogStorageRootUsage(ctx, catalog.ID, []library.StorageRoot{root})
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	return catalogStorageRootDTOWithUsage(root, usage[root.ID]), nil
+}
+
+func (service *CatalogService) defaultCatalogStorageRoot(
+	ctx context.Context,
+	rootID string,
+) (library.Catalog, library.StorageRoot, error) {
+	catalog, err := service.defaultCatalog(ctx)
+	if err != nil {
+		return library.Catalog{}, library.StorageRoot{}, err
+	}
+	root, err := service.roots.Get(ctx, strings.TrimSpace(rootID))
+	if err != nil {
+		return library.Catalog{}, library.StorageRoot{}, err
+	}
+	if root.CatalogID != catalog.ID {
+		return library.Catalog{}, library.StorageRoot{}, sql.ErrNoRows
+	}
+	return catalog, root, nil
+}
+
+// EnsureDefaultDownloadStorageRoot promotes the XiaDown-owned child below the
+// configured download location to the Catalog's managed write target. The
+// selected parent is never claimed as a managed Library root.
+func (service *CatalogService) EnsureDefaultDownloadStorageRoot(
+	ctx context.Context,
+	rawPath string,
+) (dto.CatalogStorageRootDTO, error) {
+	catalog, err := service.defaultCatalog(ctx)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	configuredPath, err := canonicalCatalogStoragePath(rawPath)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	path, err := canonicalCatalogStoragePath(domainsettings.ManagedDownloadDirectory(configuredPath))
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	var current *library.StorageRoot
+	var legacyParent *library.StorageRoot
+	for index := range roots {
+		rootPath, canonicalErr := canonicalCatalogStoragePath(roots[index].Path)
+		if canonicalErr != nil {
+			continue
+		}
+		if catalogPathsEqual(rootPath, path) {
+			current = &roots[index]
+			break
+		}
+		if roots[index].IsDefault &&
+			roots[index].Mode == library.StorageRootModeManaged &&
+			catalogPathsEqual(rootPath, filepath.Dir(path)) {
+			legacyParent = &roots[index]
+		}
+	}
+	if current == nil {
+		// Repair the short-lived parent-root implementation in place. Reusing
+		// the ID keeps existing asset ownership stable while the backfill below
+		// narrows relative paths to the XiaDown-owned child.
+		current = legacyParent
+	}
+	managedParent := domainsettings.DownloadLocationDirectory(configuredPath)
+	parentInfo, err := os.Stat(managedParent)
+	if err != nil {
+		if current != nil {
+			if _, healthErr := service.checkCatalogStorageRootState(
+				ctx,
+				*current,
+			); healthErr != nil {
+				return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+					"default Library storage parent is unavailable: %w",
+					errors.Join(err, healthErr),
+				)
+			}
+		}
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+			"default Library storage parent is unavailable: %w",
+			err,
+		)
+	}
+	if !parentInfo.IsDir() {
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+			"default Library storage parent is not a directory",
+		)
+	}
+	parentVolume, err := inspectCatalogStorageVolume(managedParent)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+			"inspect default Library storage volume: %w",
+			err,
+		)
+	}
+	currentVolumeID := ""
+	if current != nil {
+		currentVolumeID = strings.TrimSpace(current.VolumeID)
+	}
+	detectedVolumeID := strings.TrimSpace(parentVolume.ID)
+	if current != nil &&
+		currentVolumeID != "" &&
+		detectedVolumeID != "" &&
+		currentVolumeID != detectedVolumeID {
+		if _, saveErr := service.saveCatalogStorageRootHealth(
+			ctx,
+			*current,
+			library.StorageRootStatusError,
+			"storage volume identity changed",
+			currentVolumeID,
+		); saveErr != nil {
+			return dto.CatalogStorageRootDTO{}, saveErr
+		}
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+			"default Library storage volume identity changed",
+		)
+	}
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf("create default Library storage root: %w", err)
+	}
+	status, lastError, volume := inspectStorageRootForMode(path, library.StorageRootModeManaged)
+	if status != library.StorageRootStatusOnline {
+		if lastError == "" {
+			lastError = string(status)
+		}
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf("default Library storage root is unavailable: %s", lastError)
+	}
+	now := service.timestamp()
+	createdAt := now
+	id := service.newID()
+	name := "XiaDown Downloads"
+	emoji := catalogStorageRootEmojiForID(id)
+	volumeID := volume.ID
+	if current != nil {
+		id, createdAt = current.ID, current.CreatedAt
+		if currentVolumeID != "" {
+			volumeID = currentVolumeID
+		}
+		if strings.TrimSpace(current.Name) != "" {
+			name = current.Name
+		}
+		if strings.TrimSpace(current.Emoji) != "" {
+			emoji = current.Emoji
+		} else {
+			emoji = catalogStorageRootEmojiForID(id)
+		}
+		now = service.timestampAtLeast(createdAt)
+	}
+	checkedAt := now
+	root, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: id, CatalogID: catalog.ID, Name: name, Emoji: emoji, Path: path, VolumeID: volumeID,
+		Mode: string(library.StorageRootModeManaged), IsDefault: true,
+		Status: string(status), LastCheckedAt: &checkedAt, LastError: lastError,
+		CreatedAt: &createdAt, UpdatedAt: &now,
+	})
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if err := service.saveDefaultStorageRoot(ctx, root); err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if err := service.BackfillCatalogStorageRootAssignments(ctx); err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	usageRoots := make([]library.StorageRoot, 0, len(roots)+1)
+	replaced := false
+	for _, existing := range roots {
+		if existing.ID == root.ID {
+			usageRoots = append(usageRoots, root)
+			replaced = true
+			continue
+		}
+		usageRoots = append(usageRoots, existing)
+	}
+	if !replaced {
+		usageRoots = append(usageRoots, root)
+	}
+	usage, err := service.catalogStorageRootUsage(ctx, catalog.ID, usageRoots)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	return catalogStorageRootDTOWithUsage(root, usage[root.ID]), nil
+}
+
+func (service *CatalogService) SyncDefaultDownloadStorageRoot(ctx context.Context, path string) error {
+	_, err := service.EnsureDefaultDownloadStorageRoot(ctx, path)
+	return err
+}
+
+func (service *CatalogService) DefaultStorageRootPath(ctx context.Context) (string, error) {
+	catalog, err := service.defaultCatalog(ctx)
+	if err != nil {
+		return "", err
+	}
+	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil {
+		return "", err
+	}
+	for _, root := range roots {
+		if root.IsDefault && root.Mode == library.StorageRootModeManaged {
+			return root.Path, nil
+		}
+	}
+	return "", sql.ErrNoRows
+}
+
+func (service *CatalogService) saveDefaultStorageRoot(ctx context.Context, root library.StorageRoot) error {
+	if repository, ok := service.roots.(catalogStorageRootDefaultRepository); ok {
+		return repository.SaveAsDefault(ctx, root)
+	}
+	roots, err := service.roots.ListByCatalogID(ctx, root.CatalogID)
+	if err != nil {
+		return err
+	}
+	for _, current := range roots {
+		if current.ID == root.ID || !current.IsDefault {
+			continue
+		}
+		current.IsDefault = false
+		if err := service.roots.Save(ctx, current); err != nil {
+			return err
+		}
+	}
+	return service.roots.Save(ctx, root)
 }
 
 // EnsureManagedImportRoot turns the native copy destination into an actual
@@ -1477,7 +2009,7 @@ func (service *CatalogService) EnsureManagedImportRoot(ctx context.Context, rawP
 	if err != nil {
 		return "", err
 	}
-	status, detail := inspectStorageRoot(path)
+	status, detail, _ := inspectStorageRootForMode(path, library.StorageRootModeManaged)
 	if status != library.StorageRootStatusOnline {
 		if detail == "" {
 			detail = string(status)
@@ -1514,6 +2046,50 @@ func (service *CatalogService) EnsureManagedImportRoot(ctx context.Context, rawP
 	return created.Path, nil
 }
 
+func (service *CatalogService) EnsureReferencedImportRoots(ctx context.Context, rawPaths []string) error {
+	catalog, err := service.defaultCatalog(ctx)
+	if err != nil {
+		return err
+	}
+	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil {
+		return err
+	}
+	for _, rawPath := range rawPaths {
+		path, pathErr := canonicalCatalogStoragePath(rawPath)
+		if pathErr != nil {
+			return pathErr
+		}
+		covered := false
+		for _, root := range roots {
+			rootPath, rootErr := canonicalCatalogStoragePath(root.Path)
+			if rootErr == nil && catalogPathWithinRoot(path, rootPath) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		name := filepath.Base(path)
+		if name == "." || name == string(filepath.Separator) || strings.TrimSpace(name) == "" {
+			name = "Referenced Files"
+		}
+		created, saveErr := service.SaveCatalogStorageRoot(ctx, dto.SaveCatalogStorageRootRequest{
+			Name: name, Path: path, Mode: string(library.StorageRootModeReferenced),
+		})
+		if saveErr != nil {
+			return saveErr
+		}
+		roots = append(roots, library.StorageRoot{
+			ID: created.ID, CatalogID: created.CatalogID, Name: created.Name, Emoji: created.Emoji, Path: created.Path,
+			VolumeID: created.VolumeID, Mode: library.StorageRootMode(created.Mode),
+			Status: library.StorageRootStatus(created.Status),
+		})
+	}
+	return nil
+}
+
 func (service *CatalogService) SaveCatalogStorageRoot(ctx context.Context, request dto.SaveCatalogStorageRootRequest) (dto.CatalogStorageRootDTO, error) {
 	catalog, err := service.defaultCatalog(ctx)
 	if err != nil {
@@ -1523,10 +2099,18 @@ func (service *CatalogService) SaveCatalogStorageRoot(ctx context.Context, reque
 	if path == "" || !filepath.IsAbs(path) {
 		return dto.CatalogStorageRootDTO{}, library.ErrInvalidStorageRoot
 	}
-	path = filepath.Clean(path)
+	path, err = canonicalCatalogStoragePath(path)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
 	id, now, createdAt := strings.TrimSpace(request.ID), service.timestamp(), time.Time{}
+	isDefault := request.IsDefault
+	emoji := strings.TrimSpace(request.Emoji)
 	if id == "" {
 		id, createdAt = service.newID(), now
+		if emoji == "" {
+			emoji = catalogStorageRootEmojiForID(id)
+		}
 	} else {
 		current, getErr := service.roots.Get(ctx, id)
 		if getErr != nil {
@@ -1536,26 +2120,48 @@ func (service *CatalogService) SaveCatalogStorageRoot(ctx context.Context, reque
 			return dto.CatalogStorageRootDTO{}, sql.ErrNoRows
 		}
 		createdAt = current.CreatedAt
+		isDefault = isDefault || current.IsDefault
+		if emoji == "" {
+			emoji = current.Emoji
+		}
 		now = service.timestampAtLeast(createdAt)
 	}
-	status, lastError := inspectStorageRoot(path)
-	checkedAt := now
+	if emoji == "" {
+		emoji = catalogStorageRootEmojiForID(id)
+	}
+	if _, ok := normalizeCatalogStorageRootEmoji(emoji); !ok {
+		return dto.CatalogStorageRootDTO{}, library.ErrInvalidStorageRoot
+	}
 	mode := strings.TrimSpace(request.Mode)
 	if mode == "" {
 		mode = string(library.StorageRootModeReferenced)
 	}
+	status, lastError, volume := inspectStorageRootForMode(path, library.StorageRootMode(mode))
+	checkedAt := now
+	volumeID := strings.TrimSpace(request.VolumeID)
+	if volumeID == "" {
+		volumeID = volume.ID
+	}
 	item, err := library.NewStorageRoot(library.StorageRootParams{
-		ID: id, CatalogID: catalog.ID, Name: request.Name, Path: path, VolumeID: request.VolumeID,
-		Mode: mode, Status: string(status), LastCheckedAt: &checkedAt, LastError: lastError,
+		ID: id, CatalogID: catalog.ID, Name: request.Name, Emoji: emoji, Path: path, VolumeID: volumeID,
+		Mode: mode, IsDefault: isDefault, Status: string(status), LastCheckedAt: &checkedAt, LastError: lastError,
 		CreatedAt: &createdAt, UpdatedAt: &now,
 	})
 	if err != nil {
 		return dto.CatalogStorageRootDTO{}, err
 	}
-	if err := service.roots.Save(ctx, item); err != nil {
+	if isDefault {
+		err = service.saveDefaultStorageRoot(ctx, item)
+	} else {
+		err = service.roots.Save(ctx, item)
+	}
+	if err != nil {
 		return dto.CatalogStorageRootDTO{}, err
 	}
-	return catalogStorageRootDTO(item), nil
+	if err := service.BackfillCatalogStorageRootAssignments(ctx); err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	return catalogStorageRootDTOWithUsage(item, catalogStorageRootUsage{}), nil
 }
 
 func (service *CatalogService) CheckCatalogStorageRoot(ctx context.Context, request dto.CheckCatalogStorageRootRequest) (dto.CatalogStorageRootDTO, error) {
@@ -1570,20 +2176,361 @@ func (service *CatalogService) CheckCatalogStorageRoot(ctx context.Context, requ
 	if current.CatalogID != catalog.ID {
 		return dto.CatalogStorageRootDTO{}, sql.ErrNoRows
 	}
+	checked, err := service.checkCatalogStorageRootState(ctx, current)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	usage, usageErr := service.catalogStorageRootUsage(ctx, catalog.ID, []library.StorageRoot{checked})
+	if usageErr != nil {
+		return dto.CatalogStorageRootDTO{}, usageErr
+	}
+	return catalogStorageRootDTOWithUsage(checked, usage[checked.ID]), nil
+}
+
+func (service *CatalogService) checkCatalogStorageRootState(
+	ctx context.Context,
+	current library.StorageRoot,
+) (library.StorageRoot, error) {
+	status, lastError, volume := inspectStorageRootForMode(current.Path, current.Mode)
+	volumeID := current.VolumeID
+	if volumeID == "" {
+		volumeID = volume.ID
+	} else if volume.ID != "" && volumeID != volume.ID {
+		status = library.StorageRootStatusError
+		lastError = "storage volume identity changed"
+	}
+	return service.saveCatalogStorageRootHealth(
+		ctx,
+		current,
+		status,
+		lastError,
+		volumeID,
+	)
+}
+
+func (service *CatalogService) saveCatalogStorageRootHealth(
+	ctx context.Context,
+	current library.StorageRoot,
+	status library.StorageRootStatus,
+	lastError string,
+	volumeID string,
+) (library.StorageRoot, error) {
 	now := service.timestampAtLeast(current.CreatedAt)
-	status, lastError := inspectStorageRoot(current.Path)
 	checked, err := library.NewStorageRoot(library.StorageRootParams{
-		ID: current.ID, CatalogID: current.CatalogID, Name: current.Name, Path: current.Path,
-		VolumeID: current.VolumeID, Mode: string(current.Mode), Status: string(status),
+		ID: current.ID, CatalogID: current.CatalogID, Name: current.Name, Emoji: current.Emoji, Path: current.Path,
+		VolumeID: volumeID, Mode: string(current.Mode), IsDefault: current.IsDefault, Status: string(status),
 		LastCheckedAt: &now, LastError: lastError, CreatedAt: &current.CreatedAt, UpdatedAt: &now,
+	})
+	if err != nil {
+		return library.StorageRoot{}, err
+	}
+	if err := service.roots.Save(ctx, checked); err != nil {
+		return library.StorageRoot{}, err
+	}
+	if current.Status != checked.Status && service.availabilityChanged != nil {
+		service.availabilityChanged(ctx, checked.ID)
+	}
+	return checked, nil
+}
+
+func (service *CatalogService) UpdateCatalogStorageRoot(
+	ctx context.Context,
+	request dto.UpdateCatalogStorageRootRequest,
+) (dto.CatalogStorageRootDTO, error) {
+	_, current, err := service.defaultCatalogStorageRoot(ctx, request.ID)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	mode := library.StorageRootMode(strings.TrimSpace(request.Mode))
+	if current.IsDefault && mode != library.StorageRootModeManaged {
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf("the default storage root must remain managed")
+	}
+	emoji := current.Emoji
+	if request.Emoji != nil {
+		var ok bool
+		emoji, ok = normalizeCatalogStorageRootEmoji(*request.Emoji)
+		if !ok {
+			return dto.CatalogStorageRootDTO{}, library.ErrInvalidStorageRoot
+		}
+	}
+	now := service.timestampAtLeast(current.CreatedAt)
+	updated, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: current.ID, CatalogID: current.CatalogID, Name: request.Name, Emoji: emoji, Path: current.Path,
+		VolumeID: current.VolumeID, Mode: string(mode), IsDefault: current.IsDefault,
+		Status: string(current.Status), LastCheckedAt: current.LastCheckedAt, LastError: current.LastError,
+		CreatedAt: &current.CreatedAt, UpdatedAt: &now,
 	})
 	if err != nil {
 		return dto.CatalogStorageRootDTO{}, err
 	}
-	if err := service.roots.Save(ctx, checked); err != nil {
+	if err := service.roots.Save(ctx, updated); err != nil {
 		return dto.CatalogStorageRootDTO{}, err
 	}
-	return catalogStorageRootDTO(checked), nil
+	return catalogStorageRootDTOWithUsage(updated, catalogStorageRootUsage{}), nil
+}
+
+func (service *CatalogService) SetDefaultCatalogStorageRoot(
+	ctx context.Context,
+	request dto.CatalogStorageRootIDRequest,
+) (dto.CatalogStorageRootDTO, error) {
+	catalog, current, err := service.defaultCatalogStorageRoot(ctx, request.ID)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if current.Mode != library.StorageRootModeManaged {
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf("only a managed storage root can be the download default")
+	}
+	managedPath, err := canonicalCatalogStoragePath(domainsettings.ManagedDownloadDirectory(current.Path))
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if !catalogPathsEqual(managedPath, current.Path) {
+		usage, usageErr := service.catalogStorageRootUsage(ctx, catalog.ID, []library.StorageRoot{current})
+		if usageErr != nil {
+			return dto.CatalogStorageRootDTO{}, usageErr
+		}
+		if usage[current.ID].FileCount > 0 {
+			return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+				"managed storage root must use an owned xiadown directory before becoming the download default",
+			)
+		}
+		if err := os.MkdirAll(managedPath, 0o755); err != nil {
+			return dto.CatalogStorageRootDTO{}, fmt.Errorf("create default Library storage root: %w", err)
+		}
+		status, lastError, volume := inspectStorageRootForMode(managedPath, library.StorageRootModeManaged)
+		now := service.timestampAtLeast(current.CreatedAt)
+		checkedAt := now
+		current, err = library.NewStorageRoot(library.StorageRootParams{
+			ID: current.ID, CatalogID: current.CatalogID, Name: current.Name, Emoji: current.Emoji, Path: managedPath,
+			VolumeID: volume.ID, Mode: string(current.Mode), IsDefault: current.IsDefault,
+			Status: string(status), LastCheckedAt: &checkedAt, LastError: lastError,
+			CreatedAt: &current.CreatedAt, UpdatedAt: &now,
+		})
+		if err != nil {
+			return dto.CatalogStorageRootDTO{}, err
+		}
+		if err := service.roots.Save(ctx, current); err != nil {
+			return dto.CatalogStorageRootDTO{}, err
+		}
+	}
+	checked, err := service.CheckCatalogStorageRoot(ctx, dto.CheckCatalogStorageRootRequest{ID: current.ID})
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if checked.Status != string(library.StorageRootStatusOnline) {
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf("default storage root must be online")
+	}
+	now := service.timestampAtLeast(current.CreatedAt)
+	current.IsDefault = true
+	current.Status = library.StorageRootStatus(checked.Status)
+	current.LastError = checked.LastError
+	current.VolumeID = checked.VolumeID
+	current.LastCheckedAt = &now
+	current.UpdatedAt = now
+	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	var previous *library.StorageRoot
+	for index := range roots {
+		if roots[index].IsDefault {
+			copy := roots[index]
+			previous = &copy
+			break
+		}
+	}
+	if err := service.saveDefaultStorageRoot(ctx, current); err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if service.updateDefaultRootPath != nil {
+		if err := service.updateDefaultRootPath(ctx, current.Path); err != nil {
+			if previous != nil && previous.ID != current.ID {
+				if rollbackErr := service.saveDefaultStorageRoot(ctx, *previous); rollbackErr != nil {
+					return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+						"sync download directory: %v (rollback default storage root: %w)",
+						err,
+						rollbackErr,
+					)
+				}
+			}
+			return dto.CatalogStorageRootDTO{}, fmt.Errorf("sync download directory: %w", err)
+		}
+	}
+	return catalogStorageRootDTOWithUsage(current, catalogStorageRootUsage{}), nil
+}
+
+func (service *CatalogService) RemoveCatalogStorageRoot(
+	ctx context.Context,
+	request dto.CatalogStorageRootIDRequest,
+) error {
+	_, current, err := service.defaultCatalogStorageRoot(ctx, request.ID)
+	if err != nil {
+		return err
+	}
+	if current.IsDefault {
+		return fmt.Errorf("select another default storage root before removing this one")
+	}
+	usage, err := service.catalogStorageRootUsage(ctx, current.CatalogID, []library.StorageRoot{current})
+	if err != nil {
+		return err
+	}
+	if current.Mode == library.StorageRootModeManaged && usage[current.ID].FileCount > 0 {
+		return fmt.Errorf("managed storage root still owns %d file(s)", usage[current.ID].FileCount)
+	}
+	if err := service.roots.Delete(ctx, current.ID); err != nil {
+		return err
+	}
+	return service.BackfillCatalogStorageRootAssignments(ctx)
+}
+
+func (service *CatalogService) RelocateCatalogStorageRoot(
+	ctx context.Context,
+	request dto.RelocateCatalogStorageRootRequest,
+) (dto.CatalogStorageRootDTO, error) {
+	_, current, err := service.defaultCatalogStorageRoot(ctx, request.ID)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	configuredPath, err := canonicalCatalogStoragePath(request.Path)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	path := configuredPath
+	if current.IsDefault && current.Mode == library.StorageRootModeManaged {
+		path, err = canonicalCatalogStoragePath(domainsettings.ManagedDownloadDirectory(configuredPath))
+		if err != nil {
+			return dto.CatalogStorageRootDTO{}, err
+		}
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return dto.CatalogStorageRootDTO{}, fmt.Errorf("create relocated Library storage root: %w", err)
+		}
+	}
+	status, lastError, volume := inspectStorageRootForMode(path, current.Mode)
+	if status != library.StorageRootStatusOnline {
+		if lastError == "" {
+			lastError = string(status)
+		}
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf("relocated storage root is unavailable: %s", lastError)
+	}
+	if current.VolumeID != "" && volume.ID != "" && current.VolumeID != volume.ID {
+		return dto.CatalogStorageRootDTO{}, fmt.Errorf("selected directory belongs to a different storage volume")
+	}
+	files, err := service.files.List(ctx)
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	filePaths := make(map[string]string)
+	previousFilePaths := make(map[string]string)
+	for _, file := range files {
+		if file.Storage.RootID != current.ID || strings.TrimSpace(file.Storage.RelativePath) == "" {
+			continue
+		}
+		resolved := filepath.Join(path, filepath.FromSlash(file.Storage.RelativePath))
+		if !catalogPathWithinRoot(filepath.Clean(resolved), path) {
+			return dto.CatalogStorageRootDTO{}, fmt.Errorf("stored relative path escapes relocated storage root")
+		}
+		filePaths[file.ID] = resolved
+		previousFilePaths[file.ID] = file.Storage.LocalPath
+	}
+	now := service.timestampAtLeast(current.CreatedAt)
+	checkedAt := now
+	relocated, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: current.ID, CatalogID: current.CatalogID, Name: current.Name, Emoji: current.Emoji, Path: path,
+		VolumeID: volume.ID, Mode: string(current.Mode), IsDefault: current.IsDefault,
+		Status: string(status), LastCheckedAt: &checkedAt, LastError: lastError,
+		CreatedAt: &current.CreatedAt, UpdatedAt: &now,
+	})
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if repository, ok := service.roots.(catalogStorageRootRelocationRepository); ok {
+		err = repository.SaveRelocatingFiles(ctx, relocated, filePaths)
+	} else {
+		err = service.roots.Save(ctx, relocated)
+	}
+	if err != nil {
+		return dto.CatalogStorageRootDTO{}, err
+	}
+	if relocated.IsDefault && service.updateDefaultRootPath != nil {
+		if err := service.updateDefaultRootPath(ctx, configuredPath); err != nil {
+			var rollbackErr error
+			if repository, ok := service.roots.(catalogStorageRootRelocationRepository); ok {
+				rollbackErr = repository.SaveRelocatingFiles(ctx, current, previousFilePaths)
+			} else {
+				rollbackErr = service.roots.Save(ctx, current)
+			}
+			if rollbackErr != nil {
+				return dto.CatalogStorageRootDTO{}, fmt.Errorf(
+					"sync relocated download directory: %v (rollback storage relocation: %w)",
+					err,
+					rollbackErr,
+				)
+			}
+			return dto.CatalogStorageRootDTO{}, fmt.Errorf("sync relocated download directory: %w", err)
+		}
+	}
+	return catalogStorageRootDTOWithUsage(relocated, catalogStorageRootUsage{FileCount: len(filePaths)}), nil
+}
+
+func (service *CatalogService) BackfillCatalogStorageRootAssignments(ctx context.Context) error {
+	catalog, err := service.defaultCatalog(ctx)
+	if err != nil {
+		return err
+	}
+	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil {
+		return err
+	}
+	files, err := service.files.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		rootID, relative := catalogStorageRootAssignmentForPath(roots, file.Storage.LocalPath)
+		if file.Storage.RootID == rootID && file.Storage.RelativePath == relative {
+			continue
+		}
+		file.Storage.RootID = rootID
+		file.Storage.RelativePath = relative
+		if err := service.files.Save(ctx, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (service *CatalogService) CheckAllCatalogStorageRoots(ctx context.Context) error {
+	catalog, err := service.defaultCatalog(ctx)
+	if err != nil {
+		return err
+	}
+	roots, err := service.roots.ListByCatalogID(ctx, catalog.ID)
+	if err != nil {
+		return err
+	}
+	for _, root := range roots {
+		if _, err := service.checkCatalogStorageRootState(ctx, root); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (service *CatalogService) RunStorageRootHealthMonitor(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Minute
+	}
+	_ = service.CheckAllCatalogStorageRoots(ctx)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			_ = service.CheckAllCatalogStorageRoots(ctx)
+		}
+	}
 }
 
 func (service *CatalogService) GetCatalogUserState(ctx context.Context, request dto.GetCatalogUserStateRequest) (dto.CatalogUserStateDTO, error) {
@@ -1692,6 +2639,10 @@ func (service *CatalogService) defaultCatalog(ctx context.Context) (library.Cata
 		service.roots == nil || service.collections == nil || service.tags == nil || service.userStates == nil || service.mutations == nil {
 		return library.Catalog{}, errors.New("catalog service unavailable")
 	}
+	return service.activeDefaultCatalog(ctx)
+}
+
+func (service *CatalogService) activeDefaultCatalog(ctx context.Context) (library.Catalog, error) {
 	items, err := service.catalogs.List(ctx)
 	if err != nil {
 		return library.Catalog{}, err
@@ -1747,10 +2698,14 @@ func (service *CatalogService) restoredItemStatus(ctx context.Context, itemID st
 		if getErr != nil {
 			return "", getErr
 		}
-		if catalogFileAvailable(file) {
+		switch service.catalogFileAvailability(ctx, file) {
+		case library.ItemAvailabilityAvailable,
+			library.ItemAvailabilityOffline,
+			library.ItemAvailabilityChecking:
 			// Match runtime projection semantics: an available representation
-			// legitimately replaces a removed original. Artwork/attachments alone
-			// never make a restored media item healthy.
+			// legitimately replaces a removed original. An offline volume is a
+			// temporary physical state and must not turn a restored logical item
+			// into "missing". Artwork/attachments alone never make it healthy.
 			return library.ItemStatusActive, nil
 		}
 	}
@@ -1795,9 +2750,9 @@ func (service *CatalogService) timestampAtLeast(minimum time.Time) time.Time {
 }
 
 func sortCatalogItems(items []library.Item, value string) error {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		value = "updated_desc"
+	value, err := normalizeCatalogSort(value)
+	if err != nil {
+		return err
 	}
 	less := func(left, right library.Item) bool { return false }
 	switch value {
@@ -1832,33 +2787,89 @@ func sortCatalogItems(items []library.Item, value string) error {
 			}
 			return leftKey < rightKey
 		}
-	default:
-		return fmt.Errorf("invalid catalog sort %q", value)
 	}
 	sort.SliceStable(items, func(left, right int) bool { return less(items[left], items[right]) })
 	return nil
 }
 
+func normalizeCatalogSort(value string) (string, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		value = "updated_desc"
+	}
+	switch value {
+	case "updated_desc",
+		"created_desc",
+		"created_asc",
+		"title_asc",
+		"title_desc",
+		"category_asc":
+		return value, nil
+	default:
+		return "", fmt.Errorf("invalid catalog sort %q", value)
+	}
+}
+
 func inspectStorageRoot(path string) (library.StorageRootStatus, string) {
+	status, detail, _ := inspectStorageRootDetail(path)
+	return status, detail
+}
+
+func inspectStorageRootDetail(path string) (library.StorageRootStatus, string, catalogStorageVolume) {
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return library.StorageRootStatusOffline, ""
+		return library.StorageRootStatusOffline, "", catalogStorageVolume{}
 	}
 	if err != nil {
-		return library.StorageRootStatusError, err.Error()
+		return library.StorageRootStatusError, err.Error(), catalogStorageVolume{}
 	}
 	if !info.IsDir() {
-		return library.StorageRootStatusError, "storage root path is not a directory"
+		return library.StorageRootStatusError, "storage root path is not a directory", catalogStorageVolume{}
 	}
 	directory, err := os.Open(path)
 	if err != nil {
-		return library.StorageRootStatusError, err.Error()
+		return library.StorageRootStatusError, err.Error(), catalogStorageVolume{}
 	}
 	_ = directory.Close()
+	volume, _ := inspectCatalogStorageVolume(path)
 	if info.Mode().Perm()&0222 == 0 {
-		return library.StorageRootStatusReadOnly, ""
+		return library.StorageRootStatusReadOnly, "", volume
 	}
-	return library.StorageRootStatusOnline, ""
+	return library.StorageRootStatusOnline, "", volume
+}
+
+func inspectStorageRootForMode(
+	path string,
+	mode library.StorageRootMode,
+) (library.StorageRootStatus, string, catalogStorageVolume) {
+	status, detail, volume := inspectStorageRootDetail(path)
+	if status != library.StorageRootStatusOnline || mode != library.StorageRootModeManaged {
+		return status, detail, volume
+	}
+	probe, err := os.CreateTemp(path, ".xiadown-storage-health-*")
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return library.StorageRootStatusReadOnly, err.Error(), volume
+		}
+		return library.StorageRootStatusError, err.Error(), volume
+	}
+	probePath := probe.Name()
+	if _, err = probe.WriteString("xiadown"); err == nil {
+		err = probe.Sync()
+	}
+	if closeErr := probe.Close(); err == nil {
+		err = closeErr
+	}
+	if removeErr := os.Remove(probePath); err == nil {
+		err = removeErr
+	}
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return library.StorageRootStatusReadOnly, err.Error(), volume
+		}
+		return library.StorageRootStatusError, err.Error(), volume
+	}
+	return library.StorageRootStatusOnline, "", volume
 }
 
 func legacyFileUnhealthy(item library.LibraryFile) bool {
@@ -1909,25 +2920,152 @@ func (service *CatalogService) catalogStorageRootAssignments(
 		if err != nil {
 			return nil, err
 		}
-		result[asset.ID] = catalogStorageRootIDForPath(roots, file.Storage.LocalPath)
+		if strings.TrimSpace(file.Storage.RootID) != "" {
+			result[asset.ID] = file.Storage.RootID
+		} else {
+			result[asset.ID] = catalogStorageRootIDForPath(roots, file.Storage.LocalPath)
+		}
 	}
 	return result, nil
 }
 
 func catalogStorageRootIDForPath(roots []library.StorageRoot, rawPath string) string {
+	id, _ := catalogStorageRootAssignmentForPath(roots, rawPath)
+	return id
+}
+
+func catalogStorageRootAssignmentForPath(roots []library.StorageRoot, rawPath string) (string, string) {
 	path, err := canonicalCatalogStoragePath(rawPath)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	matchedID, matchedLength := "", -1
+	matchedID, matchedRelative, matchedLength := "", "", -1
 	for _, root := range roots {
 		rootPath, err := canonicalCatalogStoragePath(root.Path)
 		if err != nil || !catalogPathWithinRoot(path, rootPath) || len(rootPath) <= matchedLength {
 			continue
 		}
-		matchedID, matchedLength = root.ID, len(rootPath)
+		relative, relativeErr := filepath.Rel(rootPath, path)
+		if relativeErr != nil || relative == "." || filepath.IsAbs(relative) ||
+			relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		matchedID, matchedRelative, matchedLength = root.ID, filepath.ToSlash(relative), len(rootPath)
 	}
-	return matchedID
+	return matchedID, matchedRelative
+}
+
+func catalogItemSourceDTO(
+	file library.LibraryFile,
+	roots []library.StorageRoot,
+) *dto.CatalogItemSourceDTO {
+	result := &dto.CatalogItemSourceDTO{
+		OriginKind:  strings.TrimSpace(file.Origin.Kind),
+		OperationID: strings.TrimSpace(file.Origin.OperationID),
+	}
+	rootID := strings.TrimSpace(file.Storage.RootID)
+	if rootID == "" {
+		rootID = catalogStorageRootIDForPath(roots, file.Storage.LocalPath)
+	}
+	for _, root := range roots {
+		if root.ID != rootID {
+			continue
+		}
+		result.StorageRootID = root.ID
+		result.StorageRootName = root.Name
+		result.StorageMode = string(root.Mode)
+		result.StorageRootPath = root.Path
+		if root.Mode == library.StorageRootModeManaged {
+			result.StorageRootPath = domainsettings.DownloadLocationDirectory(root.Path)
+		}
+		break
+	}
+	if result.StorageMode == "" {
+		result.StorageMode = "unmanaged"
+	}
+	if file.Origin.Import != nil {
+		result.ImportBatchID = strings.TrimSpace(file.Origin.Import.BatchID)
+		result.ImportPath = strings.TrimSpace(file.Origin.Import.ImportPath)
+		result.KeepSourceFile = file.Origin.Import.KeepSourceFile
+		if !file.Origin.Import.ImportedAt.IsZero() {
+			result.ImportedAt = file.Origin.Import.ImportedAt.UTC().Format(time.RFC3339Nano)
+		}
+	}
+	return result
+}
+
+func (service *CatalogService) catalogStorageRootUsage(
+	ctx context.Context,
+	catalogID string,
+	roots []library.StorageRoot,
+) (map[string]catalogStorageRootUsage, error) {
+	result := make(map[string]catalogStorageRootUsage, len(roots))
+	knownRoots := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		result[root.ID] = catalogStorageRootUsage{}
+		knownRoots[root.ID] = struct{}{}
+	}
+	files, err := service.files.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	fileRoots := make(map[string]string, len(files))
+	for _, file := range files {
+		// Root cards describe files that are physically present now. Missing,
+		// deleted, and otherwise unavailable historical records remain in the
+		// Catalog for maintenance, but must not inflate directory statistics.
+		if !catalogFileAvailable(file) {
+			continue
+		}
+		rootID := strings.TrimSpace(file.Storage.RootID)
+		if rootID == "" {
+			rootID, _ = catalogStorageRootAssignmentForPath(roots, file.Storage.LocalPath)
+		}
+		if _, known := knownRoots[rootID]; rootID == "" || !known {
+			continue
+		}
+		usage := result[rootID]
+		usage.FileCount++
+		if file.Media != nil && file.Media.SizeBytes != nil && *file.Media.SizeBytes > 0 {
+			usage.SizeBytes += *file.Media.SizeBytes
+		} else if info, statErr := os.Stat(file.Storage.LocalPath); statErr == nil && !info.IsDir() {
+			usage.SizeBytes += info.Size()
+		}
+		result[rootID] = usage
+		fileRoots[file.ID] = rootID
+	}
+	items, err := service.items.ListByCatalogID(ctx, catalogID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		assets, listErr := service.assets.ListByItemID(ctx, item.ID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		itemRoots := make(map[string]struct{})
+		for _, asset := range assets {
+			rootID := fileRoots[asset.FileID]
+			if rootID == "" {
+				continue
+			}
+			usage := result[rootID]
+			usage.AssetCount++
+			result[rootID] = usage
+			itemRoots[rootID] = struct{}{}
+		}
+		for rootID := range itemRoots {
+			usage := result[rootID]
+			switch item.Category {
+			case library.ItemCategoryVideo:
+				usage.VideoCount++
+			case library.ItemCategoryAudio:
+				usage.AudioCount++
+			}
+			result[rootID] = usage
+		}
+	}
+	return result, nil
 }
 
 func canonicalCatalogStoragePath(rawPath string) (string, error) {
@@ -1990,9 +3128,14 @@ func catalogDTO(item library.Catalog) dto.CatalogDTO {
 }
 
 func catalogItemDTO(item library.Item) dto.CatalogItemDTO {
+	availability := library.ItemAvailabilityAvailable
+	if item.Status == library.ItemStatusMissing {
+		availability = library.ItemAvailabilityMissing
+	}
 	result := dto.CatalogItemDTO{
 		ID: item.ID, CatalogID: item.CatalogID, Category: string(item.Category), Status: string(item.Status),
-		Title: item.Title, SortTitle: item.SortTitle, Description: item.Description, Revision: item.Revision,
+		Availability: string(availability),
+		Title:        item.Title, SortTitle: item.SortTitle, Description: item.Description, Revision: item.Revision,
 		CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if item.TrashedAt != nil {
@@ -2004,7 +3147,8 @@ func catalogItemDTO(item library.Item) dto.CatalogItemDTO {
 func catalogItemAssetDTO(item library.ItemAsset) dto.CatalogItemAssetDTO {
 	return dto.CatalogItemAssetDTO{
 		ID: item.ID, ItemID: item.ItemID, FileID: item.FileID, Role: string(item.Role), Label: item.Label, Position: item.Position,
-		CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		Availability: string(library.ItemAvailabilityChecking),
+		CreatedAt:    item.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -2050,10 +3194,27 @@ func catalogTagDTO(item library.Tag) dto.CatalogTagDTO {
 }
 
 func catalogStorageRootDTO(item library.StorageRoot) dto.CatalogStorageRootDTO {
+	return catalogStorageRootDTOWithUsage(item, catalogStorageRootUsage{})
+}
+
+func catalogStorageRootDTOWithUsage(
+	item library.StorageRoot,
+	usage catalogStorageRootUsage,
+) dto.CatalogStorageRootDTO {
+	locationPath := item.Path
+	if item.Mode == library.StorageRootModeManaged {
+		locationPath = domainsettings.DownloadLocationDirectory(item.Path)
+	}
 	result := dto.CatalogStorageRootDTO{
-		ID: item.ID, CatalogID: item.CatalogID, Name: item.Name, Path: item.Path, VolumeID: item.VolumeID,
-		Mode: string(item.Mode), Status: string(item.Status), LastError: item.LastError,
+		ID: item.ID, CatalogID: item.CatalogID, Name: item.Name, Emoji: item.Emoji, Path: item.Path, LocationPath: locationPath, VolumeID: item.VolumeID,
+		Mode: string(item.Mode), IsDefault: item.IsDefault, Status: string(item.Status), LastError: item.LastError,
+		FileCount: usage.FileCount, AssetCount: usage.AssetCount,
+		VideoCount: usage.VideoCount, AudioCount: usage.AudioCount, SizeBytes: usage.SizeBytes,
 		CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
+	if volume, err := inspectCatalogStorageVolume(item.Path); err == nil {
+		result.TotalBytes = volume.TotalBytes
+		result.AvailableBytes = volume.AvailableBytes
 	}
 	if item.LastCheckedAt != nil {
 		result.LastCheckedAt = item.LastCheckedAt.UTC().Format(time.RFC3339Nano)

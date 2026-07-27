@@ -26,9 +26,11 @@ type StorageRoot struct {
 	ID            string
 	CatalogID     string
 	Name          string
+	Emoji         string
 	Path          string
 	VolumeID      string
 	Mode          StorageRootMode
+	IsDefault     bool
 	Status        StorageRootStatus
 	LastCheckedAt *time.Time
 	LastError     string
@@ -40,9 +42,11 @@ type StorageRootParams struct {
 	ID            string
 	CatalogID     string
 	Name          string
+	Emoji         string
 	Path          string
 	VolumeID      string
 	Mode          string
+	IsDefault     bool
 	Status        string
 	LastCheckedAt *time.Time
 	LastError     string
@@ -54,6 +58,7 @@ func NewStorageRoot(params StorageRootParams) (StorageRoot, error) {
 	id, idOK := normalizeCatalogID(params.ID)
 	catalogID, catalogIDOK := normalizeCatalogID(params.CatalogID)
 	name, nameOK := normalizeCatalogName(params.Name)
+	emoji, emojiOK := normalizeCatalogOpaqueValue(params.Emoji)
 	path, pathOK := normalizeCatalogOpaqueValue(params.Path)
 	volumeID, volumeIDOK := normalizeCatalogOpaqueValue(params.VolumeID)
 	lastError, errorOK := normalizeCatalogDescription(params.LastError)
@@ -64,12 +69,15 @@ func NewStorageRoot(params StorageRootParams) (StorageRoot, error) {
 	}
 	createdAt, updatedAt, timesOK := normalizeCatalogTimes(params.CreatedAt, params.UpdatedAt)
 	lastCheckedAt := normalizeOptionalCatalogTime(params.LastCheckedAt)
-	if !idOK || !catalogIDOK || !nameOK || !pathOK || path == "" || !volumeIDOK || !errorOK || !timesOK {
+	if !idOK || !catalogIDOK || !nameOK || !emojiOK || !pathOK || path == "" || !volumeIDOK || !errorOK || !timesOK {
 		return StorageRoot{}, ErrInvalidStorageRoot
 	}
 	switch mode {
 	case StorageRootModeManaged, StorageRootModeReferenced:
 	default:
+		return StorageRoot{}, ErrInvalidStorageRoot
+	}
+	if params.IsDefault && mode != StorageRootModeManaged {
 		return StorageRoot{}, ErrInvalidStorageRoot
 	}
 	switch status {
@@ -91,9 +99,11 @@ func NewStorageRoot(params StorageRootParams) (StorageRoot, error) {
 		ID:            id,
 		CatalogID:     catalogID,
 		Name:          name,
+		Emoji:         emoji,
 		Path:          path,
 		VolumeID:      volumeID,
 		Mode:          mode,
+		IsDefault:     params.IsDefault,
 		Status:        status,
 		LastCheckedAt: lastCheckedAt,
 		LastError:     lastError,

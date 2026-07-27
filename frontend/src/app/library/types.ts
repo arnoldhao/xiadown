@@ -12,8 +12,8 @@ import {
 
 export type LibraryWorkspaceRoute =
   | "search"
+  | "ended"
   | "all"
-  | "tasks"
   | "video"
   | "audio"
   | "books"
@@ -69,6 +69,13 @@ export interface LibraryTaskFileItem {
   file?: LibraryFileDTO;
 }
 
+export interface LibraryCardPreview {
+  kind: "pdf" | "log";
+  sourceURL: string;
+  /** Stable, path-free identity used by the bounded derived-preview cache. */
+  cacheKey: string;
+}
+
 export interface LibraryWorkspaceItem {
   id: string;
   source: "file" | "task";
@@ -79,6 +86,7 @@ export interface LibraryWorkspaceItem {
   category: LibraryItemCategory;
   otherGroup?: LibraryOtherGroup;
   status: string;
+  availability?: string;
   format: string;
   sizeBytes?: number;
   durationMs?: number;
@@ -87,6 +95,7 @@ export interface LibraryWorkspaceItem {
   path: string;
   coverURL: string;
   fallbackCoverURL?: string;
+  cardPreview?: LibraryCardPreview;
   taskPreviewItems?: readonly LibraryTaskPreviewItem[];
   taskPreviewTotalCount?: number;
   taskFiles?: readonly LibraryTaskFileItem[];
@@ -101,6 +110,7 @@ export interface LibraryWorkspaceItem {
 export interface LibraryWorkspaceLabels {
   locale: string;
   search: string;
+  ended: string;
   all: string;
   tasks: string;
   video: string;
@@ -165,6 +175,17 @@ export interface LibraryWorkspaceLabels {
   taskType: string;
   downloadURL: string;
   sourceFile: string;
+  storageMode: string;
+  downloadedSource: string;
+  referencedImportSource: string;
+  managedImportSource: string;
+  generatedSource: string;
+  unknownSource: string;
+  storageRoot: string;
+  importedAt: string;
+  importBatch: string;
+  associatedTask: string;
+  unmanagedMode: string;
   copyDownloadURL: string;
   openLocation: string;
   renameTask: string;
@@ -246,9 +267,26 @@ export interface LibraryWorkspaceLabels {
   managementTitle: string;
   managementDescription: string;
   summary: string;
+  dataManagement: string;
   librarySize: string;
   storageRoots: string;
+  storageOverview: string;
+  mountedCapacity: string;
+  storageLocationsOnline: (count: number) => string;
+  storageRootsSummary: (roots: number, offline: number) => string;
+  storageVolumeSummary: (roots: number, librarySize: string) => string;
+  storageAvailableOfTotal: (available: string, total: string) => string;
+  systemVolume: string;
+  mountedLibraryData: string;
+  otherVolumeData: string;
+  totalCapacity: string;
+  capacityUnavailable: string;
+  onlineRootStatus: string;
+  offlineRootStatus: string;
+  readOnlyRootStatus: string;
+  rootDirectorySize: string;
   noStorageRoots: string;
+  noRootsOnVolume: string;
   addStorageRoot: string;
   storageRootName: string;
   referencedMode: string;
@@ -256,6 +294,16 @@ export interface LibraryWorkspaceLabels {
   selectingFolder: string;
   checkRoot: string;
   checkingRoot: string;
+  scanRoot: string;
+  cancelRootScan: string;
+  rootScanQueued: string;
+  rootScanning: string;
+  rootWatching: string;
+  rootScanCancelling: string;
+  rootScanCancelled: string;
+  rootScanInterrupted: string;
+  rootScanFailed: string;
+  rootScanProgress: (processed: number, discovered: number) => string;
   itemStatuses: string;
   catalogHealth: string;
   activeItems: string;
@@ -273,6 +321,22 @@ export interface LibraryWorkspaceLabels {
   rootMode: string;
   lastChecked: string;
   never: string;
+  defaultRoot: string;
+  setDefaultRoot: string;
+  editRoot: string;
+  saveRoot: string;
+  cancelRootEdit: string;
+  relocateRoot: string;
+  relocateManagedRoot: string;
+  replaceReferencedRoot: string;
+  openRoot: string;
+  removeRoot: string;
+  removeRootConfirm: string;
+  rootFiles: string;
+  rootAssets: string;
+  rootUsed: string;
+  rootAvailable: string;
+  readOnlyRoots: string;
   dateTimeValue: (value: string) => string;
   relativeTimeValue: (value: string, now?: number) => string;
   catalogValueLabel: (value: string) => string;
@@ -352,6 +416,40 @@ export function formatLibraryRelativeTime(
   }
 }
 
+/**
+ * Healthy availability is the normal Library state, so it should not compete
+ * with type and recency metadata. Exceptional and lifecycle states remain
+ * visible, especially missing/offline records that require user attention.
+ */
+export function shouldShowLibraryStatusBadge(status: string) {
+  const normalized = status.trim().toLocaleLowerCase().replace(/-/g, "_");
+  return !["active", "available", "ready"].includes(normalized);
+}
+
+export function libraryItemDisplayStatus(
+  item: Pick<LibraryWorkspaceItem, "status" | "availability">,
+) {
+  const status = item.status.trim().toLocaleLowerCase();
+  if (["trashed", "deleted", "archived"].includes(status)) {
+    return item.status;
+  }
+  const availability = libraryItemAvailability(item);
+  return availability !== "available"
+    ? availability
+    : item.status;
+}
+
+export function libraryItemAvailability(
+  item: Pick<LibraryWorkspaceItem, "status" | "availability">,
+) {
+  const availability = item.availability?.trim().toLocaleLowerCase() ?? "";
+  if (availability) return availability;
+  const status = item.status.trim().toLocaleLowerCase();
+  return status === "missing" || status === "trashed" || status === "deleted"
+    ? "missing"
+    : "available";
+}
+
 const OPERATION_STAGE_KEYS: Record<string, string> = {
   starting: "starting",
   preparing: "preparing",
@@ -401,6 +499,7 @@ export function createLibraryWorkspaceLabels(
   return {
   locale,
   search: label("search"),
+  ended: t("xiadown.views.ended"),
   all: label("all"),
   tasks: label("tasks"),
   video: label("video"),
@@ -454,7 +553,9 @@ export function createLibraryWorkspaceLabels(
     const normalized = status.trim().toLocaleLowerCase().replace(/-/g, "_");
     if (["active", "available", "ready"].includes(normalized)) return label("activeItems");
     if (["needs_review", "review"].includes(normalized)) return label("needsReviewItems");
-    if (["missing", "offline", "unavailable"].includes(normalized)) return label("missingItems");
+    if (normalized === "offline") return catalogValueLabel("offline");
+    if (normalized === "checking") return catalogValueLabel("processing");
+    if (["missing", "unavailable"].includes(normalized)) return label("missingItems");
     if (["trashed", "deleted", "archived"].includes(normalized)) return label("trashedItems");
     if (normalized === "queued" || normalized === "pending") return t("library.status.queued");
     if (["running", "processing"].includes(normalized)) return t("library.status.running");
@@ -483,6 +584,17 @@ export function createLibraryWorkspaceLabels(
   taskType: completedLabel("taskDataFields.kind"),
   downloadURL: completedLabel("taskDataFields.url"),
   sourceFile: completedLabel("taskDataFields.inputPath"),
+  storageMode: label("storageMode"),
+  downloadedSource: label("downloadedSource"),
+  referencedImportSource: label("referencedImportSource"),
+  managedImportSource: label("managedImportSource"),
+  generatedSource: label("generatedSource"),
+  unknownSource: label("unknownSource"),
+  storageRoot: label("storageRoot"),
+  importedAt: label("importedAt"),
+  importBatch: label("importBatch"),
+  associatedTask: label("associatedTask"),
+  unmanagedMode: label("unmanagedMode"),
   copyDownloadURL: completedLabel("copyDownloadUrl"),
   openLocation: t("xiadown.actions.openDirectory"),
   renameTask: completedLabel("renameTask"),
@@ -564,9 +676,36 @@ export function createLibraryWorkspaceLabels(
   managementTitle: label("managementTitle"),
   managementDescription: label("managementDescription"),
   summary: label("summary"),
+  dataManagement: label("dataManagement"),
   librarySize: label("librarySize"),
   storageRoots: label("storageRoots"),
+  storageOverview: label("storageOverview"),
+  mountedCapacity: label("mountedCapacity"),
+  storageLocationsOnline: (count) =>
+    label("storageLocationsOnline").replace("{count}", String(count)),
+  storageRootsSummary: (roots, offline) =>
+    label("storageRootsSummary")
+      .replace("{roots}", String(roots))
+      .replace("{offline}", String(offline)),
+  storageVolumeSummary: (roots, librarySize) =>
+    label("storageVolumeSummary")
+      .replace("{roots}", String(roots))
+      .replace("{librarySize}", librarySize),
+  storageAvailableOfTotal: (available, total) =>
+    label("storageAvailableOfTotal")
+      .replace("{available}", available)
+      .replace("{total}", total),
+  systemVolume: label("systemVolume"),
+  mountedLibraryData: label("mountedLibraryData"),
+  otherVolumeData: label("otherVolumeData"),
+  totalCapacity: label("totalCapacity"),
+  capacityUnavailable: label("capacityUnavailable"),
+  onlineRootStatus: label("onlineRootStatus"),
+  offlineRootStatus: label("offlineRootStatus"),
+  readOnlyRootStatus: label("readOnlyRootStatus"),
+  rootDirectorySize: label("rootDirectorySize"),
   noStorageRoots: label("noStorageRoots"),
+  noRootsOnVolume: label("noRootsOnVolume"),
   addStorageRoot: label("addStorageRoot"),
   storageRootName: label("storageRootName"),
   referencedMode: label("referencedMode"),
@@ -574,6 +713,19 @@ export function createLibraryWorkspaceLabels(
   selectingFolder: label("selectingFolder"),
   checkRoot: label("checkRoot"),
   checkingRoot: label("checkingRoot"),
+  scanRoot: label("scanRoot"),
+  cancelRootScan: label("cancelRootScan"),
+  rootScanQueued: label("rootScanQueued"),
+  rootScanning: label("rootScanning"),
+  rootWatching: label("rootWatching"),
+  rootScanCancelling: label("rootScanCancelling"),
+  rootScanCancelled: label("rootScanCancelled"),
+  rootScanInterrupted: label("rootScanInterrupted"),
+  rootScanFailed: label("rootScanFailed"),
+  rootScanProgress: (processed, discovered) =>
+    label("rootScanProgress")
+      .replace("{processed}", String(processed))
+      .replace("{discovered}", String(discovered)),
   itemStatuses: label("itemStatuses"),
   catalogHealth: label("catalogHealth"),
   activeItems: label("activeItems"),
@@ -591,6 +743,22 @@ export function createLibraryWorkspaceLabels(
   rootMode: label("rootMode"),
   lastChecked: label("lastChecked"),
   never: label("never"),
+  defaultRoot: label("defaultRoot"),
+  setDefaultRoot: label("setDefaultRoot"),
+  editRoot: label("editRoot"),
+  saveRoot: label("saveRoot"),
+  cancelRootEdit: label("cancelRootEdit"),
+  relocateRoot: label("relocateRoot"),
+  relocateManagedRoot: label("relocateManagedRoot"),
+  replaceReferencedRoot: label("replaceReferencedRoot"),
+  openRoot: label("openRoot"),
+  removeRoot: label("removeRoot"),
+  removeRootConfirm: label("removeRootConfirm"),
+  rootFiles: label("rootFiles"),
+  rootAssets: label("rootAssets"),
+  rootUsed: label("rootUsed"),
+  rootAvailable: label("rootAvailable"),
+  readOnlyRoots: label("readOnlyRoots"),
   dateTimeValue: (value) => {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed)

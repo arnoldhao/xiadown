@@ -19,6 +19,7 @@ import {
   RegressionContractSpecimen,
   SurfaceRoleMatrix,
 } from "./AppearanceLab";
+import { LibraryStorageSpecimen } from "./LibraryStorageSpecimen";
 
 const noop = () => undefined;
 
@@ -177,6 +178,57 @@ describe("Xia Prism Appearance Lab fixture", () => {
     expect(playerButtons.every((tag) => tag.includes('data-shape="circle"'))).toBe(true);
   });
 
+  test("publishes the storage overview and root-card system from Dream CSS", async () => {
+    const markup = renderToStaticMarkup(<LibraryStorageSpecimen />);
+    const [storageCSS, dreamCSS, labCSS, specimenSource] = await Promise.all([
+      Bun.file(
+        new URL("../../shared/styles/dream/storage.css", import.meta.url),
+      ).text(),
+      Bun.file(new URL("../../shared/styles/dream.css", import.meta.url)).text(),
+      Bun.file(new URL("./appearance-lab.css", import.meta.url)).text(),
+      Bun.file(new URL("./LibraryStorageSpecimen.tsx", import.meta.url)).text(),
+    ]);
+
+    expect(markup).toContain(
+      'data-appearance-fixture="library-storage-contract"',
+    );
+    expect(markup).toContain('data-storage-component="overview"');
+    expect(markup.match(/app-dream-storage-root-card"/g)).toHaveLength(3);
+    expect(markup).toContain('data-root-id="downloads"');
+    expect(markup).toContain('data-default="true"');
+    expect(markup).toContain('data-root-id="creator-ssd"');
+    expect(markup).toContain('data-root-id="archive"');
+    expect(markup).toContain('data-state="offline"');
+    expect(markup.match(/role="progressbar"/g)).toHaveLength(3);
+    expect(markup).toContain("No storage root");
+    expect(markup).toContain('data-platform-path="macos"');
+    expect(markup).toContain('data-platform-path="windows"');
+    expect(markup).toContain("420 GB of 1.00 TB");
+    expect(markup).toContain("912 GB of 1.50 TB");
+    expect(markup).not.toContain("app-dream-storage-overview__legend");
+    expect(markup).not.toContain("app-dream-storage-legend-item");
+    expect(markup).toContain("Reference import registration");
+
+    expect(dreamCSS).toContain('@import "./dream/storage.css";');
+    expect(storageCSS).toContain("--app-storage-capacity-library");
+    expect(storageCSS).toContain(".app-dream-storage-overview");
+    expect(storageCSS).toContain(".app-dream-storage-root-card");
+    expect(storageCSS).not.toContain(
+      ".app-dream-storage-overview__legend",
+    );
+    expect(storageCSS).toContain(':root[data-platform="windows"]');
+    expect(storageCSS).toMatch(
+      /\.app-dream-storage-root-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s,
+    );
+    expect(specimenSource).toContain("app-dream-storage-system");
+    expect(specimenSource).toContain("app-dream-storage-root-grid");
+    expect(specimenSource).not.toContain("Edit details");
+    expect(specimenSource).toContain("Relocate managed folder");
+    expect(specimenSource).toContain("Choose another folder");
+    expect(specimenSource).toContain("Remove root");
+    expect(labCSS).not.toContain("app-dream-storage-");
+  });
+
   test("keeps every reported regression visible through production contracts", () => {
     const markup = renderToStaticMarkup(<RegressionContractSpecimen />);
     const fullscreenFooters = markup.match(
@@ -216,7 +268,10 @@ describe("Xia Prism Appearance Lab fixture", () => {
     expect(markup).toContain('data-library-device-details="appearance-device"');
     expect(markup).toContain('data-library-device-details-presentation="true"');
     expect(markup).toContain('data-task-folder-artwork="true"');
-    expect(markup.match(/data-companion-width-contract="390px"/g)).toHaveLength(8);
+    expect(markup).toContain(
+      'data-appearance-library-companion="generic-file-ipod"',
+    );
+    expect(markup.match(/data-companion-width-contract="390px"/g)).toHaveLength(9);
     expect(markup).toContain('data-appearance-library-companion="task"');
     expect(markup).toContain('data-appearance-library-companion="task-versions"');
     expect(markup).toContain('data-appearance-library-companion="task-activity"');
@@ -399,12 +454,18 @@ describe("Xia Prism Appearance Lab fixture", () => {
   });
 
   test("keeps the fixture CSS structural and lets shared glass own sampling", async () => {
-    const [css, source, primitiveSource, catalogSource] = await Promise.all([
-      Bun.file(new URL("./appearance-lab.css", import.meta.url)).text(),
-      Bun.file(new URL("./AppearanceLab.tsx", import.meta.url)).text(),
-      Bun.file(new URL("./PrimitiveFixtureGallery.tsx", import.meta.url)).text(),
-      Bun.file(new URL("./DreamStyleCatalog.tsx", import.meta.url)).text(),
-    ]);
+    const [css, source, storageSource, primitiveSource, catalogSource] =
+      await Promise.all([
+        Bun.file(new URL("./appearance-lab.css", import.meta.url)).text(),
+        Bun.file(new URL("./AppearanceLab.tsx", import.meta.url)).text(),
+        Bun.file(
+          new URL("./LibraryStorageSpecimen.tsx", import.meta.url),
+        ).text(),
+        Bun.file(
+          new URL("./PrimitiveFixtureGallery.tsx", import.meta.url),
+        ).text(),
+        Bun.file(new URL("./DreamStyleCatalog.tsx", import.meta.url)).text(),
+      ]);
 
     const productionPaint: string[] = [];
     postcss.parse(css).walkRules((rule) => {
@@ -421,6 +482,9 @@ describe("Xia Prism Appearance Lab fixture", () => {
     });
 
     expect(productionPaint).toEqual([]);
+    expect(css).toMatch(
+      /\.appearance-lab\s*\{[^}]*height:\s*100dvh[^}]*overflow-y:\s*auto[^}]*\}/s,
+    );
     expect(css).not.toContain(
       ".appearance-lab__prism-window .app-workspace-ambient-canvas",
     );
@@ -447,6 +511,7 @@ describe("Xia Prism Appearance Lab fixture", () => {
     expect(source).toContain('surfaceRole="control"');
     expect(source).toContain("<WorkspaceSearchControl");
     expect(source).toContain("<StatusBadge");
+    expect(source).toContain("<LibraryStorageSpecimen");
     expect(source).toContain("<PrimitiveFixtureGallery");
     expect(source).toContain("<DreamStyleCatalog");
     expect(source).toContain(
@@ -466,9 +531,10 @@ describe("Xia Prism Appearance Lab fixture", () => {
     expect(source).toContain('"windowMaterial",\n        "native"');
     expect(source).toContain('root.dataset.reduceTransparency = "true"');
     expect(source).toContain("delete root.dataset.reduceTransparency");
-    expect(source).toContain("<span>06</span>");
-    expect(primitiveSource).toContain("<span>07</span>");
-    expect(catalogSource).toContain("<span>08</span>");
+    expect(storageSource).toContain("<span>06</span>");
+    expect(source).toContain("<span>07</span>");
+    expect(primitiveSource).toContain("<span>08</span>");
+    expect(catalogSource).toContain("<span>09</span>");
   });
 
   test("catalogs the shared YouTube and RSS page-root surface contract", async () => {

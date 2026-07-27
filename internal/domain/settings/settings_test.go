@@ -1,6 +1,57 @@
 package settings
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
+
+func TestManagedDownloadDirectoryCreatesOneOwnedChild(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "Downloads")
+	expected := filepath.Join(parent, "xiadown")
+
+	if got := ManagedDownloadDirectory(parent); got != expected {
+		t.Fatalf("managed download directory = %q, want %q", got, expected)
+	}
+	if got := ManagedDownloadDirectory(expected); got != expected {
+		t.Fatalf("resolved managed directory was nested again: %q", got)
+	}
+	if got := ManagedDownloadDirectory(filepath.Join(parent, "XiaDown")); got != filepath.Join(parent, "XiaDown") {
+		t.Fatalf("case-variant managed directory was nested again: %q", got)
+	}
+}
+
+func TestDownloadLocationDirectoryHidesOwnedChild(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "Downloads")
+	if got := DownloadLocationDirectory(parent); got != parent {
+		t.Fatalf("download location = %q, want %q", got, parent)
+	}
+	if got := DownloadLocationDirectory(filepath.Join(parent, "xiadown")); got != parent {
+		t.Fatalf("managed child was exposed as the download location: %q", got)
+	}
+	if got := DownloadLocationDirectory(filepath.Join(parent, "XiaDown")); got != parent {
+		t.Fatalf("case-variant managed child was exposed as the download location: %q", got)
+	}
+}
+
+func TestNewSettingsNormalizesLegacyManagedDownloadDirectory(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "Downloads")
+	current, err := NewSettings(SettingsParams{
+		Appearance:        AppearanceAuto.String(),
+		ColorScheme:       DefaultColorScheme.String(),
+		Language:          LanguageEnglish.String(),
+		LogLevel:          DefaultLogLevel.String(),
+		DownloadDirectory: filepath.Join(parent, "xiadown"),
+		MainBounds:        DefaultSettings().MainBounds(),
+		SettingsBounds:    DefaultSettings().SettingsBounds(),
+		MenuBarVisibility: stringPtr(DefaultMenuBarVisibility.String()),
+	})
+	if err != nil {
+		t.Fatalf("new settings: %v", err)
+	}
+	if got := current.DownloadDirectory(); got != parent {
+		t.Fatalf("download directory = %q, want user-selected parent %q", got, parent)
+	}
+}
 
 func TestMainWindowUsesFullscreenSurfaceBaseline(t *testing.T) {
 	if MinMainWindowWidth != 1024 {

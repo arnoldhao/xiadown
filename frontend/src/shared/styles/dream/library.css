@@ -172,6 +172,86 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
   box-shadow: 0 22px 38px -26px hsl(var(--foreground) / 0.76);
 }
 
+.app-library-card-preview {
+  border-radius: inherit;
+}
+
+.app-library-card-preview__pdf {
+  padding: 5%;
+  background:
+    radial-gradient(
+      circle at 30% 18%,
+      hsl(var(--card) / 0.96),
+      hsl(var(--muted)) 78%
+    );
+  filter: saturate(0.96);
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.05);
+}
+
+.app-library-card-preview__log {
+  background:
+    radial-gradient(
+      circle at 24% 10%,
+      color-mix(
+        in srgb,
+        hsl(var(--app-accent-brand, var(--primary))) 16%,
+        hsl(var(--card)) 84%
+      ),
+      color-mix(
+        in srgb,
+        hsl(var(--background)) 76%,
+        hsl(var(--foreground)) 24%
+      ) 70%
+    );
+  color: hsl(var(--foreground) / 0.76);
+  box-shadow:
+    inset 0 1px 0 hsl(var(--foreground) / 0.08),
+    inset 0 0 0 1px hsl(var(--foreground) / 0.06);
+}
+
+.app-library-card-preview__log-chrome > i {
+  border-radius: 999px;
+  background: hsl(var(--muted-foreground) / 0.34);
+  box-shadow: 0 0 0 1px hsl(var(--background) / 0.34);
+}
+
+.app-library-card-preview__log-chrome > i:first-child {
+  background: hsl(var(--destructive) / 0.72);
+}
+
+.app-library-card-preview__log-chrome > i:nth-child(2) {
+  background: hsl(var(--app-status-warning, 42 90% 54%) / 0.72);
+}
+
+.app-library-card-preview__log-chrome > i:nth-child(3) {
+  background: hsl(var(--app-status-success, 145 55% 43%) / 0.72);
+}
+
+.app-library-card-preview__log-line {
+  color: hsl(var(--foreground) / 0.68);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: clamp(0.37rem, 0.72vw, 0.57rem);
+  line-height: 1.35;
+  text-shadow: 0 1px 0 hsl(var(--background) / 0.35);
+}
+
+.app-library-card-preview__log-line::before {
+  color: hsl(var(--app-accent-brand, var(--primary)) / 0.58);
+  content: "› ";
+}
+
+.app-library-card-preview__log-fade {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(
+      in srgb,
+      hsl(var(--background)) 82%,
+      hsl(var(--foreground)) 18%
+    )
+  );
+}
+
 .app-library-item[data-selected="true"] .app-library-item__artwork,
 .app-library-item[data-batch-selected="true"] .app-library-item__artwork {
   box-shadow:
@@ -745,6 +825,18 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
   font-size: 0.61rem;
 }
 
+.app-library-preview__availability-notice {
+  color: var(--app-status-tone-error);
+}
+
+.app-library-preview__availability-notice[data-availability="checking"] {
+  color: var(--app-status-tone-busy);
+}
+
+.app-library-preview__availability-notice small {
+  color: var(--dream-text-soft, hsl(var(--muted-foreground)));
+}
+
 .app-library-preview__identity h2 {
   font-size: 1.05rem;
   font-weight: 700;
@@ -1214,6 +1306,60 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
   background: hsl(0 0% 100%);
 }
 
+.app-library-pdf__stage {
+  border: 1px solid hsl(var(--foreground) / 0.08);
+  border-radius: var(--app-radius-media);
+  background:
+    linear-gradient(135deg, hsl(var(--foreground) / 0.025), transparent 48%),
+    hsl(220 14% 8%);
+  box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.04);
+}
+
+.app-library-pdf-ipod__display > .app-library-pdf__stage--ipod {
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-library-pdf__stage > canvas {
+  background: white;
+  box-shadow: 0 16px 34px -20px hsl(0 0% 0% / 0.82);
+}
+
+.app-library-pdf__loading {
+  color: hsl(0 0% 100% / 0.72);
+}
+
+.app-library-pdf__error {
+  color: var(--app-status-tone-error);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.app-library-pdf__toolbar {
+  color: var(--dream-text-soft, hsl(var(--muted-foreground)));
+  font-size: 0.66rem;
+  font-weight: 650;
+}
+
+.app-library-pdf__page-controls > span {
+  text-align: center;
+}
+
+.app-library-pdf__zoom-value {
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.app-library-pdf__zoom-value:hover {
+  background: var(--dream-primary-surface, hsl(var(--primary) / 0.1));
+  color: var(--dream-primary-text, hsl(var(--primary)));
+}
+
 /*
  * The iPod owns its complete material and its 1.45rem silhouette. The generic
  * media surface uses a smaller radius; leaving that painted surface behind the
@@ -1379,6 +1525,31 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
   font-variant-numeric: tabular-nums;
 }
 
+.app-library-ipod__range-mode {
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: hsl(0 0% 88% / 0.72);
+  outline: none;
+}
+
+.app-library-ipod__range-mode:not(:disabled):hover,
+.app-library-ipod__range-mode[aria-pressed="true"] {
+  background: hsl(0 0% 100% / 0.1);
+  color: hsl(0 0% 100%);
+}
+
+.app-library-ipod__range-mode:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+:root:not([data-input-modality="pointer"])
+  .app-library-ipod__range-mode:focus-visible {
+  outline: 2px solid hsl(var(--app-accent-ring, var(--ring)));
+  outline-offset: 1px;
+}
+
 .app-library-ipod__wheel {
   border: 1px solid hsl(var(--foreground) / 0.1);
   border-radius: 50%;
@@ -1457,6 +1628,123 @@ select.app-library-pagination__size.app-dream-select.app-control-compact {
 .app-library-ipod-dialog__stage {
   border-radius: var(--app-radius-media);
   background: hsl(220 14% 4%);
+}
+
+.app-library-ipod-dialog__stage[data-zoomed="true"] {
+  cursor: zoom-out;
+}
+
+.app-library-pdf-dialog__stage {
+  cursor: zoom-in;
+}
+
+.app-library-playable-dialog__stage {
+  border-radius: var(--app-radius-media);
+  background: hsl(220 14% 4%);
+}
+
+.app-library-playable-dialog__stage > video {
+  background: hsl(220 14% 3%);
+}
+
+.app-library-playable-dialog__audio {
+  background:
+    radial-gradient(
+      circle at 50% 38%,
+      hsl(var(--app-accent-brand, var(--primary)) / 0.14),
+      transparent 58%
+    ),
+    hsl(220 14% 4%);
+}
+
+.app-library-playable-dialog__audio > .app-library-artwork {
+  border-radius: var(--dream-radius-lg);
+  box-shadow: 0 24px 42px -30px hsl(0 0% 0% / 0.9);
+}
+
+.app-library-ipod-dialog__zoom-indicator {
+  border: 1px solid hsl(0 0% 100% / 0.12);
+  border-radius: 999px;
+  background: hsl(220 14% 4% / 0.78);
+  box-shadow: 0 8px 20px -12px hsl(0 0% 0% / 0.9);
+  color: hsl(0 0% 100% / 0.84);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.25rem 0.5rem;
+}
+
+.app-library-log-ipod__display,
+.app-library-log-dialog__stage {
+  background:
+    radial-gradient(
+      circle at 18% 12%,
+      hsl(var(--app-accent-brand, var(--primary)) / 0.1),
+      transparent 42%
+    ),
+    hsl(220 18% 5%);
+  color: hsl(142 62% 73%);
+}
+
+.app-library-log-ipod__chrome {
+  border-bottom: 1px solid hsl(0 0% 100% / 0.07);
+  background: hsl(220 14% 8% / 0.78);
+}
+
+.app-library-log-ipod__chrome > i {
+  border-radius: 50%;
+}
+
+.app-library-log-ipod__chrome > i:nth-child(1) {
+  background: hsl(4 78% 62%);
+}
+
+.app-library-log-ipod__chrome > i:nth-child(2) {
+  background: hsl(43 88% 60%);
+}
+
+.app-library-log-ipod__chrome > i:nth-child(3) {
+  background: hsl(126 52% 53%);
+}
+
+.app-library-log-ipod__chrome > span {
+  color: hsl(0 0% 100% / 0.45);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: 0.42rem;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+}
+
+.app-library-log-ipod__display > pre {
+  color: hsl(142 62% 73%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: 0.48rem;
+  line-height: 1.48;
+  text-shadow: 0 0 12px hsl(142 62% 53% / 0.12);
+}
+
+.app-library-log-dialog__stage {
+  border: 1px solid hsl(0 0% 100% / 0.07);
+  border-radius: var(--app-radius-media);
+  box-shadow: inset 0 0 30px hsl(0 0% 0% / 0.24);
+}
+
+.app-library-log-dialog__stage > pre {
+  color: hsl(142 54% 78%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  font-size: 0.72rem;
+  line-height: 1.58;
+}
+
+.app-library-log-dialog__loading {
+  color: hsl(0 0% 100% / 0.7);
+}
+
+.app-library-log-dialog__error {
+  color: var(--app-status-tone-error);
+  font-size: 0.72rem;
 }
 
 .app-library-preview__task-files > h3 {
@@ -1670,8 +1958,7 @@ select.app-library-preview__category-select.app-dream-select.app-control-compact
   box-shadow: 0 0 0 2px hsl(var(--app-accent-ring, var(--ring)) / 0.12);
 }
 
-.app-library-preview__editor-actions button,
-.app-catalog-roots__head button {
+.app-library-preview__editor-actions button {
   border: 0;
   border-radius: 0.55rem;
   background: var(--dream-primary-surface);
@@ -1681,8 +1968,7 @@ select.app-library-preview__category-select.app-dream-select.app-control-compact
   font-weight: 650;
 }
 
-.app-library-preview__editor-actions button:disabled,
-.app-catalog-roots__head button:disabled {
+.app-library-preview__editor-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.46;
 }
@@ -1696,14 +1982,6 @@ select.app-library-preview__category-select.app-dream-select.app-control-compact
   color: var(--app-status-tone-error);
   font-size: 0.68rem;
   line-height: 1.45;
-}
-
-:root:not([data-input-modality="pointer"]) .app-catalog-roots__add input:focus-visible,
-:root:not([data-input-modality="pointer"]) .app-catalog-roots__add select:focus-visible {
-  border-color: hsl(var(--ring) / 0.72);
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
 }
 
 .app-library-preview__record {
@@ -1771,96 +2049,9 @@ select.app-library-preview__category-select.app-dream-select.app-control-compact
   text-align: center;
 }
 
-.app-catalog-management__sections section h3,
-.app-catalog-management__section-title {
-  font-size: 0.75rem;
-}
-
-.app-catalog-management__section-title strong {
-  font-size: 0.92rem;
-}
-
-.app-catalog-management__section-title div span {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.7rem;
-}
-
-.app-catalog-management__metrics > div {
-  border: 1px solid hsl(var(--foreground) / 0.06);
-  border-radius: 0.68rem;
-  background: hsl(var(--foreground) / 0.025);
-}
-
-.app-catalog-management__metrics > div[data-warning="true"] {
-  border-color: color-mix(
-    in srgb,
-    var(--app-status-tone-orphan) 22%,
-    transparent
-  );
-  background: var(--app-status-surface-orphan);
-}
-
-.app-catalog-management__metrics strong {
-  font-size: 1.1rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.app-catalog-management__metrics span {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.64rem;
-  line-height: 1.25;
-}
-
-.app-catalog-roots__add input,
-.app-catalog-roots__add select {
-  border: 1px solid hsl(var(--foreground) / 0.09);
-  border-radius: 0.58rem;
-  outline: 0;
-  background: hsl(var(--background) / 0.72);
-  color: hsl(var(--foreground));
-  font: inherit;
-  font-size: 0.7rem;
-}
-
-.app-catalog-roots__add button {
-  border: 0;
-  border-radius: 0.58rem;
-  background: var(--dream-primary-surface);
-  color: var(--dream-primary-text);
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 650;
-}
-
-.app-catalog-roots__add button:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-}
-
-.app-catalog-roots article {
-  border: 1px solid hsl(var(--foreground) / 0.07);
-  border-radius: 0.75rem;
-  background: hsl(var(--foreground) / 0.022);
-}
-
-.app-catalog-roots__head strong {
-  font-size: 0.76rem;
-}
-
-.app-catalog-roots__head span,
-.app-catalog-roots p {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.64rem;
-}
-
-.app-catalog-roots code {
-  border-radius: 0.48rem;
-  background: hsl(var(--foreground) / 0.035);
-  font-size: 0.65rem;
-}
-
-.app-catalog-roots .app-catalog-roots__error {
+.app-catalog-roots__error {
   color: var(--app-status-tone-error);
+  font-size: var(--app-font-size-2xs);
 }
 
 /* Library data management appearance */

@@ -39,6 +39,35 @@ func (service *LibraryService) NotifyCatalogProjectionCompleted(ctx context.Cont
 	service.publishFileUpdate(service.mustBuildFileDTO(ctx, item))
 }
 
+func (service *LibraryService) NotifyCatalogProjectionBatchCompleted(
+	_ context.Context,
+	rootID string,
+	fileIDs []string,
+) {
+	if service == nil || len(fileIDs) == 0 {
+		return
+	}
+	service.publishEvent(
+		libraryTopicFile,
+		"batch",
+		map[string]any{
+			"storageRootId": strings.TrimSpace(rootID),
+			"changedCount":  len(fileIDs),
+		},
+	)
+}
+
+func (service *LibraryService) NotifyCatalogAvailabilityChanged(
+	_ context.Context,
+	rootID string,
+) {
+	service.publishEvent(
+		libraryTopicFile,
+		"availability",
+		map[string]string{"storageRootId": strings.TrimSpace(rootID)},
+	)
+}
+
 type ProfessionalImportRequest struct {
 	BatchID      string
 	CandidateID  string
@@ -135,6 +164,7 @@ func (service *LibraryService) RegisterProfessionalImport(ctx context.Context, r
 		HistoryID:              strings.TrimSpace(request.HistoryID),
 		EventID:                strings.TrimSpace(request.FileEventID),
 		OptionalProbe:          true,
+		SkipProbe:              !professionalImportNeedsMediaProbe(request.Kind),
 		DeferCatalogProjection: true,
 	})
 	if err != nil {
@@ -151,4 +181,13 @@ func (service *LibraryService) RegisterProfessionalImport(ctx context.Context, r
 		FileEventID: eventRecord.ID,
 		StoragePath: fileItem.Storage.LocalPath,
 	}, nil
+}
+
+func professionalImportNeedsMediaProbe(kind string) bool {
+	switch library.FileKind(strings.TrimSpace(kind)) {
+	case "", library.FileKindVideo, library.FileKindAudio, library.FileKindTranscode:
+		return true
+	default:
+		return false
+	}
 }

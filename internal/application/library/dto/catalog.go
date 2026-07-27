@@ -61,6 +61,7 @@ type CatalogItemDTO struct {
 	ArtworkAssetID string `json:"artworkAssetId,omitempty"`
 	ArtworkFileID  string `json:"artworkFileId,omitempty"`
 	Status         string `json:"status"`
+	Availability   string `json:"availability"`
 	Title          string `json:"title"`
 	SortTitle      string `json:"sortTitle"`
 	Description    string `json:"description,omitempty"`
@@ -79,9 +80,23 @@ type CatalogItemAssetDTO struct {
 	Label         string          `json:"label,omitempty"`
 	Position      int             `json:"position"`
 	FileAvailable bool            `json:"fileAvailable"`
+	Availability  string          `json:"availability"`
 	File          *LibraryFileDTO `json:"file,omitempty"`
 	CreatedAt     string          `json:"createdAt"`
 	UpdatedAt     string          `json:"updatedAt"`
+}
+
+type CatalogItemSourceDTO struct {
+	OriginKind      string `json:"originKind"`
+	StorageMode     string `json:"storageMode,omitempty"`
+	StorageRootID   string `json:"storageRootId,omitempty"`
+	StorageRootName string `json:"storageRootName,omitempty"`
+	StorageRootPath string `json:"storageRootPath,omitempty"`
+	OperationID     string `json:"operationId,omitempty"`
+	ImportBatchID   string `json:"importBatchId,omitempty"`
+	ImportPath      string `json:"importPath,omitempty"`
+	ImportedAt      string `json:"importedAt,omitempty"`
+	KeepSourceFile  bool   `json:"keepSourceFile,omitempty"`
 }
 
 type CatalogRepresentationDTO struct {
@@ -181,6 +196,7 @@ type ListCatalogMetadataEntriesRequest struct {
 type CatalogItemDetailDTO struct {
 	Item            CatalogItemDTO             `json:"item"`
 	Assets          []CatalogItemAssetDTO      `json:"assets"`
+	Source          *CatalogItemSourceDTO      `json:"source,omitempty"`
 	Representations []CatalogRepresentationDTO `json:"representations"`
 	Metadata        []CatalogMetadataEntryDTO  `json:"metadata"`
 	Tags            []CatalogTagDTO            `json:"tags"`
@@ -302,29 +318,68 @@ type ReplaceCatalogItemTagsRequest struct {
 }
 
 type CatalogStorageRootDTO struct {
-	ID            string `json:"id"`
-	CatalogID     string `json:"catalogId"`
-	Name          string `json:"name"`
-	Path          string `json:"path"`
-	VolumeID      string `json:"volumeId,omitempty"`
-	Mode          string `json:"mode"`
-	Status        string `json:"status"`
-	LastCheckedAt string `json:"lastCheckedAt,omitempty"`
-	LastError     string `json:"lastError,omitempty"`
-	CreatedAt     string `json:"createdAt"`
-	UpdatedAt     string `json:"updatedAt"`
+	ID             string `json:"id"`
+	CatalogID      string `json:"catalogId"`
+	Name           string `json:"name"`
+	Emoji          string `json:"emoji"`
+	Path           string `json:"path"`
+	LocationPath   string `json:"locationPath"`
+	VolumeID       string `json:"volumeId,omitempty"`
+	Mode           string `json:"mode"`
+	IsDefault      bool   `json:"isDefault"`
+	Status         string `json:"status"`
+	FileCount      int    `json:"fileCount"`
+	AssetCount     int    `json:"assetCount"`
+	VideoCount     int    `json:"videoCount"`
+	AudioCount     int    `json:"audioCount"`
+	SizeBytes      int64  `json:"sizeBytes"`
+	TotalBytes     int64  `json:"totalBytes,omitempty"`
+	AvailableBytes int64  `json:"availableBytes,omitempty"`
+	LastCheckedAt  string `json:"lastCheckedAt,omitempty"`
+	LastError      string `json:"lastError,omitempty"`
+	CreatedAt      string `json:"createdAt"`
+	UpdatedAt      string `json:"updatedAt"`
+}
+
+type CatalogStorageVolumeDTO struct {
+	ID             string `json:"id"`
+	Name           string `json:"name,omitempty"`
+	MountPath      string `json:"mountPath"`
+	FileSystem     string `json:"fileSystem,omitempty"`
+	Kind           string `json:"kind,omitempty"`
+	ReadOnly       bool   `json:"readOnly"`
+	TotalBytes     int64  `json:"totalBytes"`
+	AvailableBytes int64  `json:"availableBytes"`
 }
 
 type SaveCatalogStorageRootRequest struct {
-	ID       string `json:"id,omitempty"`
-	Name     string `json:"name"`
-	Path     string `json:"path"`
-	VolumeID string `json:"volumeId,omitempty"`
-	Mode     string `json:"mode,omitempty"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name"`
+	Emoji     string `json:"emoji,omitempty"`
+	Path      string `json:"path"`
+	VolumeID  string `json:"volumeId,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	IsDefault bool   `json:"isDefault,omitempty"`
 }
 
 type CheckCatalogStorageRootRequest struct {
 	ID string `json:"id"`
+}
+
+type UpdateCatalogStorageRootRequest struct {
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	Mode  string  `json:"mode"`
+	Emoji *string `json:"emoji,omitempty"`
+}
+
+type CatalogStorageRootIDRequest struct {
+	ID string `json:"id"`
+}
+
+type RelocateCatalogStorageRootRequest struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
 }
 
 type CatalogUserStateDTO struct {

@@ -2,6 +2,12 @@ import type { LibraryFileDTO } from "@/shared/contracts/library";
 
 export type CatalogItemCategory = "video" | "audio" | "book" | "image" | "other";
 export type CatalogItemStatus = "active" | "needs_review" | "missing" | "trashed";
+export type CatalogItemAvailability =
+  | "available"
+  | "checking"
+  | "offline"
+  | "missing"
+  | "error";
 
 export interface Catalog {
   id: string;
@@ -41,7 +47,7 @@ export interface CatalogHealthCount {
 
 export interface CatalogOverview {
   catalog: Catalog;
-  /** Sum of known unique files linked to this catalog. */
+  /** Sum of known unique files assigned to this catalog's storage roots. */
   totalSizeBytes: number;
   categories: CatalogCount;
   statuses: CatalogStatusCount;
@@ -63,6 +69,7 @@ export interface CatalogItem {
   artworkAssetId?: string;
   artworkFileId?: string;
   status: CatalogItemStatus;
+  availability: CatalogItemAvailability;
   title: string;
   sortTitle: string;
   description?: string;
@@ -81,9 +88,23 @@ export interface CatalogItemAsset {
   label?: string;
   position: number;
   fileAvailable: boolean;
+  availability: CatalogItemAvailability | string;
   file?: LibraryFileDTO;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CatalogItemSource {
+  originKind: string;
+  storageMode?: string;
+  storageRootId?: string;
+  storageRootName?: string;
+  storageRootPath?: string;
+  operationId?: string;
+  importBatchId?: string;
+  importPath?: string;
+  importedAt?: string;
+  keepSourceFile?: boolean;
 }
 
 export type CatalogRepresentationKind =
@@ -245,6 +266,7 @@ export interface UpdateCatalogUserStateRequest {
 export interface CatalogItemDetail {
   item: CatalogItem;
   assets: CatalogItemAsset[];
+  source?: CatalogItemSource;
   representations: CatalogRepresentation[];
   metadata: CatalogMetadataEntry[];
   tags: CatalogTag[];
@@ -341,32 +363,84 @@ export interface CatalogStorageRoot {
   id: string;
   catalogId: string;
   name: string;
+  emoji?: string;
   path: string;
+  locationPath: string;
   volumeId?: string;
   mode: string;
+  isDefault: boolean;
   status: string;
+  fileCount: number;
+  assetCount: number;
+  videoCount: number;
+  audioCount: number;
+  sizeBytes: number;
+  totalBytes?: number;
+  availableBytes?: number;
   lastCheckedAt?: string;
   lastError?: string;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface SaveCatalogStorageRootRequest {
-  id?: string;
-  name: string;
-  path: string;
-  volumeId?: string;
-  mode?: string;
+export interface CatalogStorageVolume {
+  id: string;
+  name?: string;
+  mountPath: string;
+  fileSystem?: string;
+  kind?: string;
+  readOnly: boolean;
+  totalBytes: number;
+  availableBytes: number;
+}
+
+export type CatalogStorageRootSyncStatus =
+  | "idle"
+  | "queued"
+  | "scanning"
+  | "watching"
+  | "cancelling"
+  | "cancelled"
+  | "interrupted"
+  | "failed";
+
+export interface CatalogStorageRootSyncState {
+  rootId: string;
+  status: CatalogStorageRootSyncStatus;
+  generation: number;
+  fullScan: boolean;
+  discoveredCount: number;
+  processedCount: number;
+  unchangedCount: number;
+  duplicateCount: number;
+  missingCount: number;
+  failedCount: number;
+  processedBytes: number;
+  cancelRequested: boolean;
+  lastErrorCode?: string;
+  lastError?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  lastReconciledAt?: string;
+  updatedAt: string;
 }
 
 export interface CheckCatalogStorageRootRequest {
   id: string;
 }
 
-export interface SelectCatalogStorageRootCommand {
-  name: string;
-  mode: "referenced" | "managed";
+export interface CatalogStorageRootIDRequest {
+  id: string;
 }
+
+export interface UpdateCatalogStorageRootRequest {
+  id: string;
+  name: string;
+  mode: "referenced" | "managed" | string;
+  emoji?: string;
+}
+
+export type SelectCatalogStorageRootCommand = Record<string, never>;
 
 export interface CatalogMigrationAuditCount {
   legacyFiles: number;

@@ -9,6 +9,6 @@ describe("Library Catalog query projection", () => {
     expect(libraryCatalogCategory("books")).toBe("book");
     expect(libraryCatalogCategory("images")).toBe("image");
     expect(libraryCatalogCategory("all")).toBe("all");
-    expect(libraryCatalogCategory("tasks")).toBe("all");
+    expect(libraryCatalogCategory("ended")).toBe("all");
   });
 });

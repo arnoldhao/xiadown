@@ -26,8 +26,7 @@ func (service *LibraryService) resolveAgentAllowedRoots(ctx context.Context, all
 		roots = append(roots, baseDir)
 	}
 	if downloadDir, err := service.resolveDownloadDirectory(ctx); err == nil {
-		downloadRoot := filepath.Join(downloadDir, "xiadown")
-		roots = append(roots, downloadRoot)
+		roots = append(roots, downloadDir)
 	}
 	if allowTemp {
 		if tempDir := strings.TrimSpace(os.TempDir()); tempDir != "" {

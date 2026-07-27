@@ -275,9 +275,9 @@ func TestPublicLibrarySnapshotUsesOpaqueStableKeysetAndPathFreeSummaries(t *test
 	stub := &businessSnapshotCatalogStub{
 		businessCatalogStub: base,
 		items: []dto.CatalogItemDTO{
-			{ID: "item-001", CatalogID: "catalog-1", Category: "audio", Status: "active", Title: "One", SortTitle: "One", Revision: 1, PrimaryAssetID: "asset-001", ArtworkAssetID: "cover-001"},
-			{ID: "item-002", CatalogID: "catalog-1", Category: "audio", Status: "missing", Title: "Two", SortTitle: "Two", Revision: 2, PrimaryAssetID: "asset-002", ArtworkAssetID: "cover-002"},
-			{ID: "item-004", CatalogID: "catalog-1", Category: "video", Status: "active", Title: "Four", SortTitle: "Four", Revision: 1, PrimaryAssetID: "asset-004", ArtworkAssetID: "cover-004"},
+			{ID: "item-001", CatalogID: "catalog-1", Category: "audio", Status: "active", Availability: "available", Title: "One", SortTitle: "One", Revision: 1, PrimaryAssetID: "asset-001", ArtworkAssetID: "cover-001"},
+			{ID: "item-002", CatalogID: "catalog-1", Category: "audio", Status: "missing", Availability: "missing", Title: "Two", SortTitle: "Two", Revision: 2, PrimaryAssetID: "asset-002", ArtworkAssetID: "cover-002"},
+			{ID: "item-004", CatalogID: "catalog-1", Category: "video", Status: "active", Availability: "available", Title: "Four", SortTitle: "Four", Revision: 1, PrimaryAssetID: "asset-004", ArtworkAssetID: "cover-004"},
 		},
 	}
 	api.config.Catalog = stub
@@ -508,7 +508,7 @@ func TestPublicItemListExposesOnlyOpaquePreviewReferences(t *testing.T) {
 	stub := api.config.Catalog.(businessCatalogStub)
 	stub.list = dto.ListCatalogItemsResponse{
 		Items: []dto.CatalogItemDTO{{
-			ID: "item-1", CatalogID: "catalog-1", Category: "video", Status: "active",
+			ID: "item-1", CatalogID: "catalog-1", Category: "video", Status: "active", Availability: "available",
 			Title: "Movie", SortTitle: "Movie", Revision: 1,
 			PrimaryAssetID: "asset-original", PrimaryFileID: "file-original",
 			ArtworkAssetID: "asset-artwork", ArtworkFileID: "file-artwork",
@@ -1146,7 +1146,7 @@ func newBusinessTestAPI(t *testing.T, path string) *BusinessAPI {
 	api, err := NewBusinessAPI(BusinessConfig{
 		CatalogID: "catalog-1",
 		Catalog: businessCatalogStub{detail: dto.CatalogItemDetailDTO{
-			Item: dto.CatalogItemDTO{ID: item.ID, CatalogID: item.CatalogID, Category: "video", Status: "active", Title: "Movie", Revision: 1},
+			Item: dto.CatalogItemDTO{ID: item.ID, CatalogID: item.CatalogID, Category: "video", Status: "active", Availability: "available", Title: "Movie", Revision: 1},
 			Assets: []dto.CatalogItemAssetDTO{{
 				ID: asset.ID, ItemID: item.ID, FileID: file.ID, Role: "original", FileAvailable: true,
 				File: &dto.LibraryFileDTO{ID: file.ID, Storage: dto.LibraryFileStorageDTO{Mode: "local_path", LocalPath: path, DocumentID: "secret-document"}},

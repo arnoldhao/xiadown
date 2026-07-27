@@ -10,9 +10,9 @@ import { cn } from "@/lib/utils";
 export const LIBRARY_WORKSPACE_ROUTE_IDS = {
   search: "search",
   running: "running",
+  ended: "ended",
   appSessions: "app-sessions",
   all: "all",
-  tasks: "tasks",
   video: "video",
   audio: "audio",
   books: "books",
@@ -64,14 +64,13 @@ export function LibraryWorkspaceSidebar({
       sections={[
         {
           id: "primary",
-          items: [item("search"), item("running"), item("appSessions")],
+          items: [item("search"), item("running"), item("ended")],
         },
         {
           id: "library",
           label: catalog.sections.library.label,
           items: [
             item("all"),
-            item("tasks"),
             item("video"),
             item("audio"),
             item("books"),
@@ -82,7 +81,7 @@ export function LibraryWorkspaceSidebar({
         {
           id: "more",
           label: catalog.sections.more.label,
-          items: [item("petGallery")],
+          items: [item("appSessions"), item("petGallery")],
         },
       ]}
     />

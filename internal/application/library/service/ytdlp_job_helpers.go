@@ -768,11 +768,6 @@ func (service *LibraryService) prepareYTDLPOutput(ctx context.Context) (string, 
 		downloadDirectory = fallback
 	}
 	baseDir := filepath.Join(downloadDirectory, "yt-dlp")
-	if defaultBaseDir, defaultErr := libraryBaseDir(); defaultErr == nil {
-		if !sameCleanPath(downloadDirectory, defaultBaseDir) && filepath.Base(filepath.Clean(downloadDirectory)) != "xiadown" {
-			baseDir = filepath.Join(downloadDirectory, "xiadown", "yt-dlp")
-		}
-	}
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		return "", "", "", err
 	}

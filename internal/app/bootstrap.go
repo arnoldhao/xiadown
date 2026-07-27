@@ -28,10 +28,12 @@ import (
 	libraryaccessservice "xiadown/internal/application/libraryaccess"
 	applicationlibrarybackup "xiadown/internal/application/librarybackup"
 	applicationlibraryimport "xiadown/internal/application/libraryimport"
+	applicationlibraryrootsync "xiadown/internal/application/libraryrootsync"
 	"xiadown/internal/application/listenlyrics"
 	"xiadown/internal/application/listenplayback"
 	petsservice "xiadown/internal/application/pets/service"
 	applicationrss "xiadown/internal/application/rss"
+	settingsdto "xiadown/internal/application/settings/dto"
 	"xiadown/internal/application/settings/service"
 	softwareupdate "xiadown/internal/application/softwareupdate"
 	apptelemetry "xiadown/internal/application/telemetry"
@@ -55,6 +57,7 @@ import (
 	"xiadown/internal/infrastructure/libraryicons"
 	infrastructurelibraryimport "xiadown/internal/infrastructure/libraryimportrepo"
 	"xiadown/internal/infrastructure/libraryrepo"
+	infrastructurelibraryrootsync "xiadown/internal/infrastructure/libraryrootsyncrepo"
 	"xiadown/internal/infrastructure/libraryserver"
 	"xiadown/internal/infrastructure/listenplaybackstore"
 	"xiadown/internal/infrastructure/locallyricsreader"
@@ -636,6 +639,44 @@ WHERE id = ? AND catalog_id <> ?
 		catalogCollectionRepo, catalogTagRepo, catalogUserStateRepo,
 		libraryrepo.NewSQLiteCatalogMutationRepository(database.Bun), catalogAuditor, catalogChangeRepo,
 	)
+	catalogService.SetDefaultStorageRootPathUpdater(func(ctx context.Context, path string) error {
+		downloadLocation := settings.DownloadLocationDirectory(path)
+		if downloadLocation == "" {
+			return fmt.Errorf("download location is unavailable")
+		}
+		current, err := settingsService.GetSettings(ctx)
+		if err != nil {
+			return err
+		}
+		if filepath.Clean(current.DownloadDirectory) == filepath.Clean(downloadLocation) {
+			return nil
+		}
+		_, err = settingsService.UpdateSettings(ctx, settingsdto.UpdateSettingsRequest{
+			DownloadDirectory: &downloadLocation,
+		})
+		return err
+	})
+	if currentSettings, settingsErr := settingsService.GetSettings(ctx); settingsErr != nil {
+		zap.L().Warn("Library default storage root settings unavailable", zap.Error(settingsErr))
+	} else if _, rootErr := catalogService.EnsureDefaultDownloadStorageRoot(
+		ctx,
+		currentSettings.DownloadDirectory,
+	); rootErr != nil {
+		zap.L().Warn("Library default storage root unavailable", zap.Error(rootErr))
+	}
+	catalogService.SetCatalogAvailabilityChangeNotifier(func(
+		notifyCtx context.Context,
+		rootID string,
+	) {
+		_ = eventBus.Publish(notifyCtx, appevents.Event{
+			Topic: "library.file",
+			Type:  "availability",
+			Payload: map[string]string{
+				"storageRootId": strings.TrimSpace(rootID),
+			},
+		})
+	})
+	go catalogService.RunStorageRootHealthMonitor(serverCtx, 5*time.Minute)
 	videoThumbnailCache := ""
 	if cacheBase, cacheErr := os.UserCacheDir(); cacheErr != nil {
 		zap.L().Warn("Library video thumbnail cache unavailable",
@@ -646,10 +687,18 @@ WHERE id = ? AND catalog_id <> ?
 	}
 	catalogVideoThumbnails := libraryservice.NewCatalogVideoThumbnailService(
 		catalogItemRepo, catalogAssetRepo, fileRepo, dependenciesService, videoThumbnailCache,
+		catalogRootRepo,
 	)
 	realtimeServer.Handle(
 		"/api/library/video-thumbnail/",
 		presentationhttp.NewCatalogVideoThumbnailHandler(catalogVideoThumbnails),
+	)
+	catalogCardPreviews := libraryservice.NewCatalogCardPreviewService(
+		catalogItemRepo, catalogAssetRepo, fileRepo, catalogRootRepo,
+	)
+	realtimeServer.Handle(
+		"/api/library/card-preview/",
+		presentationhttp.NewCatalogCardPreviewHandler(catalogCardPreviews),
 	)
 	faviconCache := libraryicons.NewFaviconCacheWithHTTPClientProvider(proxyManager)
 	libraryService = libraryservice.NewLibraryService(
@@ -677,9 +726,24 @@ WHERE id = ? AND catalog_id <> ?
 		status := persistence.InspectSQLiteIntegrityStatus(databasePath)
 		return status.State, status.CheckedAt, status.Detail
 	})
+	libraryService.SetStorageRootRepository(catalogRootRepo)
 	libraryService.SetCatalogProjectionRunner(catalogBackfill)
 	libraryService.SetListenLocalCatalogMetadataSynchronizer(catalogService)
 	libraryService.SetListenLocalMusicMembershipRepository(localMusicMembershipRepo)
+	libraryService.SetDefaultDownloadRootProvider(catalogService.DefaultStorageRootPath)
+	if cacheBase, cacheErr := os.UserCacheDir(); cacheErr != nil {
+		zap.L().Warn(
+			"Library embedded artwork cache unavailable",
+			safeStationErrorLogFields(
+				"library_embedded_artwork_cache_directory_failed",
+				cacheErr,
+			)...,
+		)
+	} else {
+		libraryService.SetEmbeddedArtworkDirectory(
+			libraryEmbeddedArtworkCacheDirectory(cacheBase, appVersion),
+		)
+	}
 	if err := libraryService.EnsureDefaultTranscodePresets(ctx); err != nil {
 		return nil, err
 	}
@@ -691,6 +755,47 @@ WHERE id = ? AND catalog_id <> ?
 		libraryService,
 	)
 	libraryImportService.SetManagedRootRegistrar(catalogService)
+	libraryRootSyncService := applicationlibraryrootsync.NewService(
+		infrastructurelibraryrootsync.NewSQLiteRepository(database.Bun),
+		fileRepo,
+		libraryService,
+		catalogBackfill,
+		libraryService,
+	)
+	libraryRootSyncService.SetRootProvider(func(
+		providerCtx context.Context,
+	) ([]applicationlibraryrootsync.Root, error) {
+		items, providerErr := catalogService.ListCatalogStorageRootMetadata(providerCtx)
+		if providerErr != nil {
+			return nil, providerErr
+		}
+		result := make([]applicationlibraryrootsync.Root, 0, len(items))
+		for _, item := range items {
+			// Path is the physical ownership boundary. Managed roots expose a
+			// parent LocationPath to the UI, but synchronization must stay
+			// inside XiaDown's owned child (for example Downloads/xiadown).
+			path := strings.TrimSpace(item.Path)
+			result = append(result, applicationlibraryrootsync.Root{
+				ID: item.ID, Name: item.Name, Path: path,
+				VolumeID: item.VolumeID, Mode: string(item.Mode),
+				Online: item.Status == domainlibrary.StorageRootStatusOnline ||
+					item.Status == domainlibrary.StorageRootStatusReadOnly,
+			})
+		}
+		return result, nil
+	})
+	go func() {
+		if syncErr := libraryRootSyncService.Run(serverCtx); syncErr != nil &&
+			!errors.Is(syncErr, context.Canceled) {
+			zap.L().Warn(
+				"Library storage root sync stopped",
+				safeStationErrorLogFields(
+					"library_storage_root_sync_stopped",
+					syncErr,
+				)...,
+			)
+		}
+	}()
 	libraryFileMaintenanceHandler := presentationhttp.NewLibraryFileMaintenanceHandler(libraryService)
 	realtimeServer.Handle("/api/library/files/", libraryFileMaintenanceHandler)
 	resourceSniffPreviewHandler := presentationhttp.NewResourceSniffPreviewHandler(libraryService)
@@ -915,6 +1020,7 @@ WHERE id = ? AND catalog_id <> ?
 
 	osNotifications := notifications.New()
 	settingsHandler := wails.NewSettingsHandler(settingsService, windowManager, appLogger, proxyManager, autostartManager, libraryService, listenPlayer, listenLivePlayer)
+	settingsHandler.SetDownloadRootSyncer(catalogService)
 	app.RegisterService(application.NewService(settingsHandler))
 	cacheRoot, _ := os.UserCacheDir()
 	applicationResetManager, err := newApplicationResetManager()
@@ -938,7 +1044,12 @@ WHERE id = ? AND catalog_id <> ?
 	app.RegisterService(application.NewService(wails.NewAppSessionsHandler(appSessionsService, windowManager, listenPlayer, listenLivePlayer)))
 	app.RegisterService(application.NewService(wails.NewDependenciesHandler(dependenciesService, windowManager)))
 	app.RegisterService(application.NewService(wails.NewLibraryHandler(libraryService, windowManager)))
-	app.RegisterService(application.NewService(wails.NewCatalogHandler(catalogService, windowManager)))
+	catalogHandler := wails.NewCatalogHandler(
+		catalogService,
+		libraryRootSyncService,
+		windowManager,
+	)
+	app.RegisterService(application.NewService(catalogHandler))
 	app.RegisterService(application.NewService(wails.NewLibraryBackupHandler(libraryBackupService)))
 	app.RegisterService(application.NewService(wails.NewLibraryImportHandler(libraryImportService, windowManager)))
 	app.RegisterService(application.NewService(wails.NewLibraryAccessHandler(libraryAccessService, publicBackendPort)))
@@ -1034,6 +1145,33 @@ WHERE id = ? AND catalog_id <> ?
 			libraryService.RecoverPendingJobs(context.Background())
 		}()
 		go func() {
+			settle := time.NewTimer(time.Second)
+			defer settle.Stop()
+			select {
+			case <-serverCtx.Done():
+				return
+			case <-settle.C:
+			}
+			artworkCtx, cancel := context.WithTimeout(
+				serverCtx,
+				30*time.Minute,
+			)
+			defer cancel()
+			if artworkErr := libraryService.BackfillEmbeddedArtwork(
+				artworkCtx,
+			); artworkErr != nil &&
+				!errors.Is(artworkErr, context.Canceled) &&
+				!errors.Is(artworkErr, context.DeadlineExceeded) {
+				zap.L().Warn(
+					"Library embedded artwork backfill failed",
+					safeStationErrorLogFields(
+						"library_embedded_artwork_backfill_failed",
+						artworkErr,
+					)...,
+				)
+			}
+		}()
+		go func() {
 			hydrateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			_, _ = appSessionsService.RecordsForSiteKey(hydrateCtx, "youtube")
@@ -1097,6 +1235,25 @@ func libraryVideoThumbnailCacheDirectory(base string, version string) string {
 	// Development and release instances may run concurrently. Isolate their
 	// generated previews so neither process prunes the other's active cache.
 	return filepath.Join(base, "xiadown", "library", "video-thumbnails", "v1", channel)
+}
+
+func libraryEmbeddedArtworkCacheDirectory(base string, version string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	channel := "development"
+	if isComparableReleaseVersion(version) {
+		channel = "production"
+	}
+	return filepath.Join(
+		base,
+		"xiadown",
+		"library",
+		"embedded-artwork",
+		"v1",
+		channel,
+	)
 }
 
 func openDatabase(ctx context.Context) (*persistence.Database, error) {

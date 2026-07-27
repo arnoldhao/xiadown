@@ -125,11 +125,6 @@ func (service *LibraryService) resolveYTDLPArtifactSearchBaseDir(ctx context.Con
 		}
 	}
 	baseDir := filepath.Join(downloadDirectory, "yt-dlp")
-	if defaultBaseDir, defaultErr := libraryBaseDir(); defaultErr == nil {
-		if !sameCleanPath(downloadDirectory, defaultBaseDir) && filepath.Base(filepath.Clean(downloadDirectory)) != "xiadown" {
-			baseDir = filepath.Join(downloadDirectory, "xiadown", "yt-dlp")
-		}
-	}
 	return baseDir, nil
 }
 

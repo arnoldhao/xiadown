@@ -32,6 +32,10 @@ type ManagedRootRegistrar interface {
 	EnsureManagedImportRoot(ctx context.Context, path string) (string, error)
 }
 
+type ReferencedRootRegistrar interface {
+	EnsureReferencedImportRoots(ctx context.Context, paths []string) error
+}
+
 // CatalogProjectionNotifier emits the post-projection edge used by the
 // desktop query cache. It is deliberately optional for headless importers.
 type CatalogProjectionNotifier interface {
@@ -39,13 +43,14 @@ type CatalogProjectionNotifier interface {
 }
 
 type DryRunCommand struct {
-	RequestKey    string
-	SourcePaths   []string
-	LibraryID     string
-	Mode          importdomain.Mode
-	ManagedRoot   string
-	HiddenPolicy  importdomain.HiddenPolicy
-	SymlinkPolicy importdomain.SymlinkPolicy
+	RequestKey     string
+	SourcePaths    []string
+	LibraryID      string
+	Mode           importdomain.Mode
+	ManagedRoot    string
+	ReferenceRoots []string
+	HiddenPolicy   importdomain.HiddenPolicy
+	SymlinkPolicy  importdomain.SymlinkPolicy
 }
 
 type BatchRequest struct {
@@ -175,7 +180,7 @@ func fileKindFor(candidate importdomain.Candidate) string {
 		return string(library.FileKindOther)
 	default:
 		switch candidate.Extension {
-		case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md", ".rtf":
+		case ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md", ".rtf", ".log":
 			return string(library.FileKindDocument)
 		case ".woff", ".woff2", ".ttf", ".otf", ".eot":
 			return string(library.FileKindFont)
