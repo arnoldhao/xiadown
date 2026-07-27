@@ -7,6 +7,10 @@ import type {
   SelectLibraryImportCommand,
 } from "@/shared/contracts/library-management";
 import { LIBRARY_IMPORT_MANAGED_STORAGE_STRATEGY } from "@/shared/contracts/library-management";
+import type {
+  CatalogStorageRoot,
+  CatalogStorageVolume,
+} from "@/shared/contracts/catalog";
 
 const calls: Array<{ name: string; args: unknown[] }> = [];
 
@@ -46,6 +50,9 @@ const {
   canResumeLibraryImport,
   isLibraryRestoreConfirmationValid,
 } = await import("./LibraryDataManagement");
+const { buildCatalogStorageSummary } = await import(
+  "./CatalogStorageSurfaces"
+);
 
 const labels: LibraryDataManagementLabels = {
   title: "Library data management",
@@ -399,6 +406,148 @@ describe("library management Wails boundary", () => {
 });
 
 describe("LibraryDataManagement", () => {
+  test("deduplicates roots that share a physical volume in the storage overview", () => {
+    const root = (
+      id: string,
+      overrides: Partial<CatalogStorageRoot> = {},
+    ): CatalogStorageRoot => ({
+      id,
+      catalogId: "catalog",
+      name: id,
+      path: `/Volumes/Creator/${id}`,
+      locationPath: `/Volumes/Creator/${id}`,
+      volumeId: "creator-volume",
+      mode: "referenced",
+      isDefault: false,
+      status: "online",
+      fileCount: 1,
+      assetCount: 1,
+      videoCount: 1,
+      audioCount: 0,
+      sizeBytes: 100,
+      totalBytes: 1_000,
+      availableBytes: 400,
+      createdAt: "2026-07-20T08:00:00Z",
+      updatedAt: "2026-07-20T08:00:00Z",
+      ...overrides,
+    });
+    const volumes: CatalogStorageVolume[] = [{
+      id: "creator-volume",
+      name: "Creator",
+      mountPath: "/Volumes/Creator",
+      readOnly: false,
+      totalBytes: 1_000,
+      availableBytes: 400,
+    }];
+    const summary = buildCatalogStorageSummary(
+      volumes,
+      [
+        root("root-a"),
+        root("root-b", { sizeBytes: 200 }),
+        root("offline", {
+          volumeId: "archive-volume",
+          status: "offline",
+          totalBytes: 2_000,
+          availableBytes: 1_500,
+        }),
+      ],
+    );
+
+    expect(summary.totalBytes).toBe(1_000);
+    expect(summary.availableBytes).toBe(400);
+    expect(summary.libraryBytes).toBe(400);
+    expect(summary.mountedLibraryBytes).toBe(300);
+    expect(summary.assetCount).toBe(3);
+    expect(summary.fileCount).toBe(3);
+    expect(summary.otherBytes).toBe(300);
+    expect(summary.volumes).toHaveLength(1);
+    expect(summary.volumes[0]?.fileCount).toBe(2);
+    expect(summary.volumes[0]?.videoCount).toBe(2);
+    expect(summary.volumes[0]?.audioCount).toBe(0);
+    expect(summary.mountedRootCount).toBe(2);
+    expect(summary.offlineRootCount).toBe(1);
+  });
+
+  test("retains mounted volumes that do not contain storage roots", () => {
+    const summary = buildCatalogStorageSummary(
+      [{
+        id: "system-volume",
+        mountPath: "/",
+        readOnly: false,
+        totalBytes: 2_000,
+        availableBytes: 500,
+      }],
+      [],
+    );
+
+    expect(summary.volumes).toHaveLength(1);
+    expect(summary.volumes[0]?.rootCount).toBe(0);
+    expect(summary.volumes[0]?.libraryBytes).toBe(0);
+    expect(summary.totalBytes).toBe(2_000);
+    expect(summary.otherBytes).toBe(1_500);
+  });
+
+  test("folds an APFS Data root into the user-facing system volume", () => {
+    const summary = buildCatalogStorageSummary(
+      [{
+        id: "darwin-fsid-system",
+        name: "",
+        mountPath: "/",
+        readOnly: true,
+        totalBytes: 2_000,
+        availableBytes: 500,
+      }],
+      [{
+        id: "downloads",
+        catalogId: "catalog",
+        name: "XiaDown Downloads",
+        path: "/Users/arnold/Downloads/xiadown",
+        locationPath: "/Users/arnold/Downloads",
+        volumeId: "darwin-fsid-data",
+        mode: "managed",
+        isDefault: true,
+        status: "online",
+        fileCount: 4,
+        assetCount: 3,
+        videoCount: 2,
+        audioCount: 1,
+        sizeBytes: 300,
+        totalBytes: 2_000,
+        availableBytes: 500,
+        createdAt: "2026-07-20T08:00:00Z",
+        updatedAt: "2026-07-20T08:00:00Z",
+      }],
+    );
+
+    expect(summary.volumes).toHaveLength(1);
+    expect(summary.volumes[0]?.id).toBe("darwin-fsid-system");
+    expect(summary.volumes[0]?.rootCount).toBe(1);
+    expect(summary.volumes[0]?.libraryBytes).toBe(300);
+    expect(summary.totalBytes).toBe(2_000);
+  });
+
+  test("keeps storage roots at the overview width with one card per row", async () => {
+    const [layoutCss, dreamStorageCss, dialogSource] = await Promise.all([
+      Bun.file(new URL("./library.css", import.meta.url)).text(),
+      Bun.file(
+        new URL("../../shared/styles/dream/storage.css", import.meta.url),
+      ).text(),
+      Bun.file(new URL("./CatalogManagementDialog.tsx", import.meta.url)).text(),
+    ]);
+
+    expect(layoutCss).toMatch(
+      /\.app-catalog-management\s*\{[^}]*width:\s*min\(50rem,/s,
+    );
+    expect(dreamStorageCss).toMatch(
+      /\.app-dream-storage-root-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s,
+    );
+    expect(layoutCss).not.toContain("app-catalog-management--storage");
+    expect(dialogSource).not.toContain("app-catalog-management--storage");
+    expect(dreamStorageCss).toMatch(
+      /\.app-dream-storage-volume__facts\s*\{[^}]*grid-template-columns:\s*repeat\(4,/s,
+    );
+  });
+
   test("uses reachable container breakpoints inside the management dialog", async () => {
     const css = await Bun.file(
       new URL("./LibraryDataManagement.css", import.meta.url),
@@ -510,9 +659,10 @@ describe("LibraryDataManagement", () => {
   });
 
   test("catalog management localizes defaults and refreshes Library caches", async () => {
-    const source = await Bun.file(
-      new URL("./CatalogManagementDialog.tsx", import.meta.url),
-    ).text();
+    const [source, storageSource] = await Promise.all([
+      Bun.file(new URL("./CatalogManagementDialog.tsx", import.meta.url)).text(),
+      Bun.file(new URL("./CatalogStorageSurfaces.tsx", import.meta.url)).text(),
+    ]);
 
     expect(source).toContain("? labels.library");
     expect(source).toContain("formatBytes(overview.data.totalSizeBytes)");
@@ -521,6 +671,69 @@ describe("LibraryDataManagement", () => {
     expect(source).toContain("categoryLabel={labels.operationKindLabel}");
     expect(source).toContain("queryClient.invalidateQueries({ queryKey: catalogKeys.all })");
     expect(source).toContain('queryClient.invalidateQueries({ queryKey: ["library"] })');
+    expect(source).toContain("<CatalogStorageOverview");
+    expect(source).toContain("volumes={volumes.data ?? []}");
+    expect(source).toContain("metrics={categoryCards}");
+    expect(source).not.toContain("labels.itemStatuses");
+    expect(source).not.toContain("labels.catalogHealth");
+    expect(source).toContain("<CatalogStorageRootCard");
+    expect(storageSource).toContain("root.isDefault");
+    expect(storageSource).toContain("root.fileCount");
+    expect(storageSource).toContain("root.assetCount");
+    expect(storageSource).toContain("root.videoCount");
+    expect(storageSource).toContain("root.audioCount");
+    expect(storageSource).toContain("root.totalBytes");
+    expect(storageSource).toContain("root.volumeId?.trim() || root.id");
+    expect(storageSource).toContain("props.labels.noRootsOnVolume");
+    expect(storageSource).toContain("<StorageCapacityBar");
+    expect(storageSource).toContain(
+      "app-dream-storage-overview__library-metrics",
+    );
+    expect(storageSource).toContain(
+      "app-dream-storage-overview__capacity-section",
+    );
+    const rootCardSource = storageSource.slice(
+      storageSource.indexOf("export function CatalogStorageRootCard"),
+    );
+    expect(rootCardSource).toContain("root.locationPath || root.path");
+    expect(rootCardSource).not.toContain("root.totalBytes");
+    expect(rootCardSource).not.toContain("root.availableBytes");
+    expect(rootCardSource).not.toContain("<StorageCapacityBar");
+    expect(rootCardSource).toContain("labels.rootDirectorySize");
+    expect(rootCardSource).not.toContain("onBeginEdit");
+    expect(rootCardSource).not.toContain("onSetDefault");
+    expect(rootCardSource).toContain("labels.relocateManagedRoot");
+    expect(rootCardSource).toContain("labels.replaceReferencedRoot");
+    expect(rootCardSource).toContain("labels.scanRoot");
+    expect(rootCardSource).toContain("labels.cancelRootScan");
+    expect(rootCardSource).toContain(
+      "app-dream-storage-root-card__sync",
+    );
+    expect(rootCardSource).toContain("<progress");
+    expect(rootCardSource).toContain("onSelect={props.onRemove}");
+    expect(source).toContain("useCatalogStorageRootSyncStates");
+    expect(source).toContain("useStartCatalogStorageRootScan");
+    expect(source).toContain("useCancelCatalogStorageRootScan");
+    expect(source).toContain("app-catalog-root-remove-dialog");
+    expect(source).not.toContain("window.confirm");
+    expect(source).not.toContain("app-catalog-roots__add");
+    expect(source).toContain("useUpdateCatalogStorageRoot");
+    expect(source).toContain("messageBus.publishToast");
+    expect(storageSource).toContain('DropdownMenuContent align="center"');
+    expect(storageSource).toContain("CatalogStorageRootEmojiPicker");
+    expect(storageSource).toContain("React.lazy");
+    expect(storageSource).toContain(
+      `closest<HTMLElement>('[role="dialog"]')`,
+    );
+    expect(storageSource).toContain(
+      "portalContainer={emojiPortalContainer}",
+    );
+    expect(storageSource).not.toContain("syncState.lastError");
+    expect(source).not.toContain("useSetDefaultCatalogStorageRoot");
+    expect(source).toContain("selectRoot.mutate({})");
+    expect(source).toContain("useRemoveCatalogStorageRoot");
+    expect(source).toContain("useRelocateCatalogStorageRoot");
+    expect(source).toContain("openCatalogStorageRoot");
   });
 
   test("next-launch restore requires the exact second confirmation and promises rollback", () => {

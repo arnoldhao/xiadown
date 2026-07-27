@@ -543,7 +543,7 @@ export function PrimitiveFixtureGallery() {
   return (
     <section aria-labelledby="appearance-lab-primitives-title" className="appearance-lab__section" data-appearance-fixture="primitive-gallery">
       <div className="appearance-lab__section-heading">
-        <span>07</span>
+        <span>08</span>
         <div><h2 id="appearance-lab-primitives-title">Primitive contract gallery</h2><p>Fixtures are generated from a machine-readable registry and render production primitives.</p></div>
       </div>
       <div className="appearance-lab__fixture-gallery">

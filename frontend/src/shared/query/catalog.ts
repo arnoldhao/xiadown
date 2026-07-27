@@ -12,6 +12,9 @@ import type {
   CatalogOverview,
   CatalogRepresentation,
   CatalogStorageRoot,
+  CatalogStorageRootSyncState,
+  CatalogStorageVolume,
+  UpdateCatalogStorageRootRequest,
   CatalogTag,
   ListCatalogItemsRequest,
   ListCatalogItemsResponse,
@@ -44,6 +47,8 @@ export const catalogKeys = {
   collections: ["catalog", "collections"] as const,
   tags: ["catalog", "tags"] as const,
   storageRoots: ["catalog", "storage-roots"] as const,
+  storageVolumes: ["catalog", "storage-volumes"] as const,
+  storageRootSyncStates: ["catalog", "storage-root-sync-states"] as const,
   audit: ["catalog", "audit"] as const,
 };
 
@@ -236,14 +241,48 @@ export function useCatalogStorageRoots(enabled = true) {
   });
 }
 
+export function useCatalogStorageVolumes(enabled = true) {
+  return useQuery({
+    queryKey: catalogKeys.storageVolumes,
+    queryFn: () =>
+      callCatalog<CatalogStorageVolume[]>("ListCatalogStorageVolumes"),
+    enabled,
+  });
+}
+
+export function useCatalogStorageRootSyncStates(enabled = true) {
+  return useQuery({
+    queryKey: catalogKeys.storageRootSyncStates,
+    queryFn: () =>
+      callCatalog<CatalogStorageRootSyncState[]>(
+        "ListCatalogStorageRootSyncStates",
+      ),
+    enabled,
+    refetchInterval: (query) => {
+      const states = query.state.data ?? [];
+      const active = states.some((state) =>
+        state.status === "queued" ||
+        state.status === "scanning" ||
+        state.status === "cancelling"
+      );
+      // Keep a low-frequency idle heartbeat so watcher-triggered scans become
+      // visible without reopening the dialog. Active work uses a faster cadence
+      // while still avoiding a render or bridge call per file.
+      return active ? 750 : 5_000;
+    },
+  });
+}
+
 export function useSelectCatalogStorageRoot() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (request: SelectCatalogStorageRootCommand) =>
-      callCatalog<CatalogStorageRoot>("SelectAndSaveCatalogStorageRoot", request),
-    onSuccess: async () => {
+      callCatalog<CatalogStorageRoot | null>("SelectAndSaveCatalogStorageRoot", request),
+    onSuccess: async (root) => {
+      if (!root) return;
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: catalogKeys.storageRoots }),
+        queryClient.invalidateQueries({ queryKey: catalogKeys.storageVolumes }),
         queryClient.invalidateQueries({ queryKey: catalogKeys.overview }),
       ]);
     },
@@ -380,10 +419,99 @@ export function useCheckCatalogStorageRoot() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: catalogKeys.storageRoots }),
+        queryClient.invalidateQueries({ queryKey: catalogKeys.storageVolumes }),
         queryClient.invalidateQueries({ queryKey: catalogKeys.overview }),
       ]);
     },
   });
+}
+
+export function useStartCatalogStorageRootScan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rootId: string) =>
+      callCatalog<CatalogStorageRootSyncState>(
+        "StartCatalogStorageRootScan",
+        { rootId },
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: catalogKeys.storageRootSyncStates,
+      });
+    },
+  });
+}
+
+export function useCancelCatalogStorageRootScan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rootId: string) =>
+      callCatalog<CatalogStorageRootSyncState>(
+        "CancelCatalogStorageRootScan",
+        { rootId },
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: catalogKeys.storageRootSyncStates,
+      });
+    },
+  });
+}
+
+function useRefreshCatalogStorageRoots(includeSettings = false) {
+  const queryClient = useQueryClient();
+  return () => Promise.all([
+    queryClient.invalidateQueries({ queryKey: catalogKeys.storageRoots }),
+    queryClient.invalidateQueries({ queryKey: catalogKeys.storageVolumes }),
+    queryClient.invalidateQueries({ queryKey: catalogKeys.overview }),
+    queryClient.invalidateQueries({ queryKey: catalogKeys.storageRootSyncStates }),
+    queryClient.invalidateQueries({ queryKey: ["catalog", "items"] }),
+    ...(includeSettings
+      ? [queryClient.invalidateQueries({ queryKey: ["settings"] })]
+      : []),
+  ]);
+}
+
+export function useUpdateCatalogStorageRoot() {
+  const refresh = useRefreshCatalogStorageRoots();
+  return useMutation({
+    mutationFn: (request: UpdateCatalogStorageRootRequest) =>
+      callCatalog<CatalogStorageRoot>("UpdateCatalogStorageRoot", request),
+    onSuccess: refresh,
+  });
+}
+
+export function useSetDefaultCatalogStorageRoot() {
+  const refresh = useRefreshCatalogStorageRoots(true);
+  return useMutation({
+    mutationFn: (id: string) =>
+      callCatalog<CatalogStorageRoot>("SetDefaultCatalogStorageRoot", { id }),
+    onSuccess: refresh,
+  });
+}
+
+export function useRemoveCatalogStorageRoot() {
+  const refresh = useRefreshCatalogStorageRoots();
+  return useMutation({
+    mutationFn: (id: string) =>
+      callCatalog<void>("RemoveCatalogStorageRoot", { id }),
+    onSuccess: refresh,
+  });
+}
+
+export function useRelocateCatalogStorageRoot() {
+  const refresh = useRefreshCatalogStorageRoots(true);
+  return useMutation({
+    mutationFn: (id: string) =>
+      callCatalog<CatalogStorageRoot | null>("SelectAndRelocateCatalogStorageRoot", { id }),
+    onSuccess: async (root) => {
+      if (root) await refresh();
+    },
+  });
+}
+
+export function openCatalogStorageRoot(id: string) {
+  return callCatalog<void>("OpenCatalogStorageRoot", { id });
 }
 
 function normalizeCatalogItem(value: unknown): CatalogItem | null {
@@ -408,6 +536,8 @@ function normalizeCatalogItem(value: unknown): CatalogItem | null {
     artworkAssetId: stringValue(item.artworkAssetId) || undefined,
     artworkFileId: stringValue(item.artworkFileId) || undefined,
     status,
+    availability: normalizeAvailability(item.availability) ??
+      (status === "missing" || status === "trashed" ? "missing" : "available"),
     title,
     sortTitle: stringValue(item.sortTitle) || title,
     description: stringValue(item.description) || undefined,
@@ -424,6 +554,13 @@ function normalizeCategory(value: unknown): CatalogItem["category"] | null {
 
 function normalizeStatus(value: unknown): CatalogItem["status"] | null {
   return value === "active" || value === "needs_review" || value === "missing" || value === "trashed" ? value : null;
+}
+
+function normalizeAvailability(value: unknown): CatalogItem["availability"] | null {
+  return value === "available" || value === "checking" || value === "offline" ||
+    value === "missing" || value === "error"
+    ? value
+    : null;
 }
 
 function stringValue(value: unknown) {

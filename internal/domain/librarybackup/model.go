@@ -63,6 +63,7 @@ type StorageRootInventory struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Mode       string `json:"mode"`
+	IsDefault  bool   `json:"isDefault"`
 	Status     string `json:"status"`
 	AssetCount int    `json:"assetCount"`
 }

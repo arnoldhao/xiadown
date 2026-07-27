@@ -12,7 +12,7 @@ mock.module("@wailsio/runtime", () => ({
 const {
   invalidateLibraryQueries,
   invalidateOperationQueries,
-  LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
+  LIBRARY_ENDED_OPERATIONS_QUERY_KEY,
   LIBRARY_DELETED_ITEMS_QUERY_KEY,
   LIBRARY_LIST_QUERY_KEY,
 } = await import("./library");
@@ -45,7 +45,7 @@ describe("library mutation invalidation", () => {
     invalidateOperationQueries(queryClient as never, "library-one");
 
     expect(invalidated).toContainEqual(["catalog"]);
-    expect(invalidated).toContainEqual([...LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY]);
+    expect(invalidated).toContainEqual([...LIBRARY_ENDED_OPERATIONS_QUERY_KEY]);
     expect(invalidated).toContainEqual([...LIBRARY_DELETED_ITEMS_QUERY_KEY]);
     expect(invalidated).toContainEqual(["library", "workspace", "library-one"]);
   });

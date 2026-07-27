@@ -475,15 +475,15 @@ function migrateLegacyLibraryRoute(value: unknown) {
   switch (routeId) {
     case "pending":
     case "tasks":
-      return "tasks";
     case "completed":
-      return "all";
+      return "ended";
     case "connections":
       return "app-sessions";
     case "petsGallery":
       return "pet-gallery";
     case "search":
     case "running":
+    case "ended":
     case "app-sessions":
     case "all":
     case "video":

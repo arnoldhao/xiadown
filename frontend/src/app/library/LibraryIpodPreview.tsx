@@ -20,6 +20,12 @@ import {
 } from "@/shared/ui/dialog";
 
 import { LibraryArtwork } from "./LibraryArtwork";
+import {
+  capturePointerZoomAnchor,
+  restorePointerZoomAnchor,
+  zoomAfterWheel,
+  type PointerZoomAnchor,
+} from "./library-pointer-zoom";
 import type {
   LibraryItemCategory,
   LibraryOtherGroup,
@@ -40,6 +46,21 @@ export function clampPlaybackTime(value: number, duration: number) {
 export function clampImageZoom(value: number) {
   if (!Number.isFinite(value)) return 1;
   return Math.min(MAX_IMAGE_ZOOM, Math.max(MIN_IMAGE_ZOOM, value));
+}
+
+export function imageZoomAfterWheel(
+  current: number,
+  deltaY: number,
+  deltaMode = 0,
+  viewportHeight = 1,
+) {
+  return zoomAfterWheel(
+    current,
+    deltaY,
+    deltaMode,
+    viewportHeight,
+    clampImageZoom,
+  );
 }
 
 function formatPlaybackSeconds(value: number) {
@@ -68,6 +89,10 @@ interface IpodControlWheelProps {
   onBottom: () => void;
   topPressed?: boolean;
   disabled?: boolean;
+  topDisabled?: boolean;
+  leftDisabled?: boolean;
+  rightDisabled?: boolean;
+  bottomDisabled?: boolean;
 }
 
 export function IpodControlWheel(props: IpodControlWheelProps) {
@@ -77,13 +102,14 @@ export function IpodControlWheel(props: IpodControlWheelProps) {
     icon: React.ReactNode,
     onClick: () => void,
     pressed?: boolean,
+    disabled?: boolean,
   ) => (
     <button
       aria-label={label}
       aria-pressed={pressed}
       className="app-library-ipod__wheel-button"
       data-position={position}
-      disabled={props.disabled}
+      disabled={props.disabled || disabled}
       onClick={onClick}
       title={label}
       type="button"
@@ -94,11 +120,39 @@ export function IpodControlWheel(props: IpodControlWheelProps) {
 
   return (
     <div className="app-library-ipod__wheel" role="group">
-      {button("top", props.topLabel, props.topIcon, props.onTop, props.topPressed)}
-      {button("left", props.leftLabel, props.leftIcon, props.onLeft)}
+      {button(
+        "top",
+        props.topLabel,
+        props.topIcon,
+        props.onTop,
+        props.topPressed,
+        props.topDisabled,
+      )}
+      {button(
+        "left",
+        props.leftLabel,
+        props.leftIcon,
+        props.onLeft,
+        undefined,
+        props.leftDisabled,
+      )}
       <span className="app-library-ipod__wheel-hub" aria-hidden="true" />
-      {button("right", props.rightLabel, props.rightIcon, props.onRight)}
-      {button("bottom", props.bottomLabel, props.bottomIcon, props.onBottom)}
+      {button(
+        "right",
+        props.rightLabel,
+        props.rightIcon,
+        props.onRight,
+        undefined,
+        props.rightDisabled,
+      )}
+      {button(
+        "bottom",
+        props.bottomLabel,
+        props.bottomIcon,
+        props.onBottom,
+        undefined,
+        props.bottomDisabled,
+      )}
     </div>
   );
 }
@@ -116,6 +170,7 @@ function PlayableIpodPreview(
   props: CommonIpodPreviewProps & { category: "video" | "audio" },
 ) {
   const mediaRef = React.useRef<HTMLMediaElement | null>(null);
+  const dialogMediaRef = React.useRef<HTMLMediaElement | null>(null);
   const [playing, setPlaying] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [unavailable, setUnavailable] = React.useState(false);
@@ -124,6 +179,7 @@ function PlayableIpodPreview(
   const [volume, setVolume] = React.useState(1);
   const [hasVideoFrame, setHasVideoFrame] = React.useState(false);
   const [rangeMode, setRangeMode] = React.useState<"progress" | "volume">("progress");
+  const [dialogOpen, setDialogOpen] = React.useState(false);
 
   React.useEffect(() => {
     const media = mediaRef.current;
@@ -135,11 +191,16 @@ function PlayableIpodPreview(
     setDuration(0);
     setHasVideoFrame(false);
     setRangeMode("progress");
-    return () => media?.pause();
+    setDialogOpen(false);
+    return () => {
+      media?.pause();
+      dialogMediaRef.current?.pause();
+    };
   }, [props.category, props.sourceURL]);
 
   React.useEffect(() => {
     if (mediaRef.current) mediaRef.current.volume = volume;
+    if (dialogMediaRef.current) dialogMediaRef.current.volume = volume;
   }, [volume]);
 
   const togglePlayback = React.useCallback(() => {
@@ -149,7 +210,7 @@ function PlayableIpodPreview(
       setLoading(true);
       void media.play().catch(() => {
         setLoading(false);
-        setUnavailable(true);
+        setPlaying(false);
       });
     } else {
       media.pause();
@@ -167,6 +228,32 @@ function PlayableIpodPreview(
   const skip = React.useCallback((delta: number) => {
     seek(currentTime + delta);
   }, [currentTime, seek]);
+
+  const updateDialogOpen = React.useCallback((next: boolean) => {
+    const inlineMedia = mediaRef.current;
+    const dialogMedia = dialogMediaRef.current;
+    if (next) {
+      inlineMedia?.pause();
+      setPlaying(false);
+      setLoading(false);
+      setDialogOpen(true);
+      return;
+    }
+    const nextTime = dialogMedia && Number.isFinite(dialogMedia.currentTime)
+      ? dialogMedia.currentTime
+      : currentTime;
+    dialogMedia?.pause();
+    if (inlineMedia && Number.isFinite(nextTime)) {
+      inlineMedia.currentTime = clampPlaybackTime(
+        nextTime,
+        inlineMedia.duration,
+      );
+    }
+    setCurrentTime(nextTime);
+    setPlaying(false);
+    setLoading(false);
+    setDialogOpen(false);
+  }, [currentTime]);
 
   const onRangeChange = (value: number) => {
     if (rangeMode === "volume") {
@@ -186,6 +273,19 @@ function PlayableIpodPreview(
   const sourceURL = props.sourceURL?.trim() ?? "";
   const attachMediaRef = (node: HTMLMediaElement | null) => {
     mediaRef.current = node;
+  };
+  const attachDialogMediaRef = (node: HTMLMediaElement | null) => {
+    dialogMediaRef.current = node;
+    if (node) node.volume = volume;
+  };
+  const prepareDialogPlayback = (
+    event: React.SyntheticEvent<HTMLMediaElement>,
+  ) => {
+    const media = event.currentTarget;
+    media.currentTime = clampPlaybackTime(currentTime, media.duration);
+    void media.play().catch(() => {
+      setPlaying(false);
+    });
   };
   const mediaEvents = {
     onCanPlay: () => {
@@ -223,120 +323,253 @@ function PlayableIpodPreview(
     },
     onWaiting: () => setLoading(true),
   };
+  const dialogMediaEvents = {
+    onDurationChange: (event: React.SyntheticEvent<HTMLMediaElement>) => {
+      const next = Number.isFinite(event.currentTarget.duration)
+        ? event.currentTarget.duration
+        : 0;
+      setDuration(next);
+    },
+    onEnded: () => setPlaying(false),
+    onError: () => {
+      setPlaying(false);
+      setUnavailable(true);
+    },
+    onLoadedMetadata: prepareDialogPlayback,
+    onPause: () => setPlaying(false),
+    onPlaying: () => {
+      setPlaying(true);
+      setUnavailable(false);
+    },
+    onTimeUpdate: (event: React.SyntheticEvent<HTMLMediaElement>) => {
+      setCurrentTime(event.currentTarget.currentTime);
+    },
+  };
 
   return (
-    <div className="app-library-ipod" data-media-kind={props.category}>
-      <div className="app-library-ipod__screen">
-        <div className="app-library-ipod__display">
-          {props.category === "video" ? (
-            <>
-              <video
-                {...mediaEvents}
-                aria-label={props.title}
-                playsInline
-                preload="metadata"
-                ref={attachMediaRef}
-                src={sourceURL || undefined}
-              />
-              {!hasVideoFrame ? (
+    <>
+      <div className="app-library-ipod" data-media-kind={props.category}>
+        <div className="app-library-ipod__screen">
+          <div className="app-library-ipod__display">
+            {props.category === "video" ? (
+              <>
+                <video
+                  {...mediaEvents}
+                  aria-label={props.title}
+                  playsInline
+                  preload="metadata"
+                  ref={attachMediaRef}
+                  src={sourceURL || undefined}
+                />
+                {!hasVideoFrame ? (
+                  <LibraryArtwork
+                    alt=""
+                    category="video"
+                    className="app-library-ipod__video-poster"
+                    fallbackSrc={props.fallbackCoverURL}
+                    src={props.coverURL}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <>
                 <LibraryArtwork
                   alt=""
-                  category="video"
-                  className="app-library-ipod__video-poster"
+                  category="audio"
                   fallbackSrc={props.fallbackCoverURL}
                   src={props.coverURL}
                 />
-              ) : null}
-            </>
-          ) : (
-            <>
-              <LibraryArtwork
-                alt=""
-                category="audio"
-                fallbackSrc={props.fallbackCoverURL}
-                src={props.coverURL}
-              />
-              <audio
-                {...mediaEvents}
+                <audio
+                  {...mediaEvents}
+                  aria-hidden="true"
+                  preload="metadata"
+                  ref={attachMediaRef}
+                  src={sourceURL || undefined}
+                />
+              </>
+            )}
+            {loading ? (
+              <LoaderCircle
                 aria-hidden="true"
-                preload="metadata"
-                ref={attachMediaRef}
-                src={sourceURL || undefined}
+                className="app-library-ipod__loading app-motion-spin"
               />
-            </>
-          )}
-          {loading ? <LoaderCircle className="app-library-ipod__loading app-motion-spin" aria-hidden="true" /> : null}
-        </div>
-        <div className="app-library-ipod__range">
-          <input
-            aria-label={rangeMode === "volume" ? props.labels.volume : props.labels.seek}
-            aria-valuetext={rangeMode === "volume"
-              ? `${Math.round(volume * 100)}%`
-              : `${formatPlaybackSeconds(currentTime)} / ${formatPlaybackSeconds(duration)}`}
-            disabled={unavailable || (rangeMode === "progress" && duration <= 0)}
-            max={rangeMax}
-            min={0}
-            onChange={(event) => onRangeChange(Number(event.currentTarget.value))}
-            step={rangeMode === "volume" ? 0.01 : 0.1}
-            style={{ "--app-library-ipod-range-value": `${rangePercent}%` } as React.CSSProperties}
-            type="range"
-            value={rangeValue}
-          />
-          <div>
-            <span>{rangeMode === "volume" ? props.labels.volume : formatPlaybackSeconds(currentTime)}</span>
-            <span>{rangeMode === "volume" ? `${Math.round(volume * 100)}%` : formatPlaybackSeconds(duration)}</span>
+            ) : null}
+          </div>
+          <div className="app-library-ipod__range">
+            <input
+              aria-label={rangeMode === "volume" ? props.labels.volume : props.labels.seek}
+              aria-valuetext={rangeMode === "volume"
+                ? `${Math.round(volume * 100)}%`
+                : `${formatPlaybackSeconds(currentTime)} / ${formatPlaybackSeconds(duration)}`}
+              disabled={unavailable || (rangeMode === "progress" && duration <= 0)}
+              max={rangeMax}
+              min={0}
+              onChange={(event) => onRangeChange(Number(event.currentTarget.value))}
+              step={rangeMode === "volume" ? 0.01 : 0.1}
+              style={{ "--app-library-ipod-range-value": `${rangePercent}%` } as React.CSSProperties}
+              type="range"
+              value={rangeValue}
+            />
+            <div>
+              <span>
+                {rangeMode === "volume"
+                  ? props.labels.volume
+                  : formatPlaybackSeconds(currentTime)}
+              </span>
+              <button
+                aria-label={props.labels.volume}
+                aria-pressed={rangeMode === "volume"}
+                className="app-library-ipod__range-mode"
+                disabled={unavailable || !sourceURL}
+                onClick={() => setRangeMode((current) =>
+                  current === "progress" ? "volume" : "progress")}
+                title={props.labels.volume}
+                type="button"
+              >
+                <Volume2 aria-hidden="true" size={13} />
+              </button>
+              <span>
+                {rangeMode === "volume"
+                  ? `${Math.round(volume * 100)}%`
+                  : formatPlaybackSeconds(duration)}
+              </span>
+            </div>
           </div>
         </div>
+        <IpodControlWheel
+          bottomIcon={loading
+            ? <LoaderCircle aria-hidden="true" className="app-motion-spin" size={18} />
+            : playing
+              ? <Pause aria-hidden="true" size={18} />
+              : <Play aria-hidden="true" size={18} />}
+          bottomLabel={playLabel}
+          disabled={unavailable || !sourceURL}
+          leftIcon={<Rewind aria-hidden="true" size={18} />}
+          leftLabel={`${props.labels.seek} −${PLAYBACK_SKIP_SECONDS}s`}
+          onBottom={togglePlayback}
+          onLeft={() => skip(-PLAYBACK_SKIP_SECONDS)}
+          onRight={() => skip(PLAYBACK_SKIP_SECONDS)}
+          onTop={() => updateDialogOpen(true)}
+          rightIcon={<FastForward aria-hidden="true" size={18} />}
+          rightLabel={`${props.labels.seek} +${PLAYBACK_SKIP_SECONDS}s`}
+          topIcon={<Eye aria-hidden="true" size={18} />}
+          topLabel={props.labels.preview}
+        />
+        {unavailable ? (
+          <p className="app-library-ipod__error" role="alert">
+            {props.labels.loadFailed}
+          </p>
+        ) : null}
       </div>
-      <IpodControlWheel
-        bottomIcon={loading
-          ? <LoaderCircle aria-hidden="true" className="app-motion-spin" size={18} />
-          : playing
-            ? <Pause aria-hidden="true" size={18} />
-            : <Play aria-hidden="true" size={18} />}
-        bottomLabel={playLabel}
-        disabled={unavailable || !sourceURL}
-        leftIcon={<Rewind aria-hidden="true" size={18} />}
-        leftLabel={`${props.labels.seek} −${PLAYBACK_SKIP_SECONDS}s`}
-        onBottom={togglePlayback}
-        onLeft={() => skip(-PLAYBACK_SKIP_SECONDS)}
-        onRight={() => skip(PLAYBACK_SKIP_SECONDS)}
-        onTop={() => setRangeMode((current) => current === "progress" ? "volume" : "progress")}
-        rightIcon={<FastForward aria-hidden="true" size={18} />}
-        rightLabel={`${props.labels.seek} +${PLAYBACK_SKIP_SECONDS}s`}
-        topIcon={<Volume2 aria-hidden="true" size={18} />}
-        topLabel={props.labels.volume}
-        topPressed={rangeMode === "volume"}
-      />
-      {unavailable ? <p className="app-library-ipod__error" role="alert">{props.labels.loadFailed}</p> : null}
-    </div>
+      <Dialog open={dialogOpen} onOpenChange={updateDialogOpen}>
+        <DialogContent className="app-library-playable-dialog app-media-preview-dialog min-w-0 max-w-none">
+          <DialogHeader className="app-media-preview-dialog-header app-library-playable-dialog__header">
+            <DialogTitle
+              className="app-library-playable-dialog__title"
+              title={props.title}
+            >
+              {props.title}
+            </DialogTitle>
+          </DialogHeader>
+          <div
+            className="app-library-playable-dialog__stage app-media-preview-dialog-stage"
+            data-kind={props.category}
+          >
+            {props.category === "video" ? (
+              <video
+                {...dialogMediaEvents}
+                aria-label={props.title}
+                autoPlay
+                controls
+                playsInline
+                preload="metadata"
+                ref={attachDialogMediaRef}
+                src={sourceURL || undefined}
+              />
+            ) : (
+              <div className="app-library-playable-dialog__audio">
+                <LibraryArtwork
+                  alt=""
+                  category="audio"
+                  fallbackSrc={props.fallbackCoverURL}
+                  src={props.coverURL}
+                />
+                <audio
+                  {...dialogMediaEvents}
+                  aria-label={props.title}
+                  autoPlay
+                  controls
+                  preload="metadata"
+                  ref={attachDialogMediaRef}
+                  src={sourceURL || undefined}
+                />
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-function ImageIpodPreview(props: CommonIpodPreviewProps) {
+function ArtworkIpodPreview(
+  props: CommonIpodPreviewProps & { category: LibraryItemCategory },
+) {
+  const dialogStageRef = React.useRef<HTMLDivElement | null>(null);
+  const dialogAnchorRef = React.useRef<PointerZoomAnchor | null>(null);
   const [zoom, setZoom] = React.useState(1);
+  const [dialogZoom, setDialogZoom] = React.useState(1);
   const [dialogOpen, setDialogOpen] = React.useState(false);
-  const sourceURL = props.sourceURL?.trim() || props.coverURL;
+  const sourceURL = props.category === "image"
+    ? props.sourceURL?.trim() || props.coverURL
+    : props.coverURL;
 
   React.useEffect(() => {
     setZoom(1);
+    setDialogZoom(1);
     setDialogOpen(false);
-  }, [sourceURL]);
+    dialogAnchorRef.current = null;
+  }, [props.category, sourceURL]);
 
   const updateZoom = (next: number) => {
     setZoom(clampImageZoom(next));
+  };
+  const updateDialogZoomFromWheel = (
+    event: React.WheelEvent<HTMLDivElement>,
+  ) => {
+    const next = imageZoomAfterWheel(
+      dialogZoom,
+      event.deltaY,
+      event.deltaMode,
+      event.currentTarget.clientHeight,
+    );
+    event.preventDefault();
+    if (next === dialogZoom) return;
+    dialogAnchorRef.current = capturePointerZoomAnchor(
+      event.currentTarget,
+      event.clientX,
+      event.clientY,
+    );
+    setDialogZoom(next);
+    window.requestAnimationFrame(() => {
+      const stage = dialogStageRef.current;
+      const anchor = dialogAnchorRef.current;
+      if (!stage || !anchor) return;
+      restorePointerZoomAnchor(stage, anchor);
+      dialogAnchorRef.current = null;
+    });
   };
   const zoomLabel = `${Math.round(zoom * 100)}%`;
 
   return (
     <>
-      <div className="app-library-ipod" data-media-kind="image">
+      <div className="app-library-ipod" data-media-kind={props.category}>
         <div className="app-library-ipod__screen">
           <div className="app-library-ipod__display app-library-ipod__display--image">
             <div style={{ transform: `scale(${zoom})` }}>
               <LibraryArtwork
                 alt={props.title}
-                category="image"
+                category={props.category}
                 fallbackSrc={props.fallbackCoverURL}
                 otherGroup={props.otherGroup}
                 src={sourceURL}
@@ -368,7 +601,10 @@ function ImageIpodPreview(props: CommonIpodPreviewProps) {
           onBottom={() => setZoom(1)}
           onLeft={() => updateZoom(zoom - IMAGE_ZOOM_STEP)}
           onRight={() => updateZoom(zoom + IMAGE_ZOOM_STEP)}
-          onTop={() => setDialogOpen(true)}
+          onTop={() => {
+            setDialogZoom(1);
+            setDialogOpen(true);
+          }}
           rightIcon={<ZoomIn aria-hidden="true" size={18} />}
           rightLabel={`${props.labels.size} +`}
           topIcon={<Eye aria-hidden="true" size={18} />}
@@ -385,15 +621,32 @@ function ImageIpodPreview(props: CommonIpodPreviewProps) {
               {props.title}
             </DialogTitle>
           </DialogHeader>
-          <div className="app-library-ipod-dialog__stage app-media-preview-dialog-stage">
-            <LibraryArtwork
-              alt={props.title}
-              category="image"
-              className="app-library-ipod-dialog__image app-media-preview-dialog-image"
-              fallbackSrc={props.fallbackCoverURL}
-              otherGroup={props.otherGroup}
-              src={sourceURL}
-            />
+          <div
+            aria-label={`${props.labels.preview}: ${props.title} · ${Math.round(dialogZoom * 100)}%`}
+            className="app-library-ipod-dialog__stage app-media-preview-dialog-stage"
+            data-zoomed={dialogZoom === 1 ? undefined : "true"}
+            onWheel={updateDialogZoomFromWheel}
+            ref={dialogStageRef}
+          >
+            <div
+              className="app-library-ipod-dialog__zoom-content"
+              style={{
+                height: `${dialogZoom * 100}%`,
+                width: `${dialogZoom * 100}%`,
+              }}
+            >
+              <LibraryArtwork
+                alt={props.title}
+                category={props.category}
+                className="app-library-ipod-dialog__image app-media-preview-dialog-image"
+                fallbackSrc={props.fallbackCoverURL}
+                otherGroup={props.otherGroup}
+                src={sourceURL}
+              />
+            </div>
+            <span className="app-library-ipod-dialog__zoom-indicator" aria-hidden="true">
+              {Math.round(dialogZoom * 100)}%
+            </span>
           </div>
         </DialogContent>
       </Dialog>
@@ -403,10 +656,10 @@ function ImageIpodPreview(props: CommonIpodPreviewProps) {
 
 export function LibraryIpodPreview(
   props: CommonIpodPreviewProps & {
-    category: Extract<LibraryItemCategory, "video" | "audio" | "image">;
+    category: LibraryItemCategory;
   },
 ) {
-  return props.category === "image"
-    ? <ImageIpodPreview {...props} />
-    : <PlayableIpodPreview {...props} category={props.category} />;
+  return props.category === "video" || props.category === "audio"
+    ? <PlayableIpodPreview {...props} category={props.category} />
+    : <ArtworkIpodPreview {...props} category={props.category} />;
 }

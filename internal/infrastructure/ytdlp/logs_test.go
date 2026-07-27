@@ -1,6 +1,22 @@
 package ytdlp
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
+
+func TestDefaultLogPathUsesOneManagedXiadownChild(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "Downloads")
+	managed := filepath.Join(parent, "xiadown")
+	expected := filepath.Join(managed, "yt-dlp", "logs", "operation-1.log")
+
+	if got := DefaultLogPath(parent, "operation-1"); got != expected {
+		t.Fatalf("parent log path = %q, want %q", got, expected)
+	}
+	if got := DefaultLogPath(managed, "operation-1"); got != expected {
+		t.Fatalf("managed-root log path was nested again: %q", got)
+	}
+}
 
 func TestTimestampWriterFlushesCarriageReturnProgress(t *testing.T) {
 	t.Parallel()

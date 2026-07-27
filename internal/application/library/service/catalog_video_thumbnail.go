@@ -89,6 +89,7 @@ type CatalogVideoThumbnailService struct {
 	items    library.CatalogItemRepository
 	assets   library.ItemAssetRepository
 	files    library.FileRepository
+	roots    library.StorageRootRepository
 	tools    ToolResolver
 	cacheDir string
 
@@ -120,8 +121,9 @@ func NewCatalogVideoThumbnailService(
 	files library.FileRepository,
 	tools ToolResolver,
 	cacheDir string,
+	roots ...library.StorageRootRepository,
 ) *CatalogVideoThumbnailService {
-	return &CatalogVideoThumbnailService{
+	service := &CatalogVideoThumbnailService{
 		items: items, assets: assets, files: files, tools: tools,
 		cacheDir:           strings.TrimSpace(cacheDir),
 		decodeSlot:         make(chan struct{}, 1),
@@ -141,6 +143,10 @@ func NewCatalogVideoThumbnailService(
 		now:                func() time.Time { return time.Now().UTC() },
 		runCommand:         runCatalogVideoThumbnailCommand,
 	}
+	if len(roots) > 0 {
+		service.roots = roots[0]
+	}
+	return service
 }
 
 func (service *CatalogVideoThumbnailService) Resolve(
@@ -254,7 +260,7 @@ func (service *CatalogVideoThumbnailService) resolveSourceFile(
 		filesByAssetID[asset.ID] = file
 	}
 	_, source, ok := selectCatalogPrimaryAsset(assets, filesByAssetID)
-	if !ok || !catalogFileAvailable(source) {
+	if !ok || !catalogFileCanAttemptRead(ctx, source, service.roots) {
 		return library.LibraryFile{}, ErrCatalogVideoThumbnailNotFound
 	}
 	return source, nil

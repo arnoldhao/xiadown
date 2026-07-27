@@ -24,7 +24,6 @@ ListMusic,
 ListVideo,
 Music2,
 LibraryBig,
-ListTodo,
 Video,
 BookOpen,
 Images,
@@ -156,7 +155,7 @@ useDependencyUpdates
 import {
 useListLibraries,
 useListOperations,
-useCompleteOperations,
+useEndedOperations,
 useCancelResourceSniff,
 useClearResourceSniffResources,
 useStopCDPBrowserRuntime
@@ -474,7 +473,7 @@ function usesServerLibraryPagination(
   sort: LibrarySortMode,
   query: string,
 ) {
-  return route !== "tasks" &&
+  return route !== "ended" &&
     route !== "images" &&
     route !== "others" &&
     sort !== "size" &&
@@ -550,7 +549,7 @@ export function MainApp() {
     activeWorkspaceId === APP_WORKSPACE_IDS.music || mountedWorkspaceIds.has(APP_WORKSPACE_IDS.music);
   const workspaceLocations = useAppWorkspaceStore((state) => state.locations);
   const libraryWorkspaceRoute = workspaceLocations[APP_WORKSPACE_IDS.library]?.routeId || "all";
-  const libraryContentRoute = (["search", "all", "tasks", "video", "audio", "books", "images", "others"] as const)
+  const libraryContentRoute = (["search", "ended", "all", "video", "audio", "books", "images", "others"] as const)
     .includes(libraryWorkspaceRoute as LibraryWorkspaceRoute)
       ? libraryWorkspaceRoute as LibraryWorkspaceRoute
       : "all";
@@ -593,7 +592,7 @@ export function MainApp() {
   const completeCatalogNeeded =
     activeWorkspaceId === APP_WORKSPACE_IDS.library &&
     !serverLibraryPagination &&
-    libraryContentRoute !== "tasks" &&
+    libraryContentRoute !== "ended" &&
     !(libraryContentRoute === "search" && libraryBrowseQuery.trim().length === 0);
   const catalogItemsQuery = useCompleteCatalogItems(
     { status: "all", excludeTrashed: true },
@@ -653,10 +652,10 @@ export function MainApp() {
     status: ["succeeded", "failed", "canceled"],
     limit: 300,
   });
-  const completeOperationsQuery = useCompleteOperations({
+  const endedOperationsQuery = useEndedOperations({
     enabled:
       activeWorkspaceId === APP_WORKSPACE_IDS.library &&
-      libraryWorkspaceRoute === "tasks",
+      libraryWorkspaceRoute === "ended",
   });
   const sniffStatusQuery = useResourceSniffStatus(true);
   const cancelResourceSniff = useCancelResourceSniff();
@@ -834,15 +833,14 @@ export function MainApp() {
     [runningOperations],
   );
   const terminalOperations = terminalQuery.data ?? [];
-  const libraryOperations = React.useMemo(
-    () => completeOperationsQuery.data
+  const endedOperations = React.useMemo(
+    () => endedOperationsQuery.data
       ? sortAndDedupeOperations([
-        completeOperationsQuery.data,
+        endedOperationsQuery.data,
         terminalOperations,
-        runningOperations,
       ])
       : [],
-    [completeOperationsQuery.data, runningOperations, terminalOperations],
+    [endedOperationsQuery.data, terminalOperations],
   );
   React.useEffect(() => {
     setLibraryBrowseQuery("");
@@ -915,7 +913,7 @@ export function MainApp() {
   const libraryWorkspaceItems = React.useMemo(() => {
     const adapted = adaptLegacyLibraryWorkspace(
       libraries,
-      libraryOperations,
+      endedOperations,
       httpBaseURL,
     );
     const catalogFiles = catalogItemsQuery.data
@@ -931,7 +929,7 @@ export function MainApp() {
     filesById,
     httpBaseURL,
     libraries,
-    libraryOperations,
+    endedOperations,
   ]);
   const pagedLibraryWorkspaceItems = React.useMemo(
     () => adaptCatalogItems(libraryCatalogPageQuery.data?.items ?? [], {
@@ -964,16 +962,16 @@ export function MainApp() {
   ]);
   const libraryPreviewCanonicalLoading = serverLibraryPagination
     ? libraryCatalogPageQuery.isFetching
-    : libraryContentRoute === "tasks"
-      ? completeOperationsQuery.isFetching
+    : libraryContentRoute === "ended"
+      ? endedOperationsQuery.isFetching
       : completeCatalogNeeded && catalogItemsQuery.isFetching;
   const libraryPreviewCanonicalAuthoritative = librarySearchLanding
     ? true
     : serverLibraryPagination
       ? libraryCatalogPageQuery.isSuccess &&
         libraryCatalogPageQuery.isPlaceholderData !== true
-      : libraryContentRoute === "tasks"
-        ? completeOperationsQuery.isSuccess
+      : libraryContentRoute === "ended"
+        ? endedOperationsQuery.isSuccess
         : completeCatalogNeeded
           ? catalogItemsQuery.isSuccess
           : librariesQuery.isSuccess;
@@ -2489,9 +2487,9 @@ export function MainApp() {
           routes: {
             search: { icon: <Search />, label: text.workspace.search },
             running: { icon: <Activity />, label: text.views.running },
+            ended: { icon: <History />, label: text.views.ended },
             appSessions: { icon: <Link2 />, label: text.views.connections },
             all: { icon: <LibraryBig />, label: text.workspace.all },
-            tasks: { icon: <ListTodo />, label: text.views.tasks },
             video: { icon: <Video />, label: text.workspace.video },
             audio: { icon: <Music2 />, label: text.workspace.audio },
             books: { icon: <BookOpen />, label: text.workspace.books },
@@ -2771,7 +2769,7 @@ export function MainApp() {
           className={cn(
             "app-main-view-viewport min-h-0 flex-1",
             (isLibraryWorkspace &&
-              ["running", "app-sessions", "all", "tasks", "video", "audio", "books", "images", "others", "search", "pet-gallery"].includes(activeWorkspaceRoute)) ||
+              ["running", "ended", "app-sessions", "all", "video", "audio", "books", "images", "others", "search", "pet-gallery"].includes(activeWorkspaceRoute)) ||
               activeWorkspaceId === APP_WORKSPACE_IDS.music ||
               activeWorkspaceId === APP_WORKSPACE_IDS.sniff ||
               activeWorkspaceId === APP_WORKSPACE_IDS.youtube ||
@@ -2804,7 +2802,7 @@ export function MainApp() {
               reserveWindowControls={primaryWindowsChromeVisible}
               onNewDownload={() => openDownloadDialog()}
             />
-          ) : isLibraryWorkspace && ["all", "tasks", "video", "audio", "books", "images", "others", "search"].includes(activeWorkspaceRoute) ? (
+          ) : isLibraryWorkspace && ["ended", "all", "video", "audio", "books", "images", "others", "search"].includes(activeWorkspaceRoute) ? (
             <LibraryWorkspacePage
               route={activeWorkspaceRoute as LibraryWorkspaceRoute}
               items={visibleLibraryWorkspaceItems}
@@ -2828,22 +2826,22 @@ export function MainApp() {
                       libraryCatalogPageQuery.data === undefined ||
                       libraryCatalogPageQuery.isPlaceholderData
                     )
-                  : activeWorkspaceRoute === "tasks"
-                    ? completeOperationsQuery.data === undefined && completeOperationsQuery.isFetching
+                  : activeWorkspaceRoute === "ended"
+                    ? endedOperationsQuery.data === undefined && endedOperationsQuery.isFetching
                     : catalogItemsQuery.data === undefined && catalogItemsQuery.isFetching
               }
               loadError={
                 serverLibraryPagination
                   ? libraryCatalogPageQuery.data === undefined && libraryCatalogPageQuery.isError
-                  : activeWorkspaceRoute === "tasks"
-                    ? completeOperationsQuery.data === undefined && completeOperationsQuery.isError
+                  : activeWorkspaceRoute === "ended"
+                    ? endedOperationsQuery.data === undefined && endedOperationsQuery.isError
                     : catalogItemsQuery.data === undefined && catalogItemsQuery.isError
               }
               onRetry={() => void (
                 serverLibraryPagination
                   ? libraryCatalogPageQuery.refetch()
-                  : activeWorkspaceRoute === "tasks"
-                    ? completeOperationsQuery.refetch()
+                  : activeWorkspaceRoute === "ended"
+                    ? endedOperationsQuery.refetch()
                     : catalogItemsQuery.refetch()
               )}
               onQueryChange={setLibraryBrowseQuery}
@@ -2852,6 +2850,7 @@ export function MainApp() {
               selectedItemId={activeLibraryPreviewItem?.id}
               labels={{
                 search: text.workspace.search,
+                ended: text.views.ended,
                 all: text.workspace.all,
                 tasks: text.views.tasks,
                 video: text.workspace.video,

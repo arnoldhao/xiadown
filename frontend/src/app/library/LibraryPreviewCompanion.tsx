@@ -75,16 +75,24 @@ import {
 
 import {
   createLibraryWorkspaceLabels,
+  libraryItemAvailability,
+  libraryItemDisplayStatus,
+  shouldShowLibraryStatusBadge,
   type LibraryWorkspaceItem,
   type LibraryWorkspaceLabels,
 } from "./types";
-import { isBrowserImagePreviewPath } from "./catalog-adapter";
+import {
+  buildCatalogCardPreviewURL,
+  isBrowserImagePreviewPath,
+} from "./catalog-adapter";
 import {
   isLibraryDefaultArtworkURL,
   LibraryArtwork,
 } from "./LibraryArtwork";
 import { TaskFolderArtwork } from "./TaskFolderArtwork";
 import { LibraryIpodPreview } from "./LibraryIpodPreview";
+import { LibraryLogPreview } from "./LibraryLogPreview";
+import { LibraryPdfPreview } from "./LibraryPdfPreview";
 import {
   fileEventsForLibraryItem,
   operationHistoryEventsForTask,
@@ -246,12 +254,27 @@ export function resolveCatalogPreviewMedia(
     sourcePath,
     sourceAsset?.updatedAt,
   );
+  const sourceFormat =
+    sourceAsset?.file?.media?.format || extractExtensionFromPath(sourcePath);
+  const normalizedFormat = sourceFormat.trim().toLocaleLowerCase();
+  const logPreviewURL = (
+      normalizedFormat === "log" ||
+      normalizedFormat === "text/x-log" ||
+      extractExtensionFromPath(sourcePath) === "log"
+    )
+    ? buildCatalogCardPreviewURL(
+        httpBaseURL,
+        "log",
+        detail.item.id,
+        sourceAsset?.updatedAt ?? detail.item.updatedAt,
+      )
+    : "";
   return {
     coverURL,
     posterURL: isLibraryDefaultArtworkURL(coverURL) ? undefined : coverURL,
     sourceAsset,
-    sourceFormat:
-      sourceAsset?.file?.media?.format || extractExtensionFromPath(sourcePath),
+    logPreviewURL,
+    sourceFormat,
     sourcePath,
     sourceURL,
   };
@@ -339,13 +362,15 @@ function PreviewIdentity(props: {
           <CategoryIcon size={13} aria-hidden="true" />
           {previewCategoryLabel(props.category, props.labels)}
         </span>
-        <StatusBadge
-          className="app-library-preview__status"
-          marker
-          tone={previewStatusTone(props.status)}
-        >
-          {props.labels.statusLabel(props.status)}
-        </StatusBadge>
+        {shouldShowLibraryStatusBadge(props.status) ? (
+          <StatusBadge
+            className="app-library-preview__status"
+            marker
+            tone={previewStatusTone(props.status)}
+          >
+            {props.labels.statusLabel(props.status)}
+          </StatusBadge>
+        ) : null}
       </div>
       {props.titleContent ?? <h2 title={props.title}>{props.title}</h2>}
       {props.description?.trim() ? <p>{props.description.trim()}</p> : null}
@@ -731,7 +756,6 @@ function CatalogRenameTitle(props: {
 
 function previewClassificationFacts(
   category: LibraryWorkspaceItem["category"],
-  status: string,
   labels: LibraryWorkspaceLabels,
 ): PreviewFact[] {
   const CategoryIcon = PREVIEW_CATEGORY_ICONS[category];
@@ -743,18 +767,6 @@ function previewClassificationFacts(
           <CategoryIcon size={13} aria-hidden="true" />
           {previewCategoryLabel(category, labels)}
         </span>
-      ),
-    },
-    {
-      label: labels.status,
-      value: (
-        <StatusBadge
-          className="app-library-preview__status"
-          marker
-          tone={previewStatusTone(status)}
-        >
-          {labels.statusLabel(status)}
-        </StatusBadge>
       ),
     },
   ];
@@ -805,7 +817,7 @@ function PreviewContextHeader(props: {
         titleContent={props.titleContent}
         subtitle={props.item.libraryName || props.labels.library}
         category={props.category ?? props.item.category}
-        status={props.status ?? props.item.status}
+        status={props.status ?? libraryItemDisplayStatus(props.item)}
         format={props.format ?? props.item.format}
         labels={props.labels}
         compact
@@ -824,51 +836,45 @@ function PreviewMedia(props: {
   sourcePath?: string;
   format?: string;
   durationMs?: number;
+  logPreviewURL?: string;
   labels: LibraryWorkspaceLabels;
 }) {
-  const [failedURL, setFailedURL] = React.useState("");
-  const sourceURL = failedURL === props.sourceURL ? "" : props.sourceURL?.trim() ?? "";
+  const sourceURL = props.sourceURL?.trim() ?? "";
   const extension = extractExtensionFromPath(props.sourcePath ?? "");
   const format = (props.format || extension).trim().toLowerCase();
-  const markFailed = () => setFailedURL(sourceURL);
 
   let media: React.ReactNode = (
-    <PreviewArtworkImage
-      src={props.coverURL}
-      fallbackSrc={props.fallbackCoverURL}
+    <LibraryIpodPreview
       category={props.category}
+      coverURL={props.coverURL}
+      fallbackCoverURL={props.fallbackCoverURL}
+      labels={props.labels}
       otherGroup={props.otherGroup}
-      alt={props.title}
+      sourceURL={sourceURL}
+      title={props.title}
     />
   );
   if (
-    props.category === "image" ||
-    props.category === "video" ||
-    props.category === "audio"
-  ) {
-    media = (
-      <LibraryIpodPreview
-        category={props.category}
-        coverURL={props.coverURL}
-        fallbackCoverURL={props.fallbackCoverURL}
-        labels={props.labels}
-        otherGroup={props.otherGroup}
-        sourceURL={sourceURL}
-        title={props.title}
-      />
-    );
-  } else if (
     props.category === "book" &&
     sourceURL &&
     (format === "pdf" || format.endsWith("/pdf") || extension === "pdf")
   ) {
     media = (
-      <iframe
-        src={sourceURL}
+      <LibraryPdfPreview
+        labels={props.labels}
+        sourceURL={sourceURL}
         title={props.title}
-        loading="lazy"
-        sandbox=""
-        onError={markFailed}
+      />
+    );
+  } else if (
+    props.logPreviewURL &&
+    (format === "log" || format === "text/x-log" || extension === "log")
+  ) {
+    media = (
+      <LibraryLogPreview
+        labels={props.labels}
+        sourceURL={props.logPreviewURL}
+        title={props.title}
       />
     );
   }
@@ -927,14 +933,16 @@ function TaskFileList(props: {
                   <dt>{props.labels.category}</dt>
                   <dd>{previewCategoryLabel(file.category, props.labels)}</dd>
                 </div>
-                <div>
-                  <dt>{props.labels.status}</dt>
-                  <dd>
-                    <StatusBadge marker tone={previewStatusTone(file.status)}>
-                      {props.labels.statusLabel(file.status)}
-                    </StatusBadge>
-                  </dd>
-                </div>
+                {shouldShowLibraryStatusBadge(file.status) ? (
+                  <div>
+                    <dt>{props.labels.status}</dt>
+                    <dd>
+                      <StatusBadge marker tone={previewStatusTone(file.status)}>
+                        {props.labels.statusLabel(file.status)}
+                      </StatusBadge>
+                    </dd>
+                  </div>
+                ) : null}
               </dl>
               <div className="app-library-preview__task-file-actions">
                 <button
@@ -1041,13 +1049,13 @@ function CatalogPreviewOverview(props: {
   sourceURL: string;
   sourcePath: string;
   sourceFormat: string;
+  logPreviewURL: string;
 }) {
   const sourceAsset = previewAsset(props.detail);
   const file = sourceAsset?.file ?? primaryAsset(props.detail)?.file;
   const durationMs = file?.media?.durationMs ?? props.detail.item.durationMs;
   const facts = previewClassificationFacts(
     props.detail.item.category,
-    props.detail.item.status,
     props.labels,
   );
 
@@ -1064,16 +1072,50 @@ function CatalogPreviewOverview(props: {
           sourcePath={props.sourcePath}
           format={props.sourceFormat}
           durationMs={durationMs}
+          logPreviewURL={props.logPreviewURL}
           labels={props.labels}
         />
         <CatalogRenameTitle detail={props.detail} labels={props.labels} placement="hero" />
       </div>
+      {libraryItemAvailability(props.detail.item) !== "available" ? (
+        <CatalogAvailabilityNotice detail={props.detail} labels={props.labels} />
+      ) : null}
       <PreviewFacts
         labels={props.labels}
         facts={facts}
       />
       <CatalogLifecycleAction detail={props.detail} labels={props.labels} />
     </article>
+  );
+}
+
+function CatalogAvailabilityNotice(props: {
+  detail: CatalogItemDetail;
+  labels: LibraryWorkspaceLabels;
+}) {
+  const availability = libraryItemAvailability(props.detail.item);
+  const checking = availability === "checking";
+  const label = availability === "offline"
+    ? props.labels.offlineRootStatus
+    : props.labels.statusLabel(availability);
+  return (
+    <div
+      className="app-library-preview__availability-notice app-dialog-list-card"
+      data-availability={availability}
+      role="status"
+    >
+      {checking ? (
+        <LoaderCircle aria-hidden="true" className="app-motion-spin" size={16} />
+      ) : (
+        <AlertTriangle aria-hidden="true" size={16} />
+      )}
+      <span>
+        <strong>{label}</strong>
+        {props.detail.source?.storageRootName ? (
+          <small>{props.detail.source.storageRootName}</small>
+        ) : null}
+      </span>
+    </div>
   );
 }
 
@@ -1084,7 +1126,6 @@ function LegacyPreviewOverview(props: {
 }) {
   const facts = previewClassificationFacts(
     props.item.category,
-    props.item.status,
     props.labels,
   );
   return (
@@ -1603,10 +1644,80 @@ function CatalogInfoPanel(props: {
   detail: CatalogItemDetail;
   labels: LibraryWorkspaceLabels;
 }) {
-  const file = previewAsset(props.detail)?.file ?? primaryAsset(props.detail)?.file;
+  const selectedAsset = previewAsset(props.detail) ?? primaryAsset(props.detail);
+  const file = selectedAsset?.file;
+  const source = props.detail.source;
+  const sourceRows: PreviewInfoRow[] = [];
+  if (source) {
+    let sourceLabel = props.labels.unknownSource;
+    switch (source.originKind.trim().toLocaleLowerCase()) {
+      case "download":
+        sourceLabel = props.labels.downloadedSource;
+        break;
+      case "import":
+        sourceLabel = source.storageMode === "managed"
+          ? props.labels.managedImportSource
+          : props.labels.referencedImportSource;
+        break;
+      case "transcode":
+        sourceLabel = props.labels.generatedSource;
+        break;
+    }
+    const storageModeLabel = source.storageMode === "managed"
+      ? props.labels.managedMode
+      : source.storageMode === "referenced"
+        ? props.labels.referencedMode
+        : props.labels.unmanagedMode;
+    sourceRows.push(
+      { label: props.labels.source, value: sourceLabel },
+      { label: props.labels.storageMode, value: storageModeLabel },
+    );
+    if (source.storageRootId || source.storageRootPath) {
+      sourceRows.push({
+        label: props.labels.storageRoot,
+        value: source.storageRootName || source.storageRootPath || "–",
+        title: source.storageRootPath,
+      });
+    }
+    if (source.importPath) {
+      sourceRows.push({
+        label: props.labels.sourceFile,
+        value: source.importPath,
+        title: source.importPath,
+        copyValue: source.importPath,
+      });
+    }
+    if (source.importedAt) {
+      sourceRows.push({
+        label: props.labels.importedAt,
+        value: props.labels.dateTimeValue(source.importedAt),
+      });
+    }
+    if (source.importBatchId) {
+      sourceRows.push({
+        label: props.labels.importBatch,
+        value: source.importBatchId,
+        copyValue: source.importBatchId,
+      });
+    }
+    if (source.operationId) {
+      sourceRows.push({
+        label: props.labels.associatedTask,
+        value: source.operationId,
+        copyValue: source.operationId,
+      });
+    }
+  }
   const rows: PreviewInfoRow[] = [
     { label: props.labels.category, value: previewCategoryLabel(props.detail.item.category, props.labels) },
     { label: props.labels.status, value: props.labels.statusLabel(props.detail.item.status) },
+    {
+      label: props.labels.availability,
+      value: libraryItemAvailability(props.detail.item) === "offline"
+        ? props.labels.offlineRootStatus
+        : props.labels.statusLabel(libraryItemAvailability(props.detail.item)),
+    },
+    ...sourceRows,
     { label: props.labels.format, value: file?.media?.format || extractExtensionFromPath(file?.storage.localPath ?? "").toUpperCase() || "–" },
     { label: props.labels.size, value: formatBytes(file?.media?.sizeBytes ?? props.detail.item.sizeBytes) },
     { label: props.labels.duration, value: formatDuration(file?.media?.durationMs ?? props.detail.item.durationMs) },
@@ -1614,7 +1725,7 @@ function CatalogInfoPanel(props: {
       label: props.labels.location,
       value: file?.storage.localPath || "–",
       title: file?.storage.localPath,
-      openLocation: file?.id.trim()
+      openLocation: selectedAsset?.fileAvailable && file?.id.trim()
         ? { kind: "catalog-file", fileId: file.id }
         : undefined,
     },
@@ -1688,11 +1799,20 @@ function TaskInfoPanel(props: {
 
 function AssetCard(props: { asset: CatalogItemAsset; labels: LibraryWorkspaceLabels }) {
   const file = props.asset.file;
+  const availability = props.asset.availability ||
+    (props.asset.fileAvailable ? "available" : "missing");
   return (
     <article className="app-library-preview__record">
       <header><strong>{props.asset.label || file?.displayName || file?.name || props.labels.asset}</strong><span>{props.labels.catalogValueLabel(props.asset.role)}</span></header>
       <dl>
-        <div><dt>{props.labels.availability}</dt><dd>{props.asset.fileAvailable ? props.labels.yes : props.labels.no}</dd></div>
+        <div>
+          <dt>{props.labels.availability}</dt>
+          <dd>
+            {availability === "offline"
+              ? props.labels.offlineRootStatus
+              : props.labels.statusLabel(availability)}
+          </dd>
+        </div>
         <div><dt>{props.labels.format}</dt><dd>{file?.media?.format || "–"}</dd></div>
         <div><dt>{props.labels.size}</dt><dd>{formatBytes(file?.media?.sizeBytes)}</dd></div>
         <div><dt>{props.labels.duration}</dt><dd>{formatDuration(file?.media?.durationMs)}</dd></div>
@@ -2095,7 +2215,6 @@ function CatalogPreviewCompanion(props: {
                 labels={props.labels}
                 facts={previewClassificationFacts(
                   props.item.category,
-                  props.item.status,
                   props.labels,
                 )}
               />
@@ -2157,6 +2276,7 @@ function CatalogPreviewCompanion(props: {
             sourceURL={previewMedia.sourceURL}
             sourcePath={previewMedia.sourcePath}
             sourceFormat={previewMedia.sourceFormat}
+            logPreviewURL={previewMedia.logPreviewURL}
           />
         ) : (
           <>
@@ -2173,7 +2293,7 @@ function CatalogPreviewCompanion(props: {
                   placement="context"
                 />
               )}
-              status={detail.data.item.status}
+              status={libraryItemDisplayStatus(detail.data.item)}
               format={previewMedia.sourceFormat}
               category={detail.data.item.category}
             />

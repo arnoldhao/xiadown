@@ -21,6 +21,7 @@ import (
 	appsessionsdto "xiadown/internal/application/appsessions/dto"
 	appsessionsservice "xiadown/internal/application/appsessions/service"
 	"xiadown/internal/application/library/dto"
+	settingsdto "xiadown/internal/application/settings/dto"
 	"xiadown/internal/application/sniffprofile"
 	"xiadown/internal/domain/library"
 )
@@ -800,6 +801,28 @@ func TestResourceOutputBaseNameUsesGenericFallback(t *testing.T) {
 
 	if got := resourceOutputBaseName(resourceMedia{}, "1234567890"); got != "resource-12345678" {
 		t.Fatalf("expected generic resource fallback, got %q", got)
+	}
+}
+
+func TestPrepareResourceOutputPathUsesManagedXiadownChild(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "Downloads")
+	service := &LibraryService{
+		settings: ytdlpSettingsReader{
+			settings: settingsdto.Settings{DownloadDirectory: parent},
+		},
+	}
+
+	outputPath, err := service.prepareResourceOutputPath(
+		context.Background(),
+		resourceMedia{Domain: "media.example", Ext: "mp4"},
+		"operation-1",
+	)
+	if err != nil {
+		t.Fatalf("prepare resource output path: %v", err)
+	}
+	expectedDirectory := filepath.Join(parent, "xiadown", "resource", "media.example")
+	if filepath.Dir(outputPath) != expectedDirectory {
+		t.Fatalf("resource output directory = %q, want %q", filepath.Dir(outputPath), expectedDirectory)
 	}
 }
 

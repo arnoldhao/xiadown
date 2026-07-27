@@ -70,7 +70,7 @@ export function DreamStyleCatalog() {
       data-appearance-fixture="dream-style-catalog"
     >
       <div className="appearance-lab__section-heading">
-        <span>08</span>
+        <span>09</span>
         <div>
           <h2 id="appearance-lab-style-catalog-title">Dream CSS registry</h2>
           <p>Vite discovers every Dream module; a pure parser inventories its public CSS facts.</p>

@@ -79,6 +79,47 @@ func TestCategoryFromExtensionRecognizesLocalAudioCatalogContainers(t *testing.T
 	}
 }
 
+func TestScannerDistinguishesTypeScriptFromMPEGTransportStreams(t *testing.T) {
+	root := canonicalManagedTestRoot(t)
+	sourcePath := filepath.Join(root, "test.ts")
+	writeTestFile(t, sourcePath, "export const test: string = 'source';\n")
+
+	transportPath := filepath.Join(root, "recording.ts")
+	transport := make([]byte, 188*4)
+	for packet := 0; packet < 4; packet++ {
+		position := packet * 188
+		transport[position] = 0x47
+		transport[position+1] = 0x40
+		transport[position+3] = 0x10
+	}
+	if err := os.WriteFile(transportPath, transport, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := NewScanner(inspectorStub{}).Scan(
+		context.Background(),
+		[]string{sourcePath, transportPath},
+		scanOptions{
+			BatchID:       "ambiguous-ts",
+			HiddenPolicy:  importdomain.HiddenExclude,
+			SymlinkPolicy: importdomain.SymlinkSkip,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]importdomain.Candidate, len(items))
+	for _, item := range items {
+		byName[item.DisplayName] = item
+	}
+	if got := byName["test.ts"].Category; got != importdomain.CategoryOther {
+		t.Fatalf("TypeScript category = %q, want other", got)
+	}
+	if got := byName["recording.ts"].Category; got != importdomain.CategoryVideo {
+		t.Fatalf("MPEG transport category = %q, want video", got)
+	}
+}
+
 func TestManagedCopyIsIdempotentAndNeverOverwrites(t *testing.T) {
 	ctx := context.Background()
 	source := filepath.Join(t.TempDir(), "movie.mp4")

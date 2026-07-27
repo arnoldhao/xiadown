@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
@@ -62,6 +64,7 @@ func (handler *LibraryImportHandler) SelectAndDryRun(ctx context.Context, reques
 		return application.BatchDTO{}, ErrLibraryImportSelectionCancelled
 	}
 	managedRoot := ""
+	referenceRoots := make([]string, 0)
 	if request.Mode == importdomain.ModeCopy {
 		managedRoot, err = handler.windows.SelectMainDirectoryDialog("Select Managed Library Location", "")
 		if err != nil {
@@ -70,10 +73,27 @@ func (handler *LibraryImportHandler) SelectAndDryRun(ctx context.Context, reques
 		if strings.TrimSpace(managedRoot) == "" {
 			return application.BatchDTO{}, ErrLibraryImportSelectionCancelled
 		}
+	} else {
+		seen := make(map[string]struct{})
+		for _, source := range sources {
+			root := source
+			if info, statErr := os.Stat(source); statErr == nil && !info.IsDir() {
+				root = filepath.Dir(source)
+			}
+			root = filepath.Clean(strings.TrimSpace(root))
+			if root == "" {
+				continue
+			}
+			if _, duplicate := seen[root]; duplicate {
+				continue
+			}
+			seen[root] = struct{}{}
+			referenceRoots = append(referenceRoots, root)
+		}
 	}
 	return handler.service.DryRun(ctx, application.DryRunCommand{
 		RequestKey: uuid.NewString(), SourcePaths: sources, LibraryID: strings.TrimSpace(request.LibraryID),
-		Mode: request.Mode, ManagedRoot: managedRoot,
+		Mode: request.Mode, ManagedRoot: managedRoot, ReferenceRoots: referenceRoots,
 		HiddenPolicy: request.HiddenPolicy, SymlinkPolicy: request.SymlinkPolicy,
 	})
 }

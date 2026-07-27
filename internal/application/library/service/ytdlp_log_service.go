@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"xiadown/internal/application/library/dto"
+	domainsettings "xiadown/internal/domain/settings"
 )
 
 const defaultYTDLPLogMaxBytes = 1 << 20
@@ -81,7 +83,7 @@ func defaultOperationLogPath(downloadDirectory string, operationID string) strin
 	if filename == ".log" {
 		return ""
 	}
-	return trimmed + "/xiadown/yt-dlp/logs/" + filename
+	return filepath.Join(domainsettings.ManagedDownloadDirectory(trimmed), "yt-dlp", "logs", filename)
 }
 
 func readYTDLPLogFile(path string, maxBytes int, tailLines int) (string, bool, error) {

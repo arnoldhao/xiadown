@@ -5,7 +5,7 @@ import { Events } from "@wailsio/runtime";
 import { createQueryClient } from "./query-client";
 import {
   LIBRARY_DETAIL_QUERY_KEY,
-  LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
+  LIBRARY_ENDED_OPERATIONS_QUERY_KEY,
   LIBRARY_FILE_EVENTS_QUERY_KEY,
   LIBRARY_HISTORY_QUERY_KEY,
   LIBRARY_LIST_QUERY_KEY,
@@ -13,7 +13,7 @@ import {
   LIBRARY_WORKSPACE_PROJECT_QUERY_KEY,
   LIBRARY_WORKSPACE_QUERY_KEY,
 } from "@/shared/query/library";
-import { shouldRefreshCompleteOperations } from "@/shared/query/complete-operations";
+import { shouldRefreshEndedOperations } from "@/shared/query/complete-operations";
 import { DEPENDENCIES_QUERY_KEY } from "@/shared/query/dependencies";
 import { catalogKeys } from "@/shared/query/catalog";
 import { PETS_QUERY_KEY } from "@/shared/query/pets";
@@ -232,28 +232,28 @@ export function AppProviders({
       return;
     }
     let disposed = false;
-    let completeOperationsRefreshTimer: number | undefined;
-    let completeOperationsRefreshScheduledAt = 0;
+    let endedOperationsRefreshTimer: number | undefined;
+    let endedOperationsRefreshScheduledAt = 0;
     let realtimeStartTimer: number | undefined;
     let realtimeRetryTimer: number | undefined;
     let realtimeStartAttempts = 0;
     const realtimeRetryDelays = [500, 1_500, 4_000] as const;
-    const scheduleCompleteOperationsRefresh = () => {
-      completeOperationsRefreshScheduledAt = Date.now();
-      if (completeOperationsRefreshTimer !== undefined) {
-        window.clearTimeout(completeOperationsRefreshTimer);
+    const scheduleEndedOperationsRefresh = () => {
+      endedOperationsRefreshScheduledAt = Date.now();
+      if (endedOperationsRefreshTimer !== undefined) {
+        window.clearTimeout(endedOperationsRefreshTimer);
       }
-      completeOperationsRefreshTimer = window.setTimeout(() => {
-        const state = queryClient.getQueryState(LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY);
+      endedOperationsRefreshTimer = window.setTimeout(() => {
+        const state = queryClient.getQueryState(LIBRARY_ENDED_OPERATIONS_QUERY_KEY);
         if (state?.fetchStatus === "fetching") {
-          scheduleCompleteOperationsRefresh();
+          scheduleEndedOperationsRefresh();
           return;
         }
-        if ((state?.dataUpdatedAt ?? 0) > completeOperationsRefreshScheduledAt) {
+        if ((state?.dataUpdatedAt ?? 0) > endedOperationsRefreshScheduledAt) {
           return;
         }
         void queryClient.invalidateQueries({
-          queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
+          queryKey: LIBRARY_ENDED_OPERATIONS_QUERY_KEY,
           refetchType: "active",
         });
       }, 750);
@@ -307,15 +307,15 @@ export function AppProviders({
       // post-paint delay cannot leave initial Library queries stale.
       invalidateLibraryQueries();
       void queryClient.invalidateQueries({
-        queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
+        queryKey: LIBRARY_ENDED_OPERATIONS_QUERY_KEY,
         refetchType: "active",
       });
     });
 
     const unsubscribeLibraryOperation = registerTopic(REALTIME_TOPICS.library.operation, (event) => {
       invalidateLibraryQueries(resolveLibraryID(event?.payload));
-      if (shouldRefreshCompleteOperations(event)) {
-        scheduleCompleteOperationsRefresh();
+      if (shouldRefreshEndedOperations(event)) {
+        scheduleEndedOperationsRefresh();
       }
     });
     const unsubscribeLibraryFile = registerTopic(REALTIME_TOPICS.library.file, (event) => {
@@ -343,8 +343,8 @@ export function AppProviders({
       unsubscribeLibraryHistory();
       unsubscribeLibraryWorkspace();
       unsubscribeLibraryWorkspaceProject();
-      if (completeOperationsRefreshTimer !== undefined) {
-        window.clearTimeout(completeOperationsRefreshTimer);
+      if (endedOperationsRefreshTimer !== undefined) {
+        window.clearTimeout(endedOperationsRefreshTimer);
       }
       if (realtimeStartTimer !== undefined) {
         window.clearTimeout(realtimeStartTimer);

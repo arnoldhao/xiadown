@@ -131,6 +131,7 @@ import {
   type AppearanceLabNativeVideoPreview,
 } from "./appearance-root-state";
 import { DreamStyleCatalog } from "./DreamStyleCatalog";
+import { LibraryStorageSpecimen } from "./LibraryStorageSpecimen";
 import { PrimitiveFixtureGallery } from "./PrimitiveFixtureGallery";
 import "@/app/library/library.css";
 import "@/app/main/listen/listen.css";
@@ -521,6 +522,7 @@ const APPEARANCE_DELETED_LIBRARY_ITEMS = [{
       catalogId: "appearance-catalog",
       category: "image",
       status: "trashed",
+      availability: "missing",
       title: "Trashed catalog artwork",
       sortTitle: "Trashed catalog artwork",
       revision: 4,
@@ -809,7 +811,7 @@ export function RegressionContractSpecimen() {
       data-appearance-fixture="regression-contracts"
     >
       <div className="appearance-lab__section-heading">
-        <span>06</span>
+        <span>07</span>
         <div>
           <h2>Regression contracts</h2>
           <p>Production Settings, Library, Dialog and fullscreen anatomy under one review surface.</p>
@@ -1091,6 +1093,32 @@ export function RegressionContractSpecimen() {
                           labels={APPEARANCE_LIBRARY_LABELS}
                           sourceURL={APPEARANCE_ULTRAWIDE_IMAGE_URL}
                           title="Ultrawide image · 2400 × 500"
+                        />
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+            <div
+              className="appearance-lab__library-companion-frame"
+              data-appearance-library-companion="generic-file-ipod"
+              data-companion-width-contract="390px"
+            >
+              <div className="app-library-preview">
+                <div className="app-library-preview__body">
+                  <article className="app-library-preview__overview">
+                    <div className="app-library-preview__hero">
+                      <div
+                        className="app-library-preview__media"
+                        data-appearance-library-ipod="generic-file"
+                        data-preview-kind="other"
+                      >
+                        <LibraryIpodPreview
+                          category="other"
+                          coverURL=""
+                          labels={APPEARANCE_LIBRARY_LABELS}
+                          title="Generic Library file iPod"
                         />
                       </div>
                     </div>
@@ -2213,6 +2241,8 @@ export function AppearanceLab() {
             </GlassSurface>
           </div>
         </section>
+
+        <LibraryStorageSpecimen />
 
         <RegressionContractSpecimen />
 

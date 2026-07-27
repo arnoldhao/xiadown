@@ -1025,6 +1025,17 @@ func TestLegacyCatalogBackfillKeepsTranscodeReplacementActive(t *testing.T) {
 	if _, err := projection.Run(ctx); err != nil {
 		t.Fatalf("initial Run: %v", err)
 	}
+	root, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: "root-replacement", CatalogID: DefaultLibraryCatalogID(),
+		Name: "Replacement root", Path: directory, VolumeID: "volume-replacement",
+		Mode: "managed", Status: "online", CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new replacement root: %v", err)
+	}
+	if err := libraryrepo.NewSQLiteStorageRootRepository(db.Bun).Save(ctx, root); err != nil {
+		t.Fatalf("save replacement root: %v", err)
+	}
 
 	seedCatalogBackfillFile(
 		t, ctx, db, "output-mp4", "bundle-replacement", "transcode",

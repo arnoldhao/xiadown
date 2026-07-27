@@ -278,6 +278,17 @@ func TestRestoreDeletedLibraryFileMakesCatalogItemVisible(t *testing.T) {
 	if _, err := projection.Run(ctx); err != nil {
 		t.Fatalf("initial projection: %v", err)
 	}
+	root, err := library.NewStorageRoot(library.StorageRootParams{
+		ID: "root-restore", CatalogID: DefaultLibraryCatalogID(),
+		Name: "Restore root", Path: filepath.Dir(path), VolumeID: "volume-restore",
+		Mode: "managed", Status: "online", CreatedAt: &now, UpdatedAt: &now,
+	})
+	if err != nil {
+		t.Fatalf("new restore root: %v", err)
+	}
+	if err := libraryrepo.NewSQLiteStorageRootRepository(db.Bun).Save(ctx, root); err != nil {
+		t.Fatalf("save restore root: %v", err)
+	}
 	file, err := files.Get(ctx, "file-restore")
 	if err != nil {
 		t.Fatalf("get file: %v", err)

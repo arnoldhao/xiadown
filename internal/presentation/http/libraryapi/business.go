@@ -323,9 +323,14 @@ func publicSnapshotFallbackPage(items []library.Item, afterID string, limit int)
 }
 
 func publicCatalogItemSummary(item library.Item) dto.CatalogItemDTO {
+	availability := library.ItemAvailabilityAvailable
+	if item.Status == library.ItemStatusMissing || item.Status == library.ItemStatusTrashed {
+		availability = library.ItemAvailabilityMissing
+	}
 	result := dto.CatalogItemDTO{
 		ID: item.ID, CatalogID: item.CatalogID, Category: string(item.Category), Status: string(item.Status),
-		Title: item.Title, SortTitle: item.SortTitle, Description: item.Description, Revision: item.Revision,
+		Availability: string(availability),
+		Title:        item.Title, SortTitle: item.SortTitle, Description: item.Description, Revision: item.Revision,
 		CreatedAt: item.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: item.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if item.TrashedAt != nil {
@@ -341,12 +346,25 @@ func validateLibrarySnapshotItems(items []dto.CatalogItemDTO, catalogID, afterID
 	previousID := afterID
 	for _, item := range items {
 		if item.CatalogID != catalogID || !safePublicOpaqueID(item.ID) || strings.Compare(item.ID, previousID) <= 0 ||
-			strings.EqualFold(strings.TrimSpace(item.Status), string(library.ItemStatusTrashed)) || strings.TrimSpace(item.TrashedAt) != "" {
+			strings.EqualFold(strings.TrimSpace(item.Status), string(library.ItemStatusTrashed)) ||
+			!validPublicItemAvailability(item.Availability) ||
+			strings.TrimSpace(item.TrashedAt) != "" {
 			return errors.New("invalid Library snapshot item")
 		}
 		previousID = item.ID
 	}
 	return nil
+}
+
+func validPublicItemAvailability(value string) bool {
+	switch library.ItemAvailability(strings.ToLower(strings.TrimSpace(value))) {
+	case library.ItemAvailabilityAvailable, library.ItemAvailabilityChecking,
+		library.ItemAvailabilityOffline, library.ItemAvailabilityMissing,
+		library.ItemAvailabilityError:
+		return true
+	default:
+		return false
+	}
 }
 
 func encodeLibrarySnapshotCursor(cursor librarySnapshotCursor) (string, error) {

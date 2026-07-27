@@ -256,7 +256,41 @@ func DefaultDownloadDirectory() string {
 	if trimmed == "" {
 		return ""
 	}
-	return filepath.Join(trimmed, "Downloads", "xiadown")
+	return filepath.Join(trimmed, "Downloads")
+}
+
+// DownloadLocationDirectory returns the user-selected download location.
+// XiaDown's owned "xiadown" child is an implementation detail, so callers
+// presenting or persisting the setting should use this parent directory.
+func DownloadLocationDirectory(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(trimmed)
+	if strings.EqualFold(filepath.Base(cleaned), "xiadown") {
+		parent := filepath.Dir(cleaned)
+		if parent != "." && parent != cleaned {
+			return parent
+		}
+	}
+	return cleaned
+}
+
+// ManagedDownloadDirectory resolves the XiaDown-owned directory below a
+// user-selected download location. Callers may pass either the parent
+// directory or an already-resolved XiaDown directory; the latter is preserved
+// so settings and storage-root migrations never create xiadown/xiadown.
+func ManagedDownloadDirectory(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(trimmed)
+	if strings.EqualFold(filepath.Base(cleaned), "xiadown") {
+		return cleaned
+	}
+	return filepath.Join(DownloadLocationDirectory(cleaned), "xiadown")
 }
 
 func NewWindowBounds(x, y, width, height int) (WindowBounds, error) {
@@ -303,7 +337,7 @@ func NewSettings(params SettingsParams) (Settings, error) {
 		return Settings{}, err
 	}
 
-	downloadDirectory := strings.TrimSpace(params.DownloadDirectory)
+	downloadDirectory := DownloadLocationDirectory(params.DownloadDirectory)
 	if downloadDirectory == "" {
 		downloadDirectory = DefaultDownloadDirectory()
 	}

@@ -47,9 +47,11 @@ type LibraryFileMetaDTO struct {
 }
 
 type LibraryFileStorageDTO struct {
-	Mode       string `json:"mode"`
-	LocalPath  string `json:"localPath,omitempty"`
-	DocumentID string `json:"documentId,omitempty"`
+	Mode         string `json:"mode"`
+	LocalPath    string `json:"localPath,omitempty"`
+	DocumentID   string `json:"documentId,omitempty"`
+	RootID       string `json:"rootId,omitempty"`
+	RelativePath string `json:"relativePath,omitempty"`
 }
 
 type LibraryFileOriginDTO struct {

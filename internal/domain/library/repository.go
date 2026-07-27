@@ -29,6 +29,29 @@ type CatalogItemRepository interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// CatalogItemPageQuery is the storage-facing subset of the desktop browse
+// contract. Repositories that implement CatalogItemPageRepository can filter,
+// count and page in a bounded SQL path instead of materializing the complete
+// Catalog in application memory.
+type CatalogItemPageQuery struct {
+	Category       string
+	Status         string
+	Query          string
+	Sort           string
+	ExcludeTrashed bool
+	StorageScoped  bool
+	Limit          int
+	Offset         int
+}
+
+type CatalogItemPageRepository interface {
+	ListCatalogItemsPage(
+		ctx context.Context,
+		catalogID string,
+		query CatalogItemPageQuery,
+	) ([]Item, int, error)
+}
+
 // CatalogItemSnapshotRepository is an optional, read-only extension for
 // clients that need to build a stable Catalog generation without offset
 // pagination. Implementations must return non-trashed items ordered by the
@@ -42,6 +65,17 @@ type ItemAssetRepository interface {
 	Get(ctx context.Context, id string) (ItemAsset, error)
 	Save(ctx context.Context, item ItemAsset) error
 	Delete(ctx context.Context, id string) error
+}
+
+// CatalogItemPresentationRepository is an optional batch read extension used
+// by list and companion surfaces. Implementations should return all requested
+// item assets with root/sync state in a bounded number of database calls and
+// must not touch the filesystem.
+type CatalogItemPresentationRepository interface {
+	ListCatalogItemPresentationAssets(
+		ctx context.Context,
+		itemIDs []string,
+	) ([]CatalogItemPresentationAsset, error)
 }
 
 // RepresentationRepository stores the technical variants that make one Item

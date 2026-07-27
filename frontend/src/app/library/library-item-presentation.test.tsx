@@ -6,6 +6,7 @@ import { t } from "@/shared/i18n";
 import {
   createLibraryWorkspaceLabels,
   formatLibraryRelativeTime,
+  libraryItemDisplayStatus,
   type LibraryWorkspaceItem,
 } from "./types";
 
@@ -60,6 +61,17 @@ const missingItem: LibraryWorkspaceItem = {
 };
 
 describe("Library item presentation", () => {
+  test("keeps lifecycle state distinct from physical availability", () => {
+    expect(libraryItemDisplayStatus({
+      status: "trashed",
+      availability: "missing",
+    })).toBe("trashed");
+    expect(libraryItemDisplayStatus({
+      status: "active",
+      availability: "offline",
+    })).toBe("offline");
+  });
+
   test("keeps status semantics and tone without painting a badge surface", async () => {
     const appearanceCss = await Bun.file(
       new URL("../../shared/styles/dream/library.css", import.meta.url),
@@ -101,13 +113,56 @@ describe("Library item presentation", () => {
     expect(duration).toBeGreaterThan(size);
   });
 
+  test("hides the normal active badge while retaining missing state", () => {
+    const markup = renderToStaticMarkup(
+      <LibraryWorkspacePage
+        route="all"
+        items={[
+          { ...missingItem, id: "available-video", status: "active", title: "Available video" },
+          missingItem,
+        ]}
+        initialView="grid"
+      />,
+    );
+
+    const availableStart = markup.indexOf('data-item-id="available-video"');
+    const missingStart = markup.indexOf('data-item-id="missing-video"');
+    expect(markup.slice(availableStart, missingStart)).not.toContain(
+      "app-library-item__status",
+    );
+    expect(markup.slice(missingStart)).toContain("app-library-item__status");
+    expect(markup.slice(missingStart)).toContain('aria-label="Status: Missing"');
+  });
+
+  test("shows an offline volume without changing the item's media category", () => {
+    const markup = renderToStaticMarkup(
+      <LibraryWorkspacePage
+        route="video"
+        items={[{
+          ...missingItem,
+          id: "offline-video",
+          status: "active",
+          availability: "offline",
+          otherGroup: undefined,
+          title: "Offline video",
+        }]}
+        initialView="grid"
+      />,
+    );
+
+    expect(markup).toContain('data-category="video"');
+    expect(markup).toContain('data-tone="danger"');
+    expect(markup).toContain('aria-label="Status: Offline"');
+    expect(markup).not.toContain('aria-label="Status: Missing"');
+  });
+
   test("uses a static multi-file folder while keeping the task count outside artwork", () => {
     const task: LibraryWorkspaceItem = {
       ...missingItem,
       id: "task-one",
       source: "task",
       category: "task",
-      status: "running",
+      status: "succeeded",
       format: "video_download",
       taskPreviewItems: [
         {
@@ -125,14 +180,14 @@ describe("Library item presentation", () => {
         libraryId: "library-one",
         name: "Task one",
         kind: "video_download",
-        status: "running",
+        status: "succeeded",
         correlation: {},
         metrics: { fileCount: 4, totalSizeBytes: 8_192 },
         createdAt: "2026-01-01T10:00:00Z",
       },
     };
     const markup = renderToStaticMarkup(
-      <LibraryWorkspacePage route="tasks" items={[task]} initialView="grid" />,
+      <LibraryWorkspacePage route="ended" items={[task]} initialView="grid" />,
     );
     const taskCardStart = markup.indexOf('data-item-id="task-one"');
     const taskCardEnd = markup.indexOf("</button>", taskCardStart);

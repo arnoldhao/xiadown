@@ -78,6 +78,34 @@ func TestCopyDryRunRegistersManagedRootWithCatalog(t *testing.T) {
 	}
 }
 
+func TestReferencedDryRunRegistersSelectedRootsWithCatalog(t *testing.T) {
+	ctx := context.Background()
+	sourceDirectory := t.TempDir()
+	source := filepath.Join(sourceDirectory, "book.epub")
+	writeTestFile(t, source, "book")
+	registrar := &managedRootRegistrarStub{}
+	service := NewService(newMemoryRepository(), &fileRepositoryStub{}, &importerStub{}, &projectorStub{}, inspectorStub{})
+	service.SetManagedRootRegistrar(registrar)
+
+	_, err := service.DryRun(ctx, DryRunCommand{
+		RequestKey: "referenced-root-request", SourcePaths: []string{source},
+		ReferenceRoots: []string{sourceDirectory}, Mode: importdomain.ModeReferenced,
+		HiddenPolicy: importdomain.HiddenExclude, SymlinkPolicy: importdomain.SymlinkSkip,
+	})
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	if registrar.referenceCalls != 1 ||
+		len(registrar.referencePaths) != 1 ||
+		registrar.referencePaths[0] != sourceDirectory {
+		t.Fatalf(
+			"referenced root registrar calls=%d paths=%#v",
+			registrar.referenceCalls,
+			registrar.referencePaths,
+		)
+	}
+}
+
 func TestProfessionalImportProjectsRegisteredBatchOnce(t *testing.T) {
 	ctx := context.Background()
 	directory := t.TempDir()
@@ -434,12 +462,20 @@ type managedRootRegistrarStub struct {
 	calls          int
 	selectedPath   string
 	registeredPath string
+	referenceCalls int
+	referencePaths []string
 }
 
 func (stub *managedRootRegistrarStub) EnsureManagedImportRoot(_ context.Context, path string) (string, error) {
 	stub.calls++
 	stub.selectedPath = path
 	return stub.registeredPath, nil
+}
+
+func (stub *managedRootRegistrarStub) EnsureReferencedImportRoots(_ context.Context, paths []string) error {
+	stub.referenceCalls++
+	stub.referencePaths = append([]string(nil), paths...)
+	return nil
 }
 
 func (stub *projectorStub) Run(ctx context.Context) (libraryservice.CatalogBackfillResult, error) {

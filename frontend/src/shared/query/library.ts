@@ -77,7 +77,7 @@ export {
 export const LIBRARY_LIST_QUERY_KEY = ["library", "libraries"] as const;
 export const LIBRARY_DETAIL_QUERY_KEY = ["library", "detail"] as const;
 export const LIBRARY_OPERATIONS_QUERY_KEY = ["library", "operations"] as const;
-export const LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY = ["library", "complete-operations"] as const;
+export const LIBRARY_ENDED_OPERATIONS_QUERY_KEY = ["library", "ended-operations"] as const;
 export const LIBRARY_HISTORY_QUERY_KEY = ["library", "history"] as const;
 export const LIBRARY_FILE_EVENTS_QUERY_KEY = ["library", "file-events"] as const;
 export const LIBRARY_DELETED_ITEMS_QUERY_KEY = ["library", "deleted-items"] as const;
@@ -120,7 +120,7 @@ export function invalidateOperationQueries(
   libraryId?: string,
 ) {
   invalidateLibraryQueries(queryClient, libraryId);
-  queryClient.invalidateQueries({ queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY });
+  queryClient.invalidateQueries({ queryKey: LIBRARY_ENDED_OPERATIONS_QUERY_KEY });
 }
 
 export function useListLibraries() {
@@ -145,10 +145,12 @@ export function useListOperations(request: ListOperationsRequest) {
   });
 }
 
-export function useCompleteOperations(options: { enabled?: boolean } = {}) {
+export function useEndedOperations(options: { enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY,
-    queryFn: () => collectCompleteOperations({}, async (pageRequest) => (
+    queryKey: LIBRARY_ENDED_OPERATIONS_QUERY_KEY,
+    queryFn: () => collectCompleteOperations({
+      status: ["succeeded", "failed", "canceled"],
+    }, async (pageRequest) => (
       (await LibraryHandler.ListOperations(
         LibraryBindings.ListOperationsRequest.createFrom(pageRequest),
       )) ?? []

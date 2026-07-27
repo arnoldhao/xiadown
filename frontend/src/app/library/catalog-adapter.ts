@@ -6,7 +6,11 @@ import {
   extractExtensionFromPath,
 } from "@/shared/utils/resourceHelpers";
 
-import type { LibraryOtherGroup, LibraryWorkspaceItem } from "./types";
+import type {
+  LibraryCardPreview,
+  LibraryOtherGroup,
+  LibraryWorkspaceItem,
+} from "./types";
 
 export interface CatalogItemPreviewSources {
   filesById?: ReadonlyMap<string, LibraryFileDTO>;
@@ -36,13 +40,36 @@ export function buildCatalogVideoThumbnailURL(
   return `${normalizedBaseURL}/api/library/video-thumbnail/${encodeURIComponent(normalizedItemId)}${suffix}`;
 }
 
+export function buildCatalogCardPreviewURL(
+  baseURL: string,
+  kind: LibraryCardPreview["kind"],
+  itemId: string,
+  cacheKey?: string,
+) {
+  const normalizedBaseURL = baseURL.trim().replace(/\/+$/, "");
+  const normalizedItemId = itemId.trim();
+  if (!normalizedBaseURL || !normalizedItemId || !["pdf", "log"].includes(kind)) {
+    return "";
+  }
+  const normalizedCacheKey = cacheKey?.trim() ?? "";
+  const suffix = normalizedCacheKey
+    ? `?v=${encodeURIComponent(normalizedCacheKey)}`
+    : "";
+  return `${normalizedBaseURL}/api/library/card-preview/${kind}/${encodeURIComponent(normalizedItemId)}${suffix}`;
+}
+
 export function adaptCatalogItems(
   items: readonly CatalogItem[],
   previewSources: CatalogItemPreviewSources = {},
 ): LibraryWorkspaceItem[] {
   return items.map((item) => {
-    const group = item.category === "other" ? otherGroup(item.status, item.kind) : undefined;
+    const availability = item.availability ??
+      (item.status === "missing" || item.status === "trashed" ? "missing" : "available");
+    const group = item.category === "other"
+      ? otherGroup(item.status, item.kind, item.format, item.title)
+      : undefined;
     const fallbackCoverURL = defaultCover(item.category, group);
+    const coverURL = catalogCover(item, previewSources);
     return {
       id: item.id,
       source: "file",
@@ -56,25 +83,73 @@ export function adaptCatalogItems(
       category: item.category,
       otherGroup: group,
       status: item.status,
+      availability,
       format: item.format ?? "",
       sizeBytes: item.sizeBytes,
       durationMs: item.durationMs,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       path: "",
-      coverURL: catalogCover(item, previewSources) || fallbackCoverURL,
+      coverURL: coverURL || fallbackCoverURL,
       fallbackCoverURL,
+      cardPreview: coverURL ? undefined : catalogCardPreview(item, previewSources),
       rootId: item.id,
-      searchText: `${item.title} ${item.description ?? ""} ${item.category} ${item.kind ?? ""} ${item.status}`.toLocaleLowerCase(),
+      searchText: `${item.title} ${item.description ?? ""} ${item.category} ${item.kind ?? ""} ${item.status} ${availability}`.toLocaleLowerCase(),
       catalogItem: item,
     };
   });
+}
+
+function catalogCardPreview(
+  item: CatalogItem,
+  sources: CatalogItemPreviewSources,
+): LibraryCardPreview | undefined {
+  const availability = item.availability ??
+    (item.status === "missing" || item.status === "trashed" ? "missing" : "available");
+  if (
+    !item.primaryFileId?.trim() ||
+    availability !== "available" ||
+    item.status === "trashed"
+  ) {
+    return undefined;
+  }
+  const normalizedFormat = (item.format ?? "").trim().toLocaleLowerCase();
+  const normalizedTitle = item.title.trim().toLocaleLowerCase();
+  const kind: LibraryCardPreview["kind"] | undefined =
+    item.category === "book" && (
+      normalizedFormat === "pdf" ||
+      normalizedFormat === "application/pdf" ||
+      normalizedTitle.endsWith(".pdf")
+    )
+      ? "pdf"
+      : (
+          normalizedFormat === "log" ||
+          normalizedFormat === "text/x-log" ||
+          normalizedTitle.endsWith(".log")
+        )
+        ? "log"
+        : undefined;
+  if (!kind) return undefined;
+  const sourceURL = buildCatalogCardPreviewURL(
+    sources.httpBaseURL ?? "",
+    kind,
+    item.id,
+    item.updatedAt,
+  );
+  if (!sourceURL) return undefined;
+  return {
+    kind,
+    sourceURL,
+    cacheKey: `${item.id}:${item.updatedAt}:${item.sizeBytes ?? ""}`,
+  };
 }
 
 function catalogCover(
   item: CatalogItem,
   sources: CatalogItemPreviewSources,
 ) {
+  const availability = item.availability ??
+    (item.status === "missing" || item.status === "trashed" ? "missing" : "available");
   // Artwork is already a bounded cover/thumbnail produced by the download or
   // import pipeline, so it is always safer than decoding an original media
   // file. Images may use their original as the final real-preview candidate;
@@ -109,7 +184,7 @@ function catalogCover(
     item.category === "video" &&
     !item.artworkFileId?.trim() &&
     Boolean(item.primaryFileId?.trim()) &&
-    item.status !== "missing" &&
+    availability === "available" &&
     item.status !== "trashed"
   ) {
     return buildCatalogVideoThumbnailURL(
@@ -121,10 +196,24 @@ function catalogCover(
   return "";
 }
 
-function otherGroup(status: CatalogItem["status"], kind?: string): LibraryOtherGroup {
+function otherGroup(
+  status: CatalogItem["status"],
+  kind?: string,
+  format?: string,
+  title?: string,
+): LibraryOtherGroup {
   if (status === "missing") return "missing";
   if (status === "needs_review") return "needs-review";
   const normalized = (kind ?? "").trim().toLocaleLowerCase();
+  const normalizedFormat = (format ?? "").trim().toLocaleLowerCase();
+  const normalizedTitle = (title ?? "").trim().toLocaleLowerCase();
+  if (
+    normalizedFormat === "log" ||
+    normalizedFormat === "text/x-log" ||
+    normalizedTitle.endsWith(".log")
+  ) {
+    return "document";
+  }
   if (["document", "font", "archive", "subtitle", "manifest", "api"].includes(normalized)) {
     return normalized as LibraryOtherGroup;
   }

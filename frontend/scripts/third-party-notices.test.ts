@@ -1,6 +1,26 @@
 import { describe, expect, test } from "bun:test";
 
-import { thirdPartyNoticesTextMatches } from "./third-party-notices.mjs";
+import {
+  requiredRuntimeDependencyNames,
+  thirdPartyNoticesTextMatches,
+} from "./third-party-notices.mjs";
+
+describe("frontend runtime dependency inventory", () => {
+  test("is host-independent by excluding optional platform packages", () => {
+    expect(
+      requiredRuntimeDependencyNames({
+        dependencies: {
+          react: "18.3.1",
+          "pdfjs-dist": "6.1.200",
+        },
+        optionalDependencies: {
+          "@napi-rs/canvas-darwin-arm64": "1.0.2",
+          "@napi-rs/canvas-linux-x64-gnu": "1.0.2",
+        },
+      }),
+    ).toEqual(["pdfjs-dist", "react"]);
+  });
+});
 
 describe("third-party notices text comparison", () => {
   const generated = "XiaDown Third-Party Notices\n\nComponent: example@1.0.0\n";

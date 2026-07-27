@@ -18,7 +18,7 @@ export type OperationPageFetcher = (
   request: ListOperationsRequest,
 ) => Promise<readonly OperationListItemDTO[]>;
 
-export function shouldRefreshCompleteOperations(event: OperationRealtimeEvent) {
+export function shouldRefreshEndedOperations(event: OperationRealtimeEvent) {
   if (event.type?.trim().toLowerCase() === "delete") {
     return true;
   }

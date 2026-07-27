@@ -760,11 +760,6 @@ func (service *LibraryService) prepareResourceOutputPath(ctx context.Context, me
 		downloadDirectory = fallback
 	}
 	baseDir := filepath.Join(downloadDirectory, "resource")
-	if defaultBaseDir, defaultErr := libraryBaseDir(); defaultErr == nil {
-		if !sameCleanPath(downloadDirectory, defaultBaseDir) && filepath.Base(filepath.Clean(downloadDirectory)) != "xiadown" {
-			baseDir = filepath.Join(downloadDirectory, "xiadown", "resource")
-		}
-	}
 	domainDir := sanitizeFileName(firstNonEmpty(media.Domain, extractRegistrableDomain(media.PageURL), "resource"))
 	if domainDir == "" {
 		domainDir = "resource"

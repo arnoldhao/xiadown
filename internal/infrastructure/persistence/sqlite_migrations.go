@@ -272,6 +272,48 @@ var sqliteMigrations = []sqliteMigration{
 		apply:     applyListenLocalMusicLegacyResourceEpochSchema,
 		applyTx:   sqliteMigrationSQL(listenLocalMusicLegacyResourceEpochSchemaSQL, "rotate Listen Local Music legacy resource epoch"),
 	},
+	{
+		version:   32,
+		name:      "library_storage_root_ownership",
+		signature: libraryStorageRootSchemaSQL,
+		apply:     applyLibraryStorageRootSchema,
+		applyTx:   applyLibraryStorageRootSchemaTx,
+	},
+	{
+		version:   33,
+		name:      "library_storage_root_sync",
+		signature: libraryRootSyncSchemaSQL,
+		apply:     applyLibraryRootSyncSchema,
+		applyTx:   sqliteMigrationSQL(libraryRootSyncSchemaSQL, "apply Library storage root sync schema"),
+	},
+	{
+		version:   34,
+		name:      "library_storage_root_emoji",
+		signature: libraryStorageRootEmojiSchemaSQL,
+		apply:     applyLibraryStorageRootEmojiSchema,
+		applyTx:   applyLibraryStorageRootEmojiSchemaTx,
+	},
+	{
+		version:   35,
+		name:      "library_storage_root_sync_candidate_index",
+		signature: libraryRootSyncCandidateIndexSQL,
+		apply:     applyLibraryRootSyncCandidateIndex,
+		applyTx:   sqliteMigrationSQL(libraryRootSyncCandidateIndexSQL, "apply Library storage root sync candidate index"),
+	},
+	{
+		version:   36,
+		name:      "library_storage_root_sync_availability_indexes",
+		signature: libraryRootSyncAvailabilityIndexSQL,
+		apply:     applyLibraryRootSyncAvailabilityIndex,
+		applyTx:   sqliteMigrationSQL(libraryRootSyncAvailabilityIndexSQL, "apply Library storage root sync availability indexes"),
+	},
+	{
+		version:   37,
+		name:      "library_transient_root_import_cleanup",
+		signature: libraryTransientRootImportCleanupSQL,
+		apply:     applyLibraryTransientRootImportCleanup,
+		applyTx:   applyLibraryTransientRootImportCleanupTx,
+	},
 }
 
 func prepareAndApplySQLiteMigrations(

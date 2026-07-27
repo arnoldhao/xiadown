@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -36,6 +38,8 @@ type fileRow struct {
 	StorageMode          string         `bun:"storage_mode"`
 	StorageLocalPath     sql.NullString `bun:"storage_local_path"`
 	StorageDocumentID    sql.NullString `bun:"storage_document_id"`
+	StorageRootID        sql.NullString `bun:"storage_root_id"`
+	StorageRelativePath  sql.NullString `bun:"storage_relative_path"`
 	OriginKind           string         `bun:"origin_kind"`
 	OriginOperationID    sql.NullString `bun:"origin_operation_id"`
 	OriginImportBatchID  sql.NullString `bun:"origin_import_batch_id"`
@@ -153,6 +157,9 @@ func (repo *SQLiteFileRepository) Save(ctx context.Context, item library.Library
 	if err != nil {
 		return err
 	}
+	if err := assignFileStorageRoot(ctx, repo.db, &row); err != nil {
+		return err
+	}
 	return saveFileRow(ctx, repo.db, &row)
 }
 
@@ -162,6 +169,9 @@ func (repo *SQLiteFileRepository) Save(ctx context.Context, item library.Library
 func (repo *SQLiteFileRepository) SavePreservingDisplayName(ctx context.Context, item library.LibraryFile) error {
 	row, err := newFileRow(item)
 	if err != nil {
+		return err
+	}
+	if err := assignFileStorageRoot(ctx, repo.db, &row); err != nil {
 		return err
 	}
 	return saveFileRowWithOptions(ctx, repo.db, &row, false)
@@ -174,6 +184,9 @@ func (repo *SQLiteFileRepository) SaveWithFileEvent(
 ) error {
 	row, err := newFileRow(item)
 	if err != nil {
+		return err
+	}
+	if err := assignFileStorageRoot(ctx, repo.db, &row); err != nil {
 		return err
 	}
 	eventRow := fileEventRow{
@@ -252,23 +265,25 @@ func newFileRow(item library.LibraryFile) (fileRow, error) {
 		mediaJSON = nullString(string(payload))
 	}
 	row := fileRow{
-		ID:                item.ID,
-		LibraryID:         item.LibraryID,
-		Kind:              string(item.Kind),
-		Name:              item.Name,
-		DisplayName:       nullString(item.DisplayName),
-		MetadataJSON:      metadataJSON,
-		StorageMode:       item.Storage.Mode,
-		StorageLocalPath:  nullString(item.Storage.LocalPath),
-		StorageDocumentID: nullString(item.Storage.DocumentID),
-		OriginKind:        item.Origin.Kind,
-		OriginOperationID: nullString(item.Origin.OperationID),
-		LineageRootFileID: nullString(item.Lineage.RootFileID),
-		LatestOperationID: nullString(item.LatestOperationID),
-		StateJSON:         string(stateJSON),
-		MediaJSON:         mediaJSON,
-		CreatedAt:         item.CreatedAt,
-		UpdatedAt:         item.UpdatedAt,
+		ID:                  item.ID,
+		LibraryID:           item.LibraryID,
+		Kind:                string(item.Kind),
+		Name:                item.Name,
+		DisplayName:         nullString(item.DisplayName),
+		MetadataJSON:        metadataJSON,
+		StorageMode:         item.Storage.Mode,
+		StorageLocalPath:    nullString(item.Storage.LocalPath),
+		StorageDocumentID:   nullString(item.Storage.DocumentID),
+		StorageRootID:       nullString(item.Storage.RootID),
+		StorageRelativePath: nullString(item.Storage.RelativePath),
+		OriginKind:          item.Origin.Kind,
+		OriginOperationID:   nullString(item.Origin.OperationID),
+		LineageRootFileID:   nullString(item.Lineage.RootFileID),
+		LatestOperationID:   nullString(item.LatestOperationID),
+		StateJSON:           string(stateJSON),
+		MediaJSON:           mediaJSON,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
 	}
 	if item.Origin.Import != nil {
 		row.OriginImportBatchID = nullString(item.Origin.Import.BatchID)
@@ -281,6 +296,73 @@ func newFileRow(item library.LibraryFile) (fileRow, error) {
 
 func saveFileRow(ctx context.Context, db bun.IDB, row *fileRow) error {
 	return saveFileRowWithOptions(ctx, db, row, true)
+}
+
+// assignFileStorageRoot makes every new download/import/transcode participate
+// in root ownership without coupling the producers to Catalog infrastructure.
+// The most specific registered root containing the compatibility absolute
+// path wins, so later file-path updates cannot retain stale ownership.
+func assignFileStorageRoot(ctx context.Context, db bun.IDB, row *fileRow) error {
+	if row == nil || !row.StorageLocalPath.Valid || strings.TrimSpace(row.StorageLocalPath.String) == "" {
+		return nil
+	}
+	roots := make([]storageRootRow, 0)
+	if err := db.NewSelect().
+		Model(&roots).
+		Join("JOIN library_catalogs AS catalog ON catalog.id = storage_root_row.catalog_id").
+		Where("catalog.is_default = TRUE").
+		Scan(ctx); err != nil {
+		return err
+	}
+	rootID, relative := bestStorageRootForLocalPath(roots, row.StorageLocalPath.String)
+	row.StorageRootID = nullString(rootID)
+	row.StorageRelativePath = nullString(relative)
+	return nil
+}
+
+func bestStorageRootForLocalPath(roots []storageRootRow, rawPath string) (string, string) {
+	filePath, err := canonicalRepositoryStoragePath(rawPath)
+	if err != nil {
+		return "", ""
+	}
+	bestID, bestRelative, bestLength := "", "", -1
+	for _, root := range roots {
+		rootPath, rootErr := canonicalRepositoryStoragePath(root.Path)
+		if rootErr != nil {
+			continue
+		}
+		relative, relativeErr := filepath.Rel(rootPath, filePath)
+		if relativeErr != nil {
+			continue
+		}
+		relative = filepath.Clean(relative)
+		if relative == "." || relative == ".." || filepath.IsAbs(relative) ||
+			strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if len(rootPath) <= bestLength {
+			continue
+		}
+		bestID = root.ID
+		bestRelative = filepath.ToSlash(relative)
+		bestLength = len(rootPath)
+	}
+	return bestID, bestRelative
+}
+
+func canonicalRepositoryStoragePath(value string) (string, error) {
+	absolute, err := filepath.Abs(strings.TrimSpace(value))
+	if err != nil {
+		return "", err
+	}
+	absolute = filepath.Clean(absolute)
+	if resolved, resolveErr := filepath.EvalSymlinks(absolute); resolveErr == nil {
+		absolute = filepath.Clean(resolved)
+	}
+	if runtime.GOOS == "windows" {
+		absolute = strings.ToLower(absolute)
+	}
+	return absolute, nil
 }
 
 func saveFileRowWithOptions(ctx context.Context, db bun.IDB, row *fileRow, updateDisplayName bool) error {
@@ -297,6 +379,8 @@ func saveFileRowWithOptions(ctx context.Context, db bun.IDB, row *fileRow, updat
 		Set("storage_mode = EXCLUDED.storage_mode").
 		Set("storage_local_path = EXCLUDED.storage_local_path").
 		Set("storage_document_id = EXCLUDED.storage_document_id").
+		Set("storage_root_id = EXCLUDED.storage_root_id").
+		Set("storage_relative_path = EXCLUDED.storage_relative_path").
 		Set("origin_kind = EXCLUDED.origin_kind").
 		Set("origin_operation_id = EXCLUDED.origin_operation_id").
 		Set("origin_import_batch_id = EXCLUDED.origin_import_batch_id").
@@ -362,12 +446,16 @@ func toDomainFile(row fileRow) (library.LibraryFile, error) {
 		}
 	}
 	return library.NewLibraryFile(library.LibraryFileParams{
-		ID:                row.ID,
-		LibraryID:         row.LibraryID,
-		Kind:              row.Kind,
-		Name:              row.Name,
-		DisplayName:       stringOrEmpty(row.DisplayName),
-		Storage:           library.FileStorage{Mode: row.StorageMode, LocalPath: stringOrEmpty(row.StorageLocalPath), DocumentID: stringOrEmpty(row.StorageDocumentID)},
+		ID:          row.ID,
+		LibraryID:   row.LibraryID,
+		Kind:        row.Kind,
+		Name:        row.Name,
+		DisplayName: stringOrEmpty(row.DisplayName),
+		Storage: library.FileStorage{
+			Mode: row.StorageMode, LocalPath: stringOrEmpty(row.StorageLocalPath),
+			DocumentID: stringOrEmpty(row.StorageDocumentID), RootID: stringOrEmpty(row.StorageRootID),
+			RelativePath: stringOrEmpty(row.StorageRelativePath),
+		},
 		Origin:            origin,
 		Lineage:           library.FileLineage{RootFileID: stringOrEmpty(row.LineageRootFileID)},
 		Metadata:          metadata,

@@ -4,7 +4,7 @@ import type { OperationListItemDTO } from "@/shared/contracts/library";
 
 import {
   collectCompleteOperations,
-  shouldRefreshCompleteOperations,
+  shouldRefreshEndedOperations,
   sortAndDedupeOperations,
 } from "./complete-operations";
 
@@ -23,18 +23,19 @@ function operation(index: number, overrides: Partial<OperationListItemDTO> = {})
 }
 
 describe("complete operation history pagination", () => {
-  test("keeps the heavy history query independent and enables it only for Library Tasks", async () => {
+  test("keeps ended-task history independent and enables it only for the Ended route", async () => {
     const [querySource, providerSource, mainSource] = await Promise.all([
       Bun.file(new URL("./library.ts", import.meta.url)).text(),
       Bun.file(new URL("../../app/providers/AppProviders.tsx", import.meta.url)).text(),
       Bun.file(new URL("../../app/main/MainApp.tsx", import.meta.url)).text(),
     ]);
-    expect(querySource).toContain('LIBRARY_COMPLETE_OPERATIONS_QUERY_KEY = ["library", "complete-operations"]');
+    expect(querySource).toContain('LIBRARY_ENDED_OPERATIONS_QUERY_KEY = ["library", "ended-operations"]');
     expect(querySource).toContain("enabled: options.enabled === true");
     expect(querySource).toContain("refetchOnWindowFocus: false");
-    expect(mainSource).toMatch(/useCompleteOperations\(\{[\s\S]*?libraryWorkspaceRoute === "tasks"/);
-    expect(providerSource).toContain("shouldRefreshCompleteOperations(event)");
-    expect(providerSource).toContain("scheduleCompleteOperationsRefresh()");
+    expect(querySource).toContain('status: ["succeeded", "failed", "canceled"]');
+    expect(mainSource).toMatch(/useEndedOperations\(\{[\s\S]*?libraryWorkspaceRoute === "ended"/);
+    expect(providerSource).toContain("shouldRefreshEndedOperations(event)");
+    expect(providerSource).toContain("scheduleEndedOperationsRefresh()");
   });
 
   test("loads, deduplicates and sorts more than 500 operations", async () => {
@@ -68,10 +69,10 @@ describe("complete operation history pagination", () => {
   });
 
   test("refreshes complete history only for list-semantic realtime changes", () => {
-    expect(shouldRefreshCompleteOperations({ type: "delete", payload: { id: "operation-1" } })).toBe(true);
-    expect(shouldRefreshCompleteOperations({ type: "upsert", payload: { status: "queued" } })).toBe(true);
-    expect(shouldRefreshCompleteOperations({ type: "upsert", payload: { status: "succeeded" } })).toBe(true);
-    expect(shouldRefreshCompleteOperations({ type: "upsert", payload: { status: "running" } })).toBe(false);
+    expect(shouldRefreshEndedOperations({ type: "delete", payload: { id: "operation-1" } })).toBe(true);
+    expect(shouldRefreshEndedOperations({ type: "upsert", payload: { status: "queued" } })).toBe(true);
+    expect(shouldRefreshEndedOperations({ type: "upsert", payload: { status: "succeeded" } })).toBe(true);
+    expect(shouldRefreshEndedOperations({ type: "upsert", payload: { status: "running" } })).toBe(false);
   });
 
   test("detects a backend page that stalls instead of looping over duplicates", async () => {

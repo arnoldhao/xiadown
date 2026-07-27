@@ -51,3 +51,32 @@ func TestLibraryVideoThumbnailCacheDirectoryUsesUserCacheHierarchy(t *testing.T)
 		t.Fatalf("empty cache base produced %q", got)
 	}
 }
+
+func TestLibraryEmbeddedArtworkCacheDirectoryUsesUserCacheHierarchy(t *testing.T) {
+	base := t.TempDir()
+	production := filepath.Join(
+		base,
+		"xiadown",
+		"library",
+		"embedded-artwork",
+		"v1",
+		"production",
+	)
+	development := filepath.Join(
+		base,
+		"xiadown",
+		"library",
+		"embedded-artwork",
+		"v1",
+		"development",
+	)
+	if got := libraryEmbeddedArtworkCacheDirectory(base, "1.2.3"); got != production {
+		t.Fatalf("production Library artwork cache directory = %q, want %q", got, production)
+	}
+	if got := libraryEmbeddedArtworkCacheDirectory(base, "dev"); got != development {
+		t.Fatalf("development Library artwork cache directory = %q, want %q", got, development)
+	}
+	if got := libraryEmbeddedArtworkCacheDirectory("  ", "dev"); got != "" {
+		t.Fatalf("blank Library artwork cache directory = %q", got)
+	}
+}

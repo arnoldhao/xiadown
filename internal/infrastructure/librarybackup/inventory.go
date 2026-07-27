@@ -16,6 +16,7 @@ type inventoryRoot struct {
 	Name      string
 	Path      string
 	Mode      string
+	IsDefault bool
 	Status    string
 }
 
@@ -89,7 +90,7 @@ func readStorageRootInventory(
 	indexes map[string]int,
 ) ([]inventoryRoot, error) {
 	rows, err := db.QueryContext(ctx, `
-SELECT catalog_id, id, name, path, mode, status
+SELECT catalog_id, id, name, path, mode, is_default, status
 FROM library_storage_roots
 ORDER BY catalog_id, id
 `)
@@ -100,13 +101,21 @@ ORDER BY catalog_id, id
 	roots := make([]inventoryRoot, 0)
 	for rows.Next() {
 		var root inventoryRoot
-		if err := rows.Scan(&root.CatalogID, &root.ID, &root.Name, &root.Path, &root.Mode, &root.Status); err != nil {
+		if err := rows.Scan(
+			&root.CatalogID,
+			&root.ID,
+			&root.Name,
+			&root.Path,
+			&root.Mode,
+			&root.IsDefault,
+			&root.Status,
+		); err != nil {
 			return nil, err
 		}
 		catalogIndex, ok := indexes[root.CatalogID]
 		if ok {
 			catalogs[catalogIndex].StorageRoots = append(catalogs[catalogIndex].StorageRoots, domainbackup.StorageRootInventory{
-				ID: root.ID, Name: root.Name, Mode: root.Mode, Status: root.Status,
+				ID: root.ID, Name: root.Name, Mode: root.Mode, IsDefault: root.IsDefault, Status: root.Status,
 			})
 		}
 		roots = append(roots, root)
@@ -123,6 +132,7 @@ func readFileInventory(
 ) ([]domainbackup.FileInventory, error) {
 	rows, err := db.QueryContext(ctx, `
 SELECT f.id, f.kind, f.storage_mode, COALESCE(f.storage_local_path, ''),
+       COALESCE(f.storage_root_id, ''), COALESCE(f.storage_relative_path, ''),
        COALESCE(i.catalog_id, ''), COALESCE(i.id, ''), COALESCE(a.id, ''),
        COALESCE(a.role, ''), COALESCE(a.position, 0)
 FROM library_files f
@@ -138,13 +148,19 @@ ORDER BY f.id, a.id
 	for rows.Next() {
 		var file domainbackup.FileInventory
 		var localPath string
+		var storedRootID string
+		var storedRelativePath string
 		if err := rows.Scan(
-			&file.FileID, &file.Kind, &file.StorageMode, &localPath,
+			&file.FileID, &file.Kind, &file.StorageMode, &localPath, &storedRootID, &storedRelativePath,
 			&file.CatalogID, &file.ItemID, &file.AssetID, &file.Role, &file.Position,
 		); err != nil {
 			return nil, err
 		}
-		rootID, relativePath := bestRelativeRoot(localPath, file.CatalogID, roots)
+		rootID, relativePath := storedRootID, path.Clean(strings.TrimSpace(storedRelativePath))
+		if !validInventoryRelativePath(relativePath) ||
+			!inventoryRootMatches(rootID, file.CatalogID, roots) {
+			rootID, relativePath = bestRelativeRoot(localPath, file.CatalogID, roots)
+		}
 		file.StorageRoot = rootID
 		file.RelativePath = relativePath
 		if file.AssetID != "" && rootID != "" {
@@ -153,6 +169,25 @@ ORDER BY f.id, a.id
 		files = append(files, file)
 	}
 	return files, rows.Err()
+}
+
+func inventoryRootMatches(rootID, catalogID string, roots []inventoryRoot) bool {
+	rootID = strings.TrimSpace(rootID)
+	if rootID == "" {
+		return false
+	}
+	for _, root := range roots {
+		if root.ID == rootID && (catalogID == "" || root.CatalogID == catalogID) {
+			return true
+		}
+	}
+	return false
+}
+
+func validInventoryRelativePath(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && value != "." && value != ".." &&
+		!strings.HasPrefix(value, "../") && !strings.HasPrefix(value, "/")
 }
 
 func incrementRootAssetCount(

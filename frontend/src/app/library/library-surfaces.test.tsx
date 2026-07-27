@@ -78,13 +78,19 @@ describe("library primary surfaces", () => {
       item("Studio Album", "audio"),
       item("Field Notes", "book"),
       item("Portrait", "image"),
-      item("Download Task", "task"),
+      item("Active Task", "task"),
     ];
     const videoMarkup = renderToStaticMarkup(
       <LibraryWorkspacePage route="video" items={items} />,
     );
-    const taskMarkup = renderToStaticMarkup(
-      <LibraryWorkspacePage route="tasks" items={items} />,
+    const endedMarkup = renderToStaticMarkup(
+      <LibraryWorkspacePage
+        route="ended"
+        items={[
+          ...items,
+          item("Finished Task", "task", { status: "succeeded" }),
+        ]}
+      />,
     );
     const source = await Bun.file(new URL("./LibraryWorkspacePage.tsx", import.meta.url)).text();
 
@@ -95,8 +101,9 @@ describe("library primary surfaces", () => {
     expect(videoMarkup).not.toContain("app-library-toolbar__title");
     expect(videoMarkup).toContain("Feature Film");
     expect(videoMarkup).not.toContain("Studio Album");
-    expect(taskMarkup).toContain("Download Task");
-    expect(taskMarkup).not.toContain("Feature Film");
+    expect(endedMarkup).toContain("Finished Task");
+    expect(endedMarkup).not.toContain("Active Task");
+    expect(endedMarkup).not.toContain("Feature Film");
     expect(source).not.toContain("CompletedPage");
   });
 
@@ -315,6 +322,7 @@ describe("library primary surfaces", () => {
     expect(source).not.toMatch(/DropdownMenuContent align="(?:start|end)"/);
     expect(source).toContain("<DropdownMenuItem");
     expect(source).toContain('setManagementSection("summary")');
+    expect(source).toContain('setManagementSection("storage")');
     expect(source).toContain('setManagementSection("data")');
     expect(css).toContain("container: app-library-primary / inline-size");
     expect(css).not.toContain(".app-library-action--health");
@@ -323,13 +331,13 @@ describe("library primary surfaces", () => {
     expect(css).not.toMatch(/app-library-view-switch[^}]*display:\s*none/s);
   });
 
-  test("shows explicit loading and retry states instead of a truncated Tasks list", () => {
-    const hiddenTask = item("Partial Task", "task");
+  test("shows explicit loading and retry states instead of a truncated ended-task list", () => {
+    const hiddenTask = item("Partial Task", "task", { status: "succeeded" });
     const loading = renderToStaticMarkup(
-      <LibraryWorkspacePage route="tasks" items={[hiddenTask]} loading />,
+      <LibraryWorkspacePage route="ended" items={[hiddenTask]} loading />,
     );
     const failed = renderToStaticMarkup(
-      <LibraryWorkspacePage route="tasks" items={[hiddenTask]} loadError />,
+      <LibraryWorkspacePage route="ended" items={[hiddenTask]} loadError />,
     );
     expect(loading).toContain('role="status"');
     expect(loading).toContain("Loading");
@@ -344,9 +352,8 @@ describe("library primary surfaces", () => {
     ).text();
     expect(css).toContain('.app-library-search:focus-within');
     expect(css).not.toContain('.app-library-sort:focus-visible');
-    expect(css).toContain('.app-catalog-roots__add input:focus-visible');
+    expect(css).not.toContain('.app-catalog-roots__add');
     expect(css).toMatch(/focus-within[^}]*outline:\s*2px solid/s);
-    expect(css).toMatch(/app-catalog-roots__add input:focus-visible[^}]*outline:\s*2px solid/s);
   });
 
   test("uses the shared compact menu treatment for Library sorting", async () => {
@@ -807,12 +814,11 @@ describe("library single-item companion", () => {
       </QueryClientProvider>,
     );
 
-    const statusFact = markup.indexOf("<dt>Status</dt>");
     const deleteAction = markup.indexOf("app-library-preview__delete-button");
     expect(markup).toContain('data-media-kind="image"');
     expect(markup).toContain("<dt>Category</dt>");
-    expect(statusFact).toBeGreaterThan(0);
-    expect(deleteAction).toBeGreaterThan(statusFact);
+    expect(markup).not.toContain("<dt>Status</dt>");
+    expect(deleteAction).toBeGreaterThan(markup.indexOf("<dt>Category</dt>"));
     expect(markup).not.toContain("<dt>Format</dt>");
     expect(markup).toContain("Delete</button>");
 
@@ -971,9 +977,11 @@ describe("library single-item companion", () => {
     ]);
 
     expect(markup).toContain('aria-label="More"');
-    expect(pageSource).toContain("{labels.health}");
-    expect(pageSource).toContain("{labels.manage}");
+    expect(pageSource).toContain("{labels.summary}");
+    expect(pageSource).toContain("{labels.storageRoots}");
+    expect(pageSource).toContain("{labels.dataManagement}");
     expect(pageSource).toContain('setManagementSection("summary")');
+    expect(pageSource).toContain('setManagementSection("storage")');
     expect(pageSource).toContain('setManagementSection("data")');
     expect(dialogSource).toContain('t("xiadown.libraryData.managementTab")');
     expect(dialogSource).toContain("label: dataSectionLabel");

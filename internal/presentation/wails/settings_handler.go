@@ -27,6 +27,7 @@ type SettingsHandler struct {
 	autostart           autoStartManager
 	players             []settingsOnlinePlayerResetter
 	downloadScheduler   settingsDownloadScheduler
+	downloadRootSyncer  settingsDownloadRootSyncer
 	sniffProfileEnsurer func(string) (sniffprofile.Manifest, string, error)
 	sniffProfileLister  func() ([]sniffprofile.Info, error)
 }
@@ -45,6 +46,10 @@ type settingsPlaybackAudioQualitySyncer interface {
 
 type settingsDownloadScheduler interface {
 	NotifyDownloadScheduler()
+}
+
+type settingsDownloadRootSyncer interface {
+	SyncDefaultDownloadStorageRoot(context.Context, string) error
 }
 
 type settingsSniffProfileActivity interface {
@@ -73,6 +78,14 @@ func NewSettingsHandler(
 
 func (handler *SettingsHandler) ServiceName() string {
 	return "SettingsHandler"
+}
+
+//wails:ignore
+func (handler *SettingsHandler) SetDownloadRootSyncer(syncer settingsDownloadRootSyncer) {
+	if handler == nil {
+		return
+	}
+	handler.downloadRootSyncer = syncer
 }
 
 func (handler *SettingsHandler) GetSettings(ctx context.Context) (dto.Settings, error) {
@@ -259,6 +272,14 @@ func (handler *SettingsHandler) UpdateSettings(ctx context.Context, request dto.
 	updated, err := handler.service.UpdateSettings(ctx, request)
 	if err != nil {
 		return dto.Settings{}, err
+	}
+	if request.DownloadDirectory != nil && handler.downloadRootSyncer != nil {
+		if err := handler.downloadRootSyncer.SyncDefaultDownloadStorageRoot(ctx, updated.DownloadDirectory); err != nil {
+			if hasPrevious {
+				handler.rollbackSettings(ctx, previousSettings)
+			}
+			return dto.Settings{}, err
+		}
 	}
 	proxyChanged := request.Proxy != nil
 	if proxyChanged && hasPrevious {
@@ -607,5 +628,11 @@ func (handler *SettingsHandler) rollbackSettings(ctx context.Context, previous d
 	})
 	if err != nil {
 		zap.L().Error("rollback settings failed", zap.Error(err))
+		return
+	}
+	if handler.downloadRootSyncer != nil {
+		if syncErr := handler.downloadRootSyncer.SyncDefaultDownloadStorageRoot(ctx, previous.DownloadDirectory); syncErr != nil {
+			zap.L().Error("rollback default Library storage root failed", zap.Error(syncErr))
+		}
 	}
 }

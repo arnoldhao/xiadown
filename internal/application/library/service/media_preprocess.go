@@ -14,6 +14,7 @@ import (
 
 	"xiadown/internal/domain/dependencies"
 	"xiadown/internal/domain/library"
+	domainsettings "xiadown/internal/domain/settings"
 )
 
 type mediaProbe struct {
@@ -138,19 +139,26 @@ func (probe mediaProbe) toMediaInfo() library.MediaInfo {
 }
 
 func libraryBaseDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	path := domainsettings.DefaultDownloadDirectory()
+	if path == "" {
+		return "", fmt.Errorf("default download directory is unavailable")
 	}
-	return filepath.Join(home, "Downloads", "xiadown"), nil
+	return domainsettings.ManagedDownloadDirectory(path), nil
 }
 
 func (service *LibraryService) resolveDownloadDirectory(ctx context.Context) (string, error) {
+	if service != nil && service.defaultDownloadRoot != nil {
+		if path, err := service.defaultDownloadRoot(ctx); err == nil {
+			if managed := domainsettings.ManagedDownloadDirectory(path); managed != "" {
+				return managed, nil
+			}
+		}
+	}
 	if service != nil && service.settings != nil {
 		settings, err := service.settings.GetSettings(ctx)
 		if err == nil {
-			if trimmed := strings.TrimSpace(settings.DownloadDirectory); trimmed != "" {
-				return trimmed, nil
+			if managed := domainsettings.ManagedDownloadDirectory(settings.DownloadDirectory); managed != "" {
+				return managed, nil
 			}
 		}
 	}

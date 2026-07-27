@@ -1,6 +1,7 @@
 package library
 
 import (
+	"path"
 	"strings"
 	"time"
 )
@@ -22,9 +23,11 @@ const (
 )
 
 type FileStorage struct {
-	Mode       string
-	LocalPath  string
-	DocumentID string
+	Mode         string
+	LocalPath    string
+	DocumentID   string
+	RootID       string
+	RelativePath string
 }
 
 type ImportOrigin struct {
@@ -125,6 +128,11 @@ func NewLibraryFile(params LibraryFileParams) (LibraryFile, error) {
 	storage.Mode = strings.TrimSpace(storage.Mode)
 	storage.LocalPath = strings.TrimSpace(storage.LocalPath)
 	storage.DocumentID = strings.TrimSpace(storage.DocumentID)
+	storage.RootID = strings.TrimSpace(storage.RootID)
+	storage.RelativePath = normalizeStorageRelativePath(storage.RelativePath)
+	if (storage.RootID == "") != (storage.RelativePath == "") {
+		return LibraryFile{}, ErrInvalidLibraryFile
+	}
 	switch kind {
 	case FileKindVideo,
 		FileKindAudio,
@@ -212,4 +220,16 @@ func NewLibraryFile(params LibraryFileParams) (LibraryFile, error) {
 		CreatedAt:         createdAt,
 		UpdatedAt:         updatedAt,
 	}, nil
+}
+
+func normalizeStorageRelativePath(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
+	if value == "" {
+		return ""
+	}
+	value = path.Clean(value)
+	if value == "." || value == ".." || path.IsAbs(value) || strings.HasPrefix(value, "../") {
+		return ""
+	}
+	return value
 }

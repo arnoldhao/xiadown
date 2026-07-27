@@ -4,7 +4,6 @@ import {
   FolderCog,
   FolderPlus,
   HeartPulse,
-  RefreshCw,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
@@ -22,16 +21,30 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/shared/i18n";
 import { Button } from "@/shared/ui/button";
 import { useRovingTabs } from "@/shared/ui/roving-tabs";
-import { StatusBadge } from "@/shared/ui/status-badge";
 import {
   catalogKeys,
+  openCatalogStorageRoot,
+  useCancelCatalogStorageRootScan,
   useCatalogOverview,
+  useCatalogStorageRootSyncStates,
   useCatalogStorageRoots,
+  useCatalogStorageVolumes,
   useCheckCatalogStorageRoot,
+  useRelocateCatalogStorageRoot,
+  useRemoveCatalogStorageRoot,
   useSelectCatalogStorageRoot,
+  useStartCatalogStorageRootScan,
+  useUpdateCatalogStorageRoot,
 } from "@/shared/query/catalog";
+import type { CatalogStorageRoot } from "@/shared/contracts/catalog";
+import { messageBus } from "@/shared/message";
 import { formatBytes } from "@/shared/utils/formatBytes";
 
+import {
+  CatalogStorageOverview,
+  CatalogStorageRootCard,
+  isCatalogStorageRootMounted,
+} from "./CatalogStorageSurfaces";
 import type { LibraryWorkspaceLabels } from "./types";
 import { LibraryDataManagement } from "./LibraryDataManagement";
 import { createLibraryDataManagementLabels } from "./library-data-labels";
@@ -43,13 +56,6 @@ export interface CatalogManagementDialogProps {
   initialSection: ManagementSection;
   labels: LibraryWorkspaceLabels;
   onOpenChange: (open: boolean) => void;
-}
-
-function formatDate(value: string, never: string) {
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp)
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp)
-    : never;
 }
 
 function QueryError(props: { label: string; onRetry: () => void; retry: string }) {
@@ -70,10 +76,20 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
   const panelId = React.useId();
   const overview = useCatalogOverview(props.open);
   const roots = useCatalogStorageRoots(props.open);
+  const volumes = useCatalogStorageVolumes(props.open);
+  const rootSyncStates = useCatalogStorageRootSyncStates(props.open);
   const checkRoot = useCheckCatalogStorageRoot();
+  const startRootScan = useStartCatalogStorageRootScan();
+  const cancelRootScan = useCancelCatalogStorageRootScan();
   const selectRoot = useSelectCatalogStorageRoot();
-  const [rootName, setRootName] = React.useState("");
-  const [rootMode, setRootMode] = React.useState<"referenced" | "managed">("referenced");
+  const removeRoot = useRemoveCatalogStorageRoot();
+  const relocateRoot = useRelocateCatalogStorageRoot();
+  const updateRoot = useUpdateCatalogStorageRoot();
+  const [rootActionError, setRootActionError] = React.useState("");
+  const [removeCandidate, setRemoveCandidate] =
+    React.useState<CatalogStorageRoot | null>(null);
+  const [emojiPickerRootID, setEmojiPickerRootID] = React.useState("");
+  const completedScansRef = React.useRef(new Set<string>());
   const refreshLibrarySurfaces = React.useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: catalogKeys.all }),
@@ -84,6 +100,21 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
   React.useEffect(() => {
     if (props.open) setSection(props.initialSection);
   }, [props.initialSection, props.open]);
+
+  React.useEffect(() => {
+    for (const state of rootSyncStates.data ?? []) {
+      if (state.status !== "watching" || !state.finishedAt) continue;
+      const key = `${state.rootId}:${state.generation}:${state.finishedAt}`;
+      if (completedScansRef.current.has(key)) continue;
+      completedScansRef.current.add(key);
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: catalogKeys.storageRoots }),
+        queryClient.invalidateQueries({ queryKey: catalogKeys.overview }),
+        queryClient.invalidateQueries({ queryKey: ["catalog", "items"] }),
+        queryClient.invalidateQueries({ queryKey: ["library"] }),
+      ]);
+    }
+  }, [queryClient, rootSyncStates.data]);
 
   const labels = props.labels;
   const dataSectionLabel = t("xiadown.libraryData.managementTab");
@@ -115,7 +146,7 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
     onValueChange: setSection,
   });
   const activeTabId = `${panelId}-${section}`;
-  const categoryCards: ReadonlyArray<readonly [string, React.ReactNode]> = overview.data ? [
+  const categoryCards: ReadonlyArray<readonly [string, number | string]> = overview.data ? [
     [
       labels.librarySize,
       overview.data.totalSizeBytes > 0
@@ -129,18 +160,6 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
     [labels.images, overview.data.categories.images],
     [labels.others, overview.data.categories.others],
   ] : [];
-  const statusCards: ReadonlyArray<readonly [string, number]> = overview.data ? [
-    [labels.activeItems, overview.data.statuses.active],
-    [labels.needsReviewItems, overview.data.statuses.needsReview],
-    [labels.missingItems, overview.data.statuses.missing],
-    [labels.trashedItems, overview.data.statuses.trashed],
-  ] : [];
-  const healthCards: ReadonlyArray<readonly [string, number]> = overview.data ? [
-    [labels.itemsWithoutAssets, overview.data.health.itemsWithoutAssets],
-    [labels.unavailableFiles, overview.data.health.unavailableAssetFiles],
-    [labels.offlineRoots, overview.data.health.offlineStorageRoots],
-    [labels.rootErrors, overview.data.health.storageRootsWithErrors],
-  ] : [];
   const catalogDisplayName = overview.data?.catalog.isDefault
     && overview.data.catalog.name.trim().toLocaleLowerCase() === "library"
     ? labels.library
@@ -149,8 +168,21 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
     ? labels.statusLabel(overview.data.catalog.status)
     : "";
 
+  const syncStatesByRoot = new Map(
+    (rootSyncStates.data ?? []).map((state) => [state.rootId, state]),
+  );
+  const publishRootScanError = React.useCallback((error: unknown) => {
+    messageBus.publishToast({
+      intent: "danger",
+      title: labels.rootScanFailed,
+      description: String(error).replace(/^RuntimeError:\s*/i, ""),
+      source: "library-storage-root",
+    });
+  }, [labels.rootScanFailed]);
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <>
+      <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent
         className={cn(
           "app-catalog-management",
@@ -158,6 +190,12 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
         )}
         aria-describedby="catalog-management-description"
         data-active-section={section}
+        onKeyDownCapture={(event) => {
+          if (event.key !== "Escape" || !emojiPickerRootID) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setEmojiPickerRootID("");
+        }}
       >
         <DialogHeader className="min-w-0 pr-8">
           <DialogTitle>{labels.managementTitle}</DialogTitle>
@@ -200,38 +238,31 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
           aria-labelledby={activeTabId}
         >
           {section === "summary" ? (
-            overview.isError ? (
-              <QueryError label={labels.loadFailed} retry={labels.retry} onRetry={() => void overview.refetch()} />
-            ) : overview.isLoading || !overview.data ? (
+            overview.isError || roots.isError || volumes.isError ? (
+              <QueryError
+                label={labels.loadFailed}
+                retry={labels.retry}
+                onRetry={() => {
+                  void overview.refetch();
+                  void roots.refetch();
+                  void volumes.refetch();
+                }}
+              />
+            ) : overview.isLoading || roots.isLoading || volumes.isLoading ||
+              !overview.data ? (
               <div className="app-catalog-management__loading">{labels.loading}</div>
             ) : (
-              <div className="app-catalog-management__sections">
-                <section>
-                  <div className="app-catalog-management__section-title">
-                    <div><strong>{catalogDisplayName}</strong><span>{overview.data.catalog.description}</span></div>
-                    <StatusBadge className="app-catalog-management__status" tone="neutral">
-                      {catalogStatusLabel}
-                    </StatusBadge>
-                  </div>
-                  <div className="app-catalog-management__metrics app-catalog-management__metrics--categories">
-                    {categoryCards.map(([label, count]) => <div key={label}><strong>{count}</strong><span>{label}</span></div>)}
-                  </div>
-                </section>
-                <section>
-                  <h3>{labels.itemStatuses}</h3>
-                  <div className="app-catalog-management__metrics">
-                    {statusCards.map(([label, count]) => <div key={label}><strong>{count}</strong><span>{label}</span></div>)}
-                  </div>
-                </section>
-                <section>
-                  <h3>{labels.catalogHealth}</h3>
-                  <div className="app-catalog-management__metrics">
-                    {healthCards.map(([label, count]) => (
-                      <div key={label} data-warning={count > 0}><strong>{count}</strong><span>{label}</span></div>
-                    ))}
-                  </div>
-                </section>
-              </div>
+              <CatalogStorageOverview
+                catalog={{
+                  description: overview.data.catalog.description ?? "",
+                  name: catalogDisplayName,
+                  statusLabel: catalogStatusLabel,
+                }}
+                labels={labels}
+                metrics={categoryCards}
+                roots={roots.data ?? []}
+                volumes={volumes.data ?? []}
+              />
             )
           ) : null}
 
@@ -242,58 +273,115 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
               <div className="app-catalog-management__loading">{labels.loading}</div>
             ) : (
               <div className="app-catalog-roots-layout">
-                <form
-                  className="app-catalog-roots__add"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!rootName.trim() || selectRoot.isPending) return;
-                    selectRoot.mutate(
-                      { name: rootName.trim(), mode: rootMode },
-                      { onSuccess: () => setRootName("") },
-                    );
-                  }}
-                >
-                  <input
-                    value={rootName}
-                    onChange={(event) => setRootName(event.currentTarget.value)}
-                    placeholder={labels.storageRootName}
-                    aria-label={labels.storageRootName}
-                  />
-                  <select
-                    value={rootMode}
-                    onChange={(event) => setRootMode(event.currentTarget.value as "referenced" | "managed")}
-                    aria-label={labels.rootMode}
+                <div className="app-dream-storage-root-heading">
+                  <div className="app-dream-storage-root-heading__copy">
+                    <h3>{labels.storageRoots}</h3>
+                    <p>
+                      {labels.storageRootsSummary(
+                        (roots.data ?? []).length,
+                        (roots.data ?? []).filter(
+                          (root) => !isCatalogStorageRootMounted(root),
+                        ).length,
+                      )}
+                    </p>
+                  </div>
+                  <Button
+                    disabled={selectRoot.isPending}
+                    onClick={() => selectRoot.mutate({})}
+                    size="compact"
+                    type="button"
                   >
-                    <option value="referenced">{labels.referencedMode}</option>
-                    <option value="managed">{labels.managedMode}</option>
-                  </select>
-                  <button type="submit" disabled={!rootName.trim() || selectRoot.isPending}>
-                    <FolderPlus size={14} />
-                    {selectRoot.isPending ? labels.selectingFolder : labels.addStorageRoot}
-                  </button>
-                </form>
-                {selectRoot.error ? <p className="app-catalog-roots__error" role="alert">{String(selectRoot.error)}</p> : null}
+                    <FolderPlus size={14} aria-hidden="true" />
+                    {selectRoot.isPending
+                      ? labels.selectingFolder
+                      : labels.addStorageRoot}
+                  </Button>
+                </div>
+                {selectRoot.error || removeRoot.error || relocateRoot.error ||
+                rootActionError ? (
+                  <p className="app-catalog-roots__error" role="alert">
+                    {String(selectRoot.error || removeRoot.error ||
+                      relocateRoot.error || rootActionError)}
+                  </p>
+                ) : null}
                 {(roots.data ?? []).length === 0 ? (
                   <div className="app-catalog-management__empty"><FolderCog size={20} /><span>{labels.noStorageRoots}</span></div>
                 ) : (
-                  <div className="app-catalog-roots">
+                  <div className="app-dream-storage-root-grid app-catalog-roots">
                     {(roots.data ?? []).map((root) => (
-                      <article key={root.id}>
-                        <div className="app-catalog-roots__head">
-                          <div><strong>{root.name}</strong><span>{root.status} · {labels.rootMode}: {root.mode}</span></div>
-                          <button
-                            type="button"
-                            disabled={checkRoot.isPending}
-                            onClick={() => checkRoot.mutate(root.id)}
-                          >
-                            <RefreshCw size={14} className={checkRoot.isPending ? "app-motion-spin" : undefined} />
-                            {checkRoot.isPending ? labels.checkingRoot : labels.checkRoot}
-                          </button>
-                        </div>
-                        <code title={root.path}>{root.path}</code>
-                        <p>{labels.lastChecked}: {formatDate(root.lastCheckedAt ?? "", labels.never)}</p>
-                        {root.lastError ? <p className="app-catalog-roots__error">{root.lastError}</p> : null}
-                      </article>
+                      <CatalogStorageRootCard
+                        busy={{
+                          check:
+                            checkRoot.isPending &&
+                            checkRoot.variables === root.id,
+                          relocate:
+                            relocateRoot.isPending &&
+                            relocateRoot.variables === root.id,
+                          remove:
+                            removeRoot.isPending &&
+                            removeRoot.variables === root.id,
+                          scan:
+                            (startRootScan.isPending &&
+                              startRootScan.variables === root.id) ||
+                            (cancelRootScan.isPending &&
+                              cancelRootScan.variables === root.id),
+                          emoji:
+                            updateRoot.isPending &&
+                            updateRoot.variables?.id === root.id,
+                        }}
+                        emojiPickerOpen={emojiPickerRootID === root.id}
+                        key={root.id}
+                        labels={labels}
+                        onCheck={() => checkRoot.mutate(root.id)}
+                        onCancelScan={() =>
+                          cancelRootScan.mutate(root.id, {
+                            onError: publishRootScanError,
+                          })}
+                        onEmojiChange={(emoji) =>
+                          updateRoot.mutate(
+                            {
+                              emoji,
+                              id: root.id,
+                              mode: root.mode,
+                              name: root.name,
+                            },
+                            {
+                              onError: (error) => {
+                                messageBus.publishToast({
+                                  intent: "danger",
+                                  title: labels.editRoot,
+                                  description: String(error).replace(
+                                    /^RuntimeError:\s*/i,
+                                    "",
+                                  ),
+                                  source: "library-storage-root",
+                                });
+                              },
+                            },
+                          )}
+                        onEmojiPickerOpenChange={(open) =>
+                          setEmojiPickerRootID((current) =>
+                            open
+                              ? root.id
+                              : current === root.id
+                                ? ""
+                                : current,
+                          )}
+                        onOpen={() => {
+                          setRootActionError("");
+                          void openCatalogStorageRoot(root.id).catch((error) =>
+                            setRootActionError(String(error)),
+                          );
+                        }}
+                        onRelocate={() => relocateRoot.mutate(root.id)}
+                        onRemove={() => setRemoveCandidate(root)}
+                        onScan={() =>
+                          startRootScan.mutate(root.id, {
+                            onError: publishRootScanError,
+                          })}
+                        root={root}
+                        syncState={syncStatesByRoot.get(root.id)}
+                      />
                     ))}
                   </div>
                 )}
@@ -321,6 +409,60 @@ export function CatalogManagementDialog(props: CatalogManagementDialogProps) {
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(removeCandidate)}
+        onOpenChange={(open) => {
+          if (!open && !removeRoot.isPending) setRemoveCandidate(null);
+        }}
+      >
+        <DialogContent
+          className="app-catalog-root-remove-dialog"
+          aria-describedby="catalog-root-remove-description"
+        >
+          <DialogHeader>
+            <DialogTitle>{labels.removeRoot}</DialogTitle>
+            <DialogDescription id="catalog-root-remove-description">
+              {labels.removeRootConfirm}
+            </DialogDescription>
+          </DialogHeader>
+          {removeCandidate ? (
+            <code className="app-catalog-root-remove-dialog__path">
+              {removeCandidate.locationPath || removeCandidate.path}
+            </code>
+          ) : null}
+          {removeRoot.error ? (
+            <p className="app-catalog-roots__error" role="alert">
+              <AlertTriangle aria-hidden="true" />
+              {String(removeRoot.error)}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              disabled={removeRoot.isPending}
+              onClick={() => setRemoveCandidate(null)}
+              type="button"
+              variant="outline"
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              disabled={removeRoot.isPending || !removeCandidate}
+              onClick={() => {
+                if (!removeCandidate) return;
+                removeRoot.mutate(removeCandidate.id, {
+                  onSuccess: () => setRemoveCandidate(null),
+                });
+              }}
+              type="button"
+              variant="destructive"
+            >
+              {labels.removeRoot}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

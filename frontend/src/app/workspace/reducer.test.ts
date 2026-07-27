@@ -217,7 +217,7 @@ describe("app workspace reducer", () => {
 
     expect(restored.activeWorkspaceId).toBe("music");
     expect(restored.locations).toEqual({
-      library: { routeId: "tasks", params: undefined },
+      library: { routeId: "ended", params: undefined },
     });
     expect(restored.stations).toEqual([
       { ...fallback.stations[0], order: 0 },
@@ -256,5 +256,16 @@ describe("app workspace reducer", () => {
       routeId: "pet-gallery",
     });
     expect(restored.companion.open).toBe(false);
+  });
+
+  test("migrates every legacy terminal-task route to Ended", () => {
+    for (const routeId of ["pending", "tasks", "completed"]) {
+      const restored = normalizeAppWorkspaceState({
+        locations: {
+          library: { routeId },
+        },
+      });
+      expect(restored.locations.library?.routeId).toBe("ended");
+    }
   });
 });

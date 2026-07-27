@@ -10,14 +10,15 @@ import {
   CircleSlash,
   CircleCheck,
   CircleDashed,
+  ChartPie,
+  DatabaseBackup,
   Ellipsis,
   Eye,
   Grid2X2,
-  HeartPulse,
+  FolderCog,
   List,
   LoaderCircle,
   Search,
-  Settings2,
   Trash2,
   X,
   type LucideIcon,
@@ -74,9 +75,9 @@ import { adaptLegacyLibraryWorkspace } from "./legacy-adapter";
 import { CatalogManagementDialog } from "./CatalogManagementDialog";
 import {
   isLibraryDefaultArtworkURL,
-  LibraryArtwork,
   LibraryOtherGroupIcon,
 } from "./LibraryArtwork";
+import { LibraryCardArtwork } from "./LibraryCardArtwork";
 import { LibraryPaginationFooter } from "./LibraryPaginationFooter";
 import { TaskFolderArtwork } from "./TaskFolderArtwork";
 import {
@@ -86,6 +87,8 @@ import {
 } from "./library-pagination";
 import {
   createLibraryWorkspaceLabels,
+  libraryItemDisplayStatus,
+  shouldShowLibraryStatusBadge,
   type LibraryOtherGroup,
   type LibraryWorkspaceItem,
   type LibraryWorkspaceLabels,
@@ -326,9 +329,21 @@ function mergedLabels(base: LibraryWorkspaceLabels, overrides?: Partial<LibraryW
 
 function routeTitle(route: LibraryWorkspaceRoute, labels: LibraryWorkspaceLabels) {
   if (route === "search") return labels.search;
+  if (route === "ended") return labels.ended;
   if (route === "all") return labels.all;
-  if (route === "tasks") return labels.tasks;
   return labels[route];
+}
+
+const ENDED_OPERATION_STATUSES = new Set([
+  "succeeded",
+  "failed",
+  "canceled",
+  "cancelled",
+]);
+
+function isEndedTask(item: LibraryWorkspaceItem) {
+  const status = (item.operation?.status || item.status).trim().toLowerCase();
+  return item.source === "task" && ENDED_OPERATION_STATUSES.has(status);
 }
 
 function routeItems(
@@ -337,8 +352,8 @@ function routeItems(
   tasks: readonly LibraryWorkspaceItem[],
 ) {
   switch (route) {
-    case "tasks":
-      return tasks;
+    case "ended":
+      return tasks.filter(isEndedTask);
     case "video":
       return files.filter((item) => item.category === "video");
     case "audio":
@@ -444,7 +459,8 @@ function LibraryItemCard(props: {
       ? { label: props.labels.resolution, value: `${imageWidth} × ${imageHeight}` }
       : null,
   ].filter((fact): fact is { label: string; value: string } => Boolean(fact));
-  const normalizedStatus = props.item.status.trim().toLocaleLowerCase();
+  const displayStatus = libraryItemDisplayStatus(props.item);
+  const normalizedStatus = displayStatus.trim().toLocaleLowerCase();
   const statusPresentation: {
     tone: DreamStatusTone;
     icon: LucideIcon;
@@ -460,7 +476,7 @@ function LibraryItemCard(props: {
             ? { tone: "success", icon: CircleCheck }
             : { tone: "neutral", icon: Circle };
   const StatusIcon = statusPresentation.icon;
-  const statusLabel = props.labels.statusLabel(props.item.status);
+  const statusLabel = props.labels.statusLabel(displayStatus);
   return (
     <button
       type="button"
@@ -513,13 +529,7 @@ function LibraryItemCard(props: {
         />
       ) : (
         <span className="app-library-item__artwork" aria-hidden="true">
-          <LibraryArtwork
-            src={props.item.coverURL}
-            fallbackSrc={props.item.fallbackCoverURL}
-            category={props.item.category}
-            otherGroup={props.item.otherGroup}
-            alt=""
-          />
+          <LibraryCardArtwork item={props.item} />
         </span>
       )}
       {props.selectionMode ? (
@@ -534,15 +544,17 @@ function LibraryItemCard(props: {
       <span className="app-library-item__copy">
         <span className="app-library-item__title">{props.item.title}</span>
         <span className="app-library-item__classification">
-          <StatusBadge
-            className="app-library-item__status"
-            icon={<StatusIcon />}
-            tone={statusPresentation.tone}
-            aria-label={`${props.labels.status}: ${statusLabel}`}
-            title={statusLabel}
-          >
-            {statusLabel}
-          </StatusBadge>
+          {shouldShowLibraryStatusBadge(displayStatus) ? (
+            <StatusBadge
+              className="app-library-item__status"
+              icon={<StatusIcon />}
+              tone={statusPresentation.tone}
+              aria-label={`${props.labels.status}: ${statusLabel}`}
+              title={statusLabel}
+            >
+              {statusLabel}
+            </StatusBadge>
+          ) : null}
           {type || relativeUpdatedAt ? (
             <span className="app-library-item__classification-detail">
               {type ? <span className="app-library-item__type">{type}</span> : null}
@@ -795,7 +807,9 @@ export function LibraryWorkspacePage(props: LibraryWorkspacePageProps) {
   const otherGroup = props.otherGroup ?? internalOtherGroup;
   const [internalPage, setInternalPage] = React.useState(1);
   const [internalPageSize, setInternalPageSize] = React.useState(DEFAULT_LIBRARY_PAGE_SIZE);
-  const [managementSection, setManagementSection] = React.useState<"summary" | "data" | null>(null);
+  const [managementSection, setManagementSection] = React.useState<
+    "summary" | "storage" | "data" | null
+  >(null);
   const [selectionMode, setSelectionMode] = React.useState(false);
   const [selectedItemIds, setSelectedItemIds] = React.useState<Set<string>>(
     () => new Set(),
@@ -1189,12 +1203,16 @@ export function LibraryWorkspacePage(props: LibraryWorkspacePageProps) {
           </DropdownMenuTrigger>
           <WorkspacePrimaryHeaderMenuContent className="app-menu-content-fit app-library-actions-menu">
             <DropdownMenuItem onSelect={() => setManagementSection("summary")}>
-              <HeartPulse aria-hidden="true" />
-              {labels.health}
+              <ChartPie aria-hidden="true" />
+              {labels.summary}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setManagementSection("storage")}>
+              <FolderCog aria-hidden="true" />
+              {labels.storageRoots}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setManagementSection("data")}>
-              <Settings2 aria-hidden="true" />
-              {labels.manage}
+              <DatabaseBackup aria-hidden="true" />
+              {labels.dataManagement}
             </DropdownMenuItem>
           </WorkspacePrimaryHeaderMenuContent>
         </DropdownMenu>

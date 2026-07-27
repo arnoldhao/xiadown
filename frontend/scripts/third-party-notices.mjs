@@ -98,6 +98,13 @@ export function normalizeLicense(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+export function requiredRuntimeDependencyNames(manifest) {
+  // Optional packages vary with the install host. Browser code that deliberately
+  // ships one must promote it to a required app dependency so the committed
+  // notices remain complete and identical on every release platform.
+  return Object.keys(manifest.dependencies ?? {}).sort();
+}
+
 function normalizeRepository(repository, fallback) {
   let value = typeof repository === "string" ? repository : repository?.url;
   if (!value) return fallback;
@@ -162,9 +169,8 @@ async function collectLicenseDocuments(directory) {
 
 export async function collectFrontendRuntimeComponents() {
   const rootManifest = await readJSON(path.join(frontendRoot, "package.json"));
-  const queue = Object.keys(rootManifest.dependencies ?? {})
-    .sort()
-    .map((name) => ({ name, fromDirectory: frontendRoot, optional: false }));
+  const queue = requiredRuntimeDependencyNames(rootManifest)
+    .map((name) => ({ name, fromDirectory: frontendRoot }));
   const components = new Map();
 
   while (queue.length > 0) {
@@ -175,7 +181,6 @@ export async function collectFrontendRuntimeComponents() {
     if (request.name.startsWith("@types/")) continue;
     const directory = await resolvePackageDirectory(request.name, request.fromDirectory);
     if (!directory) {
-      if (request.optional) continue;
       throw new Error(`cannot resolve runtime dependency ${request.name} from ${request.fromDirectory}`);
     }
 
@@ -199,13 +204,8 @@ export async function collectFrontendRuntimeComponents() {
       documents: await collectLicenseDocuments(directory),
     });
 
-    const requiredDependencies = Object.keys(manifest.dependencies ?? {}).sort();
-    const optionalDependencies = Object.keys(manifest.optionalDependencies ?? {}).sort();
-    for (const name of requiredDependencies) {
-      queue.push({ name, fromDirectory: directory, optional: false });
-    }
-    for (const name of optionalDependencies) {
-      queue.push({ name, fromDirectory: directory, optional: true });
+    for (const name of requiredRuntimeDependencyNames(manifest)) {
+      queue.push({ name, fromDirectory: directory });
     }
   }
 
@@ -456,7 +456,7 @@ export function renderThirdPartyNotices(inventory) {
     "",
     "Scope and method",
     "----------------",
-    "Frontend entries are the transitive closure of package.json dependencies. devDependencies and type-only @types packages are excluded because they are not shipped as browser JavaScript. Go entries are the union of modules linked by production-tag builds for macOS (amd64/arm64), Windows (amd64), and Linux (amd64). License, NOTICE, COPYING, and AUTHORS files below preserve their text except for newline and trailing-whitespace normalization.",
+    "Frontend entries are the transitive closure of required package.json dependencies. devDependencies, host-dependent optional dependencies, and type-only @types packages are excluded from this browser inventory. Any optional package deliberately shipped by browser code must be promoted to a required app dependency. Go entries are the union of modules linked by production-tag builds for macOS (amd64/arm64), Windows (amd64), and Linux (amd64). License, NOTICE, COPYING, and AUTHORS files below preserve their text except for newline and trailing-whitespace normalization.",
     "",
     "Simple Icons brand-mark attribution",
     "-----------------------------------",

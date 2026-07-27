@@ -24,6 +24,8 @@ export interface LibraryFileStorageDTO {
   mode: "local_path" | "db_document" | "hybrid" | string
   localPath?: string
   documentId?: string
+  rootId?: string
+  relativePath?: string
 }
 
 export interface MissingLibraryFileDTO {

@@ -103,6 +103,7 @@ SettingsCompactListCard,
 SettingsCompactRow,
 SettingsCompactSeparator,
 } from "@/shared/ui/settings-layout";
+import { SiteBrandIcon } from "@/shared/ui/site-brand-icon";
 import {
   defineWorkspacePageContract,
   WorkspacePage,
@@ -118,6 +119,8 @@ type XiaSettingsTabId
 
 const ABOUT_AUTHOR_NAME = "Arnold HAO";
 const ABOUT_CONTACT_EMAIL_URL = "mailto:xunruhao@gmail.com";
+const ABOUT_XIAOHONGSHU_URL =
+  "https://www.xiaohongshu.com/user/profile/64dccf7d000000000100577e";
 const DREAM_CREATOR_ICON_SRC = "/dreamcreator.png";
 const HUSH_ICON_SRC = "/hush.png";
 const DREAM_APP_ICON_FALLBACK_SRC = "/appicon.png";
@@ -1798,6 +1801,44 @@ export function SettingsApp() {
 
                 <SettingsCompactSeparator />
 
+                <SettingsCompactRow label={text.about.web}>
+                  <TooltipProvider delayDuration={0}>
+                    <div className="flex items-center gap-2">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            onClick={() => void openExternalURL("https://xiadown.app/")}
+                            aria-label={text.about.website}
+                          >
+                            <Globe className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">{text.about.website}</TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="compactIcon"
+                            onClick={() => void openExternalURL("https://github.com/arnoldhao/xiadown")}
+                            aria-label={text.about.github}
+                          >
+                            <Github className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">{text.about.github}</TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </TooltipProvider>
+                </SettingsCompactRow>
+
+                <SettingsCompactSeparator />
+
                 <SettingsCompactRow label={text.about.contact}>
                   <TooltipProvider delayDuration={0}>
                     <div className="flex items-center gap-2">
@@ -1837,28 +1878,13 @@ export function SettingsApp() {
                             type="button"
                             variant="outline"
                             size="compactIcon"
-                            onClick={() => void openExternalURL("https://xiadown.app/")}
-                            aria-label={text.about.website}
+                            onClick={() => void openExternalURL(ABOUT_XIAOHONGSHU_URL)}
+                            aria-label={text.about.xiaohongshu}
                           >
-                            <Globe className="h-4 w-4" />
+                            <SiteBrandIcon siteKey="xiaohongshu" className="h-4 w-4" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="top">{text.about.website}</TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="compactIcon"
-                            onClick={() => void openExternalURL("https://github.com/arnoldhao/xiadown")}
-                            aria-label={text.about.github}
-                          >
-                            <Github className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">{text.about.github}</TooltipContent>
+                        <TooltipContent side="top">{text.about.xiaohongshu}</TooltipContent>
                       </Tooltip>
                     </div>
                   </TooltipProvider>

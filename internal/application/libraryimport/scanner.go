@@ -17,6 +17,7 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/uuid"
 
+	"xiadown/internal/application/fileclassification"
 	importdomain "xiadown/internal/domain/libraryimport"
 )
 
@@ -247,6 +248,11 @@ func (scanner *Scanner) inspectPath(ctx context.Context, batchID string, item sc
 			}
 		}
 	}
+	if base.Category == importdomain.CategoryOther &&
+		fileclassification.IsAmbiguousMPEGTransportPath(item.sourcePath) &&
+		fileclassification.LooksLikeMPEGTransportStream(item.sourcePath) {
+		base.Category = importdomain.CategoryVideo
+	}
 	return base, nil
 }
 
@@ -281,7 +287,7 @@ func hashFileSHA256(ctx context.Context, path string) (string, error) {
 func categoryFromExtension(extension string) importdomain.Category {
 	extension = strings.ToLower(strings.TrimSpace(extension))
 	switch extension {
-	case ".avi", ".flv", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".mts", ".ogv", ".ts", ".webm", ".wmv":
+	case ".avi", ".flv", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4", ".mpeg", ".mpg", ".ogv", ".webm", ".wmv":
 		return importdomain.CategoryVideo
 	case ".aac", ".aif", ".aiff", ".alac", ".ape", ".caf", ".flac", ".m4a", ".m4b", ".mp3", ".mpga", ".oga", ".ogg", ".opus", ".wav", ".wave", ".weba", ".wma":
 		return importdomain.CategoryAudio

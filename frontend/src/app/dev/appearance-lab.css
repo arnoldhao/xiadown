@@ -3,8 +3,13 @@
  * specimens but must never repaint a production selector. */
 .appearance-lab {
   --app-glass-artwork-tint: var(--app-theme-preview-accent-hsl);
-  min-height: 100vh;
-  overflow: auto;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: hsl(var(--background));
   color: var(--app-text-primary);
 }
